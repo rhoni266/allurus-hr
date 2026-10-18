@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Allurus Brand Kit</title>
+<link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg">
+<style>
+/* Brand kit: one long, quiet page. Generous whitespace, big swatches, the mark does the talking. */
+:root {
+  --bg: #FFFFFF; --soft: #F5F5F7; --fg: #16181D; --fg-2: #5F636B; --line: rgba(22,24,29,.1);
+  --teal: #0F766E; --gold: #D9B66F;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0B0B0D; --soft: #18181B; --fg: #F5F5F7; --fg-2: #A3A6AD; --line: rgba(255,255,255,.1); color-scheme: dark; } }
+:root[data-theme="dark"] { --bg: #0B0B0D; --soft: #18181B; --fg: #F5F5F7; --fg-2: #A3A6AD; --line: rgba(255,255,255,.1); color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-left: max(20px, env(safe-area-inset-left, 0px)); padding-right: max(20px, env(safe-area-inset-right, 0px)); }
+header.top { display: flex; justify-content: space-between; align-items: center; padding-block: 18px; border-bottom: 1px solid var(--line); }
+header.top a { color: var(--teal); text-decoration: none; font-weight: 500; font-size: 14px; }
+.hero { padding-block: 88px 64px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 22px; }
+.hero h1 { font-size: clamp(40px, 7vw, 72px); letter-spacing: -0.035em; line-height: 1; margin: 0; font-weight: 600; text-wrap: balance; }
+.hero p { color: var(--fg-2); font-size: 19px; max-width: 54ch; margin: 0; }
+section { padding-block: 56px; border-top: 1px solid var(--line); }
+.eyebrow { font-size: 13px; text-transform: uppercase; letter-spacing: .12em; color: var(--fg-2); font-weight: 600; margin-bottom: 8px; }
+h2 { font-size: 32px; letter-spacing: -0.025em; margin: 0 0 12px; font-weight: 600; }
+.lead { color: var(--fg-2); max-width: 64ch; margin: 0 0 28px; font-size: 16px; }
+.logos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.logo-tile { border-radius: 24px; min-height: 220px; display: grid; place-items: center; padding: 28px; position: relative; }
+.logo-tile span { position: absolute; left: 18px; bottom: 14px; font-size: 12px; opacity: .65; }
+.t-light { background: #F5F5F7; color: #16181D; }
+.t-dark { background: #16181D; color: #F5F5F7; }
+.t-teal { background: #0F766E; color: #fff; }
+.wordmark { display: inline-flex; align-items: center; gap: 14px; font-weight: 600; font-size: 26px; letter-spacing: .32em; }
+.palette { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.swatch { border-radius: 22px; overflow: hidden; background: var(--soft); display: flex; flex-direction: column; }
+.chip { height: 150px; display: flex; align-items: flex-end; padding: 16px; font-weight: 600; font-size: 13px; }
+.meta { padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 4px; }
+.meta strong { font-size: 17px; }
+.meta .codes { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; color: var(--fg-2); }
+.meta .use { font-size: 13.5px; color: var(--fg-2); }
+.copy { align-self: flex-start; margin-top: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 999px; padding: 5px 12px; font: 500 12.5px var(--font); cursor: pointer; }
+.copy:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.bar { display: flex; height: 64px; border-radius: 16px; overflow: hidden; margin-top: 20px; }
+.type { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.type-card { background: var(--soft); border-radius: 22px; padding: 28px; display: flex; flex-direction: column; gap: 8px; }
+.type-sample { font-size: 64px; font-weight: 600; letter-spacing: -0.03em; line-height: 1; }
+.scale { display: flex; flex-direction: column; gap: 14px; }
+.scale div { display: flex; align-items: baseline; gap: 18px; border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+.scale small { width: 110px; flex: none; color: var(--fg-2); font-size: 12.5px; }
+.rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.rule { border-radius: 22px; padding: 24px; background: var(--soft); }
+.rule h3 { margin: 0 0 10px; font-size: 17px; }
+.rule ul { margin: 0; padding-left: 18px; color: var(--fg-2); display: flex; flex-direction: column; gap: 6px; }
+footer { padding-block: 40px 64px; color: var(--fg-2); font-size: 13px; border-top: 1px solid var(--line); }
+@media (max-width: 760px) { .logos, .palette, .type, .rules { grid-template-columns: minmax(0, 1fr); } .type-sample { font-size: 48px; } .hero { padding-block: 56px 40px; } }
+</style>
+</head>
+<body>
+<header class="wrap top"><strong style="letter-spacing:.3em">ALLURUS</strong><a href="./">Open the app →</a></header>
+
+<main>
+  <div class="wrap hero">
+    <svg viewBox="0 0 64 64" width="96" height="96" aria-label="Allurus mark"><rect width="64" height="64" rx="16" fill="#0F766E"/><path d="M19 47 L32 17 L45 47" fill="none" stroke="#fff" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M23.5 37.5 Q32 32 40.5 37.5" fill="none" stroke="#D9B66F" stroke-width="4.5" stroke-linecap="round"/></svg>
+    <h1>Allurus brand kit</h1>
+    <p>Allurus is people operations software for growing companies. The identity is calm, precise and warm: deep teal for trust, a champagne line for the human touch.</p>
+  </div>
+
+  <section class="wrap">
+    <div class="eyebrow">Logo</div>
+    <h2>The mark</h2>
+    <p class="lead">A rounded tile holds a single-stroke “A”. The champagne crossbar curves upward like a smile and connects the two sides, which stand for the company and its people. Keep clear space around the mark equal to the height of the crossbar. The smallest size is 20 px for the mark and 96 px wide for the full logo.</p>
+    <div class="logos">
+      <div class="logo-tile t-light"><div class="wordmark"><svg viewBox="0 0 64 64" width="48" height="48" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0F766E"/><path d="M19 47 L32 17 L45 47" fill="none" stroke="#fff" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M23.5 37.5 Q32 32 40.5 37.5" fill="none" stroke="#D9B66F" stroke-width="4.5" stroke-linecap="round"/></svg>ALLURUS</div><span>Primary · on light</span></div>
+      <div class="logo-tile t-dark"><div class="wordmark"><svg viewBox="0 0 64 64" width="48" height="48" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#2FB4A4"/><path d="M19 47 L32 17 L45 47" fill="none" stroke="#04201D" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M23.5 37.5 Q32 32 40.5 37.5" fill="none" stroke="#F5F5F7" stroke-width="4.5" stroke-linecap="round"/></svg>ALLURUS</div><span>Reversed · on dark</span></div>
+      <div class="logo-tile t-teal"><svg viewBox="0 0 64 64" width="96" height="96" aria-hidden="true"><path d="M19 47 L32 17 L45 47" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M23.5 37.5 Q32 32 40.5 37.5" fill="none" stroke="#D9B66F" stroke-width="4" stroke-linecap="round"/></svg><span>Mark only · app icon, favicon</span></div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <div class="eyebrow">Color</div>
+    <h2>Palette</h2>
+    <p class="lead">Teal leads and champagne accents. Most screens are white and Mist, with Obsidian text. Use about 70% neutrals, 20% teal and 10% champagne.</p>
+    <div class="palette" id="palette"></div>
+    <div class="bar" aria-hidden="true"><i style="flex:5;background:#F5F5F7"></i><i style="flex:2;background:#16181D"></i><i style="flex:2;background:#0F766E"></i><i style="flex:1;background:#D9B66F"></i></div>
+  </section>
+
+  <section class="wrap">
+    <div class="eyebrow">Typography</div>
+    <h2>Type</h2>
+    <p class="lead">Allurus uses the system's own typeface: SF Pro on Apple devices, Segoe UI on Windows and Roboto on Android. It loads instantly and feels native everywhere. For print and slides, use Inter as the licensed fallback.</p>
+    <div class="type">
+      <div class="type-card"><div class="type-sample">Aa</div><strong>Display · Semibold 600</strong><span style="color:var(--fg-2)">Headlines, tight tracking (−2% to −3.5%)</span></div>
+      <div class="type-card scale">
+        <div><small>Title 34 / 600</small><span style="font-size:34px;font-weight:600;letter-spacing:-.022em">Good morning</span></div>
+        <div><small>Heading 17 / 600</small><span style="font-size:17px;font-weight:600">Waiting for approval</span></div>
+        <div><small>Body 14 / 400</small><span style="font-size:14px">18 people across 6 departments</span></div>
+        <div><small>Label 12 / 600 caps</small><span style="font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-2)">Workforce</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <div class="eyebrow">Usage</div>
+    <h2>Do and don't</h2>
+    <div class="rules">
+      <div class="rule"><h3>Do</h3><ul><li>Place the logo on white, Mist, Obsidian or Allurus Teal.</li><li>Use teal for primary buttons and one key number per screen.</li><li>Keep champagne for highlights such as badges, birthdays and the crossbar.</li><li>Write plainly: “Approve”, “Request time off”, “Run payroll”.</li></ul></div>
+      <div class="rule"><h3>Don't</h3><ul><li>Stretch, rotate or outline the mark.</li><li>Put champagne text on white. Its contrast is too low.</li><li>Add gradients or drop shadows to the logo.</li><li>Use more than one accent color on the same screen.</li></ul></div>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap">ALLURUS · Brand kit v1.0 · Logo files: assets/logo.svg and assets/logo-mark.svg</footer>
+
+<script>
+const colors = [
+  ['Allurus Teal', '#0F766E', 'Primary. Buttons, links, active states, the logo tile.', '#fff'],
+  ['Deep Teal', '#0B5F59', 'Hover and pressed states for teal.', '#fff'],
+  ['Champagne', '#D9B66F', 'Accent. Crossbar, highlights, celebrations.', '#16181D'],
+  ['Obsidian', '#16181D', 'Text, dark surfaces, the wordmark.', '#fff'],
+  ['Slate', '#5F636B', 'Secondary text and icons.', '#fff'],
+  ['Mist', '#F5F5F7', 'App background and soft panels.', '#16181D'],
+];
+const rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(', ');
+document.getElementById('palette').innerHTML = colors.map(([n, h, use, ink]) => `
+  <div class="swatch"><div class="chip" style="background:${h};color:${ink}">${h}</div>
+  <div class="meta"><strong>${n}</strong><span class="codes">HEX ${h} · RGB ${rgb(h)}</span><span class="use">${use}</span>
+  <button class="copy" data-hex="${h}">Copy hex</button></div></div>`).join('');
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('.copy'); if (!b) return;
+  const done = () => { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy hex'; }, 1400); };
+  navigator.clipboard?.writeText(b.dataset.hex).then(done, () => { b.textContent = b.dataset.hex; });
+});
+</script>
+</body>
+</html>
