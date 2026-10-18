@@ -494,7 +494,7 @@
           <thead><tr><th>Employee</th><th class="hide-sm">Department</th><th>Check-in</th><th class="hide-sm">Location</th><th>Status</th></tr></thead>
           <tbody>${people.map((e) => { const r = rec[e.id]; return `<tr>
             <td>${person(e)}</td><td class="hide-sm">${deptTag(e.dept)}</td>
-            <td class="num muted">${r?.in || '—'}${r?.out ? '–' + r.out : ''}</td>
+            <td class="num muted">${r?.in || '—'}${r?.out ? '–' + r.out : ''}${r?.history?.length ? `<div class="faint" style="font-size:12px">${r.history.length + 1} check-ins</div>` : ''}</td>
             <td class="hide-sm muted" style="font-size:12.5px;max-width:300px"><div class="loc-cell">${selfieThumb(e.id, day, r)}<span>${r?.loc ? esc(locText(r.loc)) : '—'}</span></div></td>
             <td><div class="seg status" role="group" aria-label="Status for ${esc(fullName(e))}">${opts.map(([v, l]) => `<button data-act="att-set" data-id="${e.id}" data-v="${v}" class="${r?.s === v ? 'on' : ''}">${l}</button>`).join('')}</div></td></tr>`; }).join('')}</tbody>
         </table></div>
@@ -1048,8 +1048,8 @@
     let clock;
     if (rec?.s === 'leave') clock = `<span class="pill gold">On leave today</span>`;
     else if (!rec || !rec.in) clock = `<div class="actions"><button class="btn btn-primary" data-act="check-in" data-v="present">${icon('camera')}Check in with selfie</button>${zone().remote ? '<button class="btn" data-act="check-in" data-v="remote">Work remotely</button>' : ''}</div>`;
-    else if (!rec.out) clock = `<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end"><div class="actions">${selfieThumb(me().id, T, rec)}<span class="pill ok">${rec.s === 'remote' ? 'Remote' : 'In office'} since ${rec.in}</span><button class="btn btn-primary" data-act="check-out">Check out</button></div>${rec.loc ? `<span class="faint" style="font-size:12.5px;text-align:right">${esc(locText(rec.loc))}</span>` : ''}</div>`;
-    else clock = `<span class="pill brand">Done for today · ${rec.in}–${rec.out} · ${hoursBetween(rec.in, rec.out).toFixed(1)} h</span>`;
+    else if (!rec.out) clock = `<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end"><div class="actions">${selfieThumb(me().id, T, rec)}<span class="pill ok">${rec.s === 'remote' ? 'Remote' : 'In office'} since ${rec.lastIn || rec.in}</span><button class="btn btn-primary" data-act="check-out">Check out</button></div>${rec.loc ? `<span class="faint" style="font-size:12.5px;text-align:right">${esc(locText(rec.loc))}</span>` : ''}</div>`;
+    else clock = `<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end"><div class="actions">${selfieThumb(me().id, T, rec)}<span class="pill brand">Checked out at ${rec.out} · ${hoursBetween(rec.in, rec.out).toFixed(1)} h today</span><button class="btn btn-primary" data-act="check-in" data-v="present">${icon('camera')}Check in again</button>${zone().remote ? '<button class="btn" data-act="check-in" data-v="remote">Work remotely</button>' : ''}</div><span class="faint" style="font-size:12.5px;text-align:right">Checked out by mistake? Check in again. Your hours still count from ${rec.in}.</span></div>`;
     return `
       <div class="page-head"><div><div class="eyebrow">${U.fmtDate(T, { weekday: 'long', month: 'long', day: 'numeric' })}</div><h1>${greet}, ${esc(e.first)}.</h1><p class="sub">${esc(e.role)} · ${esc(dept(e.dept)?.name || '')} · ${esc(state.settings.company)}</p></div>
         <div class="actions"><button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button></div></div>
@@ -1379,10 +1379,16 @@
     const L = ci.loc, T = U.today(), t = nowHM(), z = zone();
     if (!L || !ci.photo) return;
     state.attendance[T] = state.attendance[T] || {};
-    state.attendance[T][me().id] = {
-      s: ci.mode, in: t, out: '', photo: ci.photo,
-      loc: { lat: L.lat, lng: L.lng, accuracy: L.accuracy, label: L.label, source: 'gps', m: L.m, inside: L.inside, zone: z.label, radius: z.radius },
-    };
+    const loc = { lat: L.lat, lng: L.lng, accuracy: L.accuracy, label: L.label, source: 'gps', m: L.m, inside: L.inside, zone: z.label, radius: z.radius };
+    const prev = state.attendance[T][me().id];
+    if (prev?.in && prev.out) {
+      // Checking in again after a check-out: keep the first check-in time so hours still count from it,
+      // and keep the earlier session (with its selfie) in the day's history.
+      prev.history = [...(prev.history || []), { in: prev.lastIn || prev.in, out: prev.out, photo: prev.photo, loc: prev.loc }];
+      Object.assign(prev, { s: ci.mode, out: '', lastIn: t, photo: ci.photo, loc });
+    } else {
+      state.attendance[T][me().id] = { s: ci.mode, in: t, out: '', photo: ci.photo, loc };
+    }
     pruneSelfies();
     cloudWrite('checkins', { company: state.settings.company, employee: fullName(me()), mode: ci.mode, time: new Date().toISOString(), label: `${U.fmtDist(L.m)} from ${z.label}`, source: 'gps', lat: L.lat, lng: L.lng, accuracy: L.accuracy });
     const tn = currentTenant(); if (tn) tn.lastActive = T;
@@ -1392,7 +1398,7 @@
   // Selfies are kept for 30 days so browser storage does not fill up.
   function pruneSelfies() {
     const cutoff = U.addDays(U.today(), -30);
-    Object.keys(state.attendance).forEach((d) => { if (d < cutoff) Object.values(state.attendance[d]).forEach((r) => { delete r.photo; }); });
+    Object.keys(state.attendance).forEach((d) => { if (d < cutoff) Object.values(state.attendance[d]).forEach((r) => { delete r.photo; (r.history || []).forEach((h) => { delete h.photo; }); }); });
   }
   function openSelfie(empId, day) {
     const r = state.attendance[day]?.[empId], e = emp(empId);
@@ -1402,7 +1408,8 @@
       body: `<div style="display:flex;flex-direction:column;gap:14px;align-items:center">
         <img class="ci-photo" src="${r.photo}" alt="Check-in selfie of ${esc(fullName(e))}" style="max-width:320px;width:100%;border-radius:20px">
         <dl class="kv" style="width:100%"><dt>Checked in</dt><dd>${r.in}${r.out ? ` · out ${r.out}` : ''}</dd><dt>Location</dt><dd>${r.loc ? esc(locText(r.loc)) : '—'}</dd>
-        ${r.loc?.lat != null ? `<dt>Coordinates</dt><dd><a href="${mapsLink(r.loc)}" target="_blank" rel="noopener">${U.fmtCoords(r.loc)}</a></dd>` : ''}</dl></div>`,
+        ${r.loc?.lat != null ? `<dt>Coordinates</dt><dd><a href="${mapsLink(r.loc)}" target="_blank" rel="noopener">${U.fmtCoords(r.loc)}</a></dd>` : ''}
+        ${r.history?.length ? `<dt>Earlier today</dt><dd>${r.history.map((h) => `${h.in}–${h.out}`).join(', ')} · latest check-in ${r.lastIn}</dd>` : ''}</dl></div>`,
     });
   }
   const locText = (loc) => {
