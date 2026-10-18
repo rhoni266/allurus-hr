@@ -423,6 +423,40 @@ details.rules[open] summary { margin-bottom: 14px; }
 details.rules summary h3 { font-size: 17px; }
 @media (max-width: 900px) { .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } .report-grid { grid-template-columns: minmax(0, 1fr); } }
 
+/* ---------- Receipt scanner ---------- */
+.link-btn { border: 0; background: none; padding: 0; color: var(--brand); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.link-btn:hover { text-decoration: underline; }
+.rc-start { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.rc-cam { position: relative; width: 100%; max-width: 420px; aspect-ratio: 3 / 4; border-radius: 22px; overflow: hidden; background: var(--line); display: grid; place-items: center; }
+.rc-cam video { width: 100%; height: 100%; object-fit: cover; }
+.rc-frame { position: absolute; inset: 7% 10%; border: 2px dashed rgba(255, 255, 255, .8); border-radius: 14px; box-shadow: 0 0 0 999px rgba(0, 0, 0, .18); pointer-events: none; }
+.rc-reading { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 18px; align-items: center; }
+.rc-reading img { width: 100%; border-radius: 14px; box-shadow: var(--shadow); }
+.rc-review { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.rc-side { display: flex; flex-direction: column; gap: 10px; position: sticky; top: 0; }
+.rc-photo { width: 100%; max-height: 520px; object-fit: contain; border-radius: 14px; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); }
+.rc-side summary { cursor: pointer; font-size: 12.5px; color: var(--fg-2); }
+.rc-side pre { margin: 6px 0 0; max-height: 220px; overflow: auto; font-size: 11px; line-height: 1.4; background: var(--surface-2); padding: 10px; border-radius: 10px; white-space: pre-wrap; }
+.rc-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.rc-items { display: flex; flex-direction: column; gap: 8px; }
+.rc-item { display: grid; grid-template-columns: 20px minmax(0, 1fr) 104px minmax(0, 190px); gap: 8px; align-items: center; padding: 10px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); }
+.rc-item input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--brand); }
+.rc-item .input, .rc-item .select { height: 34px; width: 100%; }
+.rc-item.off { opacity: .55; }
+.rc-why { grid-column: 2 / -1; margin: 0; font-size: 12px; color: var(--fg-3); }
+.rc-totals { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 14px; background: var(--brand-soft); font-size: 13.5px; }
+.rc-totals > div { display: flex; justify-content: space-between; gap: 12px; }
+.rc-warn { margin: 4px 0 0; color: var(--warn); font-weight: 600; font-size: 13px; }
+.rc-h { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--fg-3); margin: 16px 0 6px; }
+@media (max-width: 760px) {
+  .rc-review { grid-template-columns: minmax(0, 1fr); }
+  .rc-side { position: static; }
+  .rc-photo { max-height: 260px; }
+  .rc-item { grid-template-columns: 20px minmax(0, 1fr) 90px; }
+  .rc-item .select { grid-column: 2 / -1; }
+  .rc-reading { grid-template-columns: 90px minmax(0, 1fr); }
+}
+
 /* ---------- Sign-in ---------- */
 .login { min-height: 100%; display: grid; place-items: center; padding: 48px max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); }
 .login-inner { width: 100%; max-width: 1040px; display: flex; flex-direction: column; align-items: center; gap: 18px; text-align: center; }

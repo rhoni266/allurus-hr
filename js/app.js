@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.7';
+  const APP_VERSION = '1.8';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   const STORE_KEY = 'allurus-hr-v6';
   const esc = U.esc;
@@ -25,7 +25,13 @@
     const c = U.city(office) || U.CITIES[0];
     return { label: `${company} office`, lat: c.lat, lng: c.lng, radius: 50, remote: false };
   }
-  function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* storage unavailable */ } }
+  let warnedFull = false;
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {
+      // Receipt photos and selfies can fill the browser's storage; say so rather than lose changes silently.
+      if (e && /quota/i.test(e.name + e.message) && !warnedFull) { warnedFull = true; setTimeout(() => toast('This browser’s storage is full, so your latest change wasn’t saved. Delete old receipts or selfies, or move to the server version.', 'error'), 0); }
+    }
+  }
   function log(text) { state.activity.unshift({ t: Date.now(), text }); state.activity = state.activity.slice(0, 40); }
   function commit(msg, activity) { if (activity) log(activity); save(); render(); if (msg) toast(msg); }
 

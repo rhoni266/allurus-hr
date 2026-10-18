@@ -244,7 +244,7 @@ window.AllurusTax = (function () {
       return `
         <div class="page-head"><div><div class="eyebrow">Personal income tax · LHDN</div><h1>Tax reliefs</h1>
           <p class="sub">Keep your personal receipts here through the year. Each one is matched to a relief and counted against its yearly cap. These are your own reliefs, separate from the company’s books.</p></div>
-          <div class="actions"><select class="select" id="rel-year" aria-label="Year of assessment">${years().map((y) => `<option value="${y}" ${tui.ryear === y ? 'selected' : ''}>Year of assessment ${y}</option>`).join('')}</select><button class="btn btn-primary" data-act="rel-add">${icon('plus')}Add receipt</button></div></div>
+          <div class="actions"><select class="select" id="rel-year" aria-label="Year of assessment">${years().map((y) => `<option value="${y}" ${tui.ryear === y ? 'selected' : ''}>Year of assessment ${y}</option>`).join('')}</select><button class="btn" data-act="rel-add">${icon('plus')}Add by hand</button><button class="btn btn-primary" data-act="rel-scan">${icon('camera')}Scan receipt</button></div></div>
         <div class="grid g-3">${RELIEFS.map((r) => { const u = usedBy(r.id), pct = (u / r.cap) * 100; return `<div class="card relief">
           <div class="kpi-label">${esc(r.name)}</div><div class="kpi-value" style="font-size:24px">${rm(u)}<span class="faint" style="font-size:14px"> of ${rm(r.cap)}</span></div>
           <div class="progress"><i style="width:${Math.min(100, pct)}%;background:${pct >= 100 ? 'var(--gold)' : 'var(--brand)'}"></i></div>
@@ -256,7 +256,7 @@ window.AllurusTax = (function () {
         <div class="card card-flush"><div class="card-head" style="padding-bottom:14px"><h3>Receipts</h3><span class="hint">${list.length} for ${tui.ryear}</span></div>
           <div class="table-wrap"><table>
             <thead><tr><th>Date</th><th>Receipt</th><th class="hide-sm">Relief</th><th class="r">Amount</th><th class="r">Counted</th><th>Status</th><th></th></tr></thead>
-            <tbody>${list.slice().reverse().map((x) => `<tr><td class="num muted">${U.fmtDate(x.date, { month: 'short', day: 'numeric' })}</td><td>${esc(x.desc)}</td>
+            <tbody>${list.slice().reverse().map((x) => `<tr><td class="num muted">${U.fmtDate(x.date, { month: 'short', day: 'numeric' })}</td><td>${esc(x.desc)}${x.receipt ? ` <button class="link-btn" data-act="rel-receipt" data-id="${x.receipt}">View receipt</button>` : ''}</td>
               <td class="hide-sm">${esc(RELIEFS.find((r) => r.id === x.cat)?.name || '—')}</td><td class="r num">${rm(x.amount)}</td><td class="r num" style="font-weight:600">${rm(x.claim)}</td><td>${pill(x.status)}</td>
               <td><div class="row-actions">${x.status === 'Needs confirmation' ? `<button class="btn btn-sm" data-act="rel-confirm" data-id="${x.id}">Confirm</button>` : ''}<button class="btn btn-sm btn-icon btn-ghost" data-act="rel-del" data-id="${x.id}" aria-label="Delete receipt">${icon('trash')}</button></div></td></tr>`).join('')}</tbody>
           </table>${list.length ? '' : '<div class="empty"><strong>No receipts yet</strong>Add receipts as you get them so nothing is missed at tax time.</div>'}</div></div>
@@ -360,6 +360,29 @@ window.AllurusTax = (function () {
         ...F.allTxns(fin(), ctx.state.payroll).filter((t) => t.type === 'out' && t.date.startsWith(tui.year)).map((t) => { const a = assess(t); return [t.date, t.desc, t.ref, t.category, a.rule?.name || '', a.rule?.deductibility || '', r2(t.amount + t.tax), a.ded, STATUS[a.status], a.note, t.purpose || '', t.bizPct ?? 100]; }),
         [], ['Disclaimer', DISCLAIMER]]),
       'rel-add': () => reliefModal(),
+      'rel-scan': () => AllurusReceipt.open(ctx, {
+        mode: 'relief', title: 'Scan a receipt for tax relief', money: rm,
+        categories: [['', 'Not a tax relief'], ...RELIEFS.map((r) => [r.id, r.name])],
+        onSave({ merchant, date, rows, img }) {
+          ctx.state.receiptImgs = ctx.state.receiptImgs || {};
+          const id = U.uid('ri');
+          ctx.state.receiptImgs[id] = img;
+          const groups = {};
+          rows.forEach((r) => { (groups[r.cat] = groups[r.cat] || []).push(r); });
+          Object.entries(groups).forEach(([cat, items]) => myList().push({
+            id: U.uid('rl'), date, cat, confirmed: false, receipt: id,
+            desc: `${merchant}: ${items.map((r) => r.desc).join(', ')}`.slice(0, 140),
+            amount: r2(items.reduce((s, r) => s + r.amount, 0)),
+          }));
+          tui.ryear = date.slice(0, 4);
+          const n = Object.keys(groups).length;
+          commit(`${n} relief ${n === 1 ? 'receipt' : 'receipts'} saved from ${merchant}`);
+        },
+      }),
+      'rel-receipt': (id) => {
+        const img = ctx.state.receiptImgs?.[id]; if (!img) return;
+        openModal({ title: 'Receipt', size: 'sm', submit: null, body: `<img class="rc-photo" src="${img}" alt="Receipt photo" style="width:100%">` });
+      },
       'be-copy': () => {
         const text = beText();
         navigator.clipboard?.writeText(text).then(() => toast('Summary copied. Paste it into your notes or e-Filing.'), () => {

@@ -164,7 +164,7 @@ window.AllurusFinance = (function () {
     const fui = { month: cur(), type: 'all', cat: 'all', q: '', inv: 'all', bill: 'all', budgetMonth: cur() };
     const m2 = (n) => money(n, 2);
     const signed = (t) => `<span class="num ${t.type === 'in' ? 'amt-in' : 'amt-out'}">${t.type === 'in' ? '+' : '−'}${m2(t.amount + t.tax)}</span>`;
-    const SOURCE = { invoice: 'Invoice', bill: 'Bill', payroll: 'Payroll', manual: 'Manual' };
+    const SOURCE = { invoice: 'Invoice', bill: 'Bill', payroll: 'Payroll', manual: 'Manual', receipt: 'Receipt' };
     const invPill = (s) => `<span class="pill ${({ Draft: '', Sent: 'info', Overdue: 'bad', Paid: 'ok' })[s]}">${s}</span>`;
     const billPill = (s) => `<span class="pill ${({ Unpaid: 'warn', Overdue: 'bad', Paid: 'ok' })[s]}">${s}</span>`;
     const repStatus = (mk) => {
@@ -236,7 +236,7 @@ window.AllurusFinance = (function () {
       return `
         <div class="page-head"><div><div class="eyebrow">Finance & Accounting</div><h1>Finance overview</h1>
           <p class="sub">Invoices, bills and payroll post to the books automatically. Each month's report goes to ${esc(f.settings.auditorFirm || 'your auditor')} to verify, so there is no ledger to keep by hand.</p></div>
-          <div class="actions"><button class="btn" data-act="fin-new-txn" data-v="out">${icon('minus')}Record expense</button><button class="btn btn-primary" data-act="fin-new-inv">${icon('plus')}New invoice</button></div></div>
+          <div class="actions"><button class="btn" data-act="fin-scan">${icon('camera')}Scan receipt</button><button class="btn" data-act="fin-new-txn" data-v="out">${icon('minus')}Record expense</button><button class="btn btn-primary" data-act="fin-new-inv">${icon('plus')}New invoice</button></div></div>
         <div class="grid g-4 keep-2">
           <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Cash in bank</div><div class="kpi-value">${compactMoney(c.cash.closing)}</div><div class="kpi-foot num">${money(c.cash.closing)} today</div></div>
           <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:${c.net >= 0 ? 'var(--ok)' : 'var(--bad)'}"></span>Profit this month</div><div class="kpi-value">${compactMoney(c.net)}</div><div class="kpi-foot">${money(c.totalIn)} in · ${money(c.totalOut)} out so far</div></div>
@@ -265,7 +265,7 @@ window.AllurusFinance = (function () {
       const rep = f.reports[fui.month];
       return `
         <div class="page-head"><div><div class="eyebrow">Finance & Accounting</div><h1>Bookkeeping</h1><p class="sub">Every ringgit and dollar in and out. Paid invoices, paid bills and payroll are added for you. Record anything else here.</p></div>
-          <div class="actions">${isAuditor() ? '' : `<button class="btn" data-act="fin-new-txn" data-v="in">${icon('plus')}Record income</button><button class="btn" data-act="fin-new-txn" data-v="out">${icon('minus')}Record expense</button>`}<button class="btn" data-act="fin-export-books">${icon('download')}Export CSV</button></div></div>
+          <div class="actions">${isAuditor() ? '' : `<button class="btn btn-primary" data-act="fin-scan">${icon('camera')}Scan receipt</button><button class="btn" data-act="fin-new-txn" data-v="in">${icon('plus')}Record income</button><button class="btn" data-act="fin-new-txn" data-v="out">${icon('minus')}Record expense</button>`}<button class="btn" data-act="fin-export-books">${icon('download')}Export CSV</button></div></div>
         ${lockedMonth ? `<div class="lock-banner">${icon('lock')}<span>${U.fmtMonth(fui.month)} was verified by ${esc(rep.trail[rep.trail.length - 1].who)} on ${U.fmtDate(rep.trail[rep.trail.length - 1].t)}. This month is locked.</span></div>` : ''}
         <div class="card card-flush">
           <div class="toolbar">
@@ -278,12 +278,12 @@ window.AllurusFinance = (function () {
             <thead><tr><th>Date</th><th>Description</th><th class="hide-sm">Category</th><th class="r hide-sm">Tax</th><th class="r">Amount</th><th class="hide-sm">Reconciled</th><th></th></tr></thead>
             <tbody>${rows.map((t) => `<tr>
               <td class="num muted" style="white-space:nowrap">${U.fmtDate(t.date, { month: 'short', day: 'numeric' })}</td>
-              <td><div class="person-name" style="white-space:normal">${esc(t.desc)}</div><div class="person-sub"><span class="tag">${SOURCE[t.source]}</span> ${esc(t.ref || '')}</div></td>
+              <td><div class="person-name" style="white-space:normal">${esc(t.desc)}</div><div class="person-sub"><span class="tag">${SOURCE[t.source]}</span> ${esc(t.ref || '')}${t.receipt ? ` <button class="link-btn" data-act="fin-receipt" data-id="${t.receipt}">View receipt</button>` : ''}</div></td>
               <td class="hide-sm">${esc(t.category)}${t.type === 'out' && window.AllurusTax ? `<div style="margin-top:3px">${AllurusTax.tag(t)}</div>` : ''}</td>
               <td class="r num muted hide-sm">${t.tax ? m2(t.tax) : '—'}</td>
               <td class="r">${signed(t)}</td>
               <td class="hide-sm">${t.source === 'payroll' || isAuditor() ? (t.reconciled ? `<span class="pill ok">Matched</span>` : '<span class="pill">Not yet</span>') : `<button class="btn btn-sm ${t.reconciled ? 'btn-ok' : ''}" data-act="fin-reconcile" data-id="${t.id}">${t.reconciled ? `${icon('check')}Matched` : 'Match to bank'}</button>`}</td>
-              <td><div class="row-actions">${t.source === 'manual' && !isAuditor() && !locked(t.date) ? `<button class="btn btn-sm btn-icon btn-ghost" data-act="fin-del-txn" data-id="${t.id}" aria-label="Delete ${esc(t.desc)}">${icon('trash')}</button>` : locked(t.date) ? `<span class="faint" title="Locked by auditor">${icon('lock')}</span>` : ''}</div></td></tr>`).join('')}</tbody>
+              <td><div class="row-actions">${['manual', 'receipt'].includes(t.source) && !isAuditor() && !locked(t.date) ? `<button class="btn btn-sm btn-icon btn-ghost" data-act="fin-del-txn" data-id="${t.id}" aria-label="Delete ${esc(t.desc)}">${icon('trash')}</button>` : locked(t.date) ? `<span class="faint" title="Locked by auditor">${icon('lock')}</span>` : ''}</div></td></tr>`).join('')}</tbody>
             ${rows.length ? `<tfoot><tr><td colspan="2"><strong>${rows.length} entries</strong></td><td class="hide-sm"></td><td class="hide-sm"></td><td class="r num"><div class="amt-in">+${m2(inSum)}</div><div class="amt-out">−${m2(outSum)}</div><strong>${m2(inSum - outSum)}</strong></td><td class="hide-sm"></td><td></td></tr></tfoot>` : ''}
           </table>${rows.length ? '' : '<div class="empty"><strong>No entries match</strong>Try another month or category.</div>'}</div>
         </div>`;
@@ -572,10 +572,52 @@ window.AllurusFinance = (function () {
       });
     }
 
+    // ----- Receipts -----
+    function scanReceipt() {
+      AllurusReceipt.open(ctx, {
+        mode: 'business', title: 'Scan a receipt', money: m2,
+        categories: EXPENSE_CATS.map((c) => [c, c]),
+        onSave({ merchant, date, ref, rows, img, text, tax, total, allItems }) {
+          if (locked(date)) { toast(lockedMsg(date), 'error'); return false; }
+          const id = U.uid('rc');
+          fin().receipts = fin().receipts || {};
+          fin().receipts[id] = { img, merchant, date, ref, total, text: String(text).slice(0, 4000), added: T() };
+          const groups = {};
+          rows.forEach((r) => { (groups[r.cat] = groups[r.cat] || []).push(r); });
+          Object.entries(groups).forEach(([cat, items]) => {
+            const amount = r2(items.reduce((s, r) => s + r.amount, 0));
+            fin().txns.push({
+              id: U.uid('x'), date, type: 'out', category: cat, amount,
+              tax: tax && allItems ? r2((tax * amount) / allItems) : 0,
+              desc: `${merchant}: ${items.map((r) => r.desc).join(', ')}`.slice(0, 140), ref, source: 'receipt', reconciled: false, receipt: id,
+              items: items.map((r) => ({ desc: r.desc, amount: r.amount })),
+              // Personal-looking items the user ticked anyway stay flagged until a business purpose is given.
+              personal: items.every((r) => r.personal),
+            });
+          });
+          fui.month = U.monthKey(date);
+          const n = Object.keys(groups).length;
+          commit(`${n} ${n === 1 ? 'entry' : 'entries'} added from ${merchant}`, `Receipt from ${merchant} scanned into ${n} book ${n === 1 ? 'entry' : 'entries'}`);
+        },
+      });
+    }
+    function viewReceipt(id) {
+      const rc = fin().receipts?.[id]; if (!rc) return;
+      const linked = fin().txns.filter((t) => t.receipt === id);
+      openModal({
+        title: rc.merchant || 'Receipt', size: 'lg', submit: null,
+        body: `<div class="rc-review"><div class="rc-side"><img class="rc-photo" src="${rc.img}" alt="Receipt from ${esc(rc.merchant)}"></div>
+          <div class="rc-main"><dl class="kv"><dt>Date</dt><dd>${U.fmtDate(rc.date)}</dd><dt>Receipt number</dt><dd>${esc(rc.ref || '—')}</dd><dt>Total on receipt</dt><dd class="num">${rc.total != null ? m2(rc.total) : '—'}</dd><dt>Scanned</dt><dd>${U.fmtDate(rc.added)}</dd></dl>
+          <h4 class="rc-h">In the books</h4><div class="list">${linked.map((t) => `<div class="list-item"><div class="grow"><div class="person-name">${esc(t.category)}</div><div class="person-sub" style="white-space:normal">${esc((t.items || []).map((x) => `${x.desc} ${m2(x.amount)}`).join(' · '))}</div></div><span class="num">${m2(t.amount + t.tax)}</span>${window.AllurusTax ? AllurusTax.tag(t) : ''}</div>`).join('') || '<p class="faint">No entries left from this receipt.</p>'}</div></div></div>`,
+      });
+    }
+
     const csv = (name, rows) => downloadCSV(name, rows);
     Object.assign(ACTIONS, {
       'fin-go': (_, v) => { location.hash = v; },
       'fin-new-txn': (_, v) => txnModal(v),
+      'fin-scan': () => scanReceipt(),
+      'fin-receipt': (id) => viewReceipt(id),
       'fin-del-txn': (id) => {
         const t = fin().txns.find((x) => x.id === id); if (!t) return;
         if (locked(t.date)) { toast(lockedMsg(t.date), 'error'); return; }
