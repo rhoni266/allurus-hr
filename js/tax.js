@@ -108,17 +108,8 @@ window.AllurusTax = (function () {
 
   // ---------- Personal income tax estimate (resident individual) ----------
   // Resident rates used for YA2023 to YA2025. Check LHDN for the year you file.
-  const BANDS = [[5000, 0], [20000, 1], [35000, 3], [50000, 6], [70000, 11], [100000, 19], [400000, 25], [600000, 26], [2000000, 28], [Infinity, 30]];
   const SELF_RELIEF = 9000, EPF_CAP = 4000, REBATE_LIMIT = 35000, REBATE = 400;
-  function residentTax(chargeable) {
-    let tax = 0, lower = 0;
-    for (const [upper, rate] of BANDS) {
-      if (chargeable > lower) tax += ((Math.min(chargeable, upper) - lower) * rate) / 100;
-      lower = upper;
-    }
-    if (chargeable <= REBATE_LIMIT) tax -= REBATE;
-    return r2(Math.max(0, tax));
-  }
+  const residentTax = U.residentTax;
 
   // ---------- Personal relief claims ----------
   function claims(list, year) {
@@ -278,7 +269,7 @@ window.AllurusTax = (function () {
       const slips = Object.entries(ctx.state.payroll || {}).filter(([mk, run]) => mk.startsWith(year) && run.status === 'Paid').map(([mk, run]) => ({ mk, it: run.items.find((i) => i.empId === e?.id) })).filter((x) => x.it);
       const income = r2(slips.reduce((s, x) => s + x.it.gross, 0));
       const pcb = r2(slips.reduce((s, x) => s + x.it.tax, 0));
-      const fromPay = r2(slips.reduce((s, x) => s + x.it.benefits, 0));
+      const fromPay = r2(slips.reduce((s, x) => s + (x.it.epf ?? x.it.benefits), 0));
       const epfIn = profile(year).epf != null ? profile(year).epf : fromPay;
       const epf = Math.min(epfIn, EPF_CAP);
       const lines = [
@@ -301,7 +292,7 @@ window.AllurusTax = (function () {
             <div><span>Tax deducted through payroll (PCB)</span><span class="num">${rm(b.pcb)}</span></div></div>
             <h4>Reliefs</h4><div class="rep-lines">${b.lines.map((l) => `<div><span>${esc(l.label)}</span><span class="num">${rm(l.amt)}</span></div>`).join('')}
             <div class="tot"><span>Total reliefs</span><span class="num">${rm(b.reliefs)}</span></div></div>
-            <div class="field" style="margin-top:12px"><label for="be-epf">EPF contributions this year</label><input class="input num" id="be-epf" type="number" min="0" step="0.01" value="${profile(b.year).epf ?? b.fromPay}" style="max-width:200px"><span class="field-hint">${profile(b.year).epf == null ? `Taken from your payslips (EPF, SOCSO and EIS deducted: ${rm(b.fromPay)}). Change it to the EPF figure on your EA form.` : 'Entered by you. Clear the box to use your payslips again.'}</span></div></section>
+            <div class="field" style="margin-top:12px"><label for="be-epf">EPF contributions this year</label><input class="input num" id="be-epf" type="number" min="0" step="0.01" value="${profile(b.year).epf ?? b.fromPay}" style="max-width:200px"><span class="field-hint">${profile(b.year).epf == null ? `Taken from your payslips (EPF deducted: ${rm(b.fromPay)}). Change it to the EPF figure on your EA form.` : 'Entered by you. Clear the box to use your payslips again.'}</span></div></section>
           <section><h4>Estimate</h4><div class="rep-lines">
             <div><span>Chargeable income</span><span class="num">${rm(b.chargeable)}</span></div>
             <div><span>Estimated income tax${b.chargeable <= REBATE_LIMIT ? `, after ${rm(REBATE)} rebate` : ''}</span><span class="num">${rm(b.tax)}</span></div>

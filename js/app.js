@@ -2,9 +2,9 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.8';
+  const APP_VERSION = '1.9';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
-  const STORE_KEY = 'allurus-hr-v6';
+  const STORE_KEY = 'allurus-hr-v7';
   const esc = U.esc;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
@@ -19,6 +19,7 @@
     if (!s.finance) s.finance = AllurusFinance.blank();
     Object.values(s.workspaces || {}).forEach((w) => { if (!w.finance) w.finance = AllurusFinance.blank(); });
     s.reliefs = s.reliefs || {}; s.taxProfiles = s.taxProfiles || {};
+    [s, ...Object.values(s.workspaces || {})].forEach((w) => { w.claims = w.claims || []; w.plans = w.plans || {}; });
     return s;
   }
   function defaultZone(company, office) {
@@ -75,6 +76,7 @@
     target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
     shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',
     camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+    heart: '<path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.3a4.3 4.3 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20z"/>',
     pin: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     userplus: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M19 8v6M16 11h6"/>',
   };
@@ -130,7 +132,8 @@
     c.total = c.present + c.remote + c.absent + c.leave + c.none;
     return c;
   }
-  const payTotal = (run) => run.items.reduce((a, i) => ({ gross: a.gross + i.gross, tax: a.tax + i.tax, benefits: a.benefits + i.benefits, net: a.net + i.net }), { gross: 0, tax: 0, benefits: 0, net: 0 });
+  const PAY_KEYS = ['gross', 'tax', 'benefits', 'net', 'epf', 'socso', 'eis', 'zakat', 'erEpf', 'erSocso', 'erEis', 'hrdf', 'erCost', 'claims'];
+  const payTotal = (run) => run.items.reduce((a, i) => { PAY_KEYS.forEach((k) => { a[k] = U.round2(a[k] + (i[k] || 0)); }); return a; }, Object.fromEntries(PAY_KEYS.map((k) => [k, 0])));
 
   // ---------- Routing ----------
   const ROLES = {
@@ -150,9 +153,11 @@
       { id: 'home', label: 'Home', icon: 'dashboard', group: 'Me' },
       { id: 'my-time', label: 'My attendance', icon: 'clock', group: 'Me' },
       { id: 'my-leave', label: 'My time off', icon: 'calendar', group: 'Me' },
-      { id: 'my-pay', label: 'Payslips', icon: 'wallet', group: 'Me' },
       { id: 'my-profile', label: 'Profile & goals', icon: 'trend', group: 'Me' },
-      { id: 'my-tax', label: 'Tax reliefs', icon: 'percent', group: 'Me' },
+      { id: 'my-pay', label: 'Payslips', icon: 'wallet', group: 'Finance' },
+      { id: 'my-claims', label: 'Medical claims', icon: 'heart', group: 'Finance' },
+      { id: 'my-tax', label: 'Tax reliefs', icon: 'percent', group: 'Finance' },
+      { id: 'my-plan', label: 'Financial planner', icon: 'target', group: 'Finance' },
       { id: 'directory', label: 'Directory', icon: 'people', group: 'Company' },
       { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Account' },
     ],
@@ -179,6 +184,7 @@
     { id: 'invoices', label: 'Invoices', icon: 'doc', group: 'Finance & Accounting' },
     { id: 'bills', label: 'Bills', icon: 'receipt', group: 'Finance & Accounting' },
     { id: 'payroll', label: 'Payroll', icon: 'wallet', group: 'Finance & Accounting' },
+    { id: 'claims', label: 'Medical claims', icon: 'heart', group: 'Finance & Accounting' },
     { id: 'budget', label: 'Budget', icon: 'target', group: 'Finance & Accounting' },
     { id: 'tax', label: 'Tax (LHDN)', icon: 'percent', group: 'Finance & Accounting' },
     { id: 'reports', label: 'Reports & audit', icon: 'shield', group: 'Finance & Accounting' },
@@ -186,14 +192,14 @@
     { id: 'performance', label: 'Performance', icon: 'trend', group: 'Talent' },
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
   ];
-  const routes = () => ROLE_ROUTES[role()] || [];
+  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => r.id !== 'my-claims' || claimsApi?.enabled());
   const route = () => { const h = location.hash.replace('#', ''); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
   function renderNav() {
     let html = '', group = '';
     routes().forEach((r) => {
       if (r.group !== group) { group = r.group; html += `<div class="nav-label">${group}</div>`; }
-      const count = r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
+      const count = r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
       html += `<a href="#${r.id}" class="${route() === r.id ? 'active' : ''}">${icon(r.icon)}<span>${r.label}</span>${count ? `<span class="count">${count}</span>` : ''}</a>`;
     });
     $('#nav').innerHTML = html;
@@ -229,7 +235,7 @@
   const VIEWS = {};
   const AFTER = {};
   const ACTIONS_EXTRA = {};
-  let finApi = null;
+  let finApi = null, claimsApi = null;
   let clockTimer = null;
 
   VIEWS.dashboard = () => {
@@ -420,7 +426,8 @@
       <div class="field"><label for="f-location">Location</label><input class="input" id="f-location" name="location" value="${esc(e.location)}"></div>
       <div class="field"><label for="f-salary">Annual salary (${esc(state.settings.currency)})</label><input class="input" id="f-salary" name="salary" type="number" min="0" step="500" required value="${esc(e.salary)}"></div>
       <div class="field"><label for="f-start">Start date</label><input class="input" id="f-start" name="start" type="date" required value="${esc(e.start || U.today())}"></div>
-      <div class="field"><label for="f-birthday">Date of birth</label><input class="input" id="f-birthday" name="birthday" type="date" value="${esc(e.birthday)}"></div>
+      <div class="field"><label for="f-birthday">Date of birth</label><input class="input" id="f-birthday" name="birthday" type="date" value="${esc(e.birthday)}"><span class="field-hint">Sets EPF, SOCSO and EIS rules from age 60.</span></div>
+      ${state.settings.currency === 'MYR' ? `<div class="field"><label for="f-zakat">Zakat through payroll (RM a month)</label><input class="input num" id="f-zakat" name="zakat" type="number" min="0" step="1" value="${esc(e.zakat || 0)}"><span class="field-hint">Deducted from pay and offsets the PCB.</span></div>` : ''}
       <div class="field"><label for="f-status">Status</label><select class="select" id="f-status" name="status">${opt(['Active', 'Inactive'], e.status || 'Active')}</select></div>
     </div>`;
   }
@@ -430,6 +437,7 @@
       title: id ? 'Edit employee' : 'Add employee', body: employeeForm(e), submit: id ? 'Save changes' : 'Add employee',
       onSubmit(d) {
         d.salary = Number(d.salary) || 0;
+        if ('zakat' in d) d.zakat = Math.max(0, Number(d.zakat) || 0);
         if (id) { Object.assign(emp(id), d); commit('Changes saved', `${d.first} ${d.last}'s profile was updated`); }
         else {
           const ne = { id: U.uid('e'), ...d };
@@ -633,16 +641,34 @@
   }
 
   // ----- Payroll -----
+  const isMY = () => state.settings.currency === 'MYR' && U.statutory(state.settings).on;
+  // One employee's line in a pay run: salary, statutory deductions and approved medical claims.
+  function payItem(e, bonus, mk) {
+    const it = { empId: e.id, ...U.payCalc(e.salary, bonus, state.settings, e, U.monthEnd(mk)) };
+    const cl = claimsApi?.enabled() ? claimsApi.forPayroll(e.id, mk) : [];
+    it.claimIds = cl.map((c) => c.id);
+    it.claims = U.round2(cl.reduce((s, c) => s + c.approved, 0));
+    it.net = U.round2(it.net + it.claims);
+    return it;
+  }
   VIEWS.payroll = () => {
     const mk = ui.payMonth;
     const run = state.payroll[mk];
     const t = run ? payTotal(run) : null;
     const cur = U.monthKey(U.today());
     const eligible = activeEmployees().filter((e) => e.start <= U.monthEnd(mk));
-    const projected = eligible.reduce((s, e) => s + U.payCalc(e.salary, 0, state.settings).net, 0);
+    const projected = eligible.reduce((s, e) => s + U.payCalc(e.salary, 0, state.settings, e).net, 0);
     const pill = run ? (run.status === 'Paid' ? '<span class="pill ok">Paid</span>' : '<span class="pill warn">Draft</span>') : '<span class="pill">Not run</span>';
+    const my = isMY(), due = U.fmtDate(U.addMonths(mk, 1) + '-15', { month: 'short', day: 'numeric', year: 'numeric' });
+    const remit = t && my ? [
+      ['KWSP (EPF)', 'Employee and employer EPF', t.epf + t.erEpf, 'i-Akaun (Majikan)'],
+      ['PERKESO (SOCSO and EIS)', 'Employee and employer SOCSO and EIS', t.socso + t.erSocso + t.eis + t.erEis, 'PERKESO ASSIST'],
+      ['LHDN (PCB)', 'Monthly tax deductions', t.tax, 'e-PCB Plus'],
+      ...(t.zakat ? [['Zakat', 'Zakat deducted for your state zakat body', t.zakat, 'State zakat portal']] : []),
+      ...(t.hrdf ? [['HRD Corp levy', 'Employer levy for training', t.hrdf, 'eTRiS']] : []),
+    ] : [];
     return `
-      <div class="page-head"><div><div class="eyebrow">Payroll</div><h1>${U.fmtMonth(mk)}</h1><p class="sub">${run?.status === 'Paid' ? `Paid on ${U.fmtDate(run.paidOn)} to ${run.items.length} people.` : run ? 'Review bonuses, then approve to mark this run as paid.' : `${eligible.length} people are eligible. Estimated net pay is ${money(projected)}.`}</p></div>
+      <div class="page-head"><div><div class="eyebrow">Payroll</div><h1>${U.fmtMonth(mk)}</h1><p class="sub">${run?.status === 'Paid' ? `Paid on ${U.fmtDate(run.paidOn)} to ${run.items.length} people.` : run ? 'Review bonuses, then approve to mark this run as paid. Click a name to see the payslip.' : `${eligible.length} people are eligible. Estimated net pay is ${money(projected)}.`}</p></div>
         <div class="actions">
           <button class="btn btn-icon" data-act="pay-shift" data-v="-1" aria-label="Previous month">${icon('left')}</button>
           ${pill}
@@ -654,38 +680,54 @@
       ${run ? `
       <div class="grid g-4 keep-2">
         <div class="card kpi"><div class="kpi-label">Gross pay</div><div class="kpi-value">${compactMoney(t.gross)}</div><div class="kpi-foot num">${money(t.gross)}</div></div>
-        <div class="card kpi"><div class="kpi-label">Income tax</div><div class="kpi-value">${compactMoney(t.tax)}</div><div class="kpi-foot">${state.settings.taxRate}% withheld</div></div>
-        <div class="card kpi"><div class="kpi-label">EPF, SOCSO & EIS</div><div class="kpi-value">${compactMoney(t.benefits)}</div><div class="kpi-foot">${state.settings.benefitsRate}% of gross</div></div>
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Net pay</div><div class="kpi-value">${compactMoney(t.net)}</div><div class="kpi-foot num">${money(t.net)}</div></div>
+        <div class="card kpi"><div class="kpi-label">Deducted from staff</div><div class="kpi-value">${compactMoney(t.tax + t.benefits + t.zakat)}</div><div class="kpi-foot">${my ? `EPF ${money(t.epf)} · PCB ${money(t.tax)}` : `Tax ${money(t.tax)} · benefits ${money(t.benefits)}`}</div></div>
+        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Net pay to staff</div><div class="kpi-value">${compactMoney(t.net)}</div><div class="kpi-foot">${t.claims ? `Includes ${money(t.claims)} medical claims` : money(t.net)}</div></div>
+        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>Total cost to company</div><div class="kpi-value">${compactMoney(t.gross + t.erCost + t.claims)}</div><div class="kpi-foot">${my ? `Employer contributions ${money(t.erCost)}` : 'Gross pay'}</div></div>
       </div>
+      ${my ? `<div class="card"><div class="card-head"><h3>Statutory payments</h3><span class="hint">Due by ${due}</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Pay to</th><th class="hide-sm">What it covers</th><th class="hide-sm">Where</th><th class="r">Amount</th></tr></thead>
+        <tbody>${remit.map(([to, what, amt, where]) => `<tr><td><strong>${to}</strong></td><td class="hide-sm muted">${what}</td><td class="hide-sm muted">${where}</td><td class="r num" style="font-weight:600">${money(amt, 2)}</td></tr>`).join('')}
+        <tr><td><strong>Total</strong></td><td class="hide-sm"></td><td class="hide-sm"></td><td class="r num" style="font-weight:600">${money(remit.reduce((s, x) => s + x[2], 0), 2)}</td></tr></tbody></table></div>
+        <p class="disclaimer">${icon('pin')}<span>EPF ${U.statutory(state.settings).epfEe}% employee, ${U.statutory(state.settings).epfEr}% employer (${U.statutory(state.settings).epfErHigh}% above RM5,000). SOCSO and EIS by PERKESO wage bands up to RM6,000. PCB is estimated from LHDN tax bands with the individual relief only; staff can update their TP1 reliefs with you. Check against the official calculators before paying.</span></p></div>` : ''}
       <div class="card card-flush"><div class="table-wrap"><table>
-        <thead><tr><th>Employee</th><th class="r hide-sm">Base</th><th class="r">Bonus</th><th class="r">Gross</th><th class="r hide-sm">PCB tax</th><th class="r hide-sm">EPF, SOCSO, EIS</th><th class="r">Net</th><th></th></tr></thead>
+        <thead><tr><th>Employee</th><th class="r">Bonus</th><th class="r">Gross</th>${my ? '<th class="r hide-sm">EPF</th><th class="r hide-sm">SOCSO + EIS</th><th class="r hide-sm">PCB</th>' : '<th class="r hide-sm">Tax</th><th class="r hide-sm">Benefits</th>'}${t.claims ? '<th class="r hide-sm">Claims</th>' : ''}<th class="r">Net</th></tr></thead>
         <tbody>${run.items.map((it) => { const e = emp(it.empId); if (!e) return ''; return `<tr>
-          <td>${person(e)}</td><td class="r num hide-sm">${money(it.base, 2)}</td>
-          <td class="r num">${run.status === 'Draft' ? `<input class="input num" style="width:110px;text-align:right" type="number" min="0" step="100" data-bonus="${it.empId}" value="${it.bonus}" aria-label="Bonus for ${esc(fullName(e))}">` : money(it.bonus)}</td>
-          <td class="r num">${money(it.gross, 2)}</td><td class="r num muted hide-sm">${money(it.tax, 2)}</td><td class="r num muted hide-sm">${money(it.benefits, 2)}</td>
-          <td class="r num" style="font-weight:600">${money(it.net, 2)}</td>
-          <td><div class="row-actions"><button class="btn btn-sm" data-act="payslip" data-id="${it.empId}">${icon('doc')}Payslip</button></div></td></tr>`; }).join('')}</tbody>
+          <td><button class="cell-btn" data-act="payslip" data-id="${it.empId}" title="Open payslip">${person(e)}</button></td>
+          <td class="r num">${run.status === 'Draft' ? `<input class="input num" style="width:84px;text-align:right" type="number" min="0" step="100" data-bonus="${it.empId}" value="${it.bonus}" aria-label="Bonus for ${esc(fullName(e))}">` : money(it.bonus)}</td>
+          <td class="r num">${money(it.gross, 2)}</td>
+          ${my ? `<td class="r num muted hide-sm">${money(it.epf ?? it.benefits, 2)}</td><td class="r num muted hide-sm">${money((it.socso || 0) + (it.eis || 0), 2)}</td><td class="r num muted hide-sm">${money(it.tax + (it.zakat || 0), 2)}</td>` : `<td class="r num muted hide-sm">${money(it.tax, 2)}</td><td class="r num muted hide-sm">${money(it.benefits, 2)}</td>`}
+          ${t.claims ? `<td class="r num hide-sm">${it.claims ? money(it.claims, 2) : '<span class="faint">—</span>'}</td>` : ''}
+          <td class="r num" style="font-weight:600">${money(it.net, 2)}</td></tr>`; }).join('')}</tbody>
       </table></div></div>` : `
-      <div class="card"><div class="empty" style="padding:48px 12px"><strong>No payroll for ${U.fmtMonth(mk)} yet</strong>Running payroll creates a draft from current salaries. You can add bonuses before approving it.<div style="margin-top:16px"><button class="btn btn-primary" data-act="pay-run">${icon('wallet')}Run payroll</button></div></div></div>`}`;
+      <div class="card"><div class="empty" style="padding:48px 12px"><strong>No payroll for ${U.fmtMonth(mk)} yet</strong>Running payroll creates a draft from current salaries, works out ${my ? 'EPF, SOCSO, EIS and PCB' : 'deductions'}, and adds approved medical claims. You can add bonuses before approving it.<div style="margin-top:16px"><button class="btn btn-primary" data-act="pay-run">${icon('wallet')}Run payroll</button></div></div></div>`}`;
   };
   AFTER.payroll = () => {
     $$('[data-bonus]').forEach((inp) => inp.addEventListener('change', () => {
       const run = state.payroll[ui.payMonth];
       const it = run.items.find((i) => i.empId === inp.dataset.bonus);
-      Object.assign(it, U.payCalc(emp(it.empId).salary, Math.max(0, Number(inp.value) || 0), state.settings));
+      Object.assign(it, payItem(emp(it.empId), Math.max(0, Number(inp.value) || 0), ui.payMonth));
       save(); render(); toast('Bonus updated');
     }));
   };
   function openPayslip(empId, month = ui.payMonth) {
     const run = state.payroll[month]; const it = run.items.find((i) => i.empId === empId); const e = emp(empId);
-    const row = (k, v, strong) => `<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);${strong ? 'font-weight:600;font-size:16px;border:0' : ''}"><span>${k}</span><span class="num">${v}</span></div>`;
+    const row = (k, v, strong) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);${strong ? 'font-weight:600;font-size:16px;border:0' : ''}"><span>${k}</span><span class="num">${v}</span></div>`;
+    const head = (k) => `<div class="eyebrow" style="margin:14px 0 2px">${k}</div>`;
+    const neg = (n) => '−' + money(n, 2);
+    const statutory = it.epf != null;
+    const lines = statutory
+      ? `${head('Earnings')}${row('Basic salary', money(it.base, 2))}${it.bonus ? row('Bonus', money(it.bonus, 2)) : ''}${row('Gross pay', money(it.gross, 2))}
+         ${head('Deductions')}${row('EPF (KWSP), employee', neg(it.epf))}${row('SOCSO (PERKESO), employee', neg(it.socso))}${row('EIS, employee', neg(it.eis))}${row('Income tax (PCB)', neg(it.tax))}${it.zakat ? row('Zakat', neg(it.zakat)) : ''}
+         ${it.claims ? `${head('Reimbursements')}${row('Medical claims (not taxed)', money(it.claims, 2))}` : ''}
+         ${row('Net pay', money(it.net, 2), true)}
+         ${head('Paid by the company on top of your pay')}${row('EPF, employer', money(it.erEpf, 2))}${row('SOCSO, employer', money(it.erSocso, 2))}${row('EIS, employer', money(it.erEis, 2))}`
+      : `${row('Base salary', money(it.base, 2))}${row('Bonus', money(it.bonus, 2))}${row('Gross pay', money(it.gross, 2))}${row(`Income tax (${state.settings.taxRate}%)`, neg(it.tax))}${row(`Benefits (${state.settings.benefitsRate}%)`, neg(it.benefits))}${it.claims ? row('Medical claims', money(it.claims, 2)) : ''}${row('Net pay', money(it.net, 2), true)}`;
     openModal({
       title: 'Payslip', size: 'sm', submit: null,
       body: `<div style="display:flex;flex-direction:column;gap:18px">
         <div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:10px">${LOGO_MARK}<div><div style="font-weight:600;letter-spacing:.24em">${esc(state.settings.company.toUpperCase())}</div><div class="faint" style="font-size:12px">${U.fmtMonth(month)}</div></div></div>${run.status === 'Paid' ? '<span class="pill ok">Paid</span>' : '<span class="pill warn">Draft</span>'}</div>
         ${person(e, `${e.role} · ${dept(e.dept)?.name || ''}`)}
-        <div>${row('Base salary', money(it.base, 2))}${row('Bonus', money(it.bonus, 2))}${row('Gross pay', money(it.gross, 2))}${row(`Income tax, PCB (${state.settings.taxRate}%)`, '−' + money(it.tax, 2))}${row(`EPF, SOCSO & EIS (${state.settings.benefitsRate}%)`, '−' + money(it.benefits, 2))}${row('Net pay', money(it.net, 2), true)}</div></div>`,
+        <div>${lines}</div></div>`,
     });
   }
 
@@ -800,6 +842,21 @@
   }
 
   // ----- Settings -----
+  // Malaysian statutory deductions, used by payroll.
+  function statutoryCard(s) {
+    const st = U.statutory(s);
+    const seg = (key, opts) => `<div class="seg">${opts.map(([v, l]) => `<button data-act="stat-set" data-id="${key}" data-v="${v}" class="${String(st[key]) === String(v) ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+    const num = (key, max) => `<input class="input num" data-stat="${key}" type="number" min="0" max="${max}" step="0.5" value="${st[key]}" style="width:90px">`;
+    return `<div class="card"><div class="card-head"><h3>Statutory deductions (Malaysia)</h3>${seg('on', [[false, 'Off'], [true, 'On']])}</div>
+      <p class="muted" style="margin-bottom:6px">Worked out for every payslip. Employees aged 60 and over follow the senior rules automatically.</p>
+      <div class="settings-row"><div><div class="label">EPF (KWSP), employee</div><div class="desc">Percent of wages. The standard rate is 11%.</div></div>${num('epfEe', 20)}</div>
+      <div class="settings-row"><div><div class="label">EPF, employer</div><div class="desc">13% for wages up to RM5,000, 12% above.</div></div><div class="actions">${num('epfEr', 20)}${num('epfErHigh', 20)}</div></div>
+      <div class="settings-row"><div><div class="label">SOCSO (PERKESO)</div><div class="desc">Employment injury and invalidity. Employer 1.75%, employee 0.5%, wages up to RM6,000.</div></div>${seg('socso', [[false, 'Off'], [true, 'On']])}</div>
+      <div class="settings-row"><div><div class="label">EIS</div><div class="desc">Employment Insurance System. 0.2% each, wages up to RM6,000.</div></div>${seg('eis', [[false, 'Off'], [true, 'On']])}</div>
+      <div class="settings-row"><div><div class="label">Income tax (PCB)</div><div class="desc">${st.pcb === 'flat' ? 'A flat percent of gross pay.' : 'Estimated from LHDN tax bands each month, including bonuses.'}</div></div><div class="actions">${seg('pcb', [['lhdn', 'LHDN schedule'], ['flat', 'Flat %']])}${st.pcb === 'flat' ? `<input class="input num" id="s-tax" type="number" min="0" max="60" step="0.5" value="${s.taxRate}" style="width:80px" aria-label="Flat PCB percent">` : ''}</div></div>
+      <div class="settings-row"><div><div class="label">HRD Corp levy</div><div class="desc">Paid by the company on basic pay: 1% with 10 or more Malaysian staff, 0.5% optional for 5 to 9.</div></div>${seg('hrdf', [[0, 'None'], [0.5, '0.5%'], [1, '1%']])}</div>
+      <p class="disclaimer">${icon('pin')}<span>Payments are due to KWSP, PERKESO, LHDN and HRD Corp by the 15th of the following month. Rates change; check the official contribution tables.</span></p></div>`;
+  }
   VIEWS.settings = () => {
     const s = state.settings;
     if (role() !== 'admin') return `
@@ -812,7 +869,7 @@
       ${role() === 'super' ? `<div class="card"><div class="card-head"><h3>Data</h3></div>
         <div class="settings-row"><div><div class="label">Reset demo workspace</div><div class="desc">Data is stored in this browser only.</div></div><button class="btn btn-danger" data-act="ask-reset">Reset data</button></div>
         <div id="reset-confirm"></div></div>` : ''}`;
-    const currencies = ['USD', 'EUR', 'GBP', 'AED', 'SAR', 'QAR', 'INR', 'PKR', 'CAD', 'AUD', 'SGD'];
+    const currencies = ['MYR', 'USD', 'EUR', 'GBP', 'AED', 'SAR', 'QAR', 'INR', 'PKR', 'CAD', 'AUD', 'SGD'];
     return `
       <div class="page-head"><div><h1>Settings</h1><p class="sub">Company details, pay rules and appearance. Changes apply right away.</p></div></div>
       <div class="grid g-2">
@@ -823,12 +880,13 @@
           <div class="settings-row"><div><div class="label">Appearance</div><div class="desc">Follow the device or pick a theme.</div></div><div class="seg">${[['system', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<button data-act="theme" data-v="${v}" class="${s.theme === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
         </div>
         <div class="card"><div class="card-head"><h3>Pay and leave rules</h3></div>
-          <div class="settings-row"><div><div class="label">Income tax withholding</div><div class="desc">Percent of gross pay.</div></div><input class="input num" id="s-tax" type="number" min="0" max="60" step="0.5" value="${s.taxRate}" style="width:100px"></div>
-          <div class="settings-row"><div><div class="label">Statutory contributions</div><div class="desc">EPF, SOCSO and EIS deducted from pay, as percent of gross.</div></div><input class="input num" id="s-benefits" type="number" min="0" max="30" step="0.5" value="${s.benefitsRate}" style="width:100px"></div>
+          ${s.currency === 'MYR' ? '' : `<div class="settings-row"><div><div class="label">Income tax withholding</div><div class="desc">Percent of gross pay.</div></div><input class="input num" id="s-tax" type="number" min="0" max="60" step="0.5" value="${s.taxRate}" style="width:100px"></div>
+          <div class="settings-row"><div><div class="label">Benefit contributions</div><div class="desc">Deducted from pay, as percent of gross.</div></div><input class="input num" id="s-benefits" type="number" min="0" max="30" step="0.5" value="${s.benefitsRate}" style="width:100px"></div>`}
           <div class="settings-row"><div><div class="label">Annual leave</div><div class="desc">Days per person per year.</div></div><input class="input num" id="s-annual" type="number" min="0" max="60" value="${s.annualDays}" style="width:100px"></div>
           <div class="settings-row"><div><div class="label">Sick leave</div><div class="desc">Days per person per year.</div></div><input class="input num" id="s-sick" type="number" min="0" max="60" value="${s.sickDays}" style="width:100px"></div>
         </div>
       </div>
+      ${s.currency === 'MYR' ? statutoryCard(s) : ''}
       <div class="card"><div class="card-head"><h3>Check-in location</h3><a class="hint" href="${mapsLink(s.checkin)}" target="_blank" rel="noopener">View on Google Maps</a></div>
         <p class="muted" style="margin-bottom:6px">Employees must be inside this zone and take a selfie to check in.</p>
         <div class="settings-row"><div><div class="label">Name</div><div class="desc">Shown to employees, for example “Allurus HQ”.</div></div><input class="input" id="z-label" value="${esc(s.checkin.label)}" style="width:240px"></div>
@@ -860,7 +918,8 @@
       Object.assign(state.settings.checkin, p); commit('Check-in point saved');
     });
     $('#z-radius').addEventListener('change', (ev) => { state.settings.checkin.radius = Math.min(5000, Math.max(10, Math.round(Number(ev.target.value) || 50))); commit(`Radius set to ${state.settings.checkin.radius} m`); });
-    bind('#s-company', 'company'); bind('#s-currency', 'currency'); bind('#s-office', 'office'); bind('#s-tax', 'taxRate', 1); bind('#s-benefits', 'benefitsRate', 1); bind('#s-annual', 'annualDays', 1); bind('#s-sick', 'sickDays', 1);
+    bind('#s-company', 'company'); bind('#s-currency', 'currency'); bind('#s-office', 'office'); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
+    $$('[data-stat]').forEach((el) => el.addEventListener('change', () => { state.settings.statutory = { ...U.statutory(state.settings), [el.dataset.stat]: Math.min(20, Math.max(0, Number(el.value) || 0)) }; commit('Statutory rates saved'); })); bind('#s-annual', 'annualDays', 1); bind('#s-sick', 'sickDays', 1);
   };
 
   // ---------- Sign-in ----------
@@ -1172,17 +1231,19 @@
   VIEWS['my-pay'] = () => {
     const e = me(), runs = myRuns();
     const items = runs.map((m) => ({ m, it: state.payroll[m].items.find((i) => i.empId === e.id), run: state.payroll[m] }));
-    const ytd = items.filter((x) => x.m.startsWith(U.today().slice(0, 4))).reduce((a, x) => ({ gross: a.gross + x.it.gross, net: a.net + x.it.net, tax: a.tax + x.it.tax }), { gross: 0, net: 0, tax: 0 });
+    const ytd = items.filter((x) => x.m.startsWith(U.today().slice(0, 4))).reduce((a, x) => ({ gross: a.gross + x.it.gross, net: a.net + x.it.net, tax: a.tax + x.it.tax, epf: a.epf + (x.it.epf || 0) + (x.it.erEpf || 0) }), { gross: 0, net: 0, tax: 0, epf: 0 });
     return `
-      <div class="page-head"><div><h1>Payslips</h1><p class="sub">Annual salary ${money(e.salary)}. Payslips appear here once payroll is paid.</p></div></div>
-      <div class="grid g-3">
+      <div class="page-head"><div><div class="eyebrow">Finance</div><h1>Payslips</h1><p class="sub">Annual salary ${money(e.salary)}. Payslips appear here once payroll is paid.</p></div>
+        <div class="actions"><a class="btn" href="#my-plan">${icon('target')}Plan my month</a></div></div>
+      <div class="grid g-4 keep-2">
         <div class="card kpi"><div class="kpi-label">Gross this year</div><div class="kpi-value">${compactMoney(ytd.gross)}</div><div class="kpi-foot num">${money(ytd.gross)}</div></div>
-        <div class="card kpi"><div class="kpi-label">Tax this year</div><div class="kpi-value">${compactMoney(ytd.tax)}</div><div class="kpi-foot num">${money(ytd.tax)}</div></div>
+        <div class="card kpi"><div class="kpi-label">Tax (PCB) this year</div><div class="kpi-value">${compactMoney(ytd.tax)}</div><div class="kpi-foot num">${money(ytd.tax)}</div></div>
+        <div class="card kpi"><div class="kpi-label">Into your EPF this year</div><div class="kpi-value">${compactMoney(ytd.epf)}</div><div class="kpi-foot">Your share and the company’s</div></div>
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Net this year</div><div class="kpi-value">${compactMoney(ytd.net)}</div><div class="kpi-foot num">${money(ytd.net)}</div></div>
       </div>
       <div class="card card-flush"><div class="table-wrap"><table>
-        <thead><tr><th>Period</th><th class="hide-sm">Paid on</th><th class="r">Gross</th><th class="r hide-sm">Deductions</th><th class="r">Net</th><th></th></tr></thead>
-        <tbody>${items.map(({ m, it, run }) => `<tr class="clickable" data-act="my-payslip" data-id="${m}"><td>${U.fmtMonth(m)}</td><td class="hide-sm muted num">${U.fmtDate(run.paidOn)}</td><td class="r num">${money(it.gross, 2)}</td><td class="r num muted hide-sm">−${money(it.tax + it.benefits, 2)}</td><td class="r num" style="font-weight:600">${money(it.net, 2)}</td><td><div class="row-actions"><button class="btn btn-sm" data-act="my-payslip" data-id="${m}">${icon('doc')}View</button></div></td></tr>`).join('')}</tbody>
+        <thead><tr><th>Period</th><th class="hide-sm">Paid on</th><th class="r">Gross</th><th class="r hide-sm">Deductions</th><th class="r hide-sm">Claims</th><th class="r">Net</th><th></th></tr></thead>
+        <tbody>${items.map(({ m, it, run }) => `<tr class="clickable" data-act="my-payslip" data-id="${m}"><td>${U.fmtMonth(m)}</td><td class="hide-sm muted num">${U.fmtDate(run.paidOn)}</td><td class="r num">${money(it.gross, 2)}</td><td class="r num muted hide-sm">−${money(it.tax + it.benefits + (it.zakat || 0), 2)}</td><td class="r num hide-sm">${it.claims ? money(it.claims, 2) : '<span class="faint">—</span>'}</td><td class="r num" style="font-weight:600">${money(it.net, 2)}</td><td><div class="row-actions"><button class="btn btn-sm" data-act="my-payslip" data-id="${m}">${icon('doc')}View</button></div></td></tr>`).join('')}</tbody>
       </table>${items.length ? '' : '<div class="empty"><strong>No payslips yet</strong>Your first payslip appears after payroll runs.</div>'}</div></div>`;
   };
 
@@ -1235,7 +1296,7 @@
   };
 
   // ---------- Workspaces (one per company) ----------
-  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance'];
+  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans'];
   function switchWorkspace(tid) {
     if (tid === state.session.tenantId) return;
     const cur = {}; WS_KEYS.forEach((k) => { cur[k] = state[k]; });
@@ -1265,10 +1326,11 @@
       reviews: [{ id: 'r1', empId: 'e1', cycle: 'H2 ' + U.today().slice(0, 4), status: 'Not started', rating: 0, progress: 0, notes: '' }],
       activity: [{ t: Date.now(), text: `${d.name} joined Allurus on the ${plan(d.plan).name} plan` }],
       finance: AllurusFinance.blank({ taxLabel: d.currency === 'MYR' ? 'SST' : 'Sales tax' }),
+      claims: [], plans: {},
     };
     if (withSamples) {
       const team = base.employees.slice(1).map((e) => ({ ...e, email: `${e.first}.${e.last}`.toLowerCase() + '@' + domain, location: d.city }));
-      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, finance: base.finance });
+      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, finance: base.finance, claims: base.claims });
       ws.reviews[0] = { ...ws.reviews[0], empId: 'e1' };
     }
     return ws;
@@ -1828,10 +1890,11 @@
     'reject-leave': (id) => decideLeave(id, false),
     'del-leave': (id) => { state.leaves = state.leaves.filter((l) => l.id !== id); commit('Request deleted'); },
     'leave-filter': (_, v) => { ui.leaveFilter = v; render(); },
+    'stat-set': (key, v) => { state.settings.statutory = { ...U.statutory(state.settings), [key]: v === 'true' ? true : v === 'false' ? false : isNaN(+v) ? v : +v }; commit('Statutory settings saved'); },
     'pay-shift': (_, v) => { ui.payMonth = U.addMonths(ui.payMonth, Number(v)); render(); },
     'pay-run': () => {
       const mk = ui.payMonth;
-      const items = activeEmployees().filter((e) => e.start <= U.monthEnd(mk)).map((e) => ({ empId: e.id, ...U.payCalc(e.salary, 0, state.settings) }));
+      const items = activeEmployees().filter((e) => e.start <= U.monthEnd(mk)).map((e) => payItem(e, 0, mk));
       if (!items.length) { toast('No employees were active that month'); return; }
       state.payroll[mk] = { status: 'Draft', items };
       commit('Draft created', `Payroll draft created for ${U.fmtMonth(mk)}`);
@@ -1839,11 +1902,13 @@
     'pay-discard': () => { delete state.payroll[ui.payMonth]; commit('Draft discarded'); },
     'pay-approve': () => {
       const run = state.payroll[ui.payMonth]; run.status = 'Paid'; run.paidOn = U.today();
+      claimsApi.markPaid(run.items.flatMap((i) => i.claimIds || []), ui.payMonth);
       commit('Payroll paid', `Payroll for ${U.fmtMonth(ui.payMonth)} was paid (${money(payTotal(run).net)} net)`);
     },
     'pay-export': () => {
       const run = state.payroll[ui.payMonth];
-      downloadCSV(`payroll-${ui.payMonth}.csv`, [['Employee', 'Email', 'Base', 'Bonus', 'Gross', 'PCB tax', 'EPF SOCSO EIS', 'Net'], ...run.items.map((i) => { const e = emp(i.empId); return [fullName(e), e?.email, i.base, i.bonus, i.gross, i.tax, i.benefits, i.net]; })]);
+      downloadCSV(`payroll-${ui.payMonth}.csv`, [['Employee', 'Email', 'Base', 'Bonus', 'Gross', 'EPF (employee)', 'SOCSO (employee)', 'EIS (employee)', 'PCB', 'Zakat', 'Medical claims', 'Net pay', 'EPF (employer)', 'SOCSO (employer)', 'EIS (employer)', 'HRD levy', 'Employer cost'],
+        ...run.items.map((i) => { const e = emp(i.empId); return [fullName(e), e?.email, i.base, i.bonus, i.gross, i.epf ?? i.benefits, i.socso || 0, i.eis || 0, i.tax, i.zakat || 0, i.claims || 0, i.net, i.erEpf || 0, i.erSocso || 0, i.erEis || 0, i.hrdf || 0, U.round2(i.gross + (i.erCost || 0))]; })]);
     },
     'payslip': (id) => openPayslip(id),
     'job-filter': (_, v) => { ui.jobFilter = v; render(); },
@@ -1910,10 +1975,12 @@
   // ---------- Finance & Accounting and tax modules ----------
   const moduleCtx = {
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
-    downloadCSV, role, account, me, LOGO_MARK,
+    downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
   };
   finApi = AllurusFinance.install(moduleCtx);
   AllurusTax.install(moduleCtx);
+  claimsApi = AllurusClaims.install(moduleCtx);
+  AllurusPlanner.install(moduleCtx);
 
   // ---------- Boot ----------
   $('#today').textContent = U.fmtDate(U.today(), { weekday: 'short', month: 'short', day: 'numeric' });

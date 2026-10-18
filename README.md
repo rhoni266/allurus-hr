@@ -40,6 +40,46 @@ Employees get **Tax reliefs**: personal receipts tracked against LHDN relief cap
 
 The tax features use keyword matching and the rates in `js/tax.js`. They help prepare records; they are not tax advice. Check caps and rates for the current year of assessment with LHDN or your tax agent.
 
+## Payroll: EPF, SOCSO, EIS, PCB and HRD Corp
+
+For Malaysian companies (currency MYR), every payslip works out the compulsory deductions:
+
+- **EPF (KWSP)**: 11% employee; 13% employer up to RM5,000 wages, 12% above. Rounded up to the next ringgit.
+- **SOCSO (PERKESO)**: 0.5% employee, 1.75% employer, on PERKESO's RM100 wage bands up to RM6,000.
+- **EIS**: 0.2% each, same bands and ceiling.
+- **PCB (monthly tax deduction)**: estimated from the LHDN resident tax bands, with the RM9,000 individual relief and up to RM4,000 EPF relief. Bonuses are taxed on the extra tax they cause. The admin can switch to a flat percent instead.
+- **Zakat** through payroll (set on the employee) is deducted and offsets the PCB.
+- **HRD Corp levy**: 1%, 0.5% or none, paid by the employer on basic pay.
+- Staff aged 60 and over follow the senior rules: no employee EPF, 4% employer EPF, employer-only SOCSO, no EIS.
+
+The payroll page shows what goes to **KWSP, PERKESO, LHDN and HRD Corp**, due by the 15th of the next month. Employer contributions are recorded in the books with the wages. Rates are editable under **Settings → Statutory deductions**. The figures are estimates, so check them against the official contribution tables and the LHDN PCB calculator before you pay.
+
+## Medical claims
+
+Employees claim medical costs under **Finance → Medical claims**. They choose the type and who it was for, then snap or upload the receipt; the clinic, date and total are read from it. They can see how much they have left of each limit.
+
+HR reviews each claim next to its receipt. The suggested approval amount is capped at the per-claim limit and the yearly balance, and a rejection needs a reason. Approved claims are added to the **next payroll** as a tax-free reimbursement and shown on the payslip, or HR can **pay now**. Either way the cost goes into the books as *Staff benefits*.
+
+The claim policy is set per company: switch medical claims on or off, switch each claim type on or off, and set its yearly and per-claim limits, family cover, the receipt requirement and an eligibility period. The default types are typical for a Malaysian SME: outpatient GP, specialist, dental, optical, health screening, hospitalisation, maternity, vaccination, physiotherapy, traditional and complementary medicine, mental health, pre-employment check-up and other. HR can add their own.
+
+## Employee finance
+
+An employee's **Finance** menu holds **Payslips** (with every deduction itemised, and what the company pays on top), **Medical claims**, **Tax reliefs** and the **Financial planner**.
+
+The planner starts from a regular month's take-home pay and adds any other income. The employee lists:
+
+- what they must pay (loans, rent, bills), ticking the loans;
+- their living costs;
+- their savings.
+
+It then shows:
+
+- where the salary goes, from tax and contributions down to what's left to spend, as a month and a day figure;
+- a checklist of bills to tick off as they're paid;
+- their debt service ratio, which banks check before approving loans;
+- an emergency fund target and a 50/30/20 check;
+- their EPF growth.
+
 ## Selfie check-in
 
 Employees check in with **Check in with selfie** on their Home screen:
@@ -87,8 +127,10 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 index.html          App shell: sign-in screen, sidebar, top bar
 brand.html          Brand kit: logo, palette, type, usage rules
 css/styles.css      Design tokens (light and dark) and all components
-js/utils.js         Dates, money math, city table, location helpers
+js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
 js/seed.js          Demo data: the Lumen & Co. workspace and 14 subscribed companies
+js/claims.js        Medical claims: policy, employee claims, HR review
+js/planner.js       Employee financial planner
 js/app.js           Views, routing per role, actions, registration, shared-link sync
 js/vendor/          jsVectorMap (MIT) for the Super Admin world map
 assets/             logo.svg, logo-mark.svg

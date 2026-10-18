@@ -5,7 +5,7 @@ window.AllurusSeed = {
     const T = U.today();
     // Check-in zone: employees must be inside this circle (radius in meters) and take a selfie.
     const checkin = { label: 'Allurus HQ', lat: 3.769833, lng: 103.224556, radius: 50, remote: false };
-    const settings = { company: 'Allurus', domain: 'allurus.com', currency: 'MYR', office: 'Kuantan', checkin, taxRate: 8, benefitsRate: 11.7, annualDays: 20, sickDays: 10, theme: 'system' };
+    const settings = { company: 'Allurus', domain: 'allurus.com', currency: 'MYR', office: 'Kuantan', checkin, taxRate: 8, benefitsRate: 11.7, annualDays: 20, sickDays: 10, theme: 'system', statutory: { ...U.STATUTORY }, claims: AllurusClaims.policyDefaults() };
 
     const departments = [
       { id: 'd-people', name: 'People', lead: 'e1', color: '#14958A', about: 'Hires, develops and looks after staff, and keeps employment practices compliant.', duties: 'Recruitment, Onboarding, Leave and attendance, Performance reviews, Employee relations' },
@@ -100,7 +100,7 @@ window.AllurusSeed = {
       const mk = U.addMonths(thisMonth, -k);
       const end = U.monthEnd(mk);
       const items = employees.filter((e) => e.start <= end).map((e, i) => ({
-        empId: e.id, ...U.payCalc(e.salary, (k === 3 && i % 4 === 0) ? 1500 : 0, settings),
+        empId: e.id, ...U.payCalc(e.salary, (k === 3 && i % 4 === 0) ? 1500 : 0, settings, e, U.addDays(end, -2)),
       }));
       payroll[mk] = { status: 'Paid', paidOn: U.addDays(end, -2), items };
     }
@@ -151,7 +151,14 @@ window.AllurusSeed = {
     ];
     const finance = AllurusFinance.seed({ employees, payroll, today: T, customers: platform.tenants.filter((t) => t.id !== 't1').map((t) => ({ name: t.name, email: t.admin })) });
     const reliefs = AllurusTax.seedReliefs(T);
-    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
+    // Medical claims already reimbursed through payroll show on those payslips.
+    const claims = AllurusClaims.seed(employees, T);
+    claims.filter((c) => c.status === 'Paid' && payroll[c.paidIn]).forEach((c) => {
+      const it = payroll[c.paidIn].items.find((i) => i.empId === c.empId);
+      if (it) { it.claims = U.round2((it.claims || 0) + c.approved); it.claimIds = [...(it.claimIds || []), c.id]; it.net = U.round2(it.net + c.approved); }
+    });
+    const plans = { e2: AllurusPlanner.sample() };
+    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
   },
 
   // Super Admin data: every company subscribed to Allurus.

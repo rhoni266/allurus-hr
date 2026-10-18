@@ -22,13 +22,69 @@ window.U = (function () {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
   const round2 = (n) => Math.round(n * 100) / 100;
-  // Monthly payslip from an annual salary.
-  const payCalc = (salary, bonus, settings) => {
+  // ---------- Malaysian statutory payroll ----------
+  // Resident tax bands used for YA2023 to YA2025, for the monthly tax deduction (PCB/MTD) estimate.
+  const TAX_BANDS = [[5000, 0], [20000, 1], [35000, 3], [50000, 6], [70000, 11], [100000, 19], [400000, 25], [600000, 26], [2000000, 28], [Infinity, 30]];
+  function residentTax(chargeable) {
+    let tax = 0, lower = 0;
+    for (const [upper, rate] of TAX_BANDS) {
+      if (chargeable > lower) tax += ((Math.min(chargeable, upper) - lower) * rate) / 100;
+      lower = upper;
+    }
+    if (chargeable <= 35000) tax -= 400;
+    return round2(Math.max(0, tax));
+  }
+  // Company defaults, editable in Settings. Rates follow KWSP, PERKESO and HRD Corp rules for Malaysian employees.
+  const STATUTORY = { on: true, epfEe: 11, epfEr: 13, epfErHigh: 12, socso: true, eis: true, pcb: 'lhdn', hrdf: 1 };
+  const statutory = (settings) => ({ ...STATUTORY, ...(settings.statutory || {}) });
+  const ageOn = (birthday, day) => {
+    if (!birthday || !/^\d{4}-/.test(birthday)) return 30;
+    const [y, m, d] = birthday.split('-').map(Number), [ty, tm, td] = day.split('-').map(Number);
+    return ty - y - (tm < m || (tm === m && td < d) ? 1 : 0);
+  };
+  // SOCSO and EIS use RM100 wage bands up to the RM6,000 ceiling; contributions are worked out on the band's midpoint.
+  const bandWage = (w) => (w <= 0 ? 0 : w > 5900 ? 5950 : Math.floor((w - 0.01) / 100) * 100 + 50);
+  const sen5 = (n) => Math.ceil(round2(n) * 20) / 20;
+  // PCB estimate: yearly tax on the annualised salary (self relief RM9,000, EPF relief up to RM4,000),
+  // plus the extra tax caused by any bonus, rounded up to 5 sen. Below RM10 nothing is deducted.
+  function mtd(base, bonus, epfMonth, epfBonus) {
+    const yearly = (inc, epf) => residentTax(Math.max(0, inc - Math.min(epf, 4000) - 9000));
+    const normal = yearly(base * 12, epfMonth * 12) / 12;
+    const extra = bonus ? yearly(base * 12 + bonus, epfMonth * 12 + epfBonus) - yearly(base * 12, epfMonth * 12) : 0;
+    const t = Math.ceil((normal + extra) * 20) / 20;
+    return t < 10 ? 0 : round2(t);
+  }
+  // Monthly payslip from an annual salary. `e` (the employee) gives the age and zakat; `day` is the pay date.
+  const payCalc = (salary, bonus, settings, e = null, day = today()) => {
     const base = round2(salary / 12);
-    const gross = round2(base + (Number(bonus) || 0));
-    const tax = round2(gross * settings.taxRate / 100);
-    const benefits = round2(gross * settings.benefitsRate / 100);
-    return { base, bonus: Number(bonus) || 0, gross, tax, benefits, net: round2(gross - tax - benefits) };
+    bonus = Number(bonus) || 0;
+    const gross = round2(base + bonus);
+    const st = statutory(settings);
+    if (settings.currency !== 'MYR' || !st.on) {
+      const tax = round2(gross * settings.taxRate / 100);
+      const benefits = round2(gross * settings.benefitsRate / 100);
+      return { base, bonus, gross, tax, benefits, epf: 0, socso: 0, eis: 0, zakat: 0, erEpf: 0, erSocso: 0, erEis: 0, hrdf: 0, erCost: 0, net: round2(gross - tax - benefits) };
+    }
+    const senior = ageOn(e?.birthday, day) >= 60;
+    // EPF is rounded up to the next ringgit. From 60, employees stop contributing and employers pay 4%.
+    const epfOf = (w) => (senior ? 0 : Math.ceil((w * st.epfEe) / 100));
+    const epf = epfOf(gross);
+    const erEpf = Math.ceil((gross * (senior ? 4 : gross <= 5000 ? st.epfEr : st.epfErHigh)) / 100);
+    const bw = bandWage(gross);
+    // SOCSO: employment injury plus invalidity (1.75% employer, 0.5% employee); from 60 only injury, paid by the employer (1.25%).
+    const socso = st.socso && !senior ? sen5(bw * 0.005) : 0;
+    const erSocso = st.socso ? sen5(bw * (senior ? 0.0125 : 0.0175)) : 0;
+    // EIS: 0.2% each, for employees aged 18 to 60.
+    const eis = st.eis && !senior ? sen5(bw * 0.002) : 0;
+    const erEis = eis;
+    const zakat = round2(Number(e?.zakat) || 0);
+    const pcbRaw = st.pcb === 'flat' ? round2((gross * settings.taxRate) / 100) : mtd(base, bonus, epfOf(base), epf - epfOf(base));
+    // Zakat paid through payroll reduces the tax deduction ringgit for ringgit.
+    const tax = round2(Math.max(0, pcbRaw - zakat));
+    // HRD Corp levy is on basic pay, paid by the employer only.
+    const hrdf = round2((base * (Number(st.hrdf) || 0)) / 100);
+    const benefits = round2(epf + socso + eis);
+    return { base, bonus, gross, tax, benefits, epf, socso, eis, zakat, erEpf, erSocso, erEis, hrdf, erCost: round2(erEpf + erSocso + erEis + hrdf), net: round2(gross - tax - benefits - zakat) };
   };
   // City table for office locations, the platform map and the time-zone fallback for check-in.
   const CITIES = [
@@ -138,5 +194,5 @@ window.U = (function () {
     } catch (e) { return sha256js(msg); }
   }
 
-  return { parseCoords, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, pad, iso, parse, today, addDays, isWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc };
+  return { parseCoords, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, pad, iso, parse, today, addDays, isWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
 })();

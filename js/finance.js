@@ -4,7 +4,7 @@ window.AllurusFinance = (function () {
   'use strict';
 
   const INCOME_CATS = ['Subscriptions', 'Services', 'Other income'];
-  const EXPENSE_CATS = ['Payroll', 'Rent', 'Utilities', 'Software', 'Marketing', 'Travel', 'Professional fees', 'Repairs and maintenance', 'Office supplies', 'Bank charges', 'Other expenses'];
+  const EXPENSE_CATS = ['Payroll', 'Rent', 'Utilities', 'Software', 'Marketing', 'Travel', 'Professional fees', 'Repairs and maintenance', 'Office supplies', 'Bank charges', 'Staff benefits', 'Other expenses'];
   const r2 = (n) => Math.round(n * 100) / 100;
   const sum = (rows, f) => r2(rows.reduce((s, x) => s + f(x), 0));
 
@@ -26,11 +26,17 @@ window.AllurusFinance = (function () {
   const billStatus = (b, today) => (b.status === 'Unpaid' && b.due < today ? 'Overdue' : b.status);
 
   // Paid payroll runs appear in the books automatically, so nobody keys them in twice.
+  // Paid payroll runs appear in the books as wages, employer statutory contributions and reimbursed claims.
   function payrollRows(payroll) {
-    return Object.entries(payroll || {}).filter(([, run]) => run.status === 'Paid').map(([mk, run]) => ({
-      id: 'pay-' + mk, date: run.paidOn, desc: `Payroll · ${U.fmtMonth(mk)} (${run.items.length} people)`, type: 'out', category: 'Payroll',
-      amount: sum(run.items, (i) => i.gross), tax: 0, ref: `PAY-${mk.replace('-', '')}`, source: 'payroll', reconciled: true,
-    }));
+    return Object.entries(payroll || {}).filter(([, run]) => run.status === 'Paid').flatMap(([mk, run]) => {
+      const row = (key, desc, category, amount) => ({ id: `pay-${key}-${mk}`, date: run.paidOn, desc, type: 'out', category, amount, tax: 0, ref: `PAY-${mk.replace('-', '')}`, source: 'payroll', reconciled: true });
+      const er = sum(run.items, (i) => i.erCost || 0), cl = sum(run.items, (i) => i.claims || 0);
+      return [
+        row('wages', `Payroll · ${U.fmtMonth(mk)} (${run.items.length} people)`, 'Payroll', sum(run.items, (i) => i.gross)),
+        er ? row('er', `Employer EPF, SOCSO, EIS and HRD levy · ${U.fmtMonth(mk)}`, 'Payroll', er) : null,
+        cl ? row('claims', `Medical claims reimbursed with ${U.fmtMonth(mk)} payroll`, 'Staff benefits', cl) : null,
+      ].filter(Boolean);
+    });
   }
   const allTxns = (fin, payroll) => [...fin.txns, ...payrollRows(payroll)].sort((a, b) => b.date.localeCompare(a.date) || a.desc.localeCompare(b.desc));
 
@@ -71,15 +77,15 @@ window.AllurusFinance = (function () {
     const fin = blank({ auditorFirm: 'Tan & Partners Chartered Accountants', auditorName: 'Tan Mei Ling', auditorEmail: 'auditor@allurus.com' });
     const cur = U.monthKey(T), first = U.addMonths(cur, -6);
     fin.openingCash = 180000; fin.openingDate = first + '-01';
-    fin.budgets = { Payroll: 165000, Rent: 4500, Utilities: 700, Software: 2000, Marketing: 5000, Travel: 1500, 'Professional fees': 1500, 'Office supplies': 400, 'Bank charges': 60 };
+    fin.budgets = { Payroll: 190000, 'Staff benefits': 1500, Rent: 4500, Utilities: 700, Software: 2000, Marketing: 5000, Travel: 1500, 'Professional fees': 1500, 'Office supplies': 400, 'Bank charges': 60 };
     const day = (mk, d) => `${mk}-${U.pad(Math.min(d, +U.monthEnd(mk).slice(8)))}`;
     // Entries before the books start are not recorded; their invoices still show as paid.
     const tx = (o) => { if (o.date <= T && o.date >= fin.openingDate) fin.txns.push({ id: U.uid('x'), tax: 0, ref: '', source: 'manual', reconciled: o.date < cur + '-01', ...o }); };
 
     for (let k = 7; k >= 0; k--) {
       const mk = U.addMonths(cur, -k);
-      const gross = payroll[mk] ? sum(payroll[mk].items, (i) => i.gross) : sum(employees, (e) => e.salary / 12);
-      const target = gross * 1.2 + 22000;
+      const gross = payroll[mk] ? sum(payroll[mk].items, (i) => i.gross + (i.erCost || 0) + (i.claims || 0)) : sum(employees, (e) => e.salary / 12) * 1.14;
+      const target = gross * 1.28 + 22000;
       const weights = Array.from({ length: 6 }, () => 0.6 + r());
       const wsum = weights.reduce((a, b) => a + b, 0);
       weights.forEach((w, i) => {
@@ -101,6 +107,8 @@ window.AllurusFinance = (function () {
         }
         fin.invoices.push(inv);
       });
+      // An annual prepayment in the first month of the books, so the opening month isn't a loss.
+      if (mk === first && customers[0]) tx({ date: day(mk, 5), desc: `Annual plan prepayment from ${customers[0].name}`, type: 'in', category: 'Subscriptions', amount: 36000, tax: 2880, ref: `PRE-${mk.replace('-', '')}`, source: 'manual' });
       if (k === 0) {
         const cust = customers[Math.floor(r() * customers.length)];
         fin.invoices.push({ id: U.uid('i'), no: `INV-${mk.replace('-', '')}-${U.pad(9)}`, customer: cust.name, email: cust.email, issue: T, due: U.addDays(T, 30), items: [{ desc: 'Allurus HR subscription, annual seats top-up', qty: 12, price: 950 }], taxRate: 8, status: 'Draft', paidOn: '' });
@@ -164,7 +172,7 @@ window.AllurusFinance = (function () {
     const fui = { month: cur(), type: 'all', cat: 'all', q: '', inv: 'all', bill: 'all', budgetMonth: cur() };
     const m2 = (n) => money(n, 2);
     const signed = (t) => `<span class="num ${t.type === 'in' ? 'amt-in' : 'amt-out'}">${t.type === 'in' ? '+' : '−'}${m2(t.amount + t.tax)}</span>`;
-    const SOURCE = { invoice: 'Invoice', bill: 'Bill', payroll: 'Payroll', manual: 'Manual', receipt: 'Receipt' };
+    const SOURCE = { invoice: 'Invoice', bill: 'Bill', payroll: 'Payroll', manual: 'Manual', receipt: 'Receipt', claim: 'Medical claim' };
     const invPill = (s) => `<span class="pill ${({ Draft: '', Sent: 'info', Overdue: 'bad', Paid: 'ok' })[s]}">${s}</span>`;
     const billPill = (s) => `<span class="pill ${({ Unpaid: 'warn', Overdue: 'bad', Paid: 'ok' })[s]}">${s}</span>`;
     const repStatus = (mk) => {
