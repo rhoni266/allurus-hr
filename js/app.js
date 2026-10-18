@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.9';
+  const APP_VERSION = '2.0';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   const STORE_KEY = 'allurus-hr-v7';
   const esc = U.esc;
@@ -77,6 +77,18 @@
     shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',
     camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
     heart: '<path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.3a4.3 4.3 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20z"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M2.5 12H5M19 12h2.5M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8"/>',
+    moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+    auto: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor" stroke="none"/>',
+    help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.8M12 17.2v.1"/>',
+    star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>',
+    starFill: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" fill="currentColor"/>',
+    grip: '<circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/><circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/>',
+    eyeOff: '<path d="M3 3l18 18M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 8.5 4.5 9.5 6-.5.8-1.6 2.3-3.2 3.6M6.4 7.6C4.6 8.9 3.2 10.7 2.5 12c1 1.5 4.5 6 9.5 6 1.5 0 2.9-.4 4.1-1"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+    sparkle: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
+    up: '<path d="M6 15l6-6 6 6"/>',
+    down: '<path d="M6 9l6 6 6-6"/>',
+    more: '<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
     pin: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     userplus: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M19 8v6M16 11h6"/>',
   };
@@ -197,10 +209,16 @@
 
   function renderNav() {
     let html = '', group = '';
-    routes().forEach((r) => {
-      if (r.group !== group) { group = r.group; html += `<div class="nav-label">${group}</div>`; }
+    const rs = routes(), pinned = AllurusUX.pins().map((id) => rs.find((r) => r.id === id)).filter(Boolean);
+    const navItem = (r) => {
       const count = r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
-      html += `<a href="#${r.id}" class="${route() === r.id ? 'active' : ''}">${icon(r.icon)}<span>${r.label}</span>${count ? `<span class="count">${count}</span>` : ''}</a>`;
+      const on = AllurusUX.pins().includes(r.id), cur = route() === r.id;
+      return `<div class="nav-item"><a href="#${r.id}" class="${cur ? 'active' : ''}" ${cur ? 'aria-current="page"' : ''}>${icon(r.icon)}<span>${r.label}</span>${count ? `<span class="count" aria-label="${count} waiting">${count}</span>` : ''}</a><button type="button" class="nav-pin ${on ? 'on' : ''}" data-act="ux-pin" data-id="${r.id}" aria-pressed="${on}" aria-label="${on ? 'Unpin' : 'Pin'} ${esc(r.label)}" title="${on ? 'Unpin' : 'Pin to top'}">${icon(on ? 'starFill' : 'star')}</button></div>`;
+    };
+    if (pinned.length) html += `<div class="nav-label">Pinned</div>${pinned.map(navItem).join('')}`;
+    rs.forEach((r) => {
+      if (r.group !== group) { group = r.group; html += `<div class="nav-label">${group}</div>`; }
+      html += navItem(r);
     });
     $('#nav').innerHTML = html;
     $('#company-name').textContent = role() === 'super' ? 'Platform console' : state.settings.company;
@@ -210,25 +228,32 @@
     if (role() === 'auditor') { who.name = acct?.name || 'Auditor'; who.sub = 'Auditor'; }
     $('#me-card').innerHTML = `<div class="me-row">${avatar(who.name, 'sm')}<div style="min-width:0;flex:1"><div class="me-name">${esc(who.name)}</div><div class="me-role">${esc(acct?.email || who.sub)}</div></div></div>
       <div class="me-actions">${state.session.roles.length > 1 ? `<select class="select" id="role-switch" aria-label="Switch view">${state.session.roles.map((r) => `<option value="${r}" ${r === role() ? 'selected' : ''}>${ROLES[r].label} view</option>`).join('')}</select>` : `<span class="pill brand">${ROLES[role()].label}</span>`}<button class="btn btn-sm btn-ghost" data-act="logout">Sign out</button></div>`;
-    $('#role-switch')?.addEventListener('change', (ev) => {
-      state.session.role = ev.target.value; save();
-      if (location.hash) location.hash = ''; else render();
-      toast(`Switched to ${ROLES[ev.target.value].label} view`);
-    });
-    $('.search').hidden = role() !== 'admin';
+    $('#role-switch')?.addEventListener('change', (ev) => switchRole(ev.target.value));
   }
 
+  function switchRole(r) {
+    state.session.role = r; save();
+    if (location.hash) location.hash = ''; else render();
+    toast(`Switched to ${ROLES[r].label} view`);
+  }
+  let navigated = false;
   function render() {
     applyTheme();
     const signedIn = !!role();
     $('#login').hidden = signedIn;
     $('.app').hidden = !signedIn;
     if (!signedIn) { $('#login').innerHTML = loginView(); bindLogin(); return; }
+    const r = route();
+    AllurusUX.beforeRender(r);
     renderNav();
     const view = $('#view');
-    view.innerHTML = VIEWS[route()]();
-    AFTER[route()]?.();
+    // Super Admin and auditor pages have no dashboard, so their setup checklist sits on their first page.
+    const setup = ['super', 'auditor'].includes(role()) && r === routes()[0].id ? AllurusUX.setupCard() : '';
+    view.innerHTML = setup + VIEWS[r]();
+    AFTER[r]?.();
     $('#sidebar').classList.remove('open');
+    AllurusUX.afterRender(r, navigated);
+    navigated = false;
   }
 
   // ---------- Views ----------
@@ -238,77 +263,156 @@
   let finApi = null, claimsApi = null;
   let clockTimer = null;
 
+  // ---------- Automated insights (what needs attention, trends and wellbeing nudges) ----------
+  const MS_DAY = 86400000;
+  const daysUntil = (day) => Math.round((U.parse(day) - U.parse(U.today())) / MS_DAY);
+  function insights() {
+    const r = role(), T = U.today(), out = [], h = new Date().getHours();
+    const add = (tone, ic, title, detail, action, prio = 1) => out.push({ tone, icon: ic, title, detail, action, prio });
+    const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    if (r === 'admin') {
+      const pend = pendingLeaves();
+      if (pend.length) add('warn', 'calendar', `${plural(pend.length, 'time-off request', 'time-off requests')} waiting`, 'Decide soon so people can plan their break.', { label: 'Review', href: '#leave' }, 3);
+      const cl = claimsApi?.enabled() ? claimsApi.pendingCount() : 0;
+      if (cl) add('warn', 'heart', `${plural(cl, 'medical claim', 'medical claims')} to review`, 'Approved claims are paid with the next payroll.', { label: 'Review', href: '#claims' }, 3);
+      const sec = securityQueue().count;
+      if (sec) add('bad', 'shield', `${plural(sec, 'check-in needs', 'check-ins need')} a look`, 'A face mismatch, an uploaded photo or a new phone.', { label: 'Check', href: '#attendance' }, 4);
+      const days = []; let d = U.addDays(T, -1);
+      while (days.length < 7) { if (!U.isWeekend(d)) days.push(d); d = U.addDays(d, -1); }
+      const rateOf = (day) => { const s = dayStats(day); return s.total ? ((s.present + s.remote) / s.total) * 100 : 0; };
+      const avg = days.reduce((s, x) => s + rateOf(x), 0) / days.length;
+      if (!U.isWeekend(T)) {
+        const now = rateOf(T);
+        if (h >= 11) add(now >= avg - 5 ? 'good' : 'warn', 'clock', `Attendance today is ${Math.round(now)}%`, `Your 7-day average is ${Math.round(avg)}%.`, { label: 'See who’s in', href: '#attendance' }, now >= avg - 5 ? 0 : 2);
+        else add('info', 'clock', `${plural(dayStats(T).present + dayStats(T).remote, 'person has', 'people have')} checked in`, `By the end of the day ${Math.round(avg)}% are usually in.`, { label: 'Attendance', href: '#attendance' }, 0);
+      }
+      const mk = U.monthKey(T), run = state.payroll[mk], left = daysUntil(U.lastWorkday(U.monthEnd(mk)));
+      if (!run && left <= 10) add('warn', 'wallet', `${U.fmtMonth(mk, { month: 'long' })} payroll isn’t run yet`, `Payday is in ${plural(Math.max(0, left), 'day', 'days')}.`, { label: 'Run payroll', href: '#payroll' }, 3);
+      else if (run?.status === 'Draft') add('info', 'wallet', 'A payroll draft is waiting', 'Check bonuses, then approve and pay.', { label: 'Open', href: '#payroll' }, 2);
+      const paid = Object.keys(state.payroll).filter((k) => state.payroll[k].status === 'Paid').sort();
+      if (paid.length >= 2) {
+        const a = payTotal(state.payroll[paid[paid.length - 2]]), b = payTotal(state.payroll[paid[paid.length - 1]]);
+        const ca = a.gross + a.erCost, cb = b.gross + b.erCost, ch = ca ? ((cb - ca) / ca) * 100 : 0;
+        add(Math.abs(ch) < 3 ? 'info' : ch > 0 ? 'warn' : 'good', 'trend', `Payroll cost ${ch >= 0 ? 'up' : 'down'} ${Math.abs(ch).toFixed(1)}%`, `${U.fmtMonth(paid[paid.length - 1], { month: 'long' })} cost ${money(cb)} with employer contributions.`, { label: 'Payroll', href: '#payroll' }, 0);
+      }
+      const od = (state.finance?.invoices || []).filter((i) => i.status === 'Sent' && i.due < T);
+      if (od.length) add('warn', 'doc', `${plural(od.length, 'invoice is', 'invoices are')} overdue`, `${money(od.reduce((s, i) => s + AllurusFinance.invoiceTotals(i).total, 0))} is owed to you.`, { label: 'Chase', href: '#invoices' }, 2);
+      const since = U.addDays(T, -183);
+      const tired = activeEmployees().filter((e) => e.start < since && !state.leaves.some((l) => l.empId === e.id && l.status === 'Approved' && l.type === 'Annual' && l.to >= since));
+      if (tired.length) add('info', 'heart', `${plural(tired.length, 'person hasn’t', 'people haven’t')} had a break in 6 months`, `${tired.slice(0, 3).map((e) => e.first).join(', ')}${tired.length > 3 ? ' and others' : ''}. A nudge to rest goes a long way.`, { label: 'Time off', href: '#leave' }, 1);
+      const bdays = activeEmployees().filter((e) => e.birthday && [0, 1, 2, 3, 4, 5, 6].some((i) => U.addDays(T, i).slice(5) === e.birthday.slice(5)));
+      if (bdays.length) add('good', 'sparkle', bdays.length === 1 ? `${bdays[0].first}’s birthday is this week` : `${bdays.length} birthdays this week`, bdays.map((e) => fullName(e)).join(', '), null, 1);
+    }
+    if (r === 'employee') {
+      const e = me(), rec = myRecord(T);
+      if (!U.isWeekend(T) && rec?.s !== 'leave' && !rec?.in) add('warn', 'camera', h < 12 ? 'Ready to start your day?' : 'You haven’t checked in today', `Check in within ${zone().radius} m of ${zone().label} with a selfie.`, { label: 'Check in', act: 'check-in', v: 'present' }, 4);
+      else if (rec?.in && !rec.out && h >= 17) add('info', 'clock', 'Don’t forget to check out', `You’ve been in since ${rec.lastIn || rec.in}.`, { label: 'Check out', act: 'check-out' }, 3);
+      let streak = 0, d = rec?.in ? T : U.addDays(T, -1);
+      for (let i = 0; i < 90; i++) {
+        if (U.isWeekend(d)) { d = U.addDays(d, -1); continue; }
+        const x = myRecord(d);
+        if (x && ['present', 'remote'].includes(x.s)) { streak++; d = U.addDays(d, -1); } else break;
+      }
+      if (streak >= 3) add('good', 'sparkle', `${streak}-day check-in streak`, streak >= 15 ? 'A great run. Remember to plan some rest too.' : 'Nice and consistent. Keep it going!', null, 0);
+      const aLeft = state.settings.annualDays - leaveUsed(e.id, 'Annual'), toYearEnd = daysUntil(T.slice(0, 4) + '-12-31');
+      if (aLeft >= 3 && toYearEnd <= 120) add('info', 'calendar', `${aLeft} annual leave days left`, `The year ends in ${toYearEnd} days. You’ve earned a break.`, { label: 'Plan time off', act: 'new-leave' }, 2);
+      const claims = (state.claims || []).filter((c) => c.empId === e.id);
+      const coming = claims.filter((c) => c.status === 'Approved').reduce((s, c) => s + c.approved, 0);
+      if (coming) add('good', 'heart', `${money(coming, 2)} in claims on the way`, 'Approved and added to your next salary.', { label: 'Claims', href: '#my-claims' }, 1);
+      const waiting = claims.filter((c) => c.status === 'Pending').length;
+      if (waiting) add('info', 'heart', `${plural(waiting, 'claim is', 'claims are')} with HR`, 'You’ll see the decision on Medical claims.', { label: 'View', href: '#my-claims' }, 0);
+      const ps = AllurusPlanner.summary(state, e);
+      if (ps?.filled) add(ps.left >= 0 ? 'good' : 'bad', 'target', ps.left >= 0 ? `${money(ps.left)} left to spend this month` : `Your plan is short by ${money(-ps.left)}`, ps.left >= 0 ? `About ${money(ps.left / 30)} a day after bills and savings.` : 'Trim a cost or look again at your savings.', { label: 'Planner', href: '#my-plan' }, ps.left >= 0 ? 0 : 3);
+      else add('info', 'target', 'Know what’s really yours to spend', 'Two minutes in the planner shows what’s left after bills.', { label: 'Start planning', href: '#my-plan' }, 1);
+      const payday = U.lastWorkday(U.monthEnd(U.monthKey(T))), pd = daysUntil(payday);
+      if (pd >= 0 && pd <= 7) add('good', 'wallet', pd === 0 ? 'It’s payday' : `Payday in ${plural(pd, 'day', 'days')}`, U.fmtDate(payday, { weekday: 'long', month: 'short', day: 'numeric' }), { label: 'Payslips', href: '#my-pay' }, 1);
+      if (+T.slice(5, 7) >= 9) add('info', 'percent', 'Lower your tax before the year ends', 'Add receipts for books, sports, medical and courses.', { label: 'Tax reliefs', href: '#my-tax' }, 0);
+    }
+    return out.sort((a, b) => b.prio - a.prio);
+  }
+  const actionLink = (a, cls = 'btn btn-sm') => a.href ? `<a class="${cls}" href="${a.href}">${esc(a.label)}</a>` : `<button type="button" class="${cls}" data-act="${a.act}" ${a.v ? `data-v="${a.v}"` : ''}>${esc(a.label)}</button>`;
+  const insightRow = (x) => `<div class="insight tone-${x.tone}"><span class="insight-ic">${icon(x.icon)}</span><div class="grow"><div class="insight-t">${esc(x.title)}</div><div class="insight-d">${esc(x.detail)}</div></div>${x.action ? actionLink(x.action, 'btn btn-sm btn-ghost') : ''}</div>`;
+  function insightsCard(list) {
+    return `<div class="card"><div class="card-head"><h3>Insights</h3><span class="hint">${icon('sparkle')}Updated as things change</span></div>
+      ${list.length ? `<div class="insights">${list.slice(0, 5).map(insightRow).join('')}</div>` : '<div class="empty"><strong>All quiet</strong>Nothing unusual today. Enjoy it.</div>'}</div>`;
+  }
+  function focusItem(x) {
+    const inner = `<span class="focus-ic">${icon(x.icon)}</span><span class="grow"><strong>${esc(x.title)}</strong><small>${esc(x.detail)}</small></span><span class="focus-go">${esc(x.action.label)}${icon('right')}</span>`;
+    return x.action.href ? `<a class="focus-item tone-${x.tone}" href="${x.action.href}">${inner}</a>` : `<button type="button" class="focus-item tone-${x.tone}" data-act="${x.action.act}" ${x.action.v ? `data-v="${x.action.v}"` : ''}>${inner}</button>`;
+  }
+  // The welcome card at the top of each dashboard: greeting, what to focus on, quick actions.
+  function hero({ title, sub, actions = '', side = '', focus = [], calm }) {
+    const T = U.today();
+    return `<div class="card hero"><div class="hero-top"><div class="hero-text"><div class="eyebrow">${U.fmtDate(T, { weekday: 'long', month: 'long', day: 'numeric' })}</div><h1>${title}</h1><p class="sub">${sub}</p>
+        <div class="actions hero-actions">${actions}<button type="button" class="btn btn-ghost" data-act="ux-customize" aria-pressed="${AllurusUX.isEditing()}">${icon('dashboard')}${AllurusUX.isEditing() ? 'Done' : 'Customize'}</button></div></div>${side}</div>
+      ${focus.length ? `<div class="focus"><div class="focus-label">${icon('sparkle')}Focus for today</div><div class="focus-list">${focus.map(focusItem).join('')}</div></div>` : `<div class="focus calm">${icon('check')}<span>${calm}</span></div>`}</div>`;
+  }
+  function greeting(first) {
+    const h = new Date().getHours();
+    return `${h < 5 ? 'Working late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'}, ${esc(first)}.`;
+  }
+  const dayNote = () => ['Enjoy your Sunday.', 'A fresh week starts here.', 'Hope the week is off to a good start.', 'Halfway through the week.', 'Nearly there.', 'Almost the weekend.', 'Enjoy your Saturday.'][new Date().getDay()];
+  const delta = (v, unit = '', invert = false) => {
+    if (!v || !isFinite(v)) return '';
+    const up = v > 0, good = invert ? !up : up;
+    return `<span class="delta ${good ? 'up' : 'down'}">${up ? '▲' : '▼'} ${Math.abs(Math.round(v * 10) / 10)}${unit}</span>`;
+  };
+
+  function liveWidget() {
+    const T = U.today(), rec = state.attendance[T] || {};
+    const rows = Object.entries(rec).filter(([, r]) => r.in).map(([id, r]) => ({ e: emp(id), r })).filter((x) => x.e).sort((a, b) => (b.r.lastIn || b.r.in).localeCompare(a.r.lastIn || a.r.in));
+    const inNow = rows.filter((x) => !x.r.out);
+    return `<div class="card"><div class="card-head"><h3>Who’s in now</h3><span class="live-dot" title="Live"><span class="sr-only">Live</span></span></div>
+      <div class="kpi"><div class="kpi-value">${inNow.length}<span class="faint" style="font-size:16px"> of ${activeEmployees().length}</span></div><div class="kpi-foot">${rows.filter((x) => x.r.s === 'remote' && !x.r.out).length} remote · ${rows.length - inNow.length} checked out</div></div>
+      ${rows.length ? `<div class="list" style="margin-top:10px">${rows.slice(0, 5).map(({ e, r }) => `<div class="list-item">${avatar(fullName(e), 'sm')}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">${r.out ? `Checked out at ${r.out}` : `${r.s === 'remote' ? 'Remote' : 'In office'} since ${r.lastIn || r.in}`}</div></div>${r.out ? '' : '<span class="pill ok">In</span>'}</div>`).join('')}</div>`
+        : `<div class="empty"><strong>No one yet</strong>${U.isWeekend(T) ? 'It’s the weekend.' : 'Check-ins appear here the moment they happen.'}</div>`}
+      <a class="hint card-link" href="#attendance">Open attendance ${icon('right')}</a></div>`;
+  }
+
   VIEWS.dashboard = () => {
     const T = U.today();
-    const hr = new Date().getHours();
-    const greet = hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
     const active = activeEmployees();
     const wd = U.lastWorkday(T);
     const ds = dayStats(wd);
     const inOffice = ds.present + ds.remote;
     const rate = ds.total ? Math.round((inOffice / ds.total) * 100) : 0;
+    const prev = []; let d = U.addDays(wd, -1);
+    while (prev.length < 7) { if (!U.isWeekend(d)) prev.push(d); d = U.addDays(d, -1); }
+    const avg = prev.reduce((s, x) => { const st = dayStats(x); return s + (st.total ? ((st.present + st.remote) / st.total) * 100 : 0); }, 0) / prev.length;
     const out = active.filter((e) => onLeaveOn(e.id, T));
-    const openRoles = state.jobs.length;
-    const activeCands = state.candidates.filter((c) => c.stage !== 'Hired').length;
-    const pend = pendingLeaves();
+    const joined = active.filter((e) => e.start.slice(0, 7) === T.slice(0, 7)).length;
+    const pend = pendingLeaves(), pendC = (state.claims || []).filter((c) => c.status === 'Pending');
     const paidMonths = Object.keys(state.payroll).filter((k) => state.payroll[k].status === 'Paid').sort();
     const lastPaid = paidMonths[paidMonths.length - 1];
-
-    return `
-      <div class="page-head">
-        <div>
-          <div class="eyebrow">${U.fmtDate(T, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-          <h1>${greet}, ${esc(state.employees.find((e) => e.id === 'e1')?.first || 'there')}.</h1>
-          <p class="sub">Here is how ${esc(state.settings.company)} is doing today. ${pend.length ? `You have ${pend.length} time-off request${pend.length > 1 ? 's' : ''} waiting for review.` : 'Nothing is waiting for your review.'}</p>
-        </div>
-        <div class="actions">
-          <button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button>
-          <button class="btn btn-primary" data-act="add-emp">${icon('plus')}Add employee</button>
-        </div>
-      </div>
-
-      <div class="grid g-4 keep-2">
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Employees</div><div class="kpi-value">${active.length}</div><div class="kpi-foot">${state.departments.length} departments</div></div>
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>Attendance</div><div class="kpi-value">${rate}%</div><div class="kpi-foot">${inOffice} of ${ds.total} in · ${wd === T ? 'today' : U.fmtDate(wd, { weekday: 'short', month: 'short', day: 'numeric' })}</div></div>
+    const ins = insights(), focus = ins.filter((x) => x.prio >= 2 && x.action).slice(0, 3);
+    const nowIn = Object.values(state.attendance[T] || {}).filter((r) => r.in && !r.out).length;
+    const W = [
+      { id: 'today', title: 'Today', span: 12, fixed: true, render: () => hero({
+        title: greeting(emp('e1')?.first || 'there'),
+        sub: `${U.isWeekend(T) ? 'It’s the weekend at' : `${nowIn} ${nowIn === 1 ? 'person is' : 'people are'} in at`} ${esc(state.settings.company)} right now. ${focus.length ? `${focus.length} ${focus.length === 1 ? 'thing needs' : 'things need'} you today.` : dayNote()}`,
+        actions: `<button class="btn btn-primary" data-act="add-emp">${icon('plus')}Add employee</button><button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button>`,
+        focus, calm: 'You’re all caught up. Nothing needs your attention right now.' }) },
+      { id: 'setup', title: 'Getting started', span: 12, fixed: true, render: () => AllurusUX.setupCard() },
+      { id: 'kpis', title: 'Key numbers', span: 12, render: () => `<div class="grid g-4 keep-2">
+        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Employees</div><div class="kpi-value">${active.length}</div><div class="kpi-foot">${joined ? `${delta(joined)} joined this month` : `${state.departments.length} departments`}</div></div>
+        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>Attendance</div><div class="kpi-value">${rate}%</div><div class="kpi-foot">${delta(rate - avg, ' pts')} vs 7-day average · ${wd === T ? 'today' : U.fmtDate(wd, { weekday: 'short' })}</div></div>
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>On leave today</div><div class="kpi-value">${out.length}</div><div class="kpi-foot">${out.length ? esc(out.map((e) => e.first).join(', ')) : 'Everyone is in'}</div></div>
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Open roles</div><div class="kpi-value">${openRoles}</div><div class="kpi-foot">${activeCands} candidates in pipeline</div></div>
-      </div>
-
-      <div class="grid g-main">
-        <div class="card">
-          <div class="card-head"><h3>Attendance, last 7 workdays</h3><div class="legend"><span><i style="background:var(--brand)"></i>In office</span><span><i style="background:var(--gold)"></i>Remote</span></div></div>
-          ${attendanceChart(wd)}
-        </div>
-        <div class="card">
-          <div class="card-head"><h3>Waiting for approval</h3><a href="#leave" class="hint">View all</a></div>
-          ${pend.length ? `<div class="list">${pend.slice(0, 4).map((l) => {
-            const e = emp(l.empId);
-            return `<div class="list-item">${avatar(fullName(e))}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">${l.type} · ${l.days} day${l.days > 1 ? 's' : ''} · ${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}${l.to !== l.from ? ' – ' + U.fmtDate(l.to, { month: 'short', day: 'numeric' }) : ''}</div></div>
-              <button class="btn btn-sm btn-icon btn-ok" data-act="approve-leave" data-id="${l.id}" aria-label="Approve">${icon('check')}</button>
-              <button class="btn btn-sm btn-icon btn-danger" data-act="reject-leave" data-id="${l.id}" aria-label="Decline">${icon('x')}</button></div>`;
-          }).join('')}</div>` : '<div class="empty"><strong>All caught up</strong>New requests will appear here.</div>'}
-        </div>
-      </div>
-
-      <div class="grid g-3">
-        <div class="card">
-          <div class="card-head"><h3>Headcount by department</h3></div>
-          ${deptBars()}
-        </div>
-        <div class="card">
-          <div class="card-head"><h3>Net payroll</h3><span class="hint">${lastPaid ? 'Last paid ' + U.fmtMonth(lastPaid, { month: 'short' }) : ''}</span></div>
-          ${payrollChart()}
-        </div>
-        <div class="card">
-          <div class="card-head"><h3>Coming up</h3><span class="hint">Next 30 days</span></div>
-          ${upcomingList()}
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-head"><h3>Recent activity</h3></div>
-        <div class="list">${state.activity.slice(0, 6).map((a) => `<div class="list-item"><div class="grow">${esc(a.text)}</div><span class="faint" style="white-space:nowrap">${timeAgo(a.t)}</span></div>`).join('') || '<div class="empty">No activity yet.</div>'}</div>
-      </div>`;
+        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Open roles</div><div class="kpi-value">${state.jobs.length}</div><div class="kpi-foot">${state.candidates.filter((c) => c.stage !== 'Hired').length} candidates in the pipeline</div></div></div>` },
+      { id: 'attendance', title: 'Attendance trend', span: 8, render: () => `<div class="card"><div class="card-head"><h3>Attendance, last 7 workdays</h3><div class="legend"><span><i style="background:var(--brand)"></i>In office</span><span><i style="background:var(--gold)"></i>Remote</span></div></div>${attendanceChart(wd)}</div>` },
+      { id: 'live', title: 'Who’s in now', span: 4, render: liveWidget },
+      { id: 'approvals', title: 'Waiting for approval', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Waiting for you</h3><span class="hint">${pend.length + pendC.length} open</span></div>
+        ${pend.length || pendC.length ? `<div class="list">${pend.slice(0, 3).map((l) => { const e = emp(l.empId); return `<div class="list-item">${avatar(fullName(e), 'sm')}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">${l.type} leave · ${l.days} day${l.days > 1 ? 's' : ''} · ${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}</div></div>
+            <button class="btn btn-sm btn-icon btn-ok" data-act="approve-leave" data-id="${l.id}" aria-label="Approve ${esc(fullName(e))}’s leave">${icon('check')}</button><button class="btn btn-sm btn-icon btn-danger" data-act="reject-leave" data-id="${l.id}" aria-label="Decline ${esc(fullName(e))}’s leave">${icon('x')}</button></div>`; }).join('')}
+          ${pendC.slice(0, 3).map((c) => { const e = emp(c.empId); return e ? `<div class="list-item">${avatar(fullName(e), 'sm')}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">Medical claim · ${money(c.amount, 2)}</div></div><button class="btn btn-sm" data-act="cl-review" data-id="${c.id}">Review</button></div>` : ''; }).join('')}</div>`
+          : '<div class="empty"><strong>All caught up</strong>New requests will show up here.</div>'}</div>` },
+      { id: 'insights', title: 'Insights', span: 4, render: () => insightsCard(ins) },
+      { id: 'payroll', title: 'Payroll trend', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Net payroll</h3><span class="hint">${lastPaid ? 'Last paid ' + U.fmtMonth(lastPaid, { month: 'short' }) : ''}</span></div>${payrollChart()}</div>` },
+      { id: 'headcount', title: 'Headcount by department', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Headcount by department</h3></div>${deptBars()}</div>` },
+      { id: 'upcoming', title: 'Coming up', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Coming up</h3><span class="hint">Next 30 days</span></div>${upcomingList()}</div>` },
+      { id: 'activity', title: 'Recent activity', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Recent activity</h3></div>
+        <div class="list">${state.activity.slice(0, 6).map((a) => `<div class="list-item"><div class="grow" style="font-size:13.5px">${esc(a.text)}</div><span class="faint" style="white-space:nowrap;font-size:12.5px">${timeAgo(a.t)}</span></div>`).join('') || '<div class="empty">No activity yet.</div>'}</div></div>` },
+    ];
+    return AllurusUX.board('admin', W);
   };
 
   function attendanceChart(endDay) {
@@ -861,10 +965,7 @@
     const s = state.settings;
     if (role() !== 'admin') return `
       <div class="page-head"><div><h1>Settings</h1><p class="sub">Appearance and demo data for this browser.</p></div></div>
-      <div class="card"><div class="card-head"><h3>Appearance</h3></div>
-        <div class="settings-row"><div><div class="label">Theme</div><div class="desc">Follow the device or pick a theme.</div></div><div class="seg">${[['system', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<button data-act="theme" data-v="${v}" class="${s.theme === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-        <div class="settings-row"><div><div class="label">Brand kit</div><div class="desc">Allurus logo, colors and type.</div></div><a class="btn" href="brand.html">${icon('palette')}Open brand kit</a></div>
-      </div>
+      ${AllurusUX.appearanceCard()}
       ${accountCard()}
       ${role() === 'super' ? `<div class="card"><div class="card-head"><h3>Data</h3></div>
         <div class="settings-row"><div><div class="label">Reset demo workspace</div><div class="desc">Data is stored in this browser only.</div></div><button class="btn btn-danger" data-act="ask-reset">Reset data</button></div>
@@ -877,7 +978,6 @@
           <div class="settings-row"><div><div class="label">Company name</div><div class="desc">Shown in the sidebar and on payslips.</div></div><input class="input" id="s-company" value="${esc(s.company)}" style="width:220px"></div>
           <div class="settings-row"><div><div class="label">Head office city</div><div class="desc">Where your company appears on the Allurus map.</div></div><select class="select" id="s-office">${U.CITIES.map((c) => `<option value="${esc(c.name)}" ${s.office === c.name ? 'selected' : ''}>${esc(c.name)}, ${esc(c.country)}</option>`).join('')}</select></div>
           <div class="settings-row"><div><div class="label">Currency</div><div class="desc">Used for salaries and payroll.</div></div><select class="select" id="s-currency">${currencies.map((c) => `<option ${s.currency === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
-          <div class="settings-row"><div><div class="label">Appearance</div><div class="desc">Follow the device or pick a theme.</div></div><div class="seg">${[['system', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<button data-act="theme" data-v="${v}" class="${s.theme === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
         </div>
         <div class="card"><div class="card-head"><h3>Pay and leave rules</h3></div>
           ${s.currency === 'MYR' ? '' : `<div class="settings-row"><div><div class="label">Income tax withholding</div><div class="desc">Percent of gross pay.</div></div><input class="input num" id="s-tax" type="number" min="0" max="60" step="0.5" value="${s.taxRate}" style="width:100px"></div>
@@ -886,6 +986,7 @@
           <div class="settings-row"><div><div class="label">Sick leave</div><div class="desc">Days per person per year.</div></div><input class="input num" id="s-sick" type="number" min="0" max="60" value="${s.sickDays}" style="width:100px"></div>
         </div>
       </div>
+      ${AllurusUX.appearanceCard()}
       ${s.currency === 'MYR' ? statutoryCard(s) : ''}
       <div class="card"><div class="card-head"><h3>Check-in location</h3><a class="hint" href="${mapsLink(s.checkin)}" target="_blank" rel="noopener">View on Google Maps</a></div>
         <p class="muted" style="margin-bottom:6px">Employees must be inside this zone and take a selfie to check in.</p>
@@ -963,9 +1064,12 @@
     if (acct.tenantId && acct.tenantId !== state.session.tenantId && state.workspaces[acct.tenantId]) switchWorkspace(acct.tenantId);
     Object.assign(state.session, { account: acct.email, roles: acct.roles.slice(), role: acct.roles[0], empId: acct.empId });
     save();
-    if (location.hash) location.hash = ''; else render();
+    // Pick up where this person left off last time.
+    const last = AllurusUX.prefs().lastRoute?.[state.session.role];
+    const target = last && routes().some((r) => r.id === last) ? last : '';
+    if (location.hash.slice(1) !== target) location.hash = target; else render();
     window.scrollTo(0, 0);
-    toast(`Signed in as ${acct.email}`);
+    toast(target && target !== routes()[0].id ? `Welcome back. You’re where you left off.` : `Signed in as ${acct.email}`);
   }
   function accountCard() {
     const a = account();
@@ -1143,8 +1247,6 @@
 
   VIEWS.home = () => {
     const e = me(), T = U.today();
-    const hr = new Date().getHours();
-    const greet = hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
     const rec = myRecord(T);
     const aLeft = state.settings.annualDays - leaveUsed(e.id, 'Annual');
     const sLeft = state.settings.sickDays - leaveUsed(e.id, 'Sick');
@@ -1155,33 +1257,44 @@
     const myLeaves = state.leaves.filter((l) => l.empId === e.id && l.to >= T).sort((a, b) => a.from.localeCompare(b.from));
     const out = activeEmployees().filter((x) => x.dept === e.dept && x.id !== e.id && onLeaveOn(x.id, T));
     const review = state.reviews.find((r) => r.empId === e.id);
+    const birthday = e.birthday && e.birthday.slice(5) === T.slice(5);
+    const ins = insights(), focus = ins.filter((x) => x.prio >= 2 && x.action).slice(0, 3);
     let clock;
-    if (rec?.s === 'leave') clock = `<span class="pill gold">On leave today</span>`;
-    else if (!rec || !rec.in) clock = `<div class="actions"><button class="btn btn-primary" data-act="check-in" data-v="present">${icon('camera')}Check in with selfie</button>${zone().remote ? '<button class="btn" data-act="check-in" data-v="remote">Work remotely</button>' : ''}</div>`;
-    else if (!rec.out) clock = `<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end"><div class="actions">${selfieThumb(me().id, T, rec)}<span class="pill ok">${rec.s === 'remote' ? 'Remote' : 'In office'} since ${rec.lastIn || rec.in}</span><button class="btn btn-primary" data-act="check-out">Check out</button></div>${rec.loc ? `<span class="faint" style="font-size:12.5px;text-align:right">${esc(locText(rec.loc))}</span>` : ''}</div>`;
-    else clock = `<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end"><div class="actions">${selfieThumb(me().id, T, rec)}<span class="pill brand">Checked out at ${rec.out} · ${hoursBetween(rec.in, rec.out).toFixed(1)} h today</span><button class="btn btn-primary" data-act="check-in" data-v="present">${icon('camera')}Check in again</button>${zone().remote ? '<button class="btn" data-act="check-in" data-v="remote">Work remotely</button>' : ''}</div><span class="faint" style="font-size:12.5px;text-align:right">Checked out by mistake? Check in again. Your hours still count from ${rec.in}.</span></div>`;
-    return `
-      <div class="page-head"><div><div class="eyebrow">${U.fmtDate(T, { weekday: 'long', month: 'long', day: 'numeric' })}</div><h1>${greet}, ${esc(e.first)}.</h1><p class="sub">${esc(e.role)} · ${esc(dept(e.dept)?.name || '')} · ${esc(state.settings.company)}</p></div>
-        <div class="actions"><button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button></div></div>
-      <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap">
-        <div><div class="kpi-label">Time clock</div><div class="kpi-value" id="live-clock" style="font-size:44px">${nowHM()}</div><div class="kpi-foot">${U.isWeekend(T) ? 'It is the weekend. Check-ins still count. ' : ''}Check in within ${zone().radius} m of ${esc(zone().label)} and take a selfie.${phoneStatus(me()) ? ` ${phoneStatus(me())}` : ''}</div></div>
-        ${clock}
-      </div>
-      <div class="grid g-4 keep-2">
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Annual leave left</div><div class="kpi-value">${aLeft}</div><div class="kpi-foot">of ${state.settings.annualDays} days</div></div>
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>Sick leave left</div><div class="kpi-value">${sLeft}</div><div class="kpi-foot">of ${state.settings.sickDays} days</div></div>
+    if (rec?.s === 'leave') clock = `<span class="pill gold">On leave today. Enjoy it!</span>`;
+    else if (!rec || !rec.in) clock = `<div class="actions"><button class="btn btn-primary btn-lg" data-act="check-in" data-v="present">${icon('camera')}Check in with selfie</button>${zone().remote ? '<button class="btn" data-act="check-in" data-v="remote">Work remotely</button>' : ''}</div>`;
+    else if (!rec.out) clock = `<div class="clock-state"><div class="actions">${selfieThumb(me().id, T, rec)}<span class="pill ok">${rec.s === 'remote' ? 'Remote' : 'In office'} since ${rec.lastIn || rec.in}</span><button class="btn btn-primary" data-act="check-out">Check out</button></div>${rec.loc ? `<span class="faint" style="font-size:12.5px">${esc(locText(rec.loc))}</span>` : ''}</div>`;
+    else clock = `<div class="clock-state"><div class="actions">${selfieThumb(me().id, T, rec)}<span class="pill brand">Checked out at ${rec.out} · ${hoursBetween(rec.in, rec.out).toFixed(1)} h today</span><button class="btn btn-primary" data-act="check-in" data-v="present">${icon('camera')}Check in again</button>${zone().remote ? '<button class="btn" data-act="check-in" data-v="remote">Work remotely</button>' : ''}</div><span class="faint" style="font-size:12.5px">Checked out by mistake? Check in again. Your hours still count from ${rec.in}.</span></div>`;
+    const ps = AllurusPlanner.summary(state, e);
+    const coming = (state.claims || []).filter((c) => c.empId === e.id && c.status === 'Approved').reduce((s, c) => s + c.approved, 0);
+    const payday = U.lastWorkday(U.monthEnd(U.monthKey(T)));
+    const W = [
+      { id: 'today', title: 'Today', span: 12, fixed: true, render: () => hero({
+        title: birthday ? `Happy birthday, ${esc(e.first)}!` : greeting(e.first),
+        sub: `${esc(e.role)} · ${esc(dept(e.dept)?.name || '')}. ${birthday ? 'Everyone at ' + esc(state.settings.company) + ' wishes you a great day.' : dayNote()}`,
+        actions: `<button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button>`,
+        side: `<div class="clock-box"><div class="kpi-label">${icon('clock')}Time clock</div><div class="kpi-value clock-time" id="live-clock">${nowHM()}</div>${clock}<div class="kpi-foot">${U.isWeekend(T) ? 'It’s the weekend. Check-ins still count. ' : ''}Within ${zone().radius} m of ${esc(zone().label)}, with a selfie.${phoneStatus(me()) ? ` ${phoneStatus(me())}` : ''}</div></div>`,
+        focus: focus.filter((f) => f.action.act !== 'check-in'), calm: 'Nothing needs you right now. Have a good day.' }) },
+      { id: 'setup', title: 'Getting started', span: 12, fixed: true, render: () => AllurusUX.setupCard() },
+      { id: 'kpis', title: 'My numbers', span: 12, render: () => `<div class="grid g-4 keep-2">
+        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Annual leave left</div><div class="kpi-value">${aLeft}</div><div class="progress"><i style="width:${Math.min(100, (aLeft / state.settings.annualDays) * 100)}%"></i></div><div class="kpi-foot">of ${state.settings.annualDays} days</div></div>
+        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>Sick leave left</div><div class="kpi-value">${sLeft}</div><div class="progress"><i style="width:${Math.min(100, (sLeft / state.settings.sickDays) * 100)}%;background:var(--gold)"></i></div><div class="kpi-foot">of ${state.settings.sickDays} days</div></div>
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>Days worked</div><div class="kpi-value">${inDays}<span class="faint" style="font-size:18px"> / ${monthDays.length}</span></div><div class="kpi-foot">${U.fmtMonth(U.monthKey(T), { month: 'long' })} so far</div></div>
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Last net pay</div><div class="kpi-value">${lastPay ? compactMoney(lastPay.net) : '—'}</div><div class="kpi-foot">${runs[0] ? U.fmtMonth(runs[0]) : 'No payslips yet'}</div></div>
-      </div>
-      <div class="grid g-3">
-        <div class="card"><div class="card-head"><h3>My time off</h3><a class="hint" href="#my-leave">All requests</a></div>
-          ${myLeaves.length ? `<div class="list">${myLeaves.slice(0, 4).map((l) => `<div class="list-item"><div class="grow"><div class="person-name">${l.type} · ${l.days} day${l.days > 1 ? 's' : ''}</div><div class="person-sub">${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}${l.to !== l.from ? ' – ' + U.fmtDate(l.to, { month: 'short', day: 'numeric' }) : ''}</div></div>${leavePill(l.status)}</div>`).join('')}</div>` : '<div class="empty"><strong>Nothing booked</strong>Plan a break with Request time off.</div>'}</div>
-        <div class="card"><div class="card-head"><h3>My goals</h3><a class="hint" href="#my-profile">Update</a></div>
-          ${review ? `<div class="kpi"><div class="kpi-value">${review.progress}%</div><div class="progress"><i style="width:${review.progress}%"></i></div><div class="kpi-foot" style="margin-top:6px">${esc(review.cycle)} · ${review.status}</div><div style="margin-top:6px">${stars(review.rating)}</div></div>` : '<div class="empty">No review cycle yet.</div>'}</div>
-        <div class="card"><div class="card-head"><h3>Team</h3><span class="hint">${esc(dept(e.dept)?.name || '')}</span></div>
-          <div class="kpi-foot" style="margin-bottom:10px">${out.length ? `Out today: ${esc(out.map((x) => x.first).join(', '))}` : 'Everyone on your team is in today.'}</div>
-          ${upcomingList()}</div>
-      </div>`;
+        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Last net pay</div><div class="kpi-value">${lastPay ? compactMoney(lastPay.net) : '—'}</div><div class="kpi-foot">${runs[0] ? U.fmtMonth(runs[0]) : 'No payslips yet'}</div></div></div>` },
+      { id: 'insights', title: 'For you', span: 4, render: () => insightsCard(ins.filter((x) => x.action?.act !== 'check-in')) },
+      { id: 'money', title: 'My money', span: 4, render: () => `<div class="card"><div class="card-head"><h3>My money</h3><a class="hint" href="#my-plan">Planner</a></div>
+        <dl class="kv kv-wide"><dt>Last net pay</dt><dd class="num">${lastPay ? money(lastPay.net, 2) : '—'}</dd>
+          <dt>Left to spend</dt><dd class="num">${ps?.filled ? `<strong style="color:${ps.left >= 0 ? 'var(--ok)' : 'var(--bad)'}">${money(ps.left)}</strong> a month` : '<a href="#my-plan">Set up your planner</a>'}</dd>
+          <dt>Claims coming</dt><dd class="num">${coming ? money(coming, 2) : '—'}</dd>
+          <dt>Next payday</dt><dd>${U.fmtDate(payday, { weekday: 'short', month: 'short', day: 'numeric' })}</dd></dl>
+        <div class="actions" style="margin-top:14px"><a class="btn btn-sm" href="#my-pay">${icon('wallet')}Payslips</a>${claimsApi?.enabled() ? `<a class="btn btn-sm" href="#my-claims">${icon('heart')}Claims</a>` : ''}</div></div>` },
+      { id: 'timeoff', title: 'My time off', span: 4, render: () => `<div class="card"><div class="card-head"><h3>My time off</h3><a class="hint" href="#my-leave">All requests</a></div>
+        ${myLeaves.length ? `<div class="list">${myLeaves.slice(0, 4).map((l) => `<div class="list-item"><div class="grow"><div class="person-name">${l.type} · ${l.days} day${l.days > 1 ? 's' : ''}</div><div class="person-sub">${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}${l.to !== l.from ? ' – ' + U.fmtDate(l.to, { month: 'short', day: 'numeric' }) : ''}</div></div>${leavePill(l.status)}</div>`).join('')}</div>` : `<div class="empty"><strong>Nothing booked</strong>You have ${aLeft} days to enjoy. <button class="link-btn" data-act="new-leave">Plan a break</button></div>`}</div>` },
+      { id: 'goals', title: 'My goals', span: 6, render: () => `<div class="card"><div class="card-head"><h3>My goals</h3><a class="hint" href="#my-profile">Update</a></div>
+        ${review ? `<div class="kpi"><div class="kpi-value">${review.progress}%</div><div class="progress"><i style="width:${review.progress}%"></i></div><div class="kpi-foot" style="margin-top:6px">${esc(review.cycle)} · ${review.status}</div><div style="margin-top:6px">${stars(review.rating)}</div></div>` : '<div class="empty">No review cycle yet.</div>'}</div>` },
+      { id: 'team', title: 'Team', span: 6, render: () => `<div class="card"><div class="card-head"><h3>Team</h3><span class="hint">${esc(dept(e.dept)?.name || '')}</span></div>
+        <div class="kpi-foot" style="margin-bottom:10px">${out.length ? `Out today: ${esc(out.map((x) => x.first).join(', '))}` : 'Everyone on your team is in today.'}</div>${upcomingList()}</div>` },
+    ];
+    return AllurusUX.board('employee', W);
   };
   AFTER.home = () => {
     clearInterval(clockTimer);
@@ -1610,6 +1723,7 @@
     const tn = currentTenant(); if (tn) tn.lastActive = T;
     closeOverlay();
     const flagged = face && ['mismatch', 'unavailable'].includes(face.result);
+    if (!flagged) setTimeout(() => AllurusUX.celebrate(), 150);
     commit(flagged ? `Checked in at ${t}. HR will review your selfie.` : `Checked in at ${t}`,
       `${fullName(e)} checked in${ci.mode === 'remote' ? ' remotely' : ''} with a selfie, ${U.fmtDist(L.m)} from ${z.label}${face?.result === 'mismatch' ? '. The face did not match.' : ''}`);
   }
@@ -1803,7 +1917,7 @@
   const LOGO_FULL = `<span style="display:inline-flex;align-items:center;gap:12px">${LOGO_MARK.replace(/width="30" height="30"/, 'width="44" height="44"')}<span style="font-size:22px;font-weight:600;letter-spacing:.3em">ALLURUS</span></span>`;
 
   // ---------- Overlays ----------
-  function closeOverlay() { stopCamera(); $('#overlay-root').innerHTML = ''; }
+  function closeOverlay() { const had = $('#overlay-root').children.length; stopCamera(); $('#overlay-root').innerHTML = ''; if (had) AllurusUX.restoreFocus(); }
   function openModal({ title, body, submit = 'Save', onSubmit, size = '' }) {
     $('#overlay-root').innerHTML = `<div class="scrim" data-scrim><form class="modal ${size}" role="dialog" aria-modal="true" aria-label="${esc(title)}" novalidate>
       <div class="modal-head"><h2>${esc(title)}</h2><button type="button" class="btn btn-icon btn-ghost" data-act="close-overlay" aria-label="Close">${icon('x')}</button></div>
@@ -1812,19 +1926,30 @@
     const form = $('#overlay-root form');
     form.addEventListener('submit', (ev) => {
       ev.preventDefault();
-      const bad = $$('[required]', form).find((el) => !el.value.trim());
-      if (bad) { bad.focus(); toast(`${bad.closest('.field').querySelector('label').textContent} is required`); return; }
+      const missing = $$('[required]', form).filter((el) => !el.value.trim());
+      $$('.field-error', form).forEach((x) => x.remove());
+      $$('[aria-invalid]', form).forEach((x) => x.removeAttribute('aria-invalid'));
+      if (missing.length) {
+        missing.forEach((el) => { el.setAttribute('aria-invalid', 'true'); const f = el.closest('.field'); if (f) f.insertAdjacentHTML('beforeend', `<span class="field-error" id="${el.id}-err">${icon('x')}Fill this in to continue</span>`); el.setAttribute('aria-describedby', `${el.id}-err`); });
+        missing[0].focus(); form.classList.remove('shake'); void form.offsetWidth; form.classList.add('shake');
+        toast(`${missing[0].closest('.field')?.querySelector('label')?.textContent || 'A field'} is required`, 'error'); return;
+      }
       const d = Object.fromEntries(new FormData(form).entries());
       if (onSubmit?.(d) !== false) closeOverlay();
     });
+    AllurusUX.trapFocus(form);
+    form.addEventListener('input', (ev) => { if (ev.target.value?.trim() && ev.target.getAttribute('aria-invalid')) { ev.target.removeAttribute('aria-invalid'); document.getElementById(ev.target.id + '-err')?.remove(); } });
     setTimeout(() => $('input:not([type=hidden]), select, textarea', form)?.focus(), 30);
   }
   function openDrawer(html) {
     $('#overlay-root').innerHTML = `<div class="scrim drawer-scrim" data-scrim><aside class="drawer" role="dialog" aria-modal="true">${html}</aside></div>`;
+    AllurusUX.trapFocus($('.drawer'));
   }
+  // Destructive actions and decisions can be undone for a few seconds from their toast.
+  let undoSnap = null;
   function toast(msg, kind) {
-    const t = document.createElement('div'); t.className = 'toast' + (kind === 'error' ? ' toast-error' : ''); t.innerHTML = icon(kind === 'error' ? 'x' : 'check') + esc(msg);
-    $('#toast-root').appendChild(t); setTimeout(() => t.remove(), 2600);
+    const snap = undoSnap; undoSnap = null;
+    AllurusUX.toast(msg, kind || 'ok', snap && kind !== 'error' ? { undo: () => { state = JSON.parse(snap); save(); render(); AllurusUX.toast('Undone', 'info'); } } : {});
   }
 
   // ---------- CSV ----------
@@ -1837,11 +1962,7 @@
   }
 
   // ---------- Theme ----------
-  function applyTheme() {
-    const t = state.settings.theme;
-    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
-    else document.documentElement.removeAttribute('data-theme');
-  }
+  function applyTheme() { AllurusUX.applyPrefs(); }
 
   // ---------- Actions ----------
   const ACTIONS = {
@@ -1933,7 +2054,7 @@
       openEmployeeModal(null, { first, last: rest.join(' '), email: `${first}.${rest.join('')}`.toLowerCase().replace(/[^a-z.]/g, '') + '@' + state.settings.domain, role: j?.title || '', dept: j?.dept, location: j?.location || '', start: U.addDays(U.today(), 14) }, () => { c.converted = true; });
     },
     'review': (id) => openReviewModal(id),
-    'theme': (_, v) => { state.settings.theme = v; commit(); },
+    'theme': (_, v) => ACTIONS['ux-pref']('theme', v),
     'ask-reset': () => { $('#reset-confirm').innerHTML = `<div class="confirm-bar"><span style="flex:1">Replace all data with the sample company?</span><button class="btn btn-sm" data-act="cancel-reset">Cancel</button><button class="btn btn-sm btn-danger" data-act="do-reset">Reset</button></div>`; },
     'cancel-reset': () => { $('#reset-confirm').innerHTML = ''; },
     'do-reset': () => { state = AllurusSeed.create(); commit('Workspace reset'); },
@@ -1941,6 +2062,7 @@
     ...ACTIONS_EXTRA,
   };
 
+  const UNDOABLE = new Set(['del-leave', 'approve-leave', 'reject-leave', 'cand-del', 'cand-move', 'close-job', 'pay-discard', 'att-clear', 'dev-remove', 'cl-cancel', 'cl-approve', 'cl-reject', 'cl-paynow', 'cl-type-del', 'plan-del', 'rel-del', 'fin-del-txn', 'ux-w-hide']);
   document.addEventListener('click', (ev) => {
     const scrim = ev.target.closest('[data-scrim]');
     if (scrim && ev.target === scrim) { closeOverlay(); return; }
@@ -1950,33 +2072,26 @@
       return;
     }
     // Buttons inside a clickable row should not also open the row.
-    const fn = ACTIONS[el.dataset.act];
-    if (fn) { ev.preventDefault(); ev.stopPropagation(); fn(el.dataset.id, el.dataset.v); }
+    const name = el.dataset.act, fn = ACTIONS[name];
+    if (!fn) return;
+    ev.preventDefault(); ev.stopPropagation();
+    if (role()) AllurusUX.onAction(name);
+    undoSnap = UNDOABLE.has(name) ? JSON.stringify(state) : null;
+    fn(el.dataset.id, el.dataset.v);
+    undoSnap = null;
+    if (name === 'pay-approve' || (name === 'approve-leave' && !pendingLeaves().length)) AllurusUX.celebrate();
   });
   document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') { closeOverlay(); $('#search-results').hidden = true; }
-    if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); $('#global-search').focus(); }
+    if (ev.key === 'Escape') closeOverlay();
   });
-
-  // ---------- Global search ----------
-  function setupSearch() {
-    const input = $('#global-search'), box = $('#search-results');
-    input.addEventListener('input', () => {
-      const q = input.value.trim().toLowerCase();
-      if (!q) { box.hidden = true; return; }
-      const hits = state.employees.filter((e) => `${fullName(e)} ${e.role} ${e.email}`.toLowerCase().includes(q)).slice(0, 7);
-      box.innerHTML = hits.length ? hits.map((e) => `<button data-act="search-pick" data-id="${e.id}">${person(e)}</button>`).join('') : '<div class="empty" style="padding:14px">No people found</div>';
-      box.hidden = false;
-    });
-    input.addEventListener('blur', () => setTimeout(() => { box.hidden = true; }, 150));
-    ACTIONS['search-pick'] = (id) => { input.value = ''; box.hidden = true; openProfile(id); };
-  }
 
   // ---------- Finance & Accounting and tax modules ----------
   const moduleCtx = {
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
     downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
+    save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(),
   };
+  AllurusUX.install(moduleCtx);
   finApi = AllurusFinance.install(moduleCtx);
   AllurusTax.install(moduleCtx);
   claimsApi = AllurusClaims.install(moduleCtx);
@@ -1985,8 +2100,16 @@
   // ---------- Boot ----------
   $('#today').textContent = U.fmtDate(U.today(), { weekday: 'short', month: 'short', day: 'numeric' });
   $('#brand-mark').innerHTML = LOGO_MARK;
-  setupSearch();
-  window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
+  window.addEventListener('hashchange', () => { navigated = true; render(); window.scrollTo(0, 0); });
+  // Live: when another tab on this browser changes data (a check-in, an approval), refresh this screen.
+  window.addEventListener('storage', (ev) => {
+    if (ev.key !== STORE_KEY || !ev.newValue) return;
+    const sess = state.session, next = load();
+    if (next.session.tenantId !== sess.tenantId) return;
+    state = next; state.session = sess;
+    if (!$('#overlay-root').children.length && !AllurusUX.isEditing() && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) render();
+    AllurusUX.pulseLive();
+  });
   render();
   connectCloud();
 })();

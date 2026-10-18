@@ -6,10 +6,11 @@
 <title>Allurus HR</title>
 <meta name="description" content="Allurus — people operations for growing companies.">
 <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg">
-<link rel="stylesheet" href="css/styles.css?v=1.9">
+<link rel="stylesheet" href="css/styles.css?v=2.0">
 </head>
 <body>
 <!--app:start-->
+<button type="button" class="skip-link" data-act="ux-skip">Skip to content</button>
 <div id="login" class="login" hidden></div>
 
 <div class="app" hidden>
@@ -28,32 +29,36 @@
   <div class="main-wrap">
     <header class="topbar">
       <button class="btn btn-icon btn-ghost menu-btn" data-act="menu" aria-label="Open menu"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-      <div class="search">
-        <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
-        <input id="global-search" type="search" placeholder="Search people  ⌘K" autocomplete="off" aria-label="Search people">
-        <div class="search-results" id="search-results" hidden></div>
-      </div>
+      <button type="button" class="cmdk-trigger" data-act="ux-palette" aria-label="Search or jump to" aria-keyshortcuts="Meta+K Control+K"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><span>Search or jump to…</span><kbd>⌘K</kbd></button>
       <div class="top-spacer"></div>
+      <span class="live-pill" id="live-pill" hidden><i aria-hidden="true"></i><span>Live</span></span>
       <span class="today" id="today"></span>
+      <button type="button" class="btn btn-icon btn-ghost" id="theme-btn" data-act="ux-theme" aria-label="Switch theme"></button>
+      <button type="button" class="btn btn-icon btn-ghost" data-act="ux-help" aria-label="Help" aria-keyshortcuts="Shift+Slash" title="Help (?)"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.8M12 17.2v.1"/></svg></button>
     </header>
-    <main class="view" id="view"></main>
+    <main class="view" id="view" tabindex="-1"></main>
   </div>
 </div>
 
+<nav class="tabbar" id="tabbar" aria-label="Quick navigation"></nav>
+
 <div id="overlay-root"></div>
+<div id="cmdk-root"></div>
+<div id="tour-root"></div>
 <div class="toast-root" id="toast-root" aria-live="polite"></div>
 
-<script src="js/vendor/jsvectormap.min.js?v=1.9"></script>
-<script src="js/vendor/world.js?v=1.9"></script>
-<script src="js/utils.js?v=1.9"></script>
-<script src="js/seed.js?v=1.9"></script>
-<script src="js/finance.js?v=1.9"></script>
-<script src="js/tax.js?v=1.9"></script>
-<script src="js/face.js?v=1.9"></script>
-<script src="js/receipt.js?v=1.9"></script>
-<script src="js/claims.js?v=1.9"></script>
-<script src="js/planner.js?v=1.9"></script>
-<script src="js/app.js?v=1.9"></script>
+<script src="js/vendor/jsvectormap.min.js?v=2.0"></script>
+<script src="js/vendor/world.js?v=2.0"></script>
+<script src="js/utils.js?v=2.0"></script>
+<script src="js/seed.js?v=2.0"></script>
+<script src="js/finance.js?v=2.0"></script>
+<script src="js/tax.js?v=2.0"></script>
+<script src="js/face.js?v=2.0"></script>
+<script src="js/receipt.js?v=2.0"></script>
+<script src="js/claims.js?v=2.0"></script>
+<script src="js/planner.js?v=2.0"></script>
+<script src="js/experience.js?v=2.0"></script>
+<script src="js/app.js?v=2.0"></script>
 <!--app:end-->
 </body>
 </html>

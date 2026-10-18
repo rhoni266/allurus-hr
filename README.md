@@ -40,6 +40,23 @@ Employees get **Tax reliefs**: personal receipts tracked against LHDN relief cap
 
 The tax features use keyword matching and the rates in `js/tax.js`. They help prepare records; they are not tax advice. Check caps and rates for the current year of assessment with LHDN or your tax agent.
 
+## Experience (2026 SaaS standards)
+
+| Standard | In Allurus |
+|---|---|
+| Personalization | Preferences are saved per account: theme, accent, density, text size, pinned pages and dashboard layout. The app reopens on the page you last used. The "Focus for today" list and command suggestions adapt to your role and the time of day. |
+| Emotional design | Friendly greetings, birthday wishes, gentle nudges to take leave, and small celebrations when you check in, pay payroll or clear your approvals. |
+| Feedback | Toasts confirm every action, and decisions and deletes have **Undo**. Missing fields are flagged inline. KPI numbers count up when a page opens. |
+| Display modes | Light, dark or automatic theme, six accent colours, comfortable or compact density, larger text and more contrast. |
+| Mobile UX | A bottom tab bar (your pins or the role's main pages, plus More), forms that open as bottom sheets, and large touch targets. |
+| User engagement | A setup checklist per role with a progress ring, a short guided tour, and Help with tips for the page you're on (press **?**). |
+| Customization | Admins and employees can rearrange their dashboard: drag cards, choose S/M/L/Full widths, hide and restore cards, or reset. Keyboard move buttons work as well. |
+| Data handling | A live "Who's in now" card and a Live indicator update when data changes in another tab. Automated insights cover approvals, payroll cost trends, overdue invoices, attendance against the 7-day average, leave balances and the employee's money plan. |
+| Accessibility | A skip link, focus moves to the page heading on navigation, modals keep focus inside them, every icon button is labelled, `aria-current` marks the current page, and reduce-motion is respected. |
+| Layout | A clear hierarchy: a welcome card, key numbers, then detail cards on a 12-column grid. |
+| Navigation & search | A command palette (**⌘K**, **Ctrl+K** or **/**) to search people, pages and actions such as "check in", "run payroll" or "dark mode". |
+| Design consistency | Shared tokens and components, documented live in [`design-system.html`](design-system.html). |
+
 ## Payroll: EPF, SOCSO, EIS, PCB and HRD Corp
 
 For Malaysian companies (currency MYR), every payslip works out the compulsory deductions:
@@ -126,9 +143,11 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 ```
 index.html          App shell: sign-in screen, sidebar, top bar
 brand.html          Brand kit: logo, palette, type, usage rules
+design-system.html  Live tokens and components
 css/styles.css      Design tokens (light and dark) and all components
 js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
 js/seed.js          Demo data: the Lumen & Co. workspace and 14 subscribed companies
+js/experience.js    Preferences, ⌘K palette, dashboards, setup, tour, help, live updates
 js/claims.js        Medical claims: policy, employee claims, HR review
 js/planner.js       Employee financial planner
 js/app.js           Views, routing per role, actions, registration, shared-link sync

@@ -155,5 +155,13 @@ window.AllurusPlanner = (function () {
     });
   }
 
-  return { install, sample, template, GROUPS };
+  // A quick monthly summary for dashboards and insights.
+  function summary(state, e) {
+    const p = (state.plans || {})[e.id]; if (!p) return null;
+    const sum = (g) => r2(p.items.filter((x) => x.group === g).reduce((s, x) => s + (Number(x.amount) || 0), 0));
+    const reg = U.payCalc(e.salary, 0, state.settings, e), take = r2(reg.net + sum('income'));
+    return { take, commit: sum('commit'), left: r2(take - sum('commit') - sum('living') - sum('save')), filled: p.items.some((x) => Number(x.amount) > 0) };
+  }
+
+  return { install, sample, template, summary, GROUPS };
 })();
