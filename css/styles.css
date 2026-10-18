@@ -356,6 +356,63 @@ td.r, th.r { text-align: right; }
 .loc-cell { display: flex; align-items: center; gap: 10px; }
 .att-controls { display: flex; align-items: center; gap: 6px; }
 
+/* ---------- Finance & Accounting ---------- */
+.modal.lg { max-width: 880px; }
+.chart .b-in { fill: var(--brand); }
+.chart .b-out { fill: var(--gold); }
+.amt-in { color: var(--ok); font-weight: 600; }
+.amt-out { color: var(--fg); }
+tfoot td { border-top: 1px solid var(--line-strong); border-bottom: 0; background: var(--surface-2); }
+.tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 6px; font-size: 11px; font-weight: 600; background: var(--line); color: var(--fg-2); white-space: nowrap; }
+.tag.ok { background: var(--ok-soft); color: var(--ok); }
+.tag.warn { background: var(--warn-soft); color: var(--warn); }
+.tag.bad { background: var(--bad-soft); color: var(--bad); }
+.lock-banner { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 14px; background: var(--ok-soft); color: var(--ok); font-weight: 500; font-size: 13.5px; }
+.lock-banner.info { background: var(--info-soft); color: var(--info); }
+.lock-banner.warn { background: var(--warn-soft); color: var(--warn); }
+.steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.steps > div { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 18px; display: flex; flex-direction: column; gap: 4px; }
+.steps span { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+.steps p { color: var(--fg-3); font-size: 13px; }
+.report { display: flex; flex-direction: column; gap: 16px; }
+.report-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.report-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.report-grid h4, .trail h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--fg-3); margin: 14px 0 6px; }
+.report-grid section > h4:first-child { margin-top: 0; }
+.rep-lines > div { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.rep-lines .sub-h { font-weight: 600; color: var(--fg-2); border-bottom: 0; padding-top: 10px; }
+.rep-lines .tot { font-weight: 600; }
+.rep-lines .grand { font-weight: 700; font-size: 15px; border-bottom: 0; border-top: 2px solid var(--fg); margin-top: 4px; padding-top: 8px; }
+.trail ol { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; }
+.trail p { margin-top: 2px; font-size: 13px; }
+.review-box { display: flex; flex-direction: column; gap: 8px; padding: 16px; border-radius: 16px; background: var(--surface-2); border: 1px solid var(--line); }
+.review-box label { font-weight: 600; font-size: 13px; color: var(--fg-2); }
+.doc { display: flex; flex-direction: column; gap: 18px; }
+.doc-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.doc-title { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
+.doc-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; font-size: 13.5px; }
+.doc-totals { margin-left: auto; width: min(320px, 100%); }
+.doc-totals > div { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.doc-totals .grand { font-weight: 700; font-size: 16px; border-bottom: 0; }
+.inv-line { display: grid; grid-template-columns: minmax(0, 1fr) 72px 120px; gap: 8px; margin-bottom: 8px; }
+.duties { display: flex; flex-wrap: wrap; gap: 6px; }
+.dept-note { display: flex; gap: 8px; font-size: 12.5px; color: var(--fg-2); background: var(--gold-soft); padding: 10px 12px; border-radius: 12px; }
+.dept-note svg.i { color: var(--gold); width: 16px; height: 16px; margin-top: 1px; }
+.tax-suggest { padding: 12px 14px; border-radius: 12px; background: var(--brand-soft); font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.tax-suggest strong { color: var(--brand); }
+.tax-suggest.warn { background: var(--warn-soft); }
+.tax-suggest.warn strong { color: var(--warn); }
+.check { display: flex; align-items: flex-start; gap: 10px; font-size: 13.5px; cursor: pointer; }
+.check input { width: 16px; height: 16px; margin-top: 2px; accent-color: var(--brand); flex: none; }
+.disclaimer { display: flex; gap: 8px; font-size: 12.5px; color: var(--fg-3); }
+.disclaimer svg.i { width: 15px; height: 15px; flex: none; margin-top: 1px; }
+.relief { display: flex; flex-direction: column; gap: 8px; }
+details.rules summary { display: flex; justify-content: space-between; align-items: center; cursor: pointer; list-style: none; }
+details.rules summary::-webkit-details-marker { display: none; }
+details.rules[open] summary { margin-bottom: 14px; }
+details.rules summary h3 { font-size: 17px; }
+@media (max-width: 900px) { .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } .report-grid { grid-template-columns: minmax(0, 1fr); } }
+
 /* ---------- Sign-in ---------- */
 .login { min-height: 100%; display: grid; place-items: center; padding: 48px max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); }
 .login-inner { width: 100%; max-width: 1040px; display: flex; flex-direction: column; align-items: center; gap: 18px; text-align: center; }

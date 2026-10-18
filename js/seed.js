@@ -5,15 +5,18 @@ window.AllurusSeed = {
     const T = U.today();
     // Check-in zone: employees must be inside this circle (radius in meters) and take a selfie.
     const checkin = { label: 'Allurus HQ', lat: 3.769833, lng: 103.224556, radius: 50, remote: false };
-    const settings = { company: 'Allurus', domain: 'allurus.com', currency: 'USD', office: 'Kuantan', checkin, taxRate: 20, benefitsRate: 4.5, annualDays: 20, sickDays: 10, theme: 'system' };
+    const settings = { company: 'Allurus', domain: 'allurus.com', currency: 'MYR', office: 'Kuantan', checkin, taxRate: 8, benefitsRate: 11.7, annualDays: 20, sickDays: 10, theme: 'system' };
 
     const departments = [
-      { id: 'd-people', name: 'People', lead: 'e1', color: '#14958A' },
-      { id: 'd-eng', name: 'Engineering', lead: 'e4', color: '#4A6FD1' },
-      { id: 'd-design', name: 'Design', lead: 'e3', color: '#B8914A' },
-      { id: 'd-sales', name: 'Sales', lead: 'e14', color: '#C2577A' },
-      { id: 'd-mkt', name: 'Marketing', lead: 'e9', color: '#7A62C9' },
-      { id: 'd-fin', name: 'Finance', lead: 'e11', color: '#5E8C3A' },
+      { id: 'd-people', name: 'People', lead: 'e1', color: '#14958A', about: 'Hires, develops and looks after staff, and keeps employment practices compliant.', duties: 'Recruitment, Onboarding, Leave and attendance, Performance reviews, Employee relations' },
+      { id: 'd-eng', name: 'Engineering', lead: 'e4', color: '#4A6FD1', about: 'Builds and runs the Allurus product.', duties: 'Product development, Infrastructure, Security, Quality assurance' },
+      { id: 'd-design', name: 'Design', lead: 'e3', color: '#B8914A', about: 'Shapes how the product and brand look and work.', duties: 'Product design, User research, Brand' },
+      { id: 'd-sales', name: 'Sales', lead: 'e14', color: '#C2577A', about: 'Wins new customers and grows existing accounts.', duties: 'Prospecting, Demos, Proposals, Renewals' },
+      { id: 'd-mkt', name: 'Marketing', lead: 'e9', color: '#7A62C9', about: 'Builds awareness and brings in leads.', duties: 'Campaigns, Content, Digital ads, Events' },
+      { id: 'd-fin', name: 'Finance and Accounting', lead: 'e11', color: '#5E8C3A',
+        about: 'Manages the company’s financial health, cash flow, and regulatory compliance.',
+        duties: 'Bookkeeping, Budgeting, Payroll, Invoicing, Accounts payable and receivable, Tax filing, Financial reporting',
+        note: 'Very small SMEs often outsource this function to external accounting firms or use automated cloud accounting software. In Allurus the books keep themselves and each month’s report goes to your auditor to verify.' },
     ];
 
     const people = [
@@ -141,11 +144,14 @@ window.AllurusSeed = {
     const session = { account: null, roles: [], role: null, empId: 'e2', tenantId: 't1' };
     // Sign-in accounts. Passwords are stored as SHA-256 of "email:password", never in plain text.
     const accounts = [
-      { email: 'superadmin@allurus.com', name: 'Allurus HQ', hash: 'f1cf377d5d77bcc3a12af1c4516fb4b6d20797dc369593edf0668aee2926cef9', roles: ['super', 'admin', 'employee'], tenantId: 't1', empId: 'e2' },
+      { email: 'superadmin@allurus.com', name: 'Allurus HQ', hash: 'f1cf377d5d77bcc3a12af1c4516fb4b6d20797dc369593edf0668aee2926cef9', roles: ['super', 'admin', 'employee', 'auditor'], tenantId: 't1', empId: 'e2' },
       { email: 'admin@allurus.com', name: 'Amara Okafor', hash: '02333a94bab39ec8b56cd57a87830ed79f29237de26eccaf9e724305ede5cbd9', roles: ['admin', 'employee'], tenantId: 't1', empId: 'e1' },
+      { email: 'auditor@allurus.com', name: 'Tan Mei Ling', hash: 'de063c5c0e703dfca0ea223f81021f74d9f4abaf13918d647134e4fd064cf3ba', roles: ['auditor'], tenantId: 't1', empId: '' },
       { email: 'emp@allurus.com', name: 'Daniel Reyes', hash: '3d18388e7dd6f616a46254f4c8eb14b0aaeca178e246cd9832d4785daa11b7c9', roles: ['employee'], tenantId: 't1', empId: 'e2' },
     ];
-    return { version: 3, session, accounts, workspaces: {}, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
+    const finance = AllurusFinance.seed({ employees, payroll, today: T, customers: platform.tenants.filter((t) => t.id !== 't1').map((t) => ({ name: t.name, email: t.admin })) });
+    const reliefs = AllurusTax.seedReliefs(T);
+    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
   },
 
   // Super Admin data: every company subscribed to Allurus.

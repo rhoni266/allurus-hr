@@ -2,9 +2,9 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.5';
+  const APP_VERSION = '1.6';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
-  const STORE_KEY = 'allurus-hr-v5';
+  const STORE_KEY = 'allurus-hr-v6';
   const esc = U.esc;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
@@ -16,6 +16,9 @@
     try { const raw = localStorage.getItem(STORE_KEY); if (raw) s = JSON.parse(raw); } catch (e) { /* storage unavailable */ }
     s = s || AllurusSeed.create();
     [s.settings, ...Object.values(s.workspaces || {}).map((w) => w.settings)].forEach((st) => { if (!st.checkin) st.checkin = defaultZone(st.company, st.office); });
+    if (!s.finance) s.finance = AllurusFinance.blank();
+    Object.values(s.workspaces || {}).forEach((w) => { if (!w.finance) w.finance = AllurusFinance.blank(); });
+    s.reliefs = s.reliefs || {}; s.taxProfiles = s.taxProfiles || {};
     return s;
   }
   function defaultZone(company, office) {
@@ -57,6 +60,14 @@
     download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
     palette: '<path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-1.1-.9-1.5-.9-2.6 0-1 .8-1.7 1.8-1.7H17a4 4 0 0 0 4-4C21 6.5 17 3 12 3z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="11" cy="7.5" r="1.2"/><circle cx="15.5" cy="8.5" r="1.2"/>',
     doc: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>',
+    minus: '<path d="M5 12h14"/>',
+    lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+    percent: '<path d="M19 5L5 19"/><circle cx="7" cy="7" r="2.5"/><circle cx="17" cy="17" r="2.5"/>',
+    coins: '<ellipse cx="9" cy="7" rx="6" ry="3"/><path d="M3 7v5c0 1.7 2.7 3 6 3s6-1.3 6-3V7"/><path d="M9 15v2c0 1.7 2.7 3 6 3s6-1.3 6-3v-5c0-1.6-2.4-2.9-5.5-3"/>',
+    book: '<path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11M9 8h6"/>',
+    receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+    target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>',
+    shield: '<path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/>',
     camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
     pin: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     userplus: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M19 8v6M16 11h6"/>',
@@ -67,12 +78,14 @@
   const emp = (id) => state.employees.find((e) => e.id === id);
   const dept = (id) => state.departments.find((d) => d.id === id);
   const fullName = (e) => (e ? `${e.first} ${e.last}` : 'Unknown');
+  // Local symbols where they read better, for example RM for Malaysian ringgit.
+  const locale = () => ({ MYR: 'en-MY', SGD: 'en-SG', GBP: 'en-GB', INR: 'en-IN', AUD: 'en-AU', CAD: 'en-CA' })[state.settings.currency] || 'en-US';
   const money = (n, digits = 0) => {
-    try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: state.settings.currency, maximumFractionDigits: digits, minimumFractionDigits: digits }).format(n); }
+    try { return new Intl.NumberFormat(locale(), { style: 'currency', currency: state.settings.currency, maximumFractionDigits: digits, minimumFractionDigits: digits }).format(n); }
     catch (e) { return state.settings.currency + ' ' + Math.round(n).toLocaleString(); }
   };
   const compactMoney = (n) => {
-    try { return new Intl.NumberFormat('en-US', { style: 'currency', currency: state.settings.currency, notation: 'compact', maximumFractionDigits: 1 }).format(n); }
+    try { return new Intl.NumberFormat(locale(), { style: 'currency', currency: state.settings.currency, notation: 'compact', maximumFractionDigits: 1 }).format(n); }
     catch (e) { return money(n); }
   };
   function hue(str) { let h = 0; for (const c of str) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
@@ -118,6 +131,7 @@
     super: { label: 'Super Admin', desc: 'Monitor every company subscribed to Allurus: plans, revenue and account health.' },
     admin: { label: 'Company Admin', desc: 'Run HR for your company: people, attendance, time off, payroll and hiring.' },
     employee: { label: 'Employee', desc: 'Check in, request time off, see payslips and track your goals.' },
+    auditor: { label: 'Auditor', desc: 'Review and verify the company’s monthly financial reports.' },
   };
   const ROLE_ROUTES = {
     super: [
@@ -132,7 +146,16 @@
       { id: 'my-leave', label: 'My time off', icon: 'calendar', group: 'Me' },
       { id: 'my-pay', label: 'Payslips', icon: 'wallet', group: 'Me' },
       { id: 'my-profile', label: 'Profile & goals', icon: 'trend', group: 'Me' },
+      { id: 'my-tax', label: 'Tax reliefs', icon: 'percent', group: 'Me' },
       { id: 'directory', label: 'Directory', icon: 'people', group: 'Company' },
+      { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Account' },
+    ],
+    auditor: [
+      { id: 'reports', label: 'Reports to verify', icon: 'shield', group: 'Audit' },
+      { id: 'tax', label: 'Tax deductions', icon: 'percent', group: 'Audit' },
+      { id: 'books', label: 'Bookkeeping', icon: 'book', group: 'Records' },
+      { id: 'invoices', label: 'Invoices', icon: 'doc', group: 'Records' },
+      { id: 'bills', label: 'Bills', icon: 'receipt', group: 'Records' },
       { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Account' },
     ],
   };
@@ -145,7 +168,14 @@
     { id: 'departments', label: 'Departments', icon: 'building', group: 'Workforce' },
     { id: 'attendance', label: 'Attendance', icon: 'clock', group: 'Time' },
     { id: 'leave', label: 'Time off', icon: 'calendar', group: 'Time' },
-    { id: 'payroll', label: 'Payroll', icon: 'wallet', group: 'Pay' },
+    { id: 'finance', label: 'Overview', icon: 'coins', group: 'Finance & Accounting' },
+    { id: 'books', label: 'Bookkeeping', icon: 'book', group: 'Finance & Accounting' },
+    { id: 'invoices', label: 'Invoices', icon: 'doc', group: 'Finance & Accounting' },
+    { id: 'bills', label: 'Bills', icon: 'receipt', group: 'Finance & Accounting' },
+    { id: 'payroll', label: 'Payroll', icon: 'wallet', group: 'Finance & Accounting' },
+    { id: 'budget', label: 'Budget', icon: 'target', group: 'Finance & Accounting' },
+    { id: 'tax', label: 'Tax (LHDN)', icon: 'percent', group: 'Finance & Accounting' },
+    { id: 'reports', label: 'Reports & audit', icon: 'shield', group: 'Finance & Accounting' },
     { id: 'recruitment', label: 'Recruitment', icon: 'briefcase', group: 'Talent' },
     { id: 'performance', label: 'Performance', icon: 'trend', group: 'Talent' },
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
@@ -157,7 +187,7 @@
     let html = '', group = '';
     routes().forEach((r) => {
       if (r.group !== group) { group = r.group; html += `<div class="nav-label">${group}</div>`; }
-      const count = r.id === 'leave' ? pendingLeaves().length : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : 0;
+      const count = r.id === 'leave' ? pendingLeaves().length : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
       html += `<a href="#${r.id}" class="${route() === r.id ? 'active' : ''}">${icon(r.icon)}<span>${r.label}</span>${count ? `<span class="count">${count}</span>` : ''}</a>`;
     });
     $('#nav').innerHTML = html;
@@ -165,6 +195,7 @@
     const who = role() === 'super' ? { name: 'You', sub: 'Super Admin' } : role() === 'admin' ? { name: fullName(state.employees.find((e) => e.id === 'e1')) , sub: `Admin · ${state.settings.company}` } : { name: fullName(me()), sub: me().role };
     const acct = account();
     if (role() === 'super') { who.name = acct?.name || 'Allurus HQ'; who.sub = 'Super Admin'; }
+    if (role() === 'auditor') { who.name = acct?.name || 'Auditor'; who.sub = 'Auditor'; }
     $('#me-card').innerHTML = `<div class="me-row">${avatar(who.name, 'sm')}<div style="min-width:0;flex:1"><div class="me-name">${esc(who.name)}</div><div class="me-role">${esc(acct?.email || who.sub)}</div></div></div>
       <div class="me-actions">${state.session.roles.length > 1 ? `<select class="select" id="role-switch" aria-label="Switch view">${state.session.roles.map((r) => `<option value="${r}" ${r === role() ? 'selected' : ''}>${ROLES[r].label} view</option>`).join('')}</select>` : `<span class="pill brand">${ROLES[role()].label}</span>`}<button class="btn btn-sm btn-ghost" data-act="logout">Sign out</button></div>`;
     $('#role-switch')?.addEventListener('change', (ev) => {
@@ -192,6 +223,7 @@
   const VIEWS = {};
   const AFTER = {};
   const ACTIONS_EXTRA = {};
+  let finApi = null;
   let clockTimer = null;
 
   VIEWS.dashboard = () => {
@@ -437,7 +469,7 @@
 
   // ----- Departments -----
   VIEWS.departments = () => `
-    <div class="page-head"><div><h1>Departments</h1><p class="sub">Team structure, leads and payroll cost per department.</p></div>
+    <div class="page-head"><div><h1>Departments</h1><p class="sub">What each team is responsible for, who leads it and what it costs.</p></div>
       <div class="actions"><button class="btn btn-primary" data-act="add-dept">${icon('plus')}New department</button></div></div>
     <div class="grid g-3">${state.departments.map((d) => {
       const members = activeEmployees().filter((e) => e.dept === d.id);
@@ -446,6 +478,9 @@
       return `<div class="card dcard">
         <div class="dcard-top"><h3><i style="background:${d.color}"></i>${esc(d.name)}</h3>
           <div class="row-actions"><button class="btn btn-sm btn-icon btn-ghost" data-act="edit-dept" data-id="${d.id}" aria-label="Edit ${esc(d.name)}">${icon('edit')}</button><button class="btn btn-sm btn-icon btn-ghost" data-act="del-dept" data-id="${d.id}" aria-label="Delete ${esc(d.name)}">${icon('trash')}</button></div></div>
+        ${d.about ? `<p class="muted" style="font-size:13.5px">${esc(d.about)}</p>` : ''}
+        ${d.duties ? `<div class="duties">${d.duties.split(',').map((x) => x.trim()).filter(Boolean).map((x) => `<span class="tag">${esc(x)}</span>`).join('')}</div>` : ''}
+        ${d.note ? `<p class="dept-note">${icon('pin')}<span>${esc(d.note)}</span></p>` : ''}
         ${lead ? person(lead, 'Department lead') : '<div class="faint">No lead assigned</div>'}
         <div class="stats"><div><div class="stat-v">${members.length}</div><div class="stat-l">People</div></div><div><div class="stat-v">${compactMoney(members.length ? payroll / members.length : 0)}</div><div class="stat-l">Avg salary</div></div><div><div class="stat-v">${compactMoney(payroll)}</div><div class="stat-l">Annual cost</div></div></div>
         <div class="faces">${members.slice(0, 7).map((e) => avatar(fullName(e), 'sm')).join('')}${members.length > 7 ? `<span class="avatar sm" style="background:var(--fg-3)">+${members.length - 7}</span>` : ''}</div>
@@ -460,7 +495,10 @@
       body: `<div class="form-grid" style="grid-template-columns:1fr">
         <div class="field"><label for="d-name">Name</label><input class="input" id="d-name" name="name" required value="${esc(d.name)}"></div>
         <div class="field"><label for="d-lead">Department lead</label><select class="select" id="d-lead" name="lead"><option value="">No lead</option>${state.employees.map((e) => `<option value="${e.id}" ${d.lead === e.id ? 'selected' : ''}>${esc(fullName(e))}</option>`).join('')}</select></div>
-        <div class="field"><label for="d-color">Color</label><select class="select" id="d-color" name="color">${colors.map((c, i) => `<option value="${c}" ${d.color === c ? 'selected' : ''}>${['Teal', 'Blue', 'Champagne', 'Rose', 'Violet', 'Olive', 'Amber', 'Sky'][i]}</option>`).join('')}</select></div></div>`,
+        <div class="field"><label for="d-color">Color</label><select class="select" id="d-color" name="color">${colors.map((c, i) => `<option value="${c}" ${d.color === c ? 'selected' : ''}>${['Teal', 'Blue', 'Champagne', 'Rose', 'Violet', 'Olive', 'Amber', 'Sky'][i]}</option>`).join('')}</select></div>
+        <div class="field"><label for="d-about">Role</label><textarea class="textarea" id="d-about" name="about" style="min-height:64px" placeholder="What this department is responsible for">${esc(d.about || '')}</textarea></div>
+        <div class="field"><label for="d-duties">Key responsibilities</label><input class="input" id="d-duties" name="duties" value="${esc(d.duties || '')}" placeholder="Separate with commas"></div>
+        <div class="field"><label for="d-note">Note</label><textarea class="textarea" id="d-note" name="note" style="min-height:64px">${esc(d.note || '')}</textarea></div></div>`,
       onSubmit(f) {
         if (id) { Object.assign(dept(id), f); commit('Department saved'); }
         else { state.departments.push({ id: U.uid('d-'), ...f }); commit('Department created', `${f.name} department was created`); }
@@ -609,11 +647,11 @@
       <div class="grid g-4 keep-2">
         <div class="card kpi"><div class="kpi-label">Gross pay</div><div class="kpi-value">${compactMoney(t.gross)}</div><div class="kpi-foot num">${money(t.gross)}</div></div>
         <div class="card kpi"><div class="kpi-label">Income tax</div><div class="kpi-value">${compactMoney(t.tax)}</div><div class="kpi-foot">${state.settings.taxRate}% withheld</div></div>
-        <div class="card kpi"><div class="kpi-label">Benefits</div><div class="kpi-value">${compactMoney(t.benefits)}</div><div class="kpi-foot">${state.settings.benefitsRate}% of gross</div></div>
+        <div class="card kpi"><div class="kpi-label">EPF, SOCSO & EIS</div><div class="kpi-value">${compactMoney(t.benefits)}</div><div class="kpi-foot">${state.settings.benefitsRate}% of gross</div></div>
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Net pay</div><div class="kpi-value">${compactMoney(t.net)}</div><div class="kpi-foot num">${money(t.net)}</div></div>
       </div>
       <div class="card card-flush"><div class="table-wrap"><table>
-        <thead><tr><th>Employee</th><th class="r hide-sm">Base</th><th class="r">Bonus</th><th class="r">Gross</th><th class="r hide-sm">Tax</th><th class="r hide-sm">Benefits</th><th class="r">Net</th><th></th></tr></thead>
+        <thead><tr><th>Employee</th><th class="r hide-sm">Base</th><th class="r">Bonus</th><th class="r">Gross</th><th class="r hide-sm">PCB tax</th><th class="r hide-sm">EPF, SOCSO, EIS</th><th class="r">Net</th><th></th></tr></thead>
         <tbody>${run.items.map((it) => { const e = emp(it.empId); if (!e) return ''; return `<tr>
           <td>${person(e)}</td><td class="r num hide-sm">${money(it.base, 2)}</td>
           <td class="r num">${run.status === 'Draft' ? `<input class="input num" style="width:110px;text-align:right" type="number" min="0" step="100" data-bonus="${it.empId}" value="${it.bonus}" aria-label="Bonus for ${esc(fullName(e))}">` : money(it.bonus)}</td>
@@ -639,7 +677,7 @@
       body: `<div style="display:flex;flex-direction:column;gap:18px">
         <div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:10px">${LOGO_MARK}<div><div style="font-weight:600;letter-spacing:.24em">${esc(state.settings.company.toUpperCase())}</div><div class="faint" style="font-size:12px">${U.fmtMonth(month)}</div></div></div>${run.status === 'Paid' ? '<span class="pill ok">Paid</span>' : '<span class="pill warn">Draft</span>'}</div>
         ${person(e, `${e.role} · ${dept(e.dept)?.name || ''}`)}
-        <div>${row('Base salary', money(it.base, 2))}${row('Bonus', money(it.bonus, 2))}${row('Gross pay', money(it.gross, 2))}${row(`Income tax (${state.settings.taxRate}%)`, '−' + money(it.tax, 2))}${row(`Benefits (${state.settings.benefitsRate}%)`, '−' + money(it.benefits, 2))}${row('Net pay', money(it.net, 2), true)}</div></div>`,
+        <div>${row('Base salary', money(it.base, 2))}${row('Bonus', money(it.bonus, 2))}${row('Gross pay', money(it.gross, 2))}${row(`Income tax, PCB (${state.settings.taxRate}%)`, '−' + money(it.tax, 2))}${row(`EPF, SOCSO & EIS (${state.settings.benefitsRate}%)`, '−' + money(it.benefits, 2))}${row('Net pay', money(it.net, 2), true)}</div></div>`,
     });
   }
 
@@ -763,9 +801,9 @@
         <div class="settings-row"><div><div class="label">Brand kit</div><div class="desc">Allurus logo, colors and type.</div></div><a class="btn" href="brand.html">${icon('palette')}Open brand kit</a></div>
       </div>
       ${accountCard()}
-      <div class="card"><div class="card-head"><h3>Data</h3></div>
+      ${role() === 'super' ? `<div class="card"><div class="card-head"><h3>Data</h3></div>
         <div class="settings-row"><div><div class="label">Reset demo workspace</div><div class="desc">Data is stored in this browser only.</div></div><button class="btn btn-danger" data-act="ask-reset">Reset data</button></div>
-        <div id="reset-confirm"></div></div>`;
+        <div id="reset-confirm"></div></div>` : ''}`;
     const currencies = ['USD', 'EUR', 'GBP', 'AED', 'SAR', 'QAR', 'INR', 'PKR', 'CAD', 'AUD', 'SGD'];
     return `
       <div class="page-head"><div><h1>Settings</h1><p class="sub">Company details, pay rules and appearance. Changes apply right away.</p></div></div>
@@ -778,7 +816,7 @@
         </div>
         <div class="card"><div class="card-head"><h3>Pay and leave rules</h3></div>
           <div class="settings-row"><div><div class="label">Income tax withholding</div><div class="desc">Percent of gross pay.</div></div><input class="input num" id="s-tax" type="number" min="0" max="60" step="0.5" value="${s.taxRate}" style="width:100px"></div>
-          <div class="settings-row"><div><div class="label">Benefits deduction</div><div class="desc">Health, pension and similar, as percent of gross.</div></div><input class="input num" id="s-benefits" type="number" min="0" max="30" step="0.5" value="${s.benefitsRate}" style="width:100px"></div>
+          <div class="settings-row"><div><div class="label">Statutory contributions</div><div class="desc">EPF, SOCSO and EIS deducted from pay, as percent of gross.</div></div><input class="input num" id="s-benefits" type="number" min="0" max="30" step="0.5" value="${s.benefitsRate}" style="width:100px"></div>
           <div class="settings-row"><div><div class="label">Annual leave</div><div class="desc">Days per person per year.</div></div><input class="input num" id="s-annual" type="number" min="0" max="60" value="${s.annualDays}" style="width:100px"></div>
           <div class="settings-row"><div><div class="label">Sick leave</div><div class="desc">Days per person per year.</div></div><input class="input num" id="s-sick" type="number" min="0" max="60" value="${s.sickDays}" style="width:100px"></div>
         </div>
@@ -1186,7 +1224,7 @@
   };
 
   // ---------- Workspaces (one per company) ----------
-  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity'];
+  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance'];
   function switchWorkspace(tid) {
     if (tid === state.session.tenantId) return;
     const cur = {}; WS_KEYS.forEach((k) => { cur[k] = state[k]; });
@@ -1215,10 +1253,11 @@
       employees: [admin], leaves: [], attendance: {}, payroll: {}, jobs: [], candidates: [],
       reviews: [{ id: 'r1', empId: 'e1', cycle: 'H2 ' + U.today().slice(0, 4), status: 'Not started', rating: 0, progress: 0, notes: '' }],
       activity: [{ t: Date.now(), text: `${d.name} joined Allurus on the ${plan(d.plan).name} plan` }],
+      finance: AllurusFinance.blank({ taxLabel: d.currency === 'MYR' ? 'SST' : 'Sales tax' }),
     };
     if (withSamples) {
       const team = base.employees.slice(1).map((e) => ({ ...e, email: `${e.first}.${e.last}`.toLowerCase() + '@' + domain, location: d.city }));
-      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews });
+      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, finance: base.finance });
       ws.reviews[0] = { ...ws.reviews[0], empId: 'e1' };
     }
     return ws;
@@ -1615,7 +1654,7 @@
     },
     'pay-export': () => {
       const run = state.payroll[ui.payMonth];
-      downloadCSV(`payroll-${ui.payMonth}.csv`, [['Employee', 'Email', 'Base', 'Bonus', 'Gross', 'Tax', 'Benefits', 'Net'], ...run.items.map((i) => { const e = emp(i.empId); return [fullName(e), e?.email, i.base, i.bonus, i.gross, i.tax, i.benefits, i.net]; })]);
+      downloadCSV(`payroll-${ui.payMonth}.csv`, [['Employee', 'Email', 'Base', 'Bonus', 'Gross', 'PCB tax', 'EPF SOCSO EIS', 'Net'], ...run.items.map((i) => { const e = emp(i.empId); return [fullName(e), e?.email, i.base, i.bonus, i.gross, i.tax, i.benefits, i.net]; })]);
     },
     'payslip': (id) => openPayslip(id),
     'job-filter': (_, v) => { ui.jobFilter = v; render(); },
@@ -1678,6 +1717,14 @@
     input.addEventListener('blur', () => setTimeout(() => { box.hidden = true; }, 150));
     ACTIONS['search-pick'] = (id) => { input.value = ''; box.hidden = true; openProfile(id); };
   }
+
+  // ---------- Finance & Accounting and tax modules ----------
+  const moduleCtx = {
+    get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
+    downloadCSV, role, account, me, LOGO_MARK,
+  };
+  finApi = AllurusFinance.install(moduleCtx);
+  AllurusTax.install(moduleCtx);
 
   // ---------- Boot ----------
   $('#today').textContent = U.fmtDate(U.today(), { weekday: 'short', month: 'short', day: 'numeric' });

@@ -14,13 +14,29 @@ Everyone signs in with email and password. The sidebar's view picker shows only 
 
 | Account | Views |
 |---|---|
-| `superadmin@allurus.com` | Super Admin, Company Admin, Employee |
+| `superadmin@allurus.com` | Super Admin, Company Admin, Employee, Auditor |
 | `admin@allurus.com` | Company Admin, Employee |
 | `emp@allurus.com` | Employee |
+| `auditor@allurus.com` | Auditor (external accounting firm, read-only books, verifies reports) |
 
 The demo password for all three is in your private notes. Change it under **Settings → Your account**. Companies that register create their own admin account, and that account gets the Company Admin and Employee views.
 
 > Passwords are stored as SHA-256 hashes, but this is still a front-end demo: the hashes ship inside `js/seed.js`, so anyone can download them and try to guess the password offline, and short passwords fall quickly. Use real server-side authentication before handling real employee data.
+
+## Finance & Accounting
+
+For SMEs that don't want to hire an accounts clerk: the books keep themselves, and the external auditor verifies each month.
+
+- **Overview**: cash in bank, profit this month, what customers owe and what you owe, money in and out by month, and auditor sign-off status.
+- **Bookkeeping**: every entry in and out. Paid invoices, paid bills and payroll post automatically. Match entries to the bank statement.
+- **Invoices** (receivables) and **Bills** (payables), with SST.
+- **Budget**: monthly budget against actual spending per category.
+- **Reports & audit**: each closed month gets a profit and loss, cash summary, SST summary, payroll summary, and month-end receivables and payables. The admin submits it; the auditor (`auditor@allurus.com`) verifies it or asks for changes. Verified months are locked, and every step is kept in an audit trail.
+- **Tax (LHDN)**: every expense is matched to a Section 33(1) deduction category from its description. It flags entries that need a decision: trip purpose, business share of home-office rent or utilities, capital legal fees or renovations. Personal spending such as groceries and family holidays is never suggested as a business deduction. Export for your tax agent.
+
+Employees get **Tax reliefs**: personal receipts tracked against LHDN relief caps (Lifestyle RM2,500, Sports RM1,000, Medical RM10,000, Education RM7,000, Parents' medical RM8,000). A **BE form helper** takes their income, PCB and EPF from their payslips and estimates chargeable income and tax.
+
+The tax features use keyword matching and the rates in `js/tax.js`. They help prepare records; they are not tax advice. Check caps and rates for the current year of assessment with LHDN or your tax agent.
 
 ## Selfie check-in
 
