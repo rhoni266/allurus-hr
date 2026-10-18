@@ -354,6 +354,7 @@ td.r, th.r { text-align: right; }
 .selfie-thumb { width: 34px; height: 34px; border-radius: 50%; padding: 0; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--line-strong); overflow: hidden; cursor: zoom-in; flex: none; background: var(--line); }
 .selfie-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .loc-cell { display: flex; align-items: center; gap: 10px; }
+.att-controls { display: flex; align-items: center; gap: 6px; }
 
 /* ---------- Sign-in ---------- */
 .login { min-height: 100%; display: grid; place-items: center; padding: 48px max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); }

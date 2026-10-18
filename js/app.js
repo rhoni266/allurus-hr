@@ -2,7 +2,9 @@
 (function () {
   'use strict';
 
-  const STORE_KEY = 'allurus-hr-v4';
+  const APP_VERSION = '1.5';
+  // Bump the key when the demo data changes shape, so every browser starts fresh.
+  const STORE_KEY = 'allurus-hr-v5';
   const esc = U.esc;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
@@ -496,7 +498,7 @@
             <td>${person(e)}</td><td class="hide-sm">${deptTag(e.dept)}</td>
             <td class="num muted">${r?.in || '—'}${r?.out ? '–' + r.out : ''}${r?.history?.length ? `<div class="faint" style="font-size:12px">${r.history.length + 1} check-ins</div>` : ''}</td>
             <td class="hide-sm muted" style="font-size:12.5px;max-width:300px"><div class="loc-cell">${selfieThumb(e.id, day, r)}<span>${r?.loc ? esc(locText(r.loc)) : '—'}</span></div></td>
-            <td><div class="seg status" role="group" aria-label="Status for ${esc(fullName(e))}">${opts.map(([v, l]) => `<button data-act="att-set" data-id="${e.id}" data-v="${v}" class="${r?.s === v ? 'on' : ''}">${l}</button>`).join('')}</div></td></tr>`; }).join('')}</tbody>
+            <td><div class="att-controls"><div class="seg status" role="group" aria-label="Status for ${esc(fullName(e))}">${opts.map(([v, l]) => `<button data-act="att-set" data-id="${e.id}" data-v="${v}" class="${r?.s === v ? 'on' : ''}">${l}</button>`).join('')}</div>${r ? `<button class="btn btn-sm btn-icon btn-ghost" data-act="att-clear" data-id="${e.id}" title="Clear check-in" aria-label="Clear check-in for ${esc(fullName(e))}">${icon('x')}</button>` : ''}</div></td></tr>`; }).join('')}</tbody>
         </table></div>
       </div>`;
   };
@@ -826,7 +828,7 @@
         <button class="btn btn-primary login-submit" type="submit">Sign in</button>
       </form>
       <div class="register-cta"><div><strong>New to Allurus?</strong><span class="muted"> Register your company and start a free trial.</span></div><button class="btn btn-primary" data-act="register">${icon('plus')}Register company</button></div>
-      <p class="faint" style="font-size:12.5px">Demo mode. Your workspace is saved in this browser${cloud.db ? '; company sign-ups and check-ins are also shared with the Allurus team' : ''}.</p>
+      <p class="faint" style="font-size:12.5px">Demo mode. Your workspace is saved in this browser${cloud.db ? '; company sign-ups and check-ins are also shared with the Allurus team' : ''}. Version ${APP_VERSION}</p>
     </div>`;
   }
   function bindLogin() {
@@ -1582,6 +1584,11 @@
     'att-shift': (_, v) => { ui.attDate = U.addDays(ui.attDate, Number(v)); render(); },
     'att-today': () => { ui.attDate = U.today(); render(); },
     'att-set': (id, v) => setAttendance(id, v),
+    'att-clear': (id) => {
+      const day = ui.attDate;
+      if (state.attendance[day]) delete state.attendance[day][id];
+      commit(`Check-in cleared for ${fullName(emp(id))}`, `${fullName(emp(id))}'s check-in on ${U.fmtDate(day)} was cleared`);
+    },
     'att-all': () => {
       const day = ui.attDate; state.attendance[day] = state.attendance[day] || {};
       let n = 0;
