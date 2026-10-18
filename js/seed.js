@@ -77,6 +77,8 @@ window.AllurusSeed = {
       attendance[day] = {};
       employees.forEach((e) => {
         if (e.start > day) return;
+        // Leave today empty for people who can sign in (Amara and Daniel), so they can try checking in themselves.
+        if (k === 0 && (e.id === 'e1' || e.id === 'e2')) return;
         const x = r();
         const s = x < 0.8 ? 'present' : x < 0.93 ? 'remote' : x < 0.98 ? 'absent' : 'present';
         const mins = 8 * 60 + 25 + Math.floor(r() * 60);
