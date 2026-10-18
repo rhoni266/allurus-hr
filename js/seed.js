@@ -3,7 +3,9 @@ window.AllurusSeed = {
   create() {
     const r = U.rng(42);
     const T = U.today();
-    const settings = { company: 'Lumen & Co.', domain: 'lumenco.com', currency: 'USD', office: 'London', taxRate: 20, benefitsRate: 4.5, annualDays: 20, sickDays: 10, theme: 'system' };
+    // Check-in zone: employees must be inside this circle (radius in meters) and take a selfie.
+    const checkin = { label: 'Allurus HQ', lat: 3.769833, lng: 103.224556, radius: 50, remote: false };
+    const settings = { company: 'Allurus', domain: 'allurus.com', currency: 'USD', office: 'Kuantan', checkin, taxRate: 20, benefitsRate: 4.5, annualDays: 20, sickDays: 10, theme: 'system' };
 
     const departments = [
       { id: 'd-people', name: 'People', lead: 'e1', color: '#14958A' },
@@ -54,6 +56,9 @@ window.AllurusSeed = {
       };
     });
     employees[0].manager = '';
+    employees[0].email = 'admin@allurus.com';
+    employees[1].email = 'emp@allurus.com';
+    employees.forEach((e) => { if (e.location !== 'Remote') e.location = 'Kuantan'; });
 
     const leaves = [
       { empId: 'e5', type: 'Annual', from: U.addDays(T, -1), to: U.addDays(T, 3), reason: 'Family trip', status: 'Approved' },
@@ -151,7 +156,7 @@ window.AllurusSeed = {
       { id: 'enterprise', name: 'Enterprise', price: 12, maxSeats: 0, features: 'Everything in Growth, plus performance, SSO and priority support' },
     ];
     const rows = [
-      ['Lumen & Co.', 'London', 'Design studio', 'United Kingdom', 'growth', demoSeats, 'Active', 420],
+      ['Allurus', 'Kuantan', 'HR technology', 'Malaysia', 'growth', demoSeats, 'Active', 420],
       ['Northwind Logistics', 'Chicago', 'Logistics', 'United States', 'enterprise', 412, 'Active', 610],
       ['Cedar Health Clinics', 'Toronto', 'Healthcare', 'Canada', 'enterprise', 268, 'Active', 540],
       ['Sahara Retail Group', 'Dubai', 'Retail', 'United Arab Emirates', 'growth', 186, 'Active', 380],
@@ -169,7 +174,7 @@ window.AllurusSeed = {
     const tenants = rows.map(([name, city, industry, country, plan, seats, status, ago], i) => {
       const slug = name.toLowerCase().replace(/[^a-z]+/g, '');
       const c = U.city(city);
-      return { id: 't' + (i + 1), name, city, lat: c.lat, lng: c.lng, industry, country, hasWorkspace: i === 0, plan, seats, status, joined: U.addDays(T, -ago), admin: 'hr@' + slug.slice(0, 12) + '.com', lastActive: U.addDays(T, -Math.floor(r() * (status === 'Suspended' ? 40 : 4))) };
+      return { id: 't' + (i + 1), name, city, lat: c.lat, lng: c.lng, industry, country, hasWorkspace: i === 0, plan, seats, status, joined: U.addDays(T, -ago), admin: i === 0 ? 'admin@allurus.com' : 'hr@' + slug.slice(0, 12) + '.com', lastActive: U.addDays(T, -Math.floor(r() * (status === 'Suspended' ? 40 : 4))) };
     });
     const price = (t) => plans.find((p) => p.id === t.plan).price * t.seats;
     const cur = U.monthKey(T);

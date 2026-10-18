@@ -49,7 +49,7 @@ window.U = (function () {
     ['Karachi', 'Pakistan', 24.861, 67.010, 'Asia/Karachi'], ['Lahore', 'Pakistan', 31.520, 74.358], ['Islamabad', 'Pakistan', 33.684, 73.048],
     ['Mumbai', 'India', 19.076, 72.878, 'Asia/Kolkata'], ['Bengaluru', 'India', 12.972, 77.595], ['Delhi', 'India', 28.614, 77.209],
     ['Dhaka', 'Bangladesh', 23.810, 90.413, 'Asia/Dhaka'], ['Singapore', 'Singapore', 1.352, 103.820, 'Asia/Singapore'],
-    ['Kuala Lumpur', 'Malaysia', 3.139, 101.687, 'Asia/Kuala_Lumpur'], ['Jakarta', 'Indonesia', -6.208, 106.846, 'Asia/Jakarta'],
+    ['Kuala Lumpur', 'Malaysia', 3.139, 101.687, 'Asia/Kuala_Lumpur'], ['Kuantan', 'Malaysia', 3.808, 103.326], ['Jakarta', 'Indonesia', -6.208, 106.846, 'Asia/Jakarta'],
     ['Manila', 'Philippines', 14.600, 120.984, 'Asia/Manila'], ['Hong Kong', 'Hong Kong', 22.320, 114.169, 'Asia/Hong_Kong'],
     ['Shanghai', 'China', 31.230, 121.474, 'Asia/Shanghai'], ['Tokyo', 'Japan', 35.676, 139.650, 'Asia/Tokyo'],
     ['Seoul', 'South Korea', 37.567, 126.978, 'Asia/Seoul'], ['Sydney', 'Australia', -33.869, 151.209, 'Australia/Sydney'],
@@ -64,8 +64,10 @@ window.U = (function () {
   };
   const nearestCity = (p) => CITIES.reduce((best, c) => (distanceKm(p, c) < distanceKm(p, best) ? c : best), CITIES[0]);
   // Best-effort device location: GPS/Wi-Fi first, then the city implied by the device time zone.
-  const locate = () => new Promise((resolve) => {
+  // With { gpsOnly: true } it resolves null instead of guessing from the time zone.
+  const locate = (opts = {}) => new Promise((resolve) => {
     const fallback = () => {
+      if (opts.gpsOnly) return resolve(null);
       let tz = '';
       try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { /* no Intl */ }
       const c = CITIES.find((x) => x.tz === tz);
@@ -74,16 +76,32 @@ window.U = (function () {
     };
     if (!navigator.geolocation) return fallback();
     let done = false;
-    const timer = setTimeout(() => { if (!done) { done = true; fallback(); } }, 8000);
+    const timer = setTimeout(() => { if (!done) { done = true; fallback(); } }, opts.gpsOnly ? 14000 : 8000);
     try {
       navigator.geolocation.getCurrentPosition((pos) => {
         if (done) return; done = true; clearTimeout(timer);
         const p = { lat: +pos.coords.latitude.toFixed(4), lng: +pos.coords.longitude.toFixed(4) };
         const c = nearestCity(p), km = distanceKm(p, c);
         resolve({ ...p, label: km < 60 ? `Near ${c.name}, ${c.country}` : `${km.toFixed(0)} km from ${c.name}`, source: 'gps', accuracy: Math.round(pos.coords.accuracy) });
-      }, () => { if (!done) { done = true; clearTimeout(timer); fallback(); } }, { enableHighAccuracy: false, timeout: 7000, maximumAge: 300000 });
+      }, () => { if (!done) { done = true; clearTimeout(timer); fallback(); } }, opts.gpsOnly ? { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 } : { enableHighAccuracy: false, timeout: 7000, maximumAge: 300000 });
     } catch (e) { if (!done) { done = true; clearTimeout(timer); fallback(); } }
   });
+
+  // Accepts "3.769833, 103.224556" or degrees-minutes-seconds like 3°46'11.4"N 103°13'28.4"E.
+  const validCoords = (lat, lng) => (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat: +lat.toFixed(6), lng: +lng.toFixed(6) } : null);
+  const parseCoords = (str) => {
+    const s = String(str || '').trim();
+    const dec = s.match(/^(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)$/);
+    if (dec) return validCoords(+dec[1], +dec[2]);
+    const parts = [...s.matchAll(/(\d+(?:\.\d+)?)\s*[°º]\s*(?:(\d+(?:\.\d+)?)\s*['′’]\s*)?(?:(\d+(?:\.\d+)?)\s*(?:"|″|”|'')\s*)?([NSEW])/gi)];
+    if (parts.length !== 2) return null;
+    const conv = (m) => { let v = +m[1] + (+m[2] || 0) / 60 + (+m[3] || 0) / 3600; if (/[SW]/i.test(m[4])) v = -v; return { v, lat: /[NS]/i.test(m[4]) }; };
+    const a = conv(parts[0]), b = conv(parts[1]);
+    if (a.lat === b.lat) return null;
+    return a.lat ? validCoords(a.v, b.v) : validCoords(b.v, a.v);
+  };
+  const fmtCoords = (p) => `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`;
+  const fmtDist = (m) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} km`);
 
   // SHA-256 of "email:password" for the demo sign-in. Uses Web Crypto, with a small JS fallback.
   function sha256js(str) {
@@ -120,5 +138,5 @@ window.U = (function () {
     } catch (e) { return sha256js(msg); }
   }
 
-  return { hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, pad, iso, parse, today, addDays, isWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc };
+  return { parseCoords, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, pad, iso, parse, today, addDays, isWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc };
 })();

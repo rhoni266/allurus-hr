@@ -321,6 +321,7 @@ td.r, th.r { text-align: right; }
 .confirm-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; background: var(--bad-soft); border-radius: 12px; color: var(--bad); font-weight: 500; }
 .toast-root { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 70; display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; }
 .toast { background: var(--fg); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-weight: 500; box-shadow: var(--shadow-lg); animation: pop .22s ease; display: flex; align-items: center; gap: 8px; }
+.toast-error svg.i { color: var(--bad); }
 @keyframes fade { from { opacity: 0; } }
 @keyframes pop { from { opacity: 0; transform: scale(.96) translateY(6px); } }
 @keyframes slide { from { transform: translateX(40px); opacity: 0; } }
@@ -333,6 +334,26 @@ td.r, th.r { text-align: right; }
 .settings-row:last-child { border-bottom: 0; }
 .settings-row .label { font-weight: 600; }
 .settings-row .desc { font-size: 13px; color: var(--fg-3); margin-top: 2px; }
+
+/* ---------- Selfie check-in ---------- */
+.ci-status, .ci-problem { display: flex; gap: 14px; align-items: flex-start; padding: 8px 0 4px; }
+.ci-status p, .ci-problem p { margin-top: 4px; }
+.ci-problem > svg.i { width: 28px; height: 28px; color: var(--warn); flex: none; margin-top: 2px; }
+.ci-problem .hint { display: inline-block; margin-top: 8px; font-size: 13px; }
+.spinner { width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--brand-soft); border-top-color: var(--brand); flex: none; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.ci-where { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--info-soft); color: var(--info); font-size: 13px; font-weight: 600; margin-bottom: 14px; }
+.ci-where.ok { background: var(--ok-soft); color: var(--ok); }
+.ci-cam { width: 100%; max-width: 320px; aspect-ratio: 1; margin: 0 auto; border-radius: 24px; overflow: hidden; background: var(--line); display: grid; place-items: center; }
+.ci-cam video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.ci-photo { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ci-cam-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--fg-3); padding: 20px; text-align: center; font-size: 13px; }
+.ci-cam-empty svg.i { width: 36px; height: 36px; }
+.ci-hint { text-align: center; margin: 12px 0 0; font-size: 13px; }
+.ci-actions { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 16px; padding-bottom: 6px; }
+.selfie-thumb { width: 34px; height: 34px; border-radius: 50%; padding: 0; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--line-strong); overflow: hidden; cursor: zoom-in; flex: none; background: var(--line); }
+.selfie-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.loc-cell { display: flex; align-items: center; gap: 10px; }
 
 /* ---------- Sign-in ---------- */
 .login { min-height: 100%; display: grid; place-items: center; padding: 48px max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); }

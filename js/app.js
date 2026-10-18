@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const STORE_KEY = 'allurus-hr-v3';
+  const STORE_KEY = 'allurus-hr-v4';
   const esc = U.esc;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
@@ -10,8 +10,15 @@
   // ---------- State ----------
   let state = load();
   function load() {
-    try { const raw = localStorage.getItem(STORE_KEY); if (raw) return JSON.parse(raw); } catch (e) { /* storage unavailable */ }
-    return AllurusSeed.create();
+    let s = null;
+    try { const raw = localStorage.getItem(STORE_KEY); if (raw) s = JSON.parse(raw); } catch (e) { /* storage unavailable */ }
+    s = s || AllurusSeed.create();
+    [s.settings, ...Object.values(s.workspaces || {}).map((w) => w.settings)].forEach((st) => { if (!st.checkin) st.checkin = defaultZone(st.company, st.office); });
+    return s;
+  }
+  function defaultZone(company, office) {
+    const c = U.city(office) || U.CITIES[0];
+    return { label: `${company} office`, lat: c.lat, lng: c.lng, radius: 50, remote: false };
   }
   function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* storage unavailable */ } }
   function log(text) { state.activity.unshift({ t: Date.now(), text }); state.activity = state.activity.slice(0, 40); }
@@ -48,6 +55,8 @@
     download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
     palette: '<path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-1.1-.9-1.5-.9-2.6 0-1 .8-1.7 1.8-1.7H17a4 4 0 0 0 4-4C21 6.5 17 3 12 3z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="11" cy="7.5" r="1.2"/><circle cx="15.5" cy="8.5" r="1.2"/>',
     doc: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/>',
+    camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+    pin: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     userplus: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M19 8v6M16 11h6"/>',
   };
   const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
@@ -486,7 +495,7 @@
           <tbody>${people.map((e) => { const r = rec[e.id]; return `<tr>
             <td>${person(e)}</td><td class="hide-sm">${deptTag(e.dept)}</td>
             <td class="num muted">${r?.in || '—'}${r?.out ? '–' + r.out : ''}</td>
-            <td class="hide-sm muted" style="font-size:12.5px;max-width:260px">${r?.loc ? `${r.loc.onSite ? '<span class="pill ok">On site</span> ' : ''}${esc(locText(r.loc))}` : '—'}</td>
+            <td class="hide-sm muted" style="font-size:12.5px;max-width:300px"><div class="loc-cell">${selfieThumb(e.id, day, r)}<span>${r?.loc ? esc(locText(r.loc)) : '—'}</span></div></td>
             <td><div class="seg status" role="group" aria-label="Status for ${esc(fullName(e))}">${opts.map(([v, l]) => `<button data-act="att-set" data-id="${e.id}" data-v="${v}" class="${r?.s === v ? 'on' : ''}">${l}</button>`).join('')}</div></td></tr>`; }).join('')}</tbody>
         </table></div>
       </div>`;
@@ -761,7 +770,7 @@
       <div class="grid g-2">
         <div class="card"><div class="card-head"><h3>Company</h3></div>
           <div class="settings-row"><div><div class="label">Company name</div><div class="desc">Shown in the sidebar and on payslips.</div></div><input class="input" id="s-company" value="${esc(s.company)}" style="width:220px"></div>
-          <div class="settings-row"><div><div class="label">Head office</div><div class="desc">Check-ins show their distance from here.</div></div><select class="select" id="s-office">${U.CITIES.map((c) => `<option value="${esc(c.name)}" ${s.office === c.name ? 'selected' : ''}>${esc(c.name)}, ${esc(c.country)}</option>`).join('')}</select></div>
+          <div class="settings-row"><div><div class="label">Head office city</div><div class="desc">Where your company appears on the Allurus map.</div></div><select class="select" id="s-office">${U.CITIES.map((c) => `<option value="${esc(c.name)}" ${s.office === c.name ? 'selected' : ''}>${esc(c.name)}, ${esc(c.country)}</option>`).join('')}</select></div>
           <div class="settings-row"><div><div class="label">Currency</div><div class="desc">Used for salaries and payroll.</div></div><select class="select" id="s-currency">${currencies.map((c) => `<option ${s.currency === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
           <div class="settings-row"><div><div class="label">Appearance</div><div class="desc">Follow the device or pick a theme.</div></div><div class="seg">${[['system', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<button data-act="theme" data-v="${v}" class="${s.theme === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
         </div>
@@ -771,6 +780,14 @@
           <div class="settings-row"><div><div class="label">Annual leave</div><div class="desc">Days per person per year.</div></div><input class="input num" id="s-annual" type="number" min="0" max="60" value="${s.annualDays}" style="width:100px"></div>
           <div class="settings-row"><div><div class="label">Sick leave</div><div class="desc">Days per person per year.</div></div><input class="input num" id="s-sick" type="number" min="0" max="60" value="${s.sickDays}" style="width:100px"></div>
         </div>
+      </div>
+      <div class="card"><div class="card-head"><h3>Check-in location</h3><a class="hint" href="${mapsLink(s.checkin)}" target="_blank" rel="noopener">View on Google Maps</a></div>
+        <p class="muted" style="margin-bottom:6px">Employees must be inside this zone and take a selfie to check in.</p>
+        <div class="settings-row"><div><div class="label">Name</div><div class="desc">Shown to employees, for example “Allurus HQ”.</div></div><input class="input" id="z-label" value="${esc(s.checkin.label)}" style="width:240px"></div>
+        <div class="settings-row"><div><div class="label">Coordinates</div><div class="desc">Paste from Google Maps, as 3.769833, 103.224556 or 3°46'11.4"N 103°13'28.4"E.</div></div>
+          <div class="actions"><input class="input num" id="z-coords" value="${esc(U.fmtCoords(s.checkin))}" style="width:240px" aria-label="Check-in coordinates"><button class="btn" data-act="zone-here">${icon('pin')}Use my location</button></div></div>
+        <div class="settings-row"><div><div class="label">Radius</div><div class="desc">How close employees must be, in meters. Default is 50 m.</div></div><input class="input num" id="z-radius" type="number" min="10" max="5000" step="5" value="${s.checkin.radius}" style="width:100px"></div>
+        <div class="settings-row"><div><div class="label">Remote check-in</div><div class="desc">Lets employees check in from anywhere with a selfie. Marked as Remote.</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="zone-remote" data-v="${v}" class="${(s.checkin.remote ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
       </div>
       <div class="card"><div class="card-head"><h3>Brand</h3><a class="hint" href="brand.html">Open brand kit</a></div>
         <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">${LOGO_FULL}<div class="chips">${[['Allurus Teal', '#0F766E'], ['Champagne', '#D9B66F'], ['Obsidian', '#16181D'], ['Mist', '#F5F5F7']].map(([n, c]) => `<span class="chip" style="cursor:default"><i style="width:14px;height:14px;border-radius:50%;background:${c};border:1px solid var(--line-strong)"></i>${n}<span class="n">${c}</span></span>`).join('')}</div></div>
@@ -785,6 +802,13 @@
     bindAccountCard();
     if (role() !== 'admin') return;
     const bind = (id, key, num) => $(id).addEventListener('change', (ev) => { state.settings[key] = num ? Math.max(0, Number(ev.target.value) || 0) : ev.target.value.trim() || state.settings[key]; commit('Settings saved'); });
+    $('#z-label').addEventListener('change', (ev) => { state.settings.checkin.label = ev.target.value.trim() || state.settings.checkin.label; commit('Check-in location saved'); });
+    $('#z-coords').addEventListener('change', (ev) => {
+      const p = U.parseCoords(ev.target.value);
+      if (!p) { toast('Those coordinates aren’t valid. Paste them from Google Maps, for example 3.769833, 103.224556.', 'error'); ev.target.value = U.fmtCoords(state.settings.checkin); return; }
+      Object.assign(state.settings.checkin, p); commit('Check-in point saved');
+    });
+    $('#z-radius').addEventListener('change', (ev) => { state.settings.checkin.radius = Math.min(5000, Math.max(10, Math.round(Number(ev.target.value) || 50))); commit(`Radius set to ${state.settings.checkin.radius} m`); });
     bind('#s-company', 'company'); bind('#s-currency', 'currency'); bind('#s-office', 'office'); bind('#s-tax', 'taxRate', 1); bind('#s-benefits', 'benefitsRate', 1); bind('#s-annual', 'annualDays', 1); bind('#s-sick', 'sickDays', 1);
   };
 
@@ -846,8 +870,8 @@
     $('#pw-form')?.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const a = account(), f = ev.target;
-      if (a.hash !== await U.hashPassword(a.email, f.current.value)) { toast('Your current password is not right'); f.current.focus(); return; }
-      if (f.next.value.length < 8) { toast('Use at least 8 characters for the new password'); f.next.focus(); return; }
+      if (a.hash !== await U.hashPassword(a.email, f.current.value)) { toast('Your current password is not right', 'error'); f.current.focus(); return; }
+      if (f.next.value.length < 8) { toast('Use at least 8 characters for the new password', 'error'); f.next.focus(); return; }
       a.hash = await U.hashPassword(a.email, f.next.value);
       save(); f.reset(); toast('Password changed');
     });
@@ -1023,14 +1047,14 @@
     const review = state.reviews.find((r) => r.empId === e.id);
     let clock;
     if (rec?.s === 'leave') clock = `<span class="pill gold">On leave today</span>`;
-    else if (!rec || !rec.in) clock = `<div class="actions"><button class="btn btn-primary" data-act="check-in" data-v="present">${icon('clock')}Check in at office</button><button class="btn" data-act="check-in" data-v="remote">Work remotely</button></div>`;
-    else if (!rec.out) clock = `<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end"><div class="actions"><span class="pill ok">${rec.s === 'remote' ? 'Remote' : 'In office'} since ${rec.in}</span><button class="btn btn-primary" data-act="check-out">Check out</button></div>${rec.loc ? `<span class="faint" style="font-size:12.5px;text-align:right">${esc(locText(rec.loc))}</span>` : ''}</div>`;
+    else if (!rec || !rec.in) clock = `<div class="actions"><button class="btn btn-primary" data-act="check-in" data-v="present">${icon('camera')}Check in with selfie</button>${zone().remote ? '<button class="btn" data-act="check-in" data-v="remote">Work remotely</button>' : ''}</div>`;
+    else if (!rec.out) clock = `<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end"><div class="actions">${selfieThumb(me().id, T, rec)}<span class="pill ok">${rec.s === 'remote' ? 'Remote' : 'In office'} since ${rec.in}</span><button class="btn btn-primary" data-act="check-out">Check out</button></div>${rec.loc ? `<span class="faint" style="font-size:12.5px;text-align:right">${esc(locText(rec.loc))}</span>` : ''}</div>`;
     else clock = `<span class="pill brand">Done for today · ${rec.in}–${rec.out} · ${hoursBetween(rec.in, rec.out).toFixed(1)} h</span>`;
     return `
       <div class="page-head"><div><div class="eyebrow">${U.fmtDate(T, { weekday: 'long', month: 'long', day: 'numeric' })}</div><h1>${greet}, ${esc(e.first)}.</h1><p class="sub">${esc(e.role)} · ${esc(dept(e.dept)?.name || '')} · ${esc(state.settings.company)}</p></div>
         <div class="actions"><button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button></div></div>
       <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap">
-        <div><div class="kpi-label">Time clock</div><div class="kpi-value" id="live-clock" style="font-size:44px">${nowHM()}</div><div class="kpi-foot">${U.isWeekend(T) ? 'It is the weekend. Check-ins still count. ' : ''}Office: ${esc(state.settings.office || '—')}. Your location is recorded when you check in.</div></div>
+        <div><div class="kpi-label">Time clock</div><div class="kpi-value" id="live-clock" style="font-size:44px">${nowHM()}</div><div class="kpi-foot">${U.isWeekend(T) ? 'It is the weekend. Check-ins still count. ' : ''}Check in within ${zone().radius} m of ${esc(zone().label)} and take a selfie.</div></div>
         ${clock}
       </div>
       <div class="grid g-4 keep-2">
@@ -1072,7 +1096,7 @@
       </div>
       <div class="card card-flush"><div class="table-wrap"><table>
         <thead><tr><th>Date</th><th>Status</th><th>Check-in</th><th>Check-out</th><th class="hide-sm">Location</th><th class="r">Hours</th></tr></thead>
-        <tbody>${days.map((x) => { const r = myRecord(x); return `<tr><td class="num">${U.fmtDate(x, { weekday: 'short', month: 'short', day: 'numeric' })}</td><td>${r ? pill[r.s] : '<span class="pill">Not marked</span>'}</td><td class="num muted">${r?.in || '—'}</td><td class="num muted">${r?.out || '—'}</td><td class="hide-sm muted" style="font-size:12.5px">${r?.loc ? esc(locText(r.loc)) : '—'}</td><td class="r num">${r?.in ? (r.out ? hoursBetween(r.in, r.out) : 8).toFixed(1) : '—'}</td></tr>`; }).join('')}</tbody>
+        <tbody>${days.map((x) => { const r = myRecord(x); return `<tr><td class="num">${U.fmtDate(x, { weekday: 'short', month: 'short', day: 'numeric' })}</td><td>${r ? pill[r.s] : '<span class="pill">Not marked</span>'}</td><td class="num muted">${r?.in || '—'}</td><td class="num muted">${r?.out || '—'}</td><td class="hide-sm muted" style="font-size:12.5px"><div class="loc-cell">${selfieThumb(me().id, x, r)}<span>${r?.loc ? esc(locText(r.loc)) : '—'}</span></div></td><td class="r num">${r?.in ? (r.out ? hoursBetween(r.in, r.out) : 8).toFixed(1) : '—'}</td></tr>`; }).join('')}</tbody>
       </table></div></div>`;
   };
 
@@ -1184,7 +1208,7 @@
     const [first, ...rest] = d.adminName.trim().split(/\s+/);
     const admin = { id: 'e1', first, last: rest.join(' ') || '', role: 'HR Administrator', dept: 'd-people', salary: 90000, start: U.today(), location: d.city, birthday: '', email: d.email, phone: '', type: 'Full-time', status: 'Active', manager: '' };
     const ws = {
-      settings: { ...base.settings, company: d.name, domain, office: d.city, currency: d.currency },
+      settings: { ...base.settings, company: d.name, domain, office: d.city, currency: d.currency, checkin: defaultZone(d.name, d.city) },
       departments: base.departments.map((x) => ({ ...x, lead: withSamples ? x.lead : (x.id === 'd-people' ? 'e1' : '') })),
       employees: [admin], leaves: [], attendance: {}, payroll: {}, jobs: [], candidates: [],
       reviews: [{ id: 'r1', empId: 'e1', cycle: 'H2 ' + U.today().slice(0, 4), status: 'Not started', rating: 0, progress: 0, notes: '' }],
@@ -1270,24 +1294,124 @@
     if (guess) setTimeout(() => { const s = $('#rg-city'); if (s) s.value = guess; }, 0);
   }
 
-  async function checkIn(mode) {
-    const btns = $$('[data-act="check-in"]'); btns.forEach((b) => { b.disabled = true; }); toast('Getting your location…');
-    const loc = await U.locate();
-    const office = U.city(state.settings.office);
-    if (office && loc.lat != null) { loc.km = +U.distanceKm(loc, office).toFixed(1); loc.onSite = loc.source === 'gps' && loc.km <= 1; }
-    const T = U.today(); state.attendance[T] = state.attendance[T] || {};
-    const t = nowHM();
-    state.attendance[T][me().id] = { s: mode, in: t, out: '', loc };
-    cloudWrite('checkins', { company: state.settings.company, employee: fullName(me()), mode, time: new Date().toISOString(), label: loc.label, source: loc.source, lat: loc.lat, lng: loc.lng, accuracy: loc.accuracy });
-    const t2 = currentTenant(); if (t2) t2.lastActive = T;
-    commit(`Checked in at ${t} · ${loc.label}`, `${fullName(me())} checked in${mode === 'remote' ? ' remotely' : ''} from ${loc.label}`);
+  // ---------- Selfie check-in inside the company's check-in zone ----------
+  let camStream = null;
+  const stopCamera = () => { camStream?.getTracks().forEach((t) => t.stop()); camStream = null; };
+  const ci = { mode: 'present', loc: null, photo: null };
+  const zone = () => state.settings.checkin;
+  const mapsLink = (p) => `https://www.google.com/maps?q=${p.lat},${p.lng}`;
+  const ciStep = (html) => { const b = $('#ci-body'); if (b) b.innerHTML = html; return !!b; };
+  const ciProblem = (title, text, extra = '') => ciStep(`<div class="ci-problem">${icon('pin')}<div><strong>${title}</strong><p class="muted">${text}</p>${extra}</div></div>
+    <div class="ci-actions"><button class="btn" data-act="close-overlay">Cancel</button><button class="btn btn-primary" data-act="ci-retry">Try again</button></div>`);
+
+  function checkIn(mode) {
+    Object.assign(ci, { mode, loc: null, photo: null });
+    openModal({ title: mode === 'remote' ? 'Check in remotely' : 'Check in', size: 'sm', submit: null, body: '<div id="ci-body"></div>' });
+    $('#overlay-root .modal-foot').hidden = true;
+    ciLocate();
+  }
+  async function ciLocate() {
+    const z = zone();
+    ciStep(`<div class="ci-status"><span class="spinner" aria-hidden="true"></span><div><strong>Finding your location</strong><p class="muted">Allow location access if your browser asks. You need to be within ${z.radius} m of ${esc(z.label)}.</p></div></div>`);
+    const loc = await U.locate({ gpsOnly: true });
+    if (!$('#ci-body')) return;
+    if (!loc) {
+      ciProblem('Location is off', 'Check-in needs your phone’s GPS position. Turn on location for this browser, allow access for this site, then try again.');
+      return;
+    }
+    const m = Math.round(U.distanceKm(loc, z) * 1000);
+    loc.m = m;
+    loc.inside = m - Math.min(loc.accuracy || 0, 50) <= z.radius;
+    ci.loc = loc;
+    if (ci.mode === 'present' && !loc.inside) {
+      ciProblem(`You are ${U.fmtDist(m)} from ${esc(z.label)}`, `Move inside the ${z.radius} m check-in zone and try again. Your GPS accuracy is ±${loc.accuracy} m.`,
+        `<a class="hint" href="${mapsLink(z)}" target="_blank" rel="noopener">Open the check-in point in Google Maps</a>`);
+      return;
+    }
+    ciSelfie();
+  }
+  function ciWhere() {
+    const z = zone(), L = ci.loc;
+    return `<div class="ci-where ${L.inside ? 'ok' : ''}">${icon(L.inside ? 'check' : 'pin')}<span>${L.inside ? `Inside the check-in zone · ${U.fmtDist(L.m)} from ${esc(z.label)}` : `Remote · ${U.fmtDist(L.m)} from ${esc(z.label)}`}</span></div>`;
+  }
+  async function ciSelfie() {
+    ci.photo = null;
+    ciStep(`${ciWhere()}
+      <div class="ci-cam"><video id="ci-video" playsinline autoplay muted></video></div>
+      <p class="muted ci-hint" id="ci-hint">Center your face in the frame, then take your selfie.</p>
+      <div class="ci-actions"><button class="btn btn-primary" data-act="ci-capture" id="ci-shoot" disabled>${icon('camera')}Take selfie</button></div>
+      <input type="file" id="ci-file" accept="image/*" capture="user" hidden>`);
+    $('#ci-file').addEventListener('change', (ev) => {
+      const f = ev.target.files?.[0]; if (!f) return;
+      const img = new Image();
+      img.onload = () => { ci.photo = squareJpeg(img, img.naturalWidth, img.naturalHeight, false); URL.revokeObjectURL(img.src); ciReview(); };
+      img.onerror = () => toast('That file is not a photo. Try again.', 'error');
+      img.src = URL.createObjectURL(f);
+    });
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 720 } }, audio: false });
+      const v = $('#ci-video');
+      if (!v) { stopCamera(); return; }
+      v.srcObject = camStream; await v.play();
+      $('#ci-shoot').disabled = false;
+    } catch (e) {
+      stopCamera();
+      const cam = $('.ci-cam'); if (!cam) return;
+      cam.innerHTML = `<div class="ci-cam-empty">${icon('camera')}<span>Live camera isn’t available here.</span></div>`;
+      $('#ci-hint').textContent = 'Use your phone’s front camera to take a selfie instead.';
+      const b = $('#ci-shoot'); b.disabled = false; b.dataset.act = 'ci-pick'; b.innerHTML = `${icon('camera')}Open camera`;
+    }
+  }
+  // Center-square crop, 320 px JPEG, to keep each selfie small (about 20 KB).
+  function squareJpeg(src, w, h, mirror) {
+    const side = Math.min(w, h), size = 320, c = document.createElement('canvas');
+    c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    if (mirror) { ctx.translate(size, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(src, (w - side) / 2, (h - side) / 2, side, side, 0, 0, size, size);
+    return c.toDataURL('image/jpeg', 0.72);
+  }
+  function ciReview() {
+    ciStep(`${ciWhere()}<div class="ci-cam"><img class="ci-photo" src="${ci.photo}" alt="Your selfie"></div>
+      <div class="ci-actions"><button class="btn" data-act="ci-retake">Retake</button><button class="btn btn-primary" data-act="ci-confirm">${icon('check')}Check in at ${nowHM()}</button></div>`);
+  }
+  function ciConfirm() {
+    const L = ci.loc, T = U.today(), t = nowHM(), z = zone();
+    if (!L || !ci.photo) return;
+    state.attendance[T] = state.attendance[T] || {};
+    state.attendance[T][me().id] = {
+      s: ci.mode, in: t, out: '', photo: ci.photo,
+      loc: { lat: L.lat, lng: L.lng, accuracy: L.accuracy, label: L.label, source: 'gps', m: L.m, inside: L.inside, zone: z.label, radius: z.radius },
+    };
+    pruneSelfies();
+    cloudWrite('checkins', { company: state.settings.company, employee: fullName(me()), mode: ci.mode, time: new Date().toISOString(), label: `${U.fmtDist(L.m)} from ${z.label}`, source: 'gps', lat: L.lat, lng: L.lng, accuracy: L.accuracy });
+    const tn = currentTenant(); if (tn) tn.lastActive = T;
+    closeOverlay();
+    commit(`Checked in at ${t}`, `${fullName(me())} checked in${ci.mode === 'remote' ? ' remotely' : ''} with a selfie, ${U.fmtDist(L.m)} from ${z.label}`);
+  }
+  // Selfies are kept for 30 days so browser storage does not fill up.
+  function pruneSelfies() {
+    const cutoff = U.addDays(U.today(), -30);
+    Object.keys(state.attendance).forEach((d) => { if (d < cutoff) Object.values(state.attendance[d]).forEach((r) => { delete r.photo; }); });
+  }
+  function openSelfie(empId, day) {
+    const r = state.attendance[day]?.[empId], e = emp(empId);
+    if (!r?.photo) return;
+    openModal({
+      title: `${fullName(e)} · ${U.fmtDate(day, { weekday: 'short', month: 'short', day: 'numeric' })}`, size: 'sm', submit: null,
+      body: `<div style="display:flex;flex-direction:column;gap:14px;align-items:center">
+        <img class="ci-photo" src="${r.photo}" alt="Check-in selfie of ${esc(fullName(e))}" style="max-width:320px;width:100%;border-radius:20px">
+        <dl class="kv" style="width:100%"><dt>Checked in</dt><dd>${r.in}${r.out ? ` · out ${r.out}` : ''}</dd><dt>Location</dt><dd>${r.loc ? esc(locText(r.loc)) : '—'}</dd>
+        ${r.loc?.lat != null ? `<dt>Coordinates</dt><dd><a href="${mapsLink(r.loc)}" target="_blank" rel="noopener">${U.fmtCoords(r.loc)}</a></dd>` : ''}</dl></div>`,
+    });
   }
   const locText = (loc) => {
     if (!loc) return '';
+    if (loc.m != null) return `${loc.inside ? 'Inside zone' : 'Outside zone'} · ${U.fmtDist(loc.m)} from ${loc.zone || 'check-in point'} · GPS ±${loc.accuracy} m`;
     const how = loc.source === 'gps' ? `GPS ±${loc.accuracy < 1000 ? loc.accuracy + ' m' : (loc.accuracy / 1000).toFixed(1) + ' km'}` : 'approx. from time zone';
-    const dist = loc.km != null ? (loc.onSite ? ' · at the office' : ` · ${loc.km < 10 ? loc.km : Math.round(loc.km)} km from office`) : '';
-    return `${loc.label}${dist} (${how})`;
+    return `${loc.label} (${how})`;
   };
+  const selfieThumb = (empId, day, r) => (r?.photo ? `<button class="selfie-thumb" data-act="view-selfie" data-id="${empId}" data-v="${day}" aria-label="View selfie"><img src="${r.photo}" alt=""></button>` : '');
 
   // ---------- Platform map ----------
   let mapInstance = null;
@@ -1318,6 +1442,20 @@
     'toggle-pw': () => { const i = $('#login-password'), b = $('[data-act="toggle-pw"]'); const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.textContent = show ? 'Hide' : 'Show'; b.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); },
     'logout': () => { Object.assign(state.session, { account: null, roles: [], role: null }); closeOverlay(); save(); history.replaceState(null, '', location.pathname + location.search); render(); toast('Signed out'); },
     'check-in': (_, v) => checkIn(v),
+    'ci-retry': () => ciLocate(),
+    'ci-capture': () => { const v = $('#ci-video'); if (!v?.videoWidth) return; ci.photo = squareJpeg(v, v.videoWidth, v.videoHeight, true); stopCamera(); ciReview(); },
+    'ci-pick': () => $('#ci-file')?.click(),
+    'ci-retake': () => ciSelfie(),
+    'ci-confirm': () => ciConfirm(),
+    'view-selfie': (id, day) => openSelfie(id, day),
+    'zone-here': async () => {
+      toast('Finding your location…');
+      const loc = await U.locate({ gpsOnly: true });
+      if (!loc) { toast('Could not get your GPS position. Turn on location and try again.', 'error'); return; }
+      Object.assign(state.settings.checkin, { lat: loc.lat, lng: loc.lng });
+      commit(`Check-in point set to your location (±${loc.accuracy} m)`);
+    },
+    'zone-remote': (_, v) => { state.settings.checkin.remote = v === 'on'; commit(v === 'on' ? 'Remote check-in allowed' : 'Remote check-in turned off'); },
     'check-out': () => { const r = myRecord(U.today()); r.out = nowHM(); commit(`Checked out at ${r.out}`); },
     'my-payslip': (m) => openPayslip(me().id, m),
     'tenant-view': (id) => openTenant(id),
@@ -1366,7 +1504,7 @@
   const LOGO_FULL = `<span style="display:inline-flex;align-items:center;gap:12px">${LOGO_MARK.replace(/width="30" height="30"/, 'width="44" height="44"')}<span style="font-size:22px;font-weight:600;letter-spacing:.3em">ALLURUS</span></span>`;
 
   // ---------- Overlays ----------
-  function closeOverlay() { $('#overlay-root').innerHTML = ''; }
+  function closeOverlay() { stopCamera(); $('#overlay-root').innerHTML = ''; }
   function openModal({ title, body, submit = 'Save', onSubmit, size = '' }) {
     $('#overlay-root').innerHTML = `<div class="scrim" data-scrim><form class="modal ${size}" role="dialog" aria-modal="true" aria-label="${esc(title)}" novalidate>
       <div class="modal-head"><h2>${esc(title)}</h2><button type="button" class="btn btn-icon btn-ghost" data-act="close-overlay" aria-label="Close">${icon('x')}</button></div>
@@ -1385,8 +1523,8 @@
   function openDrawer(html) {
     $('#overlay-root').innerHTML = `<div class="scrim drawer-scrim" data-scrim><aside class="drawer" role="dialog" aria-modal="true">${html}</aside></div>`;
   }
-  function toast(msg) {
-    const t = document.createElement('div'); t.className = 'toast'; t.innerHTML = icon('check') + esc(msg);
+  function toast(msg, kind) {
+    const t = document.createElement('div'); t.className = 'toast' + (kind === 'error' ? ' toast-error' : ''); t.innerHTML = icon(kind === 'error' ? 'x' : 'check') + esc(msg);
     $('#toast-root').appendChild(t); setTimeout(() => t.remove(), 2600);
   }
 

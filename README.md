@@ -22,6 +22,18 @@ The demo password for all three is in your private notes. Change it under **Sett
 
 > Passwords are stored as SHA-256 hashes, but this is still a front-end demo: the hashes ship inside `js/seed.js`, so anyone can download them and try to guess the password offline, and short passwords fall quickly. Use real server-side authentication before handling real employee data.
 
+## Selfie check-in
+
+Employees check in with **Check in with selfie** on their Home screen:
+
+1. The app reads the phone's GPS position. It must be inside the company's check-in zone. The default radius is 50 m. For Allurus HQ the point is 3°46'11.4"N 103°13'28.4"E.
+2. The employee takes a selfie with the front camera.
+3. The admin sees the selfie, the time and the distance from the check-in point on the **Attendance** page.
+
+Admins set the zone under **Settings → Check-in location**: paste coordinates from Google Maps or tap **Use my location**, then set the radius. You can also allow remote check-in, which still needs a selfie. Selfies are kept for 30 days.
+
+GPS and the camera need HTTPS, such as the GitHub Pages site. The claude.ai preview link blocks both, so employees can't check in there.
+
 Clients can **Register company** from the sign-in screen. That creates a new workspace on a 14-day trial, optionally filled with a sample team.
 
 ## Open it in VS Code for the Web (vscode.dev)
