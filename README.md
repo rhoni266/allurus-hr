@@ -8,6 +8,20 @@ People operations SaaS for growing companies: a minimal, Apple-style HRMS with t
 | **Company Admin** | HR at a customer company | Dashboard, employees, departments, attendance, time-off approvals, payroll with payslips and CSV export, a recruitment pipeline with drag and drop, performance reviews, and company settings. |
 | **Employee** | Staff at a customer company | Time clock with location-stamped check-in and check-out, attendance history, time-off requests and balances, payslips, profile, goals, and the company directory. |
 
+## Signing in
+
+Everyone signs in with email and password. The sidebar's view picker shows only the views an account is allowed to use.
+
+| Account | Views |
+|---|---|
+| `superadmin@allurus.com` | Super Admin, Company Admin, Employee |
+| `admin@allurus.com` | Company Admin, Employee |
+| `emp@allurus.com` | Employee |
+
+The demo password for all three is in your private notes. Change it under **Settings → Your account**. Companies that register create their own admin account, and that account gets the Company Admin and Employee views.
+
+> Passwords are stored as SHA-256 hashes, but this is still a front-end demo: the hashes ship inside `js/seed.js`, so anyone can download them and try to guess the password offline, and short passwords fall quickly. Use real server-side authentication before handling real employee data.
+
 Clients can **Register company** from the sign-in screen. That creates a new workspace on a 14-day trial, optionally filled with a sample team.
 
 ## Open it in VS Code for the Web (vscode.dev)

@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const STORE_KEY = 'allurus-hr-v2';
+  const STORE_KEY = 'allurus-hr-v3';
   const esc = U.esc;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
@@ -125,7 +125,8 @@
       { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Account' },
     ],
   };
-  const role = () => state.session?.role;
+  const role = () => (state.session?.account && state.session.roles?.includes(state.session.role) ? state.session.role : null);
+  const account = () => state.accounts.find((a) => a.email === state.session.account);
   const me = () => emp(state.session.empId) || activeEmployees()[0];
   ROLE_ROUTES.admin = [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', group: 'Overview' },
@@ -151,7 +152,15 @@
     $('#nav').innerHTML = html;
     $('#company-name').textContent = role() === 'super' ? 'Platform console' : state.settings.company;
     const who = role() === 'super' ? { name: 'You', sub: 'Super Admin' } : role() === 'admin' ? { name: fullName(state.employees.find((e) => e.id === 'e1')) , sub: `Admin · ${state.settings.company}` } : { name: fullName(me()), sub: me().role };
-    $('#me-card').innerHTML = `${avatar(who.name === 'You' ? 'Super Admin' : who.name, 'sm')}<div style="min-width:0;flex:1"><div class="me-name">${esc(who.name)}</div><div class="me-role">${esc(who.sub)}</div></div><button class="btn btn-sm btn-ghost" data-act="logout" title="Switch role">Switch</button>`;
+    const acct = account();
+    if (role() === 'super') { who.name = acct?.name || 'Allurus HQ'; who.sub = 'Super Admin'; }
+    $('#me-card').innerHTML = `<div class="me-row">${avatar(who.name, 'sm')}<div style="min-width:0;flex:1"><div class="me-name">${esc(who.name)}</div><div class="me-role">${esc(acct?.email || who.sub)}</div></div></div>
+      <div class="me-actions">${state.session.roles.length > 1 ? `<select class="select" id="role-switch" aria-label="Switch view">${state.session.roles.map((r) => `<option value="${r}" ${r === role() ? 'selected' : ''}>${ROLES[r].label} view</option>`).join('')}</select>` : `<span class="pill brand">${ROLES[role()].label}</span>`}<button class="btn btn-sm btn-ghost" data-act="logout">Sign out</button></div>`;
+    $('#role-switch')?.addEventListener('change', (ev) => {
+      state.session.role = ev.target.value; save();
+      if (location.hash) location.hash = ''; else render();
+      toast(`Switched to ${ROLES[ev.target.value].label} view`);
+    });
     $('.search').hidden = role() !== 'admin';
   }
 
@@ -160,7 +169,7 @@
     const signedIn = !!role();
     $('#login').hidden = signedIn;
     $('.app').hidden = !signedIn;
-    if (!signedIn) { $('#login').innerHTML = loginView(); return; }
+    if (!signedIn) { $('#login').innerHTML = loginView(); bindLogin(); return; }
     renderNav();
     const view = $('#view');
     view.innerHTML = VIEWS[route()]();
@@ -742,6 +751,7 @@
         <div class="settings-row"><div><div class="label">Theme</div><div class="desc">Follow the device or pick a theme.</div></div><div class="seg">${[['system', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) => `<button data-act="theme" data-v="${v}" class="${s.theme === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
         <div class="settings-row"><div><div class="label">Brand kit</div><div class="desc">Allurus logo, colors and type.</div></div><a class="btn" href="brand.html">${icon('palette')}Open brand kit</a></div>
       </div>
+      ${accountCard()}
       <div class="card"><div class="card-head"><h3>Data</h3></div>
         <div class="settings-row"><div><div class="label">Reset demo workspace</div><div class="desc">Data is stored in this browser only.</div></div><button class="btn btn-danger" data-act="ask-reset">Reset data</button></div>
         <div id="reset-confirm"></div></div>`;
@@ -765,39 +775,82 @@
       <div class="card"><div class="card-head"><h3>Brand</h3><a class="hint" href="brand.html">Open brand kit</a></div>
         <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">${LOGO_FULL}<div class="chips">${[['Allurus Teal', '#0F766E'], ['Champagne', '#D9B66F'], ['Obsidian', '#16181D'], ['Mist', '#F5F5F7']].map(([n, c]) => `<span class="chip" style="cursor:default"><i style="width:14px;height:14px;border-radius:50%;background:${c};border:1px solid var(--line-strong)"></i>${n}<span class="n">${c}</span></span>`).join('')}</div></div>
       </div>
+      ${accountCard()}
       <div class="card"><div class="card-head"><h3>Data</h3></div>
         <div class="settings-row"><div><div class="label">Reset demo workspace</div><div class="desc">Data is stored in this browser only. Resetting replaces everything with the sample company.</div></div><button class="btn btn-danger" data-act="ask-reset">Reset data</button></div>
         <div id="reset-confirm"></div>
       </div>`;
   };
   AFTER.settings = () => {
+    bindAccountCard();
     if (role() !== 'admin') return;
     const bind = (id, key, num) => $(id).addEventListener('change', (ev) => { state.settings[key] = num ? Math.max(0, Number(ev.target.value) || 0) : ev.target.value.trim() || state.settings[key]; commit('Settings saved'); });
     bind('#s-company', 'company'); bind('#s-currency', 'currency'); bind('#s-office', 'office'); bind('#s-tax', 'taxRate', 1); bind('#s-benefits', 'benefitsRate', 1); bind('#s-annual', 'annualDays', 1); bind('#s-sick', 'sickDays', 1);
   };
 
-  // ---------- Sign-in (role picker) ----------
+  // ---------- Sign-in ----------
   function loginView() {
-    const perks = {
-      super: ['Subscribed companies', 'Revenue and plans', 'Invoices and account health'],
-      admin: ['Employees and departments', 'Attendance and time off', 'Payroll, hiring and reviews'],
-      employee: ['Check in and out', 'Request time off', 'Payslips and goals'],
-    };
     return `<div class="login-inner">
       <div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div>
       <h1>Sign in to Allurus</h1>
-      <p class="sub">People operations for growing companies. Pick a role to explore this demo.</p>
-      <div class="role-grid">${Object.entries(ROLES).filter(([k]) => k !== 'super' || cloud.owner).map(([k, r]) => `
-        <button class="role-card" data-act="login" data-v="${k}">
-          <span class="role-icon">${icon({ super: 'building', admin: 'people', employee: 'userplus' }[k])}</span>
-          <span class="role-title">${r.label}</span>
-          <span class="role-desc">${k === 'super' ? r.desc : r.desc.replace('your company', esc(state.settings.company))}</span>
-          <span class="role-list">${perks[k].map((p) => `<span>${icon('check')}${p}</span>`).join('')}</span>
-          <span class="role-go">Continue ${icon('right')}</span>
-        </button>`).join('')}</div>
+      <p class="sub">People operations for growing companies.</p>
+      <form class="login-card" id="login-form" novalidate>
+        <div class="field"><label for="login-email">Email</label><input class="input" id="login-email" name="email" type="email" autocomplete="username" placeholder="you@company.com" required></div>
+        <div class="field"><label for="login-password">Password</label>
+          <div class="pw-wrap"><input class="input" id="login-password" name="password" type="password" autocomplete="current-password" required><button type="button" class="pw-toggle" data-act="toggle-pw" aria-label="Show password">Show</button></div></div>
+        <p class="login-error" id="login-error" role="alert" hidden></p>
+        <button class="btn btn-primary login-submit" type="submit">Sign in</button>
+      </form>
       <div class="register-cta"><div><strong>New to Allurus?</strong><span class="muted"> Register your company and start a free trial.</span></div><button class="btn btn-primary" data-act="register">${icon('plus')}Register company</button></div>
       <p class="faint" style="font-size:12.5px">Demo mode. Your workspace is saved in this browser${cloud.db ? '; company sign-ups and check-ins are also shared with the Allurus team' : ''}.</p>
     </div>`;
+  }
+  function bindLogin() {
+    const form = $('#login-form'), err = $('#login-error');
+    setTimeout(() => $('#login-email')?.focus(), 30);
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const email = form.email.value.trim().toLowerCase(), pw = form.password.value;
+      if (!email || !pw) { err.textContent = 'Enter your email and password.'; err.hidden = false; return; }
+      const btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Signing in…';
+      const acct = state.accounts.find((a) => a.email === email);
+      const ok = acct && acct.hash === await U.hashPassword(email, pw);
+      if (!ok) {
+        await new Promise((r) => setTimeout(r, 500));
+        btn.disabled = false; btn.textContent = 'Sign in';
+        err.textContent = 'That email and password don’t match an Allurus account.'; err.hidden = false;
+        form.password.value = ''; form.password.focus();
+        return;
+      }
+      startSession(acct);
+    });
+  }
+  function startSession(acct) {
+    if (acct.tenantId && acct.tenantId !== state.session.tenantId && state.workspaces[acct.tenantId]) switchWorkspace(acct.tenantId);
+    Object.assign(state.session, { account: acct.email, roles: acct.roles.slice(), role: acct.roles[0], empId: acct.empId });
+    save();
+    if (location.hash) location.hash = ''; else render();
+    window.scrollTo(0, 0);
+    toast(`Signed in as ${acct.email}`);
+  }
+  function accountCard() {
+    const a = account();
+    return `<div class="card"><div class="card-head"><h3>Your account</h3><span class="hint">${esc(a?.email || '')}</span></div>
+      <form id="pw-form" class="form-grid">
+        <div class="field"><label for="pw-current">Current password</label><input class="input" id="pw-current" name="current" type="password" autocomplete="current-password" required></div>
+        <div class="field"><label for="pw-new">New password</label><input class="input" id="pw-new" name="next" type="password" autocomplete="new-password" minlength="8" required><span class="field-hint">At least 8 characters.</span></div>
+        <div class="field full" style="align-items:flex-start"><button class="btn btn-primary" type="submit">Change password</button></div>
+      </form></div>`;
+  }
+  function bindAccountCard() {
+    $('#pw-form')?.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const a = account(), f = ev.target;
+      if (a.hash !== await U.hashPassword(a.email, f.current.value)) { toast('Your current password is not right'); f.current.focus(); return; }
+      if (f.next.value.length < 8) { toast('Use at least 8 characters for the new password'); f.next.focus(); return; }
+      a.hash = await U.hashPassword(a.email, f.next.value);
+      save(); f.reset(); toast('Password changed');
+    });
   }
 
   // ---------- Shared chart ----------
@@ -1161,7 +1214,6 @@
       cloud.db.collection('registrations').onSnapshot((snap) => { cloud.registrations = snap.docs.map((d) => ({ id: d.id, ...d.data() })); mergeRegistrations(); render(); }, () => {});
       cloud.db.collection('checkins').onSnapshot((snap) => { cloud.checkins = snap.docs.map((d) => ({ id: d.id, ...d.data() })); if (route() === 'platform') render(); }, () => {});
     }
-    if (!cloud.owner && role() === 'super') state.session.role = null;
     render();
   }
   function mergeRegistrations() {
@@ -1193,31 +1245,29 @@
         <div class="field"><label for="rg-cur">Currency</label><select class="select" id="rg-cur" name="currency">${['USD', 'EUR', 'GBP', 'AED', 'SAR', 'QAR', 'KWD', 'PKR', 'INR', 'MYR', 'SGD', 'AUD', 'CAD'].map((x) => `<option>${x}</option>`).join('')}</select></div>
         <div class="field"><label for="rg-plan">Plan</label><select class="select" id="rg-plan" name="plan">${state.platform.plans.map((p) => `<option value="${p.id}" ${p.id === 'growth' ? 'selected' : ''}>${p.name} · $${p.price}/seat/month</option>`).join('')}</select></div>
         <div class="field"><label for="rg-seats">Team size</label><input class="input" id="rg-seats" name="seats" type="number" min="1" value="25" required></div>
+        <div class="field"><label for="rg-pw">Password</label><input class="input" id="rg-pw" name="password" type="password" autocomplete="new-password" minlength="8" required><span class="field-hint">At least 8 characters. You will sign in with your work email.</span></div>
+        <div class="field"><label for="rg-pw2">Confirm password</label><input class="input" id="rg-pw2" name="password2" type="password" autocomplete="new-password" required></div>
         <label class="field full" style="flex-direction:row;align-items:center;gap:10px;font-size:13.5px"><input type="checkbox" name="samples" checked style="accent-color:var(--brand);width:16px;height:16px"> Add a sample team so I can try payroll, attendance and hiring</label>
         </div>`,
       onSubmit(d) {
+        const email = d.email.trim().toLowerCase();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('Enter a valid work email'); return false; }
+        if (state.accounts.some((a) => a.email === email)) { toast('An account with that email already exists. Sign in instead.'); return false; }
+        if (d.password.length < 8) { toast('Use at least 8 characters for your password'); return false; }
+        if (d.password !== d.password2) { toast('The two passwords don’t match'); return false; }
         const p = plan(d.plan), seats = Math.max(1, Number(d.seats) || 1);
         if (p.maxSeats && seats > p.maxSeats) { toast(`${p.name} covers up to ${p.maxSeats} people. Pick a bigger plan.`); return false; }
         const c = U.city(d.city);
         const tid = U.uid('t');
         state.platform.tenants.push({ id: tid, name: d.name, city: c.name, lat: c.lat, lng: c.lng, industry: d.industry, country: c.country, plan: d.plan, seats, status: 'Trial', joined: U.today(), admin: d.email, lastActive: U.today(), hasWorkspace: true });
-        state.workspaces[tid] = newWorkspace(d, !!d.samples);
-        switchWorkspace(tid);
-        state.session.role = 'admin';
+        state.workspaces[tid] = newWorkspace({ ...d, email }, !!d.samples);
+        const acct = { email, name: d.adminName.trim(), hash: '', roles: ['admin', 'employee'], tenantId: tid, empId: 'e1' };
+        state.accounts.push(acct);
+        U.hashPassword(email, d.password).then((h) => { acct.hash = h; startSession(acct); toast(`Welcome to Allurus, ${d.name}`); });
         cloudWrite('registrations', { company: d.name, industry: d.industry, city: c.name, country: c.country, lat: c.lat, lng: c.lng, plan: d.plan, seats, email: d.email, joined: U.today(), lastActive: U.today() });
-        save(); location.hash = 'dashboard'; render();
-        toast(`Welcome to Allurus, ${d.name}`);
       },
     });
     if (guess) setTimeout(() => { const s = $('#rg-city'); if (s) s.value = guess; }, 0);
-  }
-
-  function openEmployeePicker() {
-    const list = activeEmployees().sort((a, b) => a.first.localeCompare(b.first));
-    openModal({
-      title: `Sign in to ${state.settings.company}`, size: 'sm', submit: null,
-      body: `<p class="muted" style="margin-bottom:12px">Demo sign-in: choose who you are.</p><div class="list">${list.map((e) => `<button class="list-item" style="border-left:0;border-right:0;border-top:0;background:none;cursor:pointer;text-align:left;width:100%" data-act="pick-emp" data-id="${e.id}">${person(e)}<span class="grow"></span>${icon('right')}</button>`).join('')}</div>`,
-    });
   }
 
   async function checkIn(mode) {
@@ -1264,14 +1314,9 @@
 
   // Role-specific actions
   Object.assign(ACTIONS_EXTRA, {
-    'login': (_, v) => {
-      if (v === 'employee') { openEmployeePicker(); return; }
-      if (v === 'super' && !cloud.owner) return;
-      state.session.role = v; save(); if (location.hash) location.hash = ''; render(); window.scrollTo(0, 0);
-    },
-    'pick-emp': (id) => { state.session.empId = id; state.session.role = 'employee'; closeOverlay(); save(); if (location.hash) location.hash = ''; render(); window.scrollTo(0, 0); },
     'register': () => openRegister(),
-    'logout': () => { state.session.role = null; closeOverlay(); save(); history.replaceState(null, '', location.pathname); render(); },
+    'toggle-pw': () => { const i = $('#login-password'), b = $('[data-act="toggle-pw"]'); const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.textContent = show ? 'Hide' : 'Show'; b.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); },
+    'logout': () => { Object.assign(state.session, { account: null, roles: [], role: null }); closeOverlay(); save(); history.replaceState(null, '', location.pathname + location.search); render(); toast('Signed out'); },
     'check-in': (_, v) => checkIn(v),
     'check-out': () => { const r = myRecord(U.today()); r.out = nowHM(); commit(`Checked out at ${r.out}`); },
     'my-payslip': (m) => openPayslip(me().id, m),

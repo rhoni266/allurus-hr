@@ -131,8 +131,14 @@ window.AllurusSeed = {
     ];
 
     const platform = this.platform(employees.length);
-    const session = { role: null, empId: 'e2', tenantId: 't1' };
-    return { version: 2, session, workspaces: {}, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
+    const session = { account: null, roles: [], role: null, empId: 'e2', tenantId: 't1' };
+    // Sign-in accounts. Passwords are stored as SHA-256 of "email:password", never in plain text.
+    const accounts = [
+      { email: 'superadmin@allurus.com', name: 'Allurus HQ', hash: 'f1cf377d5d77bcc3a12af1c4516fb4b6d20797dc369593edf0668aee2926cef9', roles: ['super', 'admin', 'employee'], tenantId: 't1', empId: 'e2' },
+      { email: 'admin@allurus.com', name: 'Amara Okafor', hash: '02333a94bab39ec8b56cd57a87830ed79f29237de26eccaf9e724305ede5cbd9', roles: ['admin', 'employee'], tenantId: 't1', empId: 'e1' },
+      { email: 'emp@allurus.com', name: 'Daniel Reyes', hash: '3d18388e7dd6f616a46254f4c8eb14b0aaeca178e246cd9832d4785daa11b7c9', roles: ['employee'], tenantId: 't1', empId: 'e2' },
+    ];
+    return { version: 3, session, accounts, workspaces: {}, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
   },
 
   // Super Admin data: every company subscribed to Allurus.

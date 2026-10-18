@@ -85,5 +85,40 @@ window.U = (function () {
     } catch (e) { if (!done) { done = true; clearTimeout(timer); fallback(); } }
   });
 
-  return { CITIES, city, distanceKm, nearestCity, locate, pad, iso, parse, today, addDays, isWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc };
+  // SHA-256 of "email:password" for the demo sign-in. Uses Web Crypto, with a small JS fallback.
+  function sha256js(str) {
+    const K = [], H = [];
+    const isPrime = (n) => { for (let f = 2; f * f <= n; f++) if (n % f === 0) return false; return true; };
+    for (let n = 2, k = 0; k < 64; n++) if (isPrime(n)) { if (k < 8) H[k] = (Math.pow(n, 1 / 2) * 2 ** 32) | 0; K[k++] = (Math.pow(n, 1 / 3) * 2 ** 32) | 0; }
+    const bytes = new TextEncoder().encode(str), l = bytes.length;
+    const words = new Array(((l + 9 + 63) >> 6) << 4).fill(0);
+    for (let i = 0; i < l; i++) words[i >> 2] |= bytes[i] << (24 - (i % 4) * 8);
+    words[l >> 2] |= 0x80 << (24 - (l % 4) * 8);
+    words[words.length - 1] = l * 8;
+    const ror = (x, n) => (x >>> n) | (x << (32 - n));
+    for (let j = 0; j < words.length; j += 16) {
+      const w = words.slice(j, j + 16);
+      let [a, b, c, d, e, f, g, h] = H;
+      for (let i = 0; i < 64; i++) {
+        if (i >= 16) {
+          const w15 = w[i - 15], w2 = w[i - 2];
+          w[i] = (w[i - 16] + (ror(w15, 7) ^ ror(w15, 18) ^ (w15 >>> 3)) + w[i - 7] + (ror(w2, 17) ^ ror(w2, 19) ^ (w2 >>> 10))) | 0;
+        }
+        const t1 = (h + (ror(e, 6) ^ ror(e, 11) ^ ror(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i]) | 0;
+        const t2 = ((ror(a, 2) ^ ror(a, 13) ^ ror(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      [a, b, c, d, e, f, g, h].forEach((v, i) => { H[i] = (H[i] + v) | 0; });
+    }
+    return H.map((v) => (v >>> 0).toString(16).padStart(8, '0')).join('');
+  }
+  async function hashPassword(email, password) {
+    const msg = `${String(email).trim().toLowerCase()}:${password}`;
+    try {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(msg));
+      return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+    } catch (e) { return sha256js(msg); }
+  }
+
+  return { hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, pad, iso, parse, today, addDays, isWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc };
 })();
