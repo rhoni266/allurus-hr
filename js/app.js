@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.6';
+  const APP_VERSION = '1.7';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   const STORE_KEY = 'allurus-hr-v6';
   const esc = U.esc;
@@ -187,7 +187,7 @@
     let html = '', group = '';
     routes().forEach((r) => {
       if (r.group !== group) { group = r.group; html += `<div class="nav-label">${group}</div>`; }
-      const count = r.id === 'leave' ? pendingLeaves().length : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
+      const count = r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
       html += `<a href="#${r.id}" class="${route() === r.id ? 'active' : ''}">${icon(r.icon)}<span>${r.label}</span>${count ? `<span class="count">${count}</span>` : ''}</a>`;
     });
     $('#nav').innerHTML = html;
@@ -461,6 +461,7 @@
         <div class="hbar" style="grid-template-columns:70px minmax(0,1fr) 70px"><span>Annual</span><div class="hbar-track"><i style="width:${Math.min(100, (aU / state.settings.annualDays) * 100)}%;background:var(--brand)"></i></div><span class="num r muted">${aU}/${state.settings.annualDays}</span></div>
         <div class="hbar" style="grid-template-columns:70px minmax(0,1fr) 70px"><span>Sick</span><div class="hbar-track"><i style="width:${Math.min(100, (sU / state.settings.sickDays) * 100)}%;background:var(--gold)"></i></div><span class="num r muted">${sU}/${state.settings.sickDays}</span></div>
       </div>
+      ${securitySection(e)}
       <div class="drawer-section"><h4>Last 10 workdays</h4>
         <div class="dots">${days.map((dd) => { const r = state.attendance[dd]?.[e.id]; const s = r ? r.s : 'none'; return `<span class="d-${s}" title="${U.fmtDate(dd)}: ${s === 'none' ? 'Not marked' : s}">${label[s]}</span>`; }).join('')}</div>
         <div class="legend"><span><i class="d-present"></i>Present</span><span><i class="d-remote"></i>Remote</span><span><i class="d-absent"></i>Absent</span><span><i class="d-leave"></i>Leave</span></div>
@@ -528,13 +529,14 @@
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--bad)"></span>Absent</div><div class="kpi-value">${s.absent}</div></div>
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>On leave</div><div class="kpi-value">${s.leave}</div><div class="kpi-foot">${s.none} not marked</div></div>
       </div>
+      ${securityCard()}
       <div class="card card-flush">
         <div class="card-head" style="padding-bottom:14px"><h3>${U.fmtDate(day, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</h3>${U.isWeekend(day) ? '<span class="pill gold">Weekend</span>' : ''}</div>
         <div class="table-wrap"><table>
           <thead><tr><th>Employee</th><th class="hide-sm">Department</th><th>Check-in</th><th class="hide-sm">Location</th><th>Status</th></tr></thead>
           <tbody>${people.map((e) => { const r = rec[e.id]; return `<tr>
             <td>${person(e)}</td><td class="hide-sm">${deptTag(e.dept)}</td>
-            <td class="num muted">${r?.in || '—'}${r?.out ? '–' + r.out : ''}${r?.history?.length ? `<div class="faint" style="font-size:12px">${r.history.length + 1} check-ins</div>` : ''}</td>
+            <td class="num muted">${r?.in || '—'}${r?.out ? '–' + r.out : ''}${r?.history?.length ? `<div class="faint" style="font-size:12px">${r.history.length + 1} check-ins</div>` : ''}${r?.face ? `<div style="margin-top:3px">${faceTag(r)}</div>` : ''}</td>
             <td class="hide-sm muted" style="font-size:12.5px;max-width:300px"><div class="loc-cell">${selfieThumb(e.id, day, r)}<span>${r?.loc ? esc(locText(r.loc)) : '—'}</span></div></td>
             <td><div class="att-controls"><div class="seg status" role="group" aria-label="Status for ${esc(fullName(e))}">${opts.map(([v, l]) => `<button data-act="att-set" data-id="${e.id}" data-v="${v}" class="${r?.s === v ? 'on' : ''}">${l}</button>`).join('')}</div>${r ? `<button class="btn btn-sm btn-icon btn-ghost" data-act="att-clear" data-id="${e.id}" title="Clear check-in" aria-label="Clear check-in for ${esc(fullName(e))}">${icon('x')}</button>` : ''}</div></td></tr>`; }).join('')}</tbody>
         </table></div>
@@ -828,6 +830,9 @@
           <div class="actions"><input class="input num" id="z-coords" value="${esc(U.fmtCoords(s.checkin))}" style="width:240px" aria-label="Check-in coordinates"><button class="btn" data-act="zone-here">${icon('pin')}Use my location</button></div></div>
         <div class="settings-row"><div><div class="label">Radius</div><div class="desc">How close employees must be, in meters. Default is 50 m.</div></div><input class="input num" id="z-radius" type="number" min="10" max="5000" step="5" value="${s.checkin.radius}" style="width:100px"></div>
         <div class="settings-row"><div><div class="label">Remote check-in</div><div class="desc">Lets employees check in from anywhere with a selfie. Marked as Remote.</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="zone-remote" data-v="${v}" class="${(s.checkin.remote ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+        ${[['deviceLock', 'One phone per person', 'Each person checks in only from their approved phone, and a phone checks in for one person. New phones need your approval.'],
+           ['faceCheck', 'Face check', 'Compares each selfie with the person’s reference photo, on their phone. Asks for consent first.'],
+           ['liveOnly', 'Live camera only', 'Blocks uploading a saved photo instead of taking a selfie.']].map(([k, label, desc]) => `<div class="settings-row"><div><div class="label">${label}</div><div class="desc">${desc}</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="sec-toggle" data-id="${k}" data-v="${v}" class="${(s.checkin[k] !== false ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`).join('')}
       </div>
       <div class="card"><div class="card-head"><h3>Brand</h3><a class="hint" href="brand.html">Open brand kit</a></div>
         <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">${LOGO_FULL}<div class="chips">${[['Allurus Teal', '#0F766E'], ['Champagne', '#D9B66F'], ['Obsidian', '#16181D'], ['Mist', '#F5F5F7']].map(([n, c]) => `<span class="chip" style="cursor:default"><i style="width:14px;height:14px;border-radius:50%;background:${c};border:1px solid var(--line-strong)"></i>${n}<span class="n">${c}</span></span>`).join('')}</div></div>
@@ -1094,7 +1099,7 @@
       <div class="page-head"><div><div class="eyebrow">${U.fmtDate(T, { weekday: 'long', month: 'long', day: 'numeric' })}</div><h1>${greet}, ${esc(e.first)}.</h1><p class="sub">${esc(e.role)} · ${esc(dept(e.dept)?.name || '')} · ${esc(state.settings.company)}</p></div>
         <div class="actions"><button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button></div></div>
       <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap">
-        <div><div class="kpi-label">Time clock</div><div class="kpi-value" id="live-clock" style="font-size:44px">${nowHM()}</div><div class="kpi-foot">${U.isWeekend(T) ? 'It is the weekend. Check-ins still count. ' : ''}Check in within ${zone().radius} m of ${esc(zone().label)} and take a selfie.</div></div>
+        <div><div class="kpi-label">Time clock</div><div class="kpi-value" id="live-clock" style="font-size:44px">${nowHM()}</div><div class="kpi-foot">${U.isWeekend(T) ? 'It is the weekend. Check-ins still count. ' : ''}Check in within ${zone().radius} m of ${esc(zone().label)} and take a selfie.${phoneStatus(me()) ? ` ${phoneStatus(me())}` : ''}</div></div>
         ${clock}
       </div>
       <div class="grid g-4 keep-2">
@@ -1336,20 +1341,75 @@
   }
 
   // ---------- Selfie check-in inside the company's check-in zone ----------
+  // Who is checking in is confirmed three ways: the phone (one approved phone per person),
+  // the place (GPS inside the zone) and the face (selfie compared on the phone with a reference photo).
   let camStream = null;
   const stopCamera = () => { camStream?.getTracks().forEach((t) => t.stop()); camStream = null; };
-  const ci = { mode: 'present', loc: null, photo: null };
+  const ci = { mode: 'present', loc: null, photo: null, canvas: null, face: null, fails: 0, consent: false, first: false, upload: false };
   const zone = () => state.settings.checkin;
+  const lockOn = () => zone().deviceLock !== false;
+  const faceOn = () => zone().faceCheck !== false;
+  const liveOnly = () => zone().liveOnly !== false;
   const mapsLink = (p) => `https://www.google.com/maps?q=${p.lat},${p.lng}`;
   const ciStep = (html) => { const b = $('#ci-body'); if (b) b.innerHTML = html; return !!b; };
-  const ciProblem = (title, text, extra = '') => ciStep(`<div class="ci-problem">${icon('pin')}<div><strong>${title}</strong><p class="muted">${text}</p>${extra}</div></div>
-    <div class="ci-actions"><button class="btn" data-act="close-overlay">Cancel</button><button class="btn btn-primary" data-act="ci-retry">Try again</button></div>`);
+  const ciProblem = (title, text, extra = '', buttons) => ciStep(`<div class="ci-problem">${icon('pin')}<div><strong>${title}</strong><p class="muted">${text}</p>${extra}</div></div>
+    <div class="ci-actions">${buttons || '<button class="btn" data-act="close-overlay">Cancel</button><button class="btn btn-primary" data-act="ci-retry">Try again</button>'}</div>`);
+
+  // ----- This phone -----
+  const DEVICE_KEY = 'allurus-device-id';
+  // A random id kept in this browser, separate from the app's data, so Reset data doesn't change it.
+  function deviceId() {
+    try {
+      let id = localStorage.getItem(DEVICE_KEY);
+      if (!id) { id = 'dev-' + (crypto.randomUUID ? crypto.randomUUID() : U.uid('') + U.uid('')); localStorage.setItem(DEVICE_KEY, id); }
+      return id;
+    } catch (e) { return 'dev-unsaved'; }
+  }
+  function deviceName() {
+    const ua = navigator.userAgent;
+    const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android phone' : /Mac OS/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows PC' : /Linux/.test(ua) ? 'Linux computer' : 'Device';
+    const br = /Edg\//.test(ua) ? 'Edge' : /SamsungBrowser/.test(ua) ? 'Samsung Internet' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox/.test(ua) ? 'Firefox' : /Safari/.test(ua) ? 'Safari' : 'browser';
+    return `${os}, ${br}`;
+  }
+  // Whether this phone may check in for employee e.
+  function deviceGate(e) {
+    if (!lockOn()) return { ok: true };
+    const id = deviceId();
+    const owner = state.employees.find((x) => x.id !== e.id && (x.devices || []).some((d) => d.id === id && d.status === 'approved'));
+    if (owner) return { ok: false, title: 'This phone belongs to someone else', text: `This phone is registered for ${esc(fullName(owner))}. Each phone checks in for one person only, so please use your own phone.` };
+    const mine = (e.devices || []).find((d) => d.id === id);
+    if (mine?.status === 'approved') return { ok: true };
+    if (mine?.status === 'pending') return { ok: false, title: 'Waiting for HR to approve this phone', text: `You asked to use this phone on ${U.fmtDate(mine.added)}. HR approves it on the Attendance page.` };
+    const approved = (e.devices || []).filter((d) => d.status === 'approved');
+    if (!approved.length) return { ok: true, first: true };
+    return { ok: false, request: true, title: 'This isn’t your registered phone', text: `You check in from your ${esc(approved.map((d) => d.name).join(', '))}. Got a new phone? Ask HR to approve this one.` };
+  }
+  const phoneStatus = (e) => {
+    if (!lockOn()) return '';
+    const g = deviceGate(e);
+    return g.ok ? (g.first ? 'Your first check-in registers this phone as yours.' : 'This phone is registered for your check-ins.') : g.title + '.';
+  };
 
   function checkIn(mode) {
-    Object.assign(ci, { mode, loc: null, photo: null });
+    Object.assign(ci, { mode, loc: null, photo: null, canvas: null, face: null, fails: 0, consent: false, first: false, upload: false });
     openModal({ title: mode === 'remote' ? 'Check in remotely' : 'Check in', size: 'sm', submit: null, body: '<div id="ci-body"></div>' });
     $('#overlay-root .modal-foot').hidden = true;
+    const g = deviceGate(me());
+    if (!g.ok) {
+      ciProblem(g.title, g.text, '', `<button class="btn" data-act="close-overlay">Close</button>${g.request ? '<button class="btn btn-primary" data-act="dev-request">Ask HR to approve this phone</button>' : ''}`);
+      return;
+    }
+    ci.first = !!g.first;
+    if (faceOn()) AllurusFace.load().catch(() => {});
+    if (faceOn() && !me().face) { ciConsent(); return; }
     ciLocate();
+  }
+  function ciConsent() {
+    ciStep(`<div class="ci-problem">${icon('shield')}<div><strong>Set up your face check</strong>
+      <p class="muted">To stop anyone else checking in for you, ${esc(state.settings.company)} compares each check-in selfie with a reference photo of you.</p>
+      <ul class="consent-list"><li>Your next selfie becomes your reference photo, and HR confirms it’s you.</li><li>The comparison runs on this phone. Your face is stored as a photo and a set of 128 numbers.</li><li>HR can see your reference photo and check-in selfies. They are used only for attendance.</li></ul></div></div>
+      <label class="check"><input type="checkbox" id="ci-agree"><span>I agree to my face being used to verify my check-ins</span></label>
+      <div class="ci-actions"><button class="btn" data-act="close-overlay">Not now</button><button class="btn btn-primary" data-act="ci-consent">Continue</button></div>`);
   }
   async function ciLocate() {
     const z = zone();
@@ -1376,16 +1436,20 @@
     return `<div class="ci-where ${L.inside ? 'ok' : ''}">${icon(L.inside ? 'check' : 'pin')}<span>${L.inside ? `Inside the check-in zone · ${U.fmtDist(L.m)} from ${esc(z.label)}` : `Remote · ${U.fmtDist(L.m)} from ${esc(z.label)}`}</span></div>`;
   }
   async function ciSelfie() {
-    ci.photo = null;
+    ci.photo = null; ci.canvas = null;
     ciStep(`${ciWhere()}
       <div class="ci-cam"><video id="ci-video" playsinline autoplay muted></video></div>
-      <p class="muted ci-hint" id="ci-hint">Center your face in the frame, then take your selfie.</p>
+      <p class="muted ci-hint" id="ci-hint">${faceOn() && me().face ? 'Look straight at the camera in good light. Only you should be in the photo.' : 'Center your face in the frame, then take your selfie.'}</p>
       <div class="ci-actions"><button class="btn btn-primary" data-act="ci-capture" id="ci-shoot" disabled>${icon('camera')}Take selfie</button></div>
       <input type="file" id="ci-file" accept="image/*" capture="user" hidden>`);
     $('#ci-file').addEventListener('change', (ev) => {
       const f = ev.target.files?.[0]; if (!f) return;
       const img = new Image();
-      img.onload = () => { ci.photo = squareJpeg(img, img.naturalWidth, img.naturalHeight, false); URL.revokeObjectURL(img.src); ciReview(); };
+      img.onload = () => {
+        ci.canvas = squareCanvas(img, img.naturalWidth, img.naturalHeight, false, 480);
+        ci.photo = squareCanvas(img, img.naturalWidth, img.naturalHeight, false, 320).toDataURL('image/jpeg', 0.72);
+        ci.upload = true; URL.revokeObjectURL(img.src); ciVerify();
+      };
       img.onerror = () => toast('That file is not a photo. Try again.', 'error');
       img.src = URL.createObjectURL(f);
     });
@@ -1397,58 +1461,139 @@
       $('#ci-shoot').disabled = false;
     } catch (e) {
       stopCamera();
-      const cam = $('.ci-cam'); if (!cam) return;
-      cam.innerHTML = `<div class="ci-cam-empty">${icon('camera')}<span>Live camera isn’t available here.</span></div>`;
+      if (!$('.ci-cam')) return;
+      if (liveOnly()) {
+        ciProblem('Allow the camera to check in', 'Check-in needs a live selfie. Allow camera access for this site in your browser settings, then try again. Uploading a saved photo isn’t allowed.', '',
+          '<button class="btn" data-act="close-overlay">Cancel</button><button class="btn btn-primary" data-act="ci-retake">Try again</button>');
+        return;
+      }
+      $('.ci-cam').innerHTML = `<div class="ci-cam-empty">${icon('camera')}<span>Live camera isn’t available here.</span></div>`;
       $('#ci-hint').textContent = 'Use your phone’s front camera to take a selfie instead.';
       const b = $('#ci-shoot'); b.disabled = false; b.dataset.act = 'ci-pick'; b.innerHTML = `${icon('camera')}Open camera`;
     }
   }
-  // Center-square crop, 320 px JPEG, to keep each selfie small (about 20 KB).
-  function squareJpeg(src, w, h, mirror) {
-    const side = Math.min(w, h), size = 320, c = document.createElement('canvas');
+  // Center-square crop. 320 px JPEG is kept (about 20 KB); a 480 px copy is used for the face check.
+  function squareCanvas(src, w, h, mirror, size) {
+    const side = Math.min(w, h), c = document.createElement('canvas');
     c.width = c.height = size;
     const ctx = c.getContext('2d');
     if (mirror) { ctx.translate(size, 0); ctx.scale(-1, 1); }
     ctx.drawImage(src, (w - side) / 2, (h - side) / 2, side, side, 0, 0, size, size);
-    return c.toDataURL('image/jpeg', 0.72);
+    return c;
   }
+  async function ciVerify() {
+    if (!faceOn()) { ci.face = null; ciReview(); return; }
+    const first = !me().face;
+    ciStep(`${ciWhere()}<div class="ci-status"><span class="spinner" aria-hidden="true"></span><div><strong>${first ? 'Reading your face' : 'Checking it’s you'}</strong><p class="muted">The first check on a phone takes a few seconds while the face check loads.</p></div></div>`);
+    let faces;
+    try { faces = await AllurusFace.describe(ci.canvas); } catch (e) {
+      ci.face = { result: 'unavailable' }; if ($('#ci-body')) ciReview(); return;
+    }
+    if (!$('#ci-body')) return;
+    const retake = '<button class="btn" data-act="close-overlay">Cancel</button><button class="btn btn-primary" data-act="ci-retake">Retake selfie</button>';
+    if (!faces.length) { ciProblem('We couldn’t see a face', 'Hold the phone at eye level in good light, with your whole face in the frame.', '', retake); return; }
+    if (faces.length > 1) { ciProblem(`We found ${faces.length} faces`, 'Only you should be in your check-in selfie. Retake it on your own.', '', retake); return; }
+    const desc = faces[0].descriptor, ref = me().face;
+    if (!ref) { ci.face = { result: 'enrolled', descriptor: desc }; ciReview(); return; }
+    const d = AllurusFace.distance(desc, ref.descriptor), v = AllurusFace.verdict(d);
+    if (v === 'mismatch' && ++ci.fails < 2) {
+      ciProblem(`This doesn’t look like ${esc(me().first)}`, 'Make sure it’s you in the photo, facing the camera in good light without a mask or sunglasses, then retake it.', '', retake);
+      return;
+    }
+    ci.face = { result: v, d: +d.toFixed(3), sim: AllurusFace.similarity(d) };
+    ciReview();
+  }
+  const FACE_NOTE = {
+    match: (f) => `<div class="ci-where ok">${icon('check')}<span>Face matches your reference photo (${f.sim}% similar)</span></div>`,
+    weak: (f) => `<div class="ci-where">${icon('pin')}<span>Weak face match (${f.sim}%). HR may review this check-in.</span></div>`,
+    mismatch: () => `<div class="ci-where bad">${icon('x')}<span>Your face didn’t match after two tries. You can still check in, and HR will review it.</span></div>`,
+    enrolled: () => `<div class="ci-where">${icon('shield')}<span>This selfie becomes your reference photo. HR will confirm it’s you.</span></div>`,
+    unavailable: () => `<div class="ci-where">${icon('pin')}<span>The face check couldn’t run on this phone. HR will review your selfie.</span></div>`,
+  };
   function ciReview() {
-    ciStep(`${ciWhere()}<div class="ci-cam"><img class="ci-photo" src="${ci.photo}" alt="Your selfie"></div>
-      <div class="ci-actions"><button class="btn" data-act="ci-retake">Retake</button><button class="btn btn-primary" data-act="ci-confirm">${icon('check')}Check in at ${nowHM()}</button></div>`);
+    const f = ci.face;
+    ciStep(`${ciWhere()}${f ? FACE_NOTE[f.result](f) : ''}<div class="ci-cam"><img class="ci-photo" src="${ci.photo}" alt="Your selfie"></div>
+      <div class="ci-actions"><button class="btn" data-act="ci-retake">Retake</button><button class="btn btn-primary" data-act="ci-confirm">${icon('check')}${f?.result === 'mismatch' ? 'Check in for HR review' : `Check in at ${nowHM()}`}</button></div>`);
   }
   function ciConfirm() {
-    const L = ci.loc, T = U.today(), t = nowHM(), z = zone();
+    const L = ci.loc, T = U.today(), t = nowHM(), z = zone(), e = me();
     if (!L || !ci.photo) return;
     state.attendance[T] = state.attendance[T] || {};
     const loc = { lat: L.lat, lng: L.lng, accuracy: L.accuracy, label: L.label, source: 'gps', m: L.m, inside: L.inside, zone: z.label, radius: z.radius };
-    const prev = state.attendance[T][me().id];
+    const face = ci.face ? { result: ci.face.result, sim: ci.face.sim ?? null } : null;
+    const device = { id: deviceId(), name: deviceName() };
+    if (ci.first && lockOn()) {
+      e.devices = [...(e.devices || []), { id: device.id, name: device.name, status: 'approved', added: T, auto: true }];
+      log(`${fullName(e)} registered a phone for check-in (${device.name})`);
+    }
+    if (ci.face?.result === 'enrolled') e.face = { photo: ci.photo, descriptor: ci.face.descriptor, status: 'pending', enrolledOn: T, consentOn: T };
+    const extra = { photo: ci.photo, loc, face, device, upload: ci.upload };
+    const prev = state.attendance[T][e.id];
     if (prev?.in && prev.out) {
       // Checking in again after a check-out: keep the first check-in time so hours still count from it,
       // and keep the earlier session (with its selfie) in the day's history.
-      prev.history = [...(prev.history || []), { in: prev.lastIn || prev.in, out: prev.out, photo: prev.photo, loc: prev.loc }];
-      Object.assign(prev, { s: ci.mode, out: '', lastIn: t, photo: ci.photo, loc });
+      prev.history = [...(prev.history || []), { in: prev.lastIn || prev.in, out: prev.out, photo: prev.photo, loc: prev.loc, face: prev.face }];
+      Object.assign(prev, { s: ci.mode, out: '', lastIn: t, ...extra });
     } else {
-      state.attendance[T][me().id] = { s: ci.mode, in: t, out: '', photo: ci.photo, loc };
+      state.attendance[T][e.id] = { s: ci.mode, in: t, out: '', ...extra };
     }
     pruneSelfies();
-    cloudWrite('checkins', { company: state.settings.company, employee: fullName(me()), mode: ci.mode, time: new Date().toISOString(), label: `${U.fmtDist(L.m)} from ${z.label}`, source: 'gps', lat: L.lat, lng: L.lng, accuracy: L.accuracy });
+    cloudWrite('checkins', { company: state.settings.company, employee: fullName(e), mode: ci.mode, time: new Date().toISOString(), label: `${U.fmtDist(L.m)} from ${z.label}`, source: 'gps', lat: L.lat, lng: L.lng, accuracy: L.accuracy });
     const tn = currentTenant(); if (tn) tn.lastActive = T;
     closeOverlay();
-    commit(`Checked in at ${t}`, `${fullName(me())} checked in${ci.mode === 'remote' ? ' remotely' : ''} with a selfie, ${U.fmtDist(L.m)} from ${z.label}`);
+    const flagged = face && ['mismatch', 'unavailable'].includes(face.result);
+    commit(flagged ? `Checked in at ${t}. HR will review your selfie.` : `Checked in at ${t}`,
+      `${fullName(e)} checked in${ci.mode === 'remote' ? ' remotely' : ''} with a selfie, ${U.fmtDist(L.m)} from ${z.label}${face?.result === 'mismatch' ? '. The face did not match.' : ''}`);
   }
   // Selfies are kept for 30 days so browser storage does not fill up.
   function pruneSelfies() {
     const cutoff = U.addDays(U.today(), -30);
     Object.keys(state.attendance).forEach((d) => { if (d < cutoff) Object.values(state.attendance[d]).forEach((r) => { delete r.photo; (r.history || []).forEach((h) => { delete h.photo; }); }); });
   }
+
+  // ----- How HR sees it -----
+  const faceTag = (r) => {
+    const f = r?.face; if (!f) return '';
+    return ({
+      match: `<span class="tag ok" title="Face matches the reference photo">Face ${f.sim}%</span>`,
+      weak: `<span class="tag warn" title="Weak face match">Weak ${f.sim}%</span>`,
+      mismatch: '<span class="tag bad" title="Face did not match the reference photo">No match</span>',
+      enrolled: '<span class="tag" title="This selfie became the reference photo">Reference</span>',
+      unavailable: '<span class="tag warn" title="The face check could not run">Not checked</span>',
+    })[f.result] || '';
+  };
+  function securityQueue() {
+    const devices = [], faces = [];
+    activeEmployees().forEach((e) => {
+      (e.devices || []).filter((d) => d.status === 'pending').forEach((d) => devices.push({ e, d }));
+      if (e.face?.status === 'pending') faces.push(e);
+    });
+    return { devices, faces, count: devices.length + faces.length };
+  }
+  function securityCard() {
+    const q = securityQueue(), T = U.today();
+    const flagged = activeEmployees().map((e) => ({ e, r: state.attendance[T]?.[e.id] })).filter((x) => x.r && (['mismatch', 'unavailable'].includes(x.r.face?.result) || x.r.upload));
+    if (!q.count && !flagged.length) return '';
+    return `<div class="card"><div class="card-head"><h3>Phones and faces to review</h3><span class="hint">${q.count + flagged.length} items</span></div><div class="list">
+      ${q.faces.map((e) => `<div class="list-item"><img class="ref-thumb" src="${e.face.photo}" alt="Reference photo of ${esc(fullName(e))}"><div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">New reference photo from ${U.fmtDate(e.face.enrolledOn)}. Is this really ${esc(e.first)}?</div></div>
+        <button class="btn btn-sm btn-ok" data-act="face-confirm" data-id="${e.id}">${icon('check')}It’s ${esc(e.first)}</button><button class="btn btn-sm btn-danger" data-act="face-reset" data-id="${e.id}">Not them</button></div>`).join('')}
+      ${q.devices.map(({ e, d }) => `<div class="list-item">${avatar(fullName(e), 'sm')}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">Wants to check in from a new phone: ${esc(d.name)}, requested ${U.fmtDate(d.added)}</div></div>
+        <button class="btn btn-sm btn-ok" data-act="dev-approve" data-id="${e.id}" data-v="${d.id}">Approve</button><button class="btn btn-sm btn-danger" data-act="dev-reject" data-id="${e.id}" data-v="${d.id}">Reject</button></div>`).join('')}
+      ${flagged.map(({ e, r }) => `<div class="list-item">${selfieThumb(e.id, T, r)}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">${r.upload ? 'Checked in with an uploaded photo instead of the live camera.' : r.face?.result === 'mismatch' ? 'Checked in today, but the face didn’t match the reference photo.' : 'The face check couldn’t run for today’s check-in.'} Tap the photo to compare.</div></div></div>`).join('')}
+    </div></div>`;
+  }
   function openSelfie(empId, day) {
     const r = state.attendance[day]?.[empId], e = emp(empId);
     if (!r?.photo) return;
+    const ref = e?.face?.photo;
     openModal({
-      title: `${fullName(e)} · ${U.fmtDate(day, { weekday: 'short', month: 'short', day: 'numeric' })}`, size: 'sm', submit: null,
-      body: `<div style="display:flex;flex-direction:column;gap:14px;align-items:center">
-        <img class="ci-photo" src="${r.photo}" alt="Check-in selfie of ${esc(fullName(e))}" style="max-width:320px;width:100%;border-radius:20px">
-        <dl class="kv" style="width:100%"><dt>Checked in</dt><dd>${r.in}${r.out ? ` · out ${r.out}` : ''}</dd><dt>Location</dt><dd>${r.loc ? esc(locText(r.loc)) : '—'}</dd>
+      title: `${fullName(e)} · ${U.fmtDate(day, { weekday: 'short', month: 'short', day: 'numeric' })}`, size: ref ? '' : 'sm', submit: null,
+      body: `<div style="display:flex;flex-direction:column;gap:14px">
+        <div class="compare">${ref ? `<figure><img class="ci-photo" src="${ref}" alt="Reference photo of ${esc(fullName(e))}"><figcaption>Reference photo${e.face.status === 'pending' ? ' (not confirmed yet)' : ''}</figcaption></figure>` : ''}
+          <figure><img class="ci-photo" src="${r.photo}" alt="Check-in selfie of ${esc(fullName(e))}"><figcaption>Check-in selfie, ${r.lastIn || r.in}</figcaption></figure></div>
+        <dl class="kv" style="width:100%"><dt>Face check</dt><dd>${r.face ? `${faceTag(r)} ${r.face.result === 'match' ? 'Matches the reference photo' : r.face.result === 'weak' ? 'Weak match; compare the photos' : r.face.result === 'mismatch' ? 'Did not match after two tries' : r.face.result === 'enrolled' ? 'Became the reference photo' : 'Could not run on the phone'}` : 'Not used'}${r.upload ? ' · uploaded photo, not live camera' : ''}</dd>
+        <dt>Phone</dt><dd>${r.device ? esc(r.device.name) : '—'}</dd>
+        <dt>Checked in</dt><dd>${r.in}${r.out ? ` · out ${r.out}` : ''}</dd><dt>Location</dt><dd>${r.loc ? esc(locText(r.loc)) : '—'}</dd>
         ${r.loc?.lat != null ? `<dt>Coordinates</dt><dd><a href="${mapsLink(r.loc)}" target="_blank" rel="noopener">${U.fmtCoords(r.loc)}</a></dd>` : ''}
         ${r.history?.length ? `<dt>Earlier today</dt><dd>${r.history.map((h) => `${h.in}–${h.out}`).join(', ')} · latest check-in ${r.lastIn}</dd>` : ''}</dl></div>`,
     });
@@ -1460,6 +1605,16 @@
     return `${loc.label} (${how})`;
   };
   const selfieThumb = (empId, day, r) => (r?.photo ? `<button class="selfie-thumb" data-act="view-selfie" data-id="${empId}" data-v="${day}" aria-label="View selfie"><img src="${r.photo}" alt=""></button>` : '');
+  function securitySection(e) {
+    const devs = e.devices || [];
+    return `<div class="drawer-section"><h4>Check-in identity</h4>
+      <div style="display:flex;gap:14px;align-items:center">${e.face ? `<img class="ref-thumb lg" src="${e.face.photo}" alt="Reference photo of ${esc(fullName(e))}">` : `<span class="ref-thumb lg empty">${icon('camera')}</span>`}
+        <div style="flex:1;min-width:0"><div class="person-name">${e.face ? (e.face.status === 'confirmed' ? 'Reference photo confirmed' : 'Reference photo waiting for HR') : 'No reference photo yet'}</div>
+          <div class="person-sub" style="white-space:normal">${e.face ? `Set on ${U.fmtDate(e.face.enrolledOn)}, with consent.` : 'Taken at their first check-in, after they agree.'}</div>
+          <div class="actions" style="margin-top:8px">${e.face?.status === 'pending' ? `<button class="btn btn-sm btn-ok" data-act="face-confirm" data-id="${e.id}">Confirm</button>` : ''}${e.face ? `<button class="btn btn-sm" data-act="face-reset" data-id="${e.id}">Retake at next check-in</button>` : ''}</div></div></div>
+      <div class="list">${devs.length ? devs.map((d) => `<div class="list-item"><div class="grow"><div class="person-name">${esc(d.name)}</div><div class="person-sub">${d.status === 'approved' ? 'Approved' : 'Waiting for approval'} · added ${U.fmtDate(d.added)}${d.id === deviceId() ? ' · this device' : ''}</div></div>
+        ${d.status === 'pending' ? `<button class="btn btn-sm btn-ok" data-act="dev-approve" data-id="${e.id}" data-v="${d.id}">Approve</button>` : ''}<button class="btn btn-sm btn-ghost" data-act="dev-remove" data-id="${e.id}" data-v="${d.id}">Remove</button></div>`).join('') : '<p class="faint" style="font-size:13px">No phone registered. Their first check-in registers it.</p>'}</div></div>`;
+  }
 
   // ---------- Platform map ----------
   let mapInstance = null;
@@ -1491,7 +1646,35 @@
     'logout': () => { Object.assign(state.session, { account: null, roles: [], role: null }); closeOverlay(); save(); history.replaceState(null, '', location.pathname + location.search); render(); toast('Signed out'); },
     'check-in': (_, v) => checkIn(v),
     'ci-retry': () => ciLocate(),
-    'ci-capture': () => { const v = $('#ci-video'); if (!v?.videoWidth) return; ci.photo = squareJpeg(v, v.videoWidth, v.videoHeight, true); stopCamera(); ciReview(); },
+    'ci-capture': () => {
+      const v = $('#ci-video'); if (!v?.videoWidth) return;
+      ci.canvas = squareCanvas(v, v.videoWidth, v.videoHeight, true, 480);
+      ci.photo = squareCanvas(v, v.videoWidth, v.videoHeight, true, 320).toDataURL('image/jpeg', 0.72);
+      ci.upload = false; stopCamera(); ciVerify();
+    },
+    'ci-consent': () => { if (!$('#ci-agree')?.checked) { toast('Tick the box to agree, or choose Not now', 'error'); return; } ci.consent = true; ciLocate(); },
+    'dev-request': () => {
+      const e = me(), id = deviceId();
+      e.devices = [...(e.devices || []).filter((d) => d.id !== id), { id, name: deviceName(), status: 'pending', added: U.today() }];
+      closeOverlay(); commit('Request sent to HR', `${fullName(e)} asked to check in from a new phone (${deviceName()})`);
+    },
+    'dev-approve': (empId, devId) => {
+      const e = emp(empId), d = e?.devices?.find((x) => x.id === devId); if (!d) return;
+      const other = state.employees.find((x) => x.id !== empId && (x.devices || []).some((y) => y.id === devId && y.status === 'approved'));
+      if (other) { toast(`That phone is already registered for ${fullName(other)}. Remove it there first.`, 'error'); return; }
+      d.status = 'approved'; d.approvedOn = U.today();
+      commit(`Phone approved for ${e.first}`, `${fullName(e)}’s new phone was approved (${d.name})`);
+      if ($('.drawer')) openProfile(empId);
+    },
+    'dev-reject': (empId, devId) => { const e = emp(empId); e.devices = (e.devices || []).filter((x) => x.id !== devId); commit('Phone request rejected', `${fullName(e)}’s phone request was rejected`); },
+    'dev-remove': (empId, devId) => { const e = emp(empId); e.devices = (e.devices || []).filter((x) => x.id !== devId); commit(`Phone removed from ${e.first}`, `A phone was removed from ${fullName(e)}’s check-in`); openProfile(empId); },
+    'face-confirm': (empId) => { const e = emp(empId); e.face.status = 'confirmed'; e.face.confirmedOn = U.today(); commit(`Reference photo confirmed for ${e.first}`, `${fullName(e)}’s reference photo was confirmed`); if ($('.drawer')) openProfile(empId); },
+    'face-reset': (empId) => { const e = emp(empId); delete e.face; commit(`${e.first} will set a new reference photo at the next check-in`, `${fullName(e)}’s reference photo was reset`); if ($('.drawer')) openProfile(empId); },
+    'sec-toggle': (key, v) => {
+      zone()[key] = v === 'on';
+      const label = { deviceLock: 'Phone lock', faceCheck: 'Face check', liveOnly: 'Live camera only' }[key];
+      commit(`${label} turned ${v}`);
+    },
     'ci-pick': () => $('#ci-file')?.click(),
     'ci-retake': () => ciSelfie(),
     'ci-confirm': () => ciConfirm(),

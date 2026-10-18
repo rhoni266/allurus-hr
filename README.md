@@ -46,6 +46,17 @@ Employees check in with **Check in with selfie** on their Home screen:
 2. The employee takes a selfie with the front camera.
 3. The admin sees the selfie, the time and the distance from the check-in point on the **Attendance** page.
 
+### Making sure it's really them
+
+Logging in isn't enough on its own, because people can share passwords. Each check-in also confirms the phone and the face:
+
+- **One phone per person.** An employee's first check-in registers that phone. Checking in from any other phone needs HR approval, so a friend's phone with the right password is blocked. A registered phone can't check in for anyone else.
+- **Face check.** At the first check-in the employee agrees to the face check, and that selfie becomes their reference photo, which HR confirms. Every later selfie is compared with it on the phone using face-api (MIT, `js/vendor/face`). The selfie never leaves the device for this check. A clear mismatch must be retaken; after two tries the check-in is kept but flagged for HR. Selfies with no face, or with two faces, are refused.
+- **Live camera only.** Uploading a saved photo is blocked unless HR turns this off.
+- HR reviews new reference photos, phone requests and flagged check-ins under **Attendance → Phones and faces to review**, with the reference and selfie side by side.
+
+All three can be switched off under **Settings → Check-in location**. Faces are biometric data under Malaysia's PDPA, so the app asks for consent before enrolling a face. A photo or video of the employee held up to the camera can still fool the face check. Stopping that needs a liveness check, such as a server-side service like AWS Rekognition Face Liveness, once there is a backend.
+
 Admins set the zone under **Settings → Check-in location**: paste coordinates from Google Maps or tap **Use my location**, then set the radius. You can also allow remote check-in, which still needs a selfie. Selfies are kept for 30 days.
 
 GPS and the camera need HTTPS, such as the GitHub Pages site. The claude.ai preview link blocks both, so employees can't check in there.

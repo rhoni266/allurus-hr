@@ -354,6 +354,16 @@ td.r, th.r { text-align: right; }
 .selfie-thumb { width: 34px; height: 34px; border-radius: 50%; padding: 0; border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--line-strong); overflow: hidden; cursor: zoom-in; flex: none; background: var(--line); }
 .selfie-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .loc-cell { display: flex; align-items: center; gap: 10px; }
+.loc-cell > span { min-width: 190px; }
+.ci-where.bad { background: var(--bad-soft); color: var(--bad); }
+.consent-list { margin: 10px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; color: var(--fg-2); font-size: 13px; }
+.ref-thumb { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex: none; background: var(--line); box-shadow: 0 0 0 1px var(--line-strong); }
+.ref-thumb.lg { width: 64px; height: 64px; }
+.ref-thumb.empty { display: grid; place-items: center; color: var(--fg-3); }
+.compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.compare figure { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.compare img { width: 100%; aspect-ratio: 1; border-radius: 18px; object-fit: cover; }
+.compare figcaption { font-size: 12.5px; color: var(--fg-3); text-align: center; }
 .att-controls { display: flex; align-items: center; gap: 6px; }
 
 /* ---------- Finance & Accounting ---------- */
