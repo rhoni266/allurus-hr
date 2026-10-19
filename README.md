@@ -167,6 +167,24 @@ The aggregations are in `js/report-rules.js` and the costing maths in `js/costin
 
 The rules (edit requests, checklists, org tree, loans, letters, career history and expiry) are in `js/hr-rules.js` (no DOM), with tests in `tests/hr.test.js`. Loans are records only: payroll does not deduct the instalments yet. Documents are stored in the browser with the rest of the demo data, so keep uploads small until there is a server.
 
+## Talent: recruitment, training, grievances and meeting rooms
+
+- **Requisitions** (Recruitment → Requisitions, or “Request a hire” for managers under Approvals): title, department, type, headcount, salary range, reason and why it's needed. It goes through the department's approval chain (the same one as leave), then HR. Approval opens the role with text from the chosen job post template.
+- **Job posts and the careers page**: job post templates (Settings → Recruitment templates) fill the role's “About”, “What you will do”, “What you bring” and “What we offer”. Ticking “Show on the careers page” publishes it at a public, no-sign-in link per company: `#careers/<company id>` (Recruitment → Jobs and careers page → Copy link). The application form asks for name, email, phone, a link, a note, where they heard of you, and PDPA consent; it rejects duplicate applications and lands the candidate in Applied with the source “Careers page”. *In this demo the careers page saves to the same browser's storage, so it only works on the device the company uses. Going live needs a backend endpoint for applications.*
+- **Candidates**: open a card for stage dates, interviews, scorecards and offers; move forward, or mark “Not progressing”. Every stage change records its date (used for time to hire).
+- **Interviews**: date, time, in person (with a meeting room booking) or video/phone, and interviewers. The form warns when an interviewer is on leave or has another interview then, and blocks a clashing room. Interviewers get a notification and fill in a 1–5 scorecard per area (Settings) with a recommendation under Approvals.
+- **Offer letters**: pick a template, set salary, start date, probation and reply-by date; the letter fills `{{placeholders}}` from the candidate and role, can be edited, is saved on the candidate and prints or saves as PDF. Mark it Accepted (moves to Hired, ready to Onboard) or Declined.
+- **Hiring analytics**: candidates and hires in a date range, average and median time to hire (applied → hired), candidates and hire rate by source, and stage conversion (how many reached each stage, and the share from the stage before).
+- **Job boards**: `postToJobBoard(board, job)` in `js/recruit.js` is a stub for Indeed, MyFutureJobs (PERKESO) and JobStreet. It returns “not connected” and the screen offers “Copy job text” to paste into each portal. `// FORMAT: verify` notes describe what each integration needs.
+- **Training** (Talent → Training): courses with modules (text, a video link or a PDF link), an optional quiz with a pass mark (written as `Q:` lines with `*` marking the right option), hours, provider, certificate validity in months, and an **HRD Corp claimable** flag with the fee. Courses can be mandatory for everyone, chosen departments or job titles containing a word (for example “Manager”).
+- **Compliance**: a matrix of people × mandatory courses (current, expiring with days left, in progress, not started, overdue, expired), filter by department, CSV, and “Assign what's missing”, which enrols new joiners and assigns renewals for certificates expiring within 60 days. A renewal assigned early does not hide a certificate that is still valid.
+- **Certificates**: passing the quiz (or finishing every module when there is no quiz) issues a numbered certificate, printable as PDF. Expiry dates feed the daily reminders (60, 14 and 0 days, to HR and the employee) and insights.
+- **Training requests**: staff ask for external courses or events (provider, dates, fee, HRD Corp claimable) from My training. Requests go through the approval chain; HR can mark them attended. Apply for HRD Corp grants on the HRD Corp portal before the course starts; Allurus only keeps the flag.
+- **Grievances** (Talent → Grievances; staff use “Raise a concern”): category, priority, subject and details, with an option to keep their name from their department. Concerns go to the grievance managers in turn (Settings). Status flow New → Acknowledged → Investigating → Resolved → Closed (resolving needs a written outcome; a resolved case can be reopened). SLA days to acknowledge and resolve per priority are editable in Settings; the list shows days left or days over. Anonymous cases show “Anonymous” even to grievance managers until one reveals the name, which is recorded on the case. Internal notes are hidden from the raiser. The summary report (by category, status and priority, SLA met, average days to resolve) and its CSV contain no names.
+- **Meeting rooms** (Company → Meeting rooms): rooms with seats, location and equipment; a day calendar per room (tap an empty hour to book); a booking form that checks clashes, seats and past times as you type and suggests free rooms; My bookings; HR adds rooms and can cancel any booking (the owner is told). Interview room bookings show in gold.
+
+The rules (hiring analytics, application checks, scorecards, slot and room conflicts, interview clashes, mandatory courses, quiz scoring, course status and certificate expiry, compliance, grievance SLAs and summary) are in `js/talent-rules.js` (no DOM), with tests in `tests/talent.test.js`.
+
 ## Appraisals and goals
 
 - **Templates** (Settings → Appraisal templates): sections for KPIs, competencies and values, each with a weight; questions with their own weight and an optional comment box; a 1–5 scale or a custom one (for example 1–4 or 0–10). Assign a template to departments or to named people; otherwise the cycle's template is used. A sales template comes with the demo.
@@ -350,7 +368,7 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 index.html          App shell: sign-in screen, sidebar, top bar
 brand.html          Brand kit: logo, palette, type, usage rules
 design-system.html  Live tokens and components
-tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules, notifications, appraisals, HR admin, reports, project costing, e-Invoice
+tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules, notifications, appraisals, HR admin, reports, project costing, e-Invoice, talent
 css/styles.css      Design tokens (light and dark) and all components
 js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
 js/seed.js          Demo data: the Lumen & Co. workspace and 14 subscribed companies
@@ -375,6 +393,11 @@ js/report-rules.js  Report aggregations (no DOM): headcount, turnover, payroll v
 js/costing-rules.js Project costing maths (no DOM): job tree, splitting check-in time, timesheets, hourly labour cost, roll-ups
 js/reports.js       HR reports library and custom report writer
 js/costing.js       Projects, job groups and jobs, timesheets, costing reports
+js/talent-rules.js  Talent rules (no DOM): hiring analytics, applications, scorecards, room and interview clashes, courses, quizzes, certificates, grievance SLAs
+js/recruit.js       Requisitions, pipeline, interviews and scorecards, offer letters, analytics, job-board stub, public careers page
+js/lms.js           Training: courses, modules and quizzes, mandatory compliance, certificates, training requests
+js/grievance.js     Grievances: raise a concern, case handling with SLA, anonymity, summary report
+js/rooms.js         Meeting rooms: day calendar, bookings with conflict check, my bookings, room admin
 js/hr-rules.js      HR admin rules (no DOM): edit requests, checklists, org tree, loans, letters, career history, expiry
 js/hr.js            Employee file tabs, change requests, onboarding/offboarding, assets/loans/insurance, org chart, letters, documents
 js/appraisal.js     Templates and bands, review cycles, self/manager/HR scoring, goals, 360°, reports, pay changes

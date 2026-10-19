@@ -14,13 +14,13 @@ window.AllurusNotifyRules = (function () {
   // Categories people can set a channel for.
   const CATEGORIES = {
     requests: 'Requests and approvals', pay: 'Payroll and payslips', announcements: 'Announcements and policies',
-    schedule: 'Roster changes', attendance: 'Flagged check-ins', appraisals: 'Appraisals and feedback', reminders: 'Reminders',
+    schedule: 'Roster changes', attendance: 'Flagged check-ins', appraisals: 'Appraisals and feedback', talent: 'Hiring, training, concerns and rooms', reminders: 'Reminders',
   };
   const CHANNELS = { both: 'In the app and by email', inapp: 'In the app only', email: 'By email only', off: 'Off' };
   const defaultPrefs = () => Object.fromEntries(Object.keys(CATEGORIES).map((k) => [k, k === 'reminders' ? 'inapp' : 'both']));
   const route = (prefs, category) => { const c = (prefs || {})[category] || defaultPrefs()[category] || 'both'; return { inApp: c === 'both' || c === 'inapp', email: c === 'both' || c === 'email' }; };
 
-  const KIND = { leave: 'leave', claim: 'claim', ot: 'overtime', waiver: 'lateness waiver', correction: 'attendance correction' };
+  const KIND = { leave: 'leave', claim: 'claim', ot: 'overtime', waiver: 'lateness waiver', correction: 'attendance correction', requisition: 'hiring request', training: 'training' };
   const what = (d) => `${KIND[d.kind] || 'request'}${d.summary ? ` (${d.summary})` : ''}`;
   // Each event: category, icon, and the text for the app and for email. data carries names and links.
   const TYPES = {
@@ -43,6 +43,12 @@ window.AllurusNotifyRules = (function () {
     'profile.request': { cat: 'requests', icon: 'edit', text: (d) => [`${d.who} asked to update their details`, `Changes to ${d.fields}. Check and approve them.`] },
     'profile.decided': { cat: 'requests', icon: 'check', text: (d) => [d.approved ? 'Your details were updated' : 'Your detail change was declined', d.note ? `HR: “${d.note}”` : d.approved ? 'HR approved the change.' : 'Check with HR.'] },
     'profile.document': { cat: 'requests', icon: 'doc', text: (d) => [`${d.who} added a document`, `“${d.title}” is on their employee file.`] },
+    'interview.scheduled': { cat: 'talent', icon: 'calendar', text: (d) => [`Interview with ${d.who}`, `${d.role}, ${fmt(d.date)} at ${d.time}. Fill in your scorecard after it.`] },
+    'candidate.applied': { cat: 'talent', icon: 'userplus', text: (d) => [`${d.who} applied for ${d.role}`, 'New application from the careers page.'] },
+    'training.assigned': { cat: 'talent', icon: 'book', text: (d) => [`${d.count > 1 ? `${d.count} courses` : `“${d.title}”`} assigned to you`, d.due ? `Please finish by ${fmt(d.due)}.` : 'Open My training to start.'] },
+    'grievance.raised': { cat: 'talent', icon: 'shield', text: (d) => [`New concern: ${d.subject}`, `${d.priority} priority. Acknowledge it by ${fmt(d.ackDue)}.`] },
+    'grievance.update': { cat: 'talent', icon: 'shield', text: (d) => [`Your concern is now ${d.status}`, d.note ? `“${d.note}”` : `${d.subject}`] },
+    'booking.cancelled': { cat: 'talent', icon: 'calendar', text: (d) => [`Your booking of ${d.room} was cancelled`, `${fmt(d.date)} ${d.time}${d.note ? `: ${d.note}` : '.'}`] },
     'task.assigned': { cat: 'reminders', icon: 'userplus', text: (d) => [`${d.count} ${d.kind} task${d.count === 1 ? '' : 's'} for ${d.self ? 'you' : d.who}`, `First: ${d.first}, due ${fmt(d.date)}.`] },
     'task.overdue': { cat: 'reminders', icon: 'userplus', text: (d) => [`${d.count} onboarding or offboarding task${d.count === 1 ? ' is' : 's are'} overdue`, `${d.first} (${d.who})${d.count > 1 ? ' and more' : ''}.`] },
     'reminder.document': { cat: 'reminders', icon: 'doc', text: (d) => [`${d.self ? 'Your ' : ''}${d.title}${d.who && !d.self ? ` for ${d.who}` : ''} ${d.left < 0 ? 'has expired' : 'expires ' + inDays(d.left)}`, `Expiry ${fmt(d.date)}. Renew it or upload the new one.`] },

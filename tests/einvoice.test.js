@@ -10,7 +10,7 @@ const vm = require('node:vm');
 const sb = { console };
 sb.window = sb;
 vm.createContext(sb);
-for (const f of ['utils', 'leave-rules', 'attendance-rules', 'statutory', 'claims-rules', 'notify-rules', 'appraisal-rules', 'hr-rules', 'einvoice-rules', 'myinvois', 'finance', 'tax', 'claims', 'planner', 'seed']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f + '.js'), 'utf8'), sb, { filename: f + '.js' });
+for (const f of ['utils', 'leave-rules', 'attendance-rules', 'statutory', 'claims-rules', 'notify-rules', 'appraisal-rules', 'hr-rules', 'talent-rules', 'einvoice-rules', 'myinvois', 'finance', 'tax', 'claims', 'planner', 'seed']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f + '.js'), 'utf8'), sb, { filename: f + '.js' });
 const E = sb.AllurusEInvoiceRules, F = sb.AllurusFinance;
 const seed = sb.AllurusSeed.create();
 const fin = seed.finance, cfg = seed.settings.einvoice;

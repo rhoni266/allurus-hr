@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.1';
+  const APP_VERSION = '3.2';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   const STORE_KEY = 'allurus-hr-v7';
   const esc = U.esc;
@@ -48,6 +48,7 @@
     if (!s.finance) s.finance = AllurusFinance.blank();
     Object.values(s.workspaces || {}).forEach((w) => { if (!w.finance) w.finance = AllurusFinance.blank(); });
     [s, ...Object.values(s.workspaces || {})].forEach(migrateEInvoice);
+    [s, ...Object.values(s.workspaces || {})].forEach(migrateTalent);
     s.reliefs = s.reliefs || {}; s.taxProfiles = s.taxProfiles || {};
     [s, ...Object.values(s.workspaces || {})].forEach((w) => { w.claims = w.claims || []; w.plans = w.plans || {}; });
     return s;
@@ -132,6 +133,18 @@
     f.invoices.forEach((i) => { i.type = i.type || 'invoice'; i.einvoice = i.einvoice || { status: 'Draft' }; if ((i.type === 'invoice')) add('customer', i.customer, i.email); i.items.forEach((it) => { it.classification = it.classification || '022'; }); });
     f.bills.forEach((b) => { add('supplier', b.supplier); if (b.selfBilled) b.einvoice = b.einvoice || { status: 'Draft' }; });
     [...f.invoices, ...f.bills].forEach((r) => { if (!r.contactId) { const c = f.contacts.find((x) => x.name === (r.customer || r.supplier)); if (c) r.contactId = c.id; } });
+  }
+  // Talent: requisitions, job posts and careers page, interviews and offers, training, grievances and rooms.
+  function migrateTalent(ws) {
+    if (!ws.settings) return;
+    const d = AllurusSeed.talentDefaults();
+    ws.settings.recruit = { ...d.recruit, ...(ws.settings.recruit || {}) };
+    ws.settings.grievance = { ...d.grievance, ...(ws.settings.grievance || {}) };
+    ws.settings.training = { window: 60, ...(ws.settings.training || {}) };
+    ['requisitions', 'courses', 'enrolments', 'trainingRequests', 'grievances', 'rooms', 'bookings'].forEach((k) => { ws[k] = ws[k] || []; });
+    ws.jobs = ws.jobs || []; ws.candidates = ws.candidates || [];
+    ws.jobs.forEach((j) => { if (j.published === undefined) j.published = false; j.description = j.description || {}; j.boards = j.boards || {}; });
+    ws.candidates.forEach((c) => { c.stageDates = c.stageDates || { Applied: c.applied }; c.source = c.source || ''; c.interviews = c.interviews || []; c.offers = c.offers || []; });
   }
   // A new company has no check-in point until the admin sets one. Until then check-ins are blocked
   // and Settings shows a warning. The city centre is only used to centre the map picker.
@@ -345,6 +358,9 @@
       { id: 'my-approvals', label: 'Approvals', icon: 'check', group: 'Me' },
       { id: 'my-appraisal', label: 'Appraisal & goals', icon: 'trend', group: 'Me' },
       { id: 'my-timesheet', label: 'Timesheet', icon: 'layers', group: 'Me' },
+      { id: 'my-training', label: 'My training', icon: 'book', group: 'Me' },
+      { id: 'my-concerns', label: 'Raise a concern', icon: 'shield', group: 'Me' },
+      { id: 'grievances', label: 'Grievance desk', icon: 'shield', group: 'Me' },
       { id: 'my-profile', label: 'Profile', icon: 'people', group: 'Me' },
       { id: 'my-pay', label: 'Payslips', icon: 'wallet', group: 'Finance' },
       { id: 'my-claims', label: 'Claims', icon: 'receipt', group: 'Finance' },
@@ -352,6 +368,7 @@
       { id: 'my-plan', label: 'Financial planner', icon: 'target', group: 'Finance' },
       { id: 'news', label: 'Announcements', icon: 'doc', group: 'Company' },
       { id: 'org-chart', label: 'Org chart', icon: 'org', group: 'Company' },
+      { id: 'rooms', label: 'Meeting rooms', icon: 'calendar', group: 'Company' },
       { id: 'directory', label: 'Directory', icon: 'people', group: 'Company' },
       { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Account' },
     ],
@@ -374,6 +391,7 @@
     { id: 'onboarding', label: 'Onboarding', icon: 'userplus', group: 'Workforce' },
     { id: 'assets', label: 'Assets & loans', icon: 'box', group: 'Workforce' },
     { id: 'org-chart', label: 'Org chart', icon: 'org', group: 'Workforce' },
+    { id: 'rooms', label: 'Meeting rooms', icon: 'calendar', group: 'Workforce' },
     { id: 'announcements', label: 'Announcements', icon: 'doc', group: 'Workforce' },
     { id: 'attendance', label: 'Attendance', icon: 'clock', group: 'Time' },
     { id: 'schedule', label: 'Schedule', icon: 'grip', group: 'Time' },
@@ -390,18 +408,20 @@
     { id: 'reports', label: 'Reports & audit', icon: 'shield', group: 'Finance & Accounting' },
     { id: 'recruitment', label: 'Recruitment', icon: 'briefcase', group: 'Talent' },
     { id: 'performance', label: 'Performance', icon: 'trend', group: 'Talent' },
+    { id: 'training', label: 'Training', icon: 'book', group: 'Talent' },
+    { id: 'grievances', label: 'Grievances', icon: 'shield', group: 'Talent' },
     { id: 'hr-reports', label: 'HR reports', icon: 'chart', group: 'Insights' },
     { id: 'projects', label: 'Project costing', icon: 'layers', group: 'Insights' },
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
   ];
-  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()));
+  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()));
   const route = () => { const h = location.hash.replace('#', ''); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
   function renderNav() {
     let html = '', group = '';
     const rs = routes(), pinned = AllurusUX.pins().map((id) => rs.find((r) => r.id === id)).filter(Boolean);
     const navItem = (r) => {
-      const count = r.id === 'my-approvals' ? leaveApi.myCount(me().id) + timeApi.myCount(me().id) + claimsApi.myCount(me().id) : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'employees' ? hrApi?.pendingCount() || 0 : r.id === 'onboarding' ? hrApi?.overdueCount() || 0 : r.id === 'performance' || r.id === 'my-appraisal' ? appraisalApi?.badge(r.id) || 0 : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
+      const count = r.id === 'my-approvals' ? leaveApi.myCount(me().id) + timeApi.myCount(me().id) + claimsApi.myCount(me().id) + (recruitApi?.taskCount(me().id) || 0) : r.id === 'training' ? lmsApi?.pendingCount() || 0 : r.id === 'my-training' ? lmsApi?.todoCount(me().id) || 0 : r.id === 'grievances' ? grievApi?.badge() || 0 : r.id === 'recruitment' ? recruitApi?.badge() || 0 : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'employees' ? hrApi?.pendingCount() || 0 : r.id === 'onboarding' ? hrApi?.overdueCount() || 0 : r.id === 'performance' || r.id === 'my-appraisal' ? appraisalApi?.badge(r.id) || 0 : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
       const on = AllurusUX.pins().includes(r.id), cur = route() === r.id;
       return `<div class="nav-item"><a href="#${r.id}" class="${cur ? 'active' : ''}" ${cur ? 'aria-current="page"' : ''}>${icon(r.icon)}<span>${r.label}</span>${count ? `<span class="count" aria-label="${count} waiting">${count}</span>` : ''}</a><button type="button" class="nav-pin ${on ? 'on' : ''}" data-act="ux-pin" data-id="${r.id}" aria-pressed="${on}" aria-label="${on ? 'Unpin' : 'Pin'} ${esc(r.label)}" title="${on ? 'Unpin' : 'Pin to top'}">${icon(on ? 'starFill' : 'star')}</button></div>`;
     };
@@ -433,6 +453,10 @@
     if (state.settings.leave) U.setWeekend(AllurusLeaveRules.weekendDays(state.settings.leave));
     // A device set up as a check-in kiosk shows only the kiosk, signed in or not.
     if (kioskApi?.kioskOn()) { kioskApi.renderKiosk(); return; }
+    // The public careers page (#careers/<company>/<role>) needs no sign-in.
+    const careers = /^#careers\/([^/]+)(?:\/(.+))?/.exec(location.hash);
+    $('#login').classList.toggle('is-careers', !!careers);
+    if (careers) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = recruitApi.careersPage(careers[1], careers[2] || ''); recruitApi.bindCareers(careers[1], careers[2] || ''); document.title = `Careers · ${recruitApi.tenantName(careers[1]) || 'Allurus'}`; return; }
     const signedIn = !!role();
     $('#login').hidden = signedIn;
     $('.app').hidden = !signedIn;
@@ -459,7 +483,7 @@
   const VIEWS = {};
   const AFTER = {};
   const ACTIONS_EXTRA = {};
-  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null, appraisalApi = null, hrApi = null, costingApi = null, einvApi = null;
+  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null, appraisalApi = null, hrApi = null, costingApi = null, einvApi = null, recruitApi = null, lmsApi = null, grievApi = null, roomsApi = null;
   let clockTimer = null;
 
   // ---------- Automated insights (what needs attention, trends and wellbeing nudges) ----------
@@ -536,6 +560,7 @@
     if (hrApi) out.push(...hrApi.insights());
     if (costingApi) out.push(...costingApi.insights());
     if (einvApi) out.push(...einvApi.insights());
+    [recruitApi, lmsApi, grievApi, roomsApi].forEach((a) => { if (a) out.push(...a.insights()); });
     return out.sort((a, b) => b.prio - a.prio);
   }
   const actionLink = (a, cls = 'btn btn-sm') => a.href ? `<a class="${cls}" href="${a.href}">${esc(a.label)}</a>` : `<button type="button" class="${cls}" data-act="${a.act}" ${a.id ? `data-id="${a.id}"` : ''} ${a.v ? `data-v="${a.v}"` : ''}>${esc(a.label)}</button>`;
@@ -1027,50 +1052,6 @@
 
   // ----- Recruitment -----
   const STAGES = ['Applied', 'Screening', 'Interview', 'Offer', 'Hired'];
-  VIEWS.recruitment = () => {
-    const jf = ui.jobFilter;
-    const cands = state.candidates.filter((c) => jf === 'all' || c.jobId === jf);
-    const job = (id) => state.jobs.find((j) => j.id === id);
-    const selected = jf !== 'all' ? job(jf) : null;
-    return `
-      <div class="page-head"><div><h1>Recruitment</h1><p class="sub">${state.jobs.length} open roles and ${state.candidates.filter((c) => c.stage !== 'Hired').length} active candidates. Drag a card to move it between stages.</p></div>
-        <div class="actions"><button class="btn" data-act="add-job">${icon('briefcase')}New role</button><button class="btn btn-primary" data-act="add-cand">${icon('plus')}Add candidate</button></div></div>
-      <div class="chips">
-        <button class="chip ${jf === 'all' ? 'on' : ''}" data-act="job-filter" data-v="all">All roles <span class="n">${state.candidates.length}</span></button>
-        ${state.jobs.map((j) => `<button class="chip ${jf === j.id ? 'on' : ''}" data-act="job-filter" data-v="${j.id}">${esc(j.title)} <span class="n">${state.candidates.filter((c) => c.jobId === j.id).length}</span></button>`).join('')}
-      </div>
-      ${selected ? `<div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><h3 style="font-size:17px">${esc(selected.title)}</h3><div class="muted" style="margin-top:4px">${deptTag(selected.dept)} · ${esc(selected.location)} · ${esc(selected.type)} · Opened ${U.fmtDate(selected.opened)}</div></div><button class="btn btn-danger btn-sm" data-act="close-job" data-id="${selected.id}">Close role</button></div>` : ''}
-      <div class="kanban">${STAGES.map((st, si) => {
-        const list = cands.filter((c) => c.stage === st);
-        return `<div class="kcol" data-stage="${st}"><div class="kcol-head"><span>${st}</span><span class="n">${list.length}</span></div>
-          ${list.map((c) => `<div class="kcard" draggable="true" data-cand="${c.id}">
-            <div class="person">${avatar(c.name, 'sm')}<div style="min-width:0"><div class="person-name">${esc(c.name)}</div><div class="person-sub">${esc(job(c.jobId)?.title || 'Role closed')}</div></div></div>
-            <div class="kcard-foot">${stars(c.rating)}<span class="faint" style="font-size:12px">${U.fmtDate(c.applied, { month: 'short', day: 'numeric' })}</span></div>
-            <div class="kcard-foot">
-              <button class="btn btn-sm btn-icon btn-ghost" data-act="cand-move" data-id="${c.id}" data-v="-1" ${si === 0 ? 'disabled' : ''} aria-label="Move back">${icon('left')}</button>
-              ${st === 'Hired' ? (c.converted ? '<span class="pill ok">Onboarded</span>' : `<button class="btn btn-sm btn-primary" data-act="cand-hire" data-id="${c.id}">${icon('userplus')}Onboard</button>`) : `<button class="btn btn-sm btn-ghost" data-act="cand-del" data-id="${c.id}" aria-label="Remove candidate">${icon('trash')}</button>`}
-              <button class="btn btn-sm btn-icon btn-ghost" data-act="cand-move" data-id="${c.id}" data-v="1" ${si === STAGES.length - 1 ? 'disabled' : ''} aria-label="Move forward">${icon('right')}</button>
-            </div></div>`).join('')}
-          ${list.length ? '' : '<div class="empty" style="padding:16px 4px;font-size:12.5px">No candidates</div>'}
-        </div>`;
-      }).join('')}</div>`;
-  };
-  AFTER.recruitment = () => {
-    let dragId = null;
-    $$('.kcard').forEach((c) => {
-      c.addEventListener('dragstart', (ev) => { dragId = c.dataset.cand; c.classList.add('dragging'); ev.dataTransfer.setData('text/plain', dragId); });
-      c.addEventListener('dragend', () => c.classList.remove('dragging'));
-    });
-    $$('.kcol').forEach((col) => {
-      col.addEventListener('dragover', (ev) => { ev.preventDefault(); col.classList.add('drop'); });
-      col.addEventListener('dragleave', () => col.classList.remove('drop'));
-      col.addEventListener('drop', (ev) => {
-        ev.preventDefault(); col.classList.remove('drop');
-        const c = state.candidates.find((x) => x.id === (dragId || ev.dataTransfer.getData('text/plain')));
-        if (c && c.stage !== col.dataset.stage) { c.stage = col.dataset.stage; commit(`${c.name} moved to ${c.stage}`, `${c.name} moved to ${c.stage}`); }
-      });
-    });
-  };
   function openCandidateModal() {
     if (!state.jobs.length) { toast('Create a role first'); return; }
     openModal({
@@ -1079,8 +1060,9 @@
         <div class="field full"><label for="c-name">Full name</label><input class="input" id="c-name" name="name" required></div>
         <div class="field full"><label for="c-email">Email</label><input class="input" id="c-email" name="email" type="email"></div>
         <div class="field"><label for="c-job">Role</label><select class="select" id="c-job" name="jobId">${state.jobs.map((j) => `<option value="${j.id}" ${ui.jobFilter === j.id ? 'selected' : ''}>${esc(j.title)}</option>`).join('')}</select></div>
-        <div class="field"><label for="c-rating">Rating</label><select class="select" id="c-rating" name="rating">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${n === 3 ? 'selected' : ''}>${n} star${n > 1 ? 's' : ''}</option>`).join('')}</select></div></div>`,
-      onSubmit(d) { state.candidates.push({ id: U.uid('c'), ...d, rating: Number(d.rating), stage: 'Applied', applied: U.today() }); commit('Candidate added', `${d.name} applied for ${state.jobs.find((j) => j.id === d.jobId).title}`); },
+        <div class="field"><label for="c-src">Source</label><select class="select" id="c-src" name="source">${AllurusTalentRules.SOURCES.map((x) => `<option>${x}</option>`).join('')}</select></div>
+        <div class="field full"><label for="c-phone">Phone</label><input class="input" id="c-phone" name="phone" type="tel"></div></div>`,
+      onSubmit(d) { state.candidates.push({ id: U.uid('c'), ...d, rating: 3, stage: 'Applied', applied: U.today(), stageDates: { Applied: U.today() }, interviews: [], offers: [] }); commit('Candidate added', `${d.name} applied for ${state.jobs.find((j) => j.id === d.jobId).title}`); },
     });
   }
   function openJobModal() {
@@ -1254,6 +1236,8 @@
       ${claimsApi.settingsCards()}
       ${appraisalApi.settingsCards()}
       ${hrApi.settingsCards()}
+      ${recruitApi.settingsCard()}
+      ${grievApi.settingsCard()}
       ${checkinCard(s)}
         <div class="settings-row"><div><div class="label">Remote check-in</div><div class="desc">Lets employees check in from anywhere with a selfie. Marked as Remote.</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="zone-remote" data-v="${v}" class="${(s.checkin.remote ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
         ${[['deviceLock', 'One phone per person', 'Each person checks in only from their approved phone, and a phone checks in for one person. New phones need your approval.'],
@@ -1283,6 +1267,8 @@
     docsApi.bindSettings();
     appraisalApi.bindSettings();
     hrApi.bindSettings();
+    recruitApi.bindSettings();
+    grievApi.bindSettings();
     einvApi.bindSettings();
     claimsApi.bindSettings();
     kioskApi.bindSettings();
@@ -1659,7 +1645,7 @@
   };
 
   // ---------- Workspaces (one per company) ----------
-  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects', 'notifications', 'outbox', 'announcements', 'notifyKeys', 'reminderRun', 'cycles', 'goals', 'payChanges', 'editRequests', 'checklists', 'assets', 'loans', 'insurance', 'documents', 'costing', 'savedReports'];
+  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects', 'notifications', 'outbox', 'announcements', 'notifyKeys', 'reminderRun', 'cycles', 'goals', 'payChanges', 'editRequests', 'checklists', 'assets', 'loans', 'insurance', 'documents', 'costing', 'savedReports', 'requisitions', 'courses', 'enrolments', 'trainingRequests', 'grievances', 'rooms', 'bookings'];
   function switchWorkspace(tid) {
     if (tid === state.session.tenantId) return;
     const cur = {}; WS_KEYS.forEach((k) => { cur[k] = state[k]; });
@@ -1686,18 +1672,20 @@
       settings: { ...base.settings, company: d.name, domain, office: d.city, currency: d.currency, checkin: defaultZone(d.name) },
       departments: base.departments.map((x) => ({ ...x, lead: withSamples ? x.lead : (x.id === 'd-people' ? 'e1' : '') })),
       employees: [admin], leaves: [], attendance: {}, payroll: {}, jobs: [], candidates: [],
-      reviews: [], cycles: [], goals: [], payChanges: [], editRequests: [], checklists: [], assets: [], loans: [], insurance: [], documents: [], costing: { groups: [], jobs: [], timesheets: [] }, savedReports: [],
+      reviews: [], cycles: [], goals: [], payChanges: [], editRequests: [], checklists: [], assets: [], loans: [], insurance: [], documents: [], costing: { groups: [], jobs: [], timesheets: [] }, savedReports: [], requisitions: [], courses: [], enrolments: [], trainingRequests: [], grievances: [], rooms: [], bookings: [],
       activity: [{ t: Date.now(), text: `${d.name} joined Allurus on the ${plan(d.plan).name} plan` }],
       finance: AllurusFinance.blank({ taxLabel: d.currency === 'MYR' ? 'SST' : 'Sales tax' }),
       claims: [], plans: {}, leaveCarry: {}, leaveCredits: [], rosters: {}, timeRequests: [], attAudit: [], statutory: { filed: {}, eaIssued: {}, formEFiled: {} }, projects: [], notifications: [], outbox: [], announcements: [], notifyKeys: [],
     };
     if (withSamples) {
       const team = base.employees.slice(1).map((e) => ({ ...e, email: `${e.first}.${e.last}`.toLowerCase() + '@' + domain, location: d.city }));
-      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, cycles: base.cycles, goals: base.goals, payChanges: base.payChanges, editRequests: base.editRequests, checklists: base.checklists, assets: base.assets, loans: base.loans, insurance: base.insurance, documents: base.documents, costing: base.costing, finance: base.finance, claims: base.claims, leaveCarry: base.leaveCarry, leaveCredits: base.leaveCredits, rosters: base.rosters, timeRequests: base.timeRequests, attAudit: [], statutory: base.statutory, projects: base.projects });
+      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, cycles: base.cycles, goals: base.goals, payChanges: base.payChanges, editRequests: base.editRequests, checklists: base.checklists, assets: base.assets, loans: base.loans, insurance: base.insurance, documents: base.documents, costing: base.costing, requisitions: base.requisitions, courses: base.courses, enrolments: base.enrolments, trainingRequests: base.trainingRequests, grievances: [], rooms: base.rooms, bookings: base.bookings, finance: base.finance, claims: base.claims, leaveCarry: base.leaveCarry, leaveCredits: base.leaveCredits, rosters: base.rosters, timeRequests: base.timeRequests, attAudit: [], statutory: base.statutory, projects: base.projects });
     }
     ws.settings.leave = AllurusLeaveRules.defaultSettings({ state: d.currency === 'MYR' ? (AllurusLeaveRules.CITY_STATE[d.city] || '') : '', departments: ws.departments, hr: 'e1' });
     ws.settings.employer = withSamples ? { ...base.settings.employer } : { signatory: d.adminName.trim(), signatoryTitle: 'HR Administrator' };
     ws.settings.time = withSamples ? JSON.parse(JSON.stringify(base.settings.time)) : AllurusTimeRules.defaultSettings({ restDays: AllurusLeaveRules.weekendDays(ws.settings.leave) });
+    ws.settings.grievance = { ...AllurusSeed.talentDefaults().grievance, managers: ['e1'] };
+    if (!withSamples) { ws.courses = AllurusSeed.talentDefaults().courses; }
     return ws;
   }
 
@@ -2413,7 +2401,7 @@
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
     downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
     save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
-    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, get einvoice() { return einvApi; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
+    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, get einvoice() { return einvApi; }, get lms() { return lmsApi; }, get recruit() { return recruitApi; }, get ui() { return ui; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
   };
   AllurusUX.install(moduleCtx);
   finApi = AllurusFinance.install(moduleCtx);
@@ -2429,10 +2417,14 @@
   einvApi = AllurusEInvoice.install(moduleCtx);
   costingApi = AllurusCosting.install(moduleCtx);
   appraisalApi = AllurusAppraisal.install(moduleCtx);
+  recruitApi = AllurusRecruit.install(moduleCtx);
+  lmsApi = AllurusLMS.install(moduleCtx);
+  grievApi = AllurusGrievance.install(moduleCtx);
+  roomsApi = AllurusRooms.install(moduleCtx);
   kioskApi = AllurusKiosk.install(moduleCtx, { write: writeCheckin, zone, deviceId, deviceName, squareCanvas, nowHM, isField, selfieThumb, cloudWrite: (p, d) => cloudWrite(p, d), cloudOn: () => !!cloud.db });
   // Approvers see their team's claims under Approvals, after leave and attendance requests.
   const approvalsBase = VIEWS['my-approvals'];
-  VIEWS['my-approvals'] = () => (leaveApi.isApprover(me().id) ? approvalsBase() + claimsApi.approvalsCard(me().id) : '<div class="page-head"><div><h1>Approvals</h1><p class="sub">Tasks waiting for you.</p></div></div>') + hrApi.myTasksCard(me().id);
+  VIEWS['my-approvals'] = () => (leaveApi.isApprover(me().id) ? approvalsBase() + claimsApi.approvalsCard(me().id) : '<div class="page-head"><div><h1>Approvals</h1><p class="sub">Tasks waiting for you.</p></div></div>') + hrApi.myTasksCard(me().id) + recruitApi.approvalsCard(me().id) + lmsApi.approvalsCard(me().id);
 
   // ---------- Boot ----------
   $('#today').textContent = U.fmtDate(U.today(), { weekday: 'short', month: 'short', day: 'numeric' });

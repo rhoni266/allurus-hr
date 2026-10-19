@@ -132,7 +132,7 @@ window.AllurusNotify = (function () {
     }
     const hrefFor = (r) => (r.type === 'reminder.statutory' ? '#payroll' : r.type.startsWith('reminder.appraisal') ? (r.to === 'hr' ? '#performance' : '#my-appraisal') : r.data.empId ? '#employees' : r.type === 'reminder.document' ? '#assets' : '#dashboard');
     let n = 0;
-    N.reminders({ employees: st().employees, today: T(), reviews: appraisalReminders(), statutory: stat, documents: ctx.hr ? ctx.hr.expiringItems() : [] }).forEach((r) => {
+    N.reminders({ employees: st().employees, today: T(), reviews: appraisalReminders(), statutory: stat, documents: [...(ctx.hr ? ctx.hr.expiringItems() : []), ...(ctx.lms ? ctx.lms.expiringItems() : [])] }).forEach((r) => {
       const to = Array.isArray(r.to) ? r.to : [r.to];
       to.forEach((t) => {
         const self = t !== 'hr';
