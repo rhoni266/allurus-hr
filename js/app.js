@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2.6';
+  const APP_VERSION = '2.7';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   const STORE_KEY = 'allurus-hr-v7';
   const esc = U.esc;
@@ -30,6 +30,12 @@
     [s, ...Object.values(s.workspaces || {})].forEach(migrateTime);
     [s, ...Object.values(s.workspaces || {})].forEach(migrateStatutory);
     [s, ...Object.values(s.workspaces || {})].forEach(migrateClaims);
+    // Notifications, the email outbox, announcements, and the dates the reminders watch.
+    [s, ...Object.values(s.workspaces || {})].forEach((w) => {
+      w.notifications = w.notifications || []; w.outbox = w.outbox || []; w.announcements = w.announcements || []; w.notifyKeys = w.notifyKeys || [];
+      (w.employees || []).forEach((e) => ['probationEnd', 'confirmedOn', 'contractEnd', 'nationality', 'passportNo', 'passportExpiry', 'permitNo', 'permitExpiry'].forEach((k) => { if (e[k] === undefined) e[k] = ''; }));
+      (w.reviews || []).forEach((r) => { if (!r.due) { const m = /^(H[12]) (\d{4})/.exec(r.cycle || ''); if (m) r.due = `${m[2]}-${m[1] === 'H1' ? '06' : '12'}-15`; } });
+    });
     [s, ...Object.values(s.workspaces || {})].forEach((w) => {
       const c = w.settings?.checkin; if (!c) return;
       c.kiosks = c.kiosks || []; if (c.supervisor === undefined) c.supervisor = true; c.projects = c.projects || 'off';
@@ -104,6 +110,7 @@
 
   // ---------- Icons ----------
   const ICONS = {
+    bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
     dashboard: '<rect x="3" y="3" width="7.5" height="9" rx="2"/><rect x="13.5" y="3" width="7.5" height="5" rx="2"/><rect x="13.5" y="11" width="7.5" height="10" rx="2"/><rect x="3" y="15" width="7.5" height="6" rx="2"/>',
     people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.8c1.9.7 3.1 2.4 3.5 5.2"/>',
     building: '<path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16M16 9h2a2 2 0 0 1 2 2v10M2 21h20M8 7h4M8 11h4M8 15h4"/>',
@@ -276,6 +283,7 @@
       { id: 'my-claims', label: 'Claims', icon: 'receipt', group: 'Finance' },
       { id: 'my-tax', label: 'Tax reliefs', icon: 'percent', group: 'Finance' },
       { id: 'my-plan', label: 'Financial planner', icon: 'target', group: 'Finance' },
+      { id: 'news', label: 'Announcements', icon: 'doc', group: 'Company' },
       { id: 'directory', label: 'Directory', icon: 'people', group: 'Company' },
       { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Account' },
     ],
@@ -295,6 +303,7 @@
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', group: 'Overview' },
     { id: 'employees', label: 'Employees', icon: 'people', group: 'Workforce' },
     { id: 'departments', label: 'Departments', icon: 'building', group: 'Workforce' },
+    { id: 'announcements', label: 'Announcements', icon: 'doc', group: 'Workforce' },
     { id: 'attendance', label: 'Attendance', icon: 'clock', group: 'Time' },
     { id: 'schedule', label: 'Schedule', icon: 'grip', group: 'Time' },
     { id: 'leave', label: 'Time off', icon: 'calendar', group: 'Time' },
@@ -367,13 +376,16 @@
     navigated = false;
     if (r !== 'settings' && zonePicker) { zonePicker.destroy(); zonePicker = null; }
     applySetupLink();
+    // Daily reminders run once a day on the first load; the bell shows the unread count.
+    notifyApi?.runReminders();
+    notifyApi?.updateBell();
   }
 
   // ---------- Views ----------
   const VIEWS = {};
   const AFTER = {};
   const ACTIONS_EXTRA = {};
-  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null;
+  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null;
   let clockTimer = null;
 
   // ---------- Automated insights (what needs attention, trends and wellbeing nudges) ----------
@@ -445,6 +457,7 @@
     if (timeApi) out.push(...timeApi.insights());
     if (docsApi) out.push(...docsApi.insights());
     if (claimsApi) out.push(...claimsApi.insights());
+    if (notifyApi) out.push(...notifyApi.insights());
     return out.sort((a, b) => b.prio - a.prio);
   }
   const actionLink = (a, cls = 'btn btn-sm') => a.href ? `<a class="${cls}" href="${a.href}">${esc(a.label)}</a>` : `<button type="button" class="${cls}" data-act="${a.act}" ${a.id ? `data-id="${a.id}"` : ''} ${a.v ? `data-v="${a.v}"` : ''}>${esc(a.label)}</button>`;
@@ -654,6 +667,7 @@
       <div class="field"><label for="f-birthday">Date of birth</label><input class="input" id="f-birthday" name="birthday" type="date" value="${esc(e.birthday)}"><span class="field-hint">Sets EPF, SOCSO and EIS rules from age 60.</span></div>
       ${state.settings.currency === 'MYR' ? `<div class="field"><label for="f-zakat">Zakat through payroll (RM a month)</label><input class="input num" id="f-zakat" name="zakat" type="number" min="0" step="1" value="${esc(e.zakat || 0)}"><span class="field-hint">Deducted from pay and offsets the PCB.</span></div>` : ''}
       ${docsApi.employeeFields(e)}
+      ${notifyApi.employeeFields(e)}
       <div class="field"><label for="f-status">Status</label><select class="select" id="f-status" name="status">${opt(['Active', 'Inactive'], e.status || 'Active')}</select></div>
     </div>`;
   }
@@ -1161,6 +1175,7 @@
     if (role() !== 'admin') return `
       <div class="page-head"><div><h1>Settings</h1><p class="sub">Appearance and demo data for this browser.</p></div></div>
       ${AllurusUX.appearanceCard()}
+      ${notifyApi.prefsCard()}
       ${accountCard()}
       ${role() === 'super' ? `<div class="card"><div class="card-head"><h3>Data</h3></div>
         <div class="settings-row"><div><div class="label">Reset demo workspace</div><div class="desc">Data is stored in this browser only.</div></div><button class="btn btn-danger" data-act="ask-reset">Reset data</button></div>
@@ -1193,6 +1208,8 @@
            ['liveOnly', 'Live camera only', 'Blocks uploading a saved photo instead of taking a selfie.']].map(([k, label, desc]) => `<div class="settings-row"><div><div class="label">${label}</div><div class="desc">${desc}</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="sec-toggle" data-id="${k}" data-v="${v}" class="${(s.checkin[k] !== false ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`).join('')}
       </div>
       ${kioskApi.settingsCard()}
+      ${notifyApi.prefsCard()}
+      ${notifyApi.outboxCard()}
       <div class="card"><div class="card-head"><h3>Brand</h3><a class="hint" href="brand.html">Open brand kit</a></div>
         <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">${LOGO_FULL}<div class="chips">${[['Allurus Teal', '#0F766E'], ['Champagne', '#D9B66F'], ['Obsidian', '#16181D'], ['Mist', '#F5F5F7']].map(([n, c]) => `<span class="chip" style="cursor:default"><i style="width:14px;height:14px;border-radius:50%;background:${c};border:1px solid var(--line-strong)"></i>${n}<span class="n">${c}</span></span>`).join('')}</div></div>
       </div>
@@ -1204,6 +1221,7 @@
   };
   AFTER.settings = () => {
     bindAccountCard();
+    notifyApi.bindSettings();
     if (role() !== 'admin') return;
     const bind = (id, key, num) => $(id).addEventListener('change', (ev) => { state.settings[key] = num ? Math.max(0, Number(ev.target.value) || 0) : ev.target.value.trim() || state.settings[key]; commit('Settings saved'); });
     bindCheckinCard();
@@ -1485,6 +1503,7 @@
       { id: 'timeoff', title: 'My time off', span: 4, render: () => `<div class="card"><div class="card-head"><h3>My time off</h3><a class="hint" href="#my-leave">All requests</a></div>
         ${myLeaves.length ? `<div class="list">${myLeaves.slice(0, 4).map((l) => `<div class="list-item"><div class="grow"><div class="person-name">${esc(leaveApi.typeName(l.type))} · ${l.days} day${l.days === 1 ? '' : 's'}</div><div class="person-sub">${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}${l.to !== l.from ? ' – ' + U.fmtDate(l.to, { month: 'short', day: 'numeric' }) : ''}</div></div>${leavePill(l.status)}</div>`).join('')}</div>` : `<div class="empty"><strong>Nothing booked</strong>You have ${aLeft} days to enjoy. <button class="link-btn" data-act="new-leave">Plan a break</button></div>`}</div>` },
       { id: 'shifts', title: 'My shifts', span: 4, render: () => timeApi.myShiftsCard(e) },
+      { id: 'news', title: 'Announcements', span: 6, render: () => notifyApi.homeCard(e) },
       ...(leaveApi.isApprover(e.id) ? [{ id: 'teamoff', title: 'Who’s off in your team', span: 4, render: () => leaveApi.whoOffCard({ depts: leaveApi.myDepts(e.id), title: 'Who’s off in your team' }) }] : []),
       { id: 'goals', title: 'My goals', span: 6, render: () => `<div class="card"><div class="card-head"><h3>My goals</h3><a class="hint" href="#my-profile">Update</a></div>
         ${review ? `<div class="kpi"><div class="kpi-value">${review.progress}%</div><div class="progress"><i style="width:${review.progress}%"></i></div><div class="kpi-foot" style="margin-top:6px">${esc(review.cycle)} · ${review.status}</div><div style="margin-top:6px">${stars(review.rating)}</div></div>` : '<div class="empty">No review cycle yet.</div>'}</div>` },
@@ -1598,7 +1617,7 @@
   };
 
   // ---------- Workspaces (one per company) ----------
-  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects'];
+  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects', 'notifications', 'outbox', 'announcements', 'notifyKeys', 'reminderRun'];
   function switchWorkspace(tid) {
     if (tid === state.session.tenantId) return;
     const cur = {}; WS_KEYS.forEach((k) => { cur[k] = state[k]; });
@@ -1628,7 +1647,7 @@
       reviews: [{ id: 'r1', empId: 'e1', cycle: 'H2 ' + U.today().slice(0, 4), status: 'Not started', rating: 0, progress: 0, notes: '' }],
       activity: [{ t: Date.now(), text: `${d.name} joined Allurus on the ${plan(d.plan).name} plan` }],
       finance: AllurusFinance.blank({ taxLabel: d.currency === 'MYR' ? 'SST' : 'Sales tax' }),
-      claims: [], plans: {}, leaveCarry: {}, leaveCredits: [], rosters: {}, timeRequests: [], attAudit: [], statutory: { filed: {}, eaIssued: {}, formEFiled: {} }, projects: [],
+      claims: [], plans: {}, leaveCarry: {}, leaveCredits: [], rosters: {}, timeRequests: [], attAudit: [], statutory: { filed: {}, eaIssued: {}, formEFiled: {} }, projects: [], notifications: [], outbox: [], announcements: [], notifyKeys: [],
     };
     if (withSamples) {
       const team = base.employees.slice(1).map((e) => ({ ...e, email: `${e.first}.${e.last}`.toLowerCase() + '@' + domain, location: d.city }));
@@ -2280,6 +2299,8 @@
       const run = state.payroll[ui.payMonth]; run.status = 'Paid'; run.paidOn = U.today();
       state.statutory.filed[ui.payMonth] = {};
       claimsApi.markPaid(run.items.flatMap((i) => i.claimIds || []), ui.payMonth);
+      notifyApi.event('payroll.paid', { month: ui.payMonth, count: run.items.length, net: money(payTotal(run).net), href: '#payroll' }, 'hr');
+      run.items.forEach((i) => notifyApi.event('payslip.ready', { month: ui.payMonth, net: money(i.net, 2), href: '#my-pay' }, i.empId, { self: true }));
       commit('Payroll paid', `Payroll for ${U.fmtMonth(ui.payMonth)} was paid (${money(payTotal(run).net)} net)`);
     },
     'pay-export': () => {
@@ -2346,7 +2367,7 @@
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
     downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
     save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
-    get leave() { return leaveApi; }, get time() { return timeApi; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
+    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
   };
   AllurusUX.install(moduleCtx);
   finApi = AllurusFinance.install(moduleCtx);
@@ -2356,6 +2377,7 @@
   leaveApi = AllurusLeave.install(moduleCtx);
   timeApi = AllurusTime.install(moduleCtx);
   docsApi = AllurusPayDocs.install(moduleCtx);
+  notifyApi = AllurusNotify.install(moduleCtx);
   kioskApi = AllurusKiosk.install(moduleCtx, { write: writeCheckin, zone, deviceId, deviceName, squareCanvas, nowHM, isField, selfieThumb, cloudWrite: (p, d) => cloudWrite(p, d), cloudOn: () => !!cloud.db });
   // Approvers see their team's claims under Approvals, after leave and attendance requests.
   const approvalsBase = VIEWS['my-approvals'];

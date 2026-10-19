@@ -212,6 +212,7 @@ window.AllurusClaims = (function () {
           c.chain = chainFor(e);
           list().push(c);
           const nx = LR.nextStep(c.chain);
+          ctx.notify?.request('claim', c, 'submitted', { summary: `${c.title}, ${m2(R.claimTotal(c))}` });
           commit(`Claim sent to ${nx ? firstOf(nx.approver) : 'HR'}`, `${ctx.fullName(e)} claimed ${m2(R.claimTotal(c))} for ${c.title}`);
         },
       });
@@ -327,6 +328,7 @@ window.AllurusClaims = (function () {
       if (r.status === 'Rejected') { c.lines.forEach((l) => { l.approved = null; }); Object.assign(c, { approved: null, reason: note, decidedOn: T(), decidedBy: ctx.account()?.name || nameOf(actor()) }); }
       closeOverlay();
       const n = ctx.fullName(ctx.emp(c.empId)), nx = LR.nextStep(c.chain);
+      ctx.notify?.request('claim', c, !approve ? 'rejected' : r.status === 'Approved' ? 'approved' : 'step', { summary: `${c.title}, ${m2(r.status === 'Approved' ? c.approved : R.claimTotal(c))}`, note });
       commit(!approve ? `Declined for ${ctx.emp(c.empId).first}` : r.status === 'Approved' ? `Approved ${m2(c.approved)} for ${ctx.emp(c.empId).first}` : `Approved. Now with ${nameOf(nx.approver)}`,
         `${n}'s claim “${c.title}” was ${!approve ? 'declined' : r.status === 'Approved' ? `approved (${m2(c.approved)})` : 'approved at one step'}`);
     }

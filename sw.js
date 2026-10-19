@@ -2,7 +2,7 @@
 // Pages are fetched from the network first (falling back to the saved copy offline); scripts, styles, images and
 // the face-check models are served from the saved copy and refreshed in the background. Check-ins taken offline
 // wait in the app's outbox (js/kiosk.js) and sync when the phone is back online.
-const CACHE = 'allurus-v2.6';
+const CACHE = 'allurus-v2.7';
 const SHELL = ['./', 'index.html', 'assets/logo-mark.svg'];
 
 self.addEventListener('install', (ev) => {
@@ -23,5 +23,15 @@ self.addEventListener('fetch', (ev) => {
     const hit = await c.match(req);
     const net = fetch(req).then((res) => { if (res.ok) c.put(req, res.clone()); return res; }).catch(() => hit);
     return hit || net;
+  }));
+});
+// Clicking a browser notification opens (or focuses) Allurus on the page it links to.
+self.addEventListener('notificationclick', (ev) => {
+  ev.notification.close();
+  const href = ev.notification.data?.href || '';
+  ev.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    const c = list[0];
+    if (c) { c.postMessage({ href }); return c.focus(); }
+    return self.clients.openWindow(`./index.html${href}`);
   }));
 });

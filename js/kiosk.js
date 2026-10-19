@@ -31,6 +31,9 @@ window.AllurusKiosk = (function () {
     const id = `${day}|${e.id}|${rec.lastIn || rec.in}|${via}`;
     const payload = { company: st().settings.company, empId: e.id, employee: ctx.fullName(e), day, time: rec.lastIn || rec.in, out: rec.out || '', mode: rec.s, via, lat: rec.loc?.lat ?? null, lng: rec.loc?.lng ?? null, accuracy: rec.loc?.accuracy ?? null, label: rec.loc?.zone || rec.loc?.label || '', flags: (rec.flags || []).map((f) => f.code), face: rec.face?.result || '', project: rec.project || '', offline: !!rec.offline, capturedAt: new Date().toISOString() };
     write(OUTBOX_KEY, C.enqueue(outbox(), { id, payload, offline: !!rec.offline, capturedAt: payload.capturedAt }));
+    // HR hears about check-ins that need a look.
+    const reasons = [...(rec.flags || []).map((f) => f.reason), ...(['mismatch', 'unavailable'].includes(rec.face?.result) ? [rec.face.result === 'mismatch' ? 'The face didn’t match the reference photo.' : 'The face check couldn’t run.'] : []), ...(rec.upload ? ['Uploaded photo instead of the live camera.'] : [])];
+    if (reasons.length) ctx.notify?.event('checkin.flagged', { who: ctx.fullName(e), reason: reasons.join(' '), href: '#attendance' }, 'hr', { from: e.id });
     sync();
   }
   let syncing = false;

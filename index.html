@@ -6,7 +6,7 @@
 <title>Allurus HR</title>
 <meta name="description" content="Allurus — people operations for growing companies.">
 <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg">
-<link rel="stylesheet" href="css/styles.css?v=2.6">
+<link rel="stylesheet" href="css/styles.css?v=2.7">
 </head>
 <body>
 <!--app:start-->
@@ -34,6 +34,7 @@
       <div class="top-spacer"></div>
       <span class="live-pill" id="live-pill" hidden><i aria-hidden="true"></i><span>Live</span></span>
       <span class="today" id="today"></span>
+      <button type="button" class="btn btn-icon btn-ghost bell" id="nt-bell" data-act="nt-open" aria-label="Notifications" aria-haspopup="dialog" hidden><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><span class="bell-count" hidden></span></button>
       <button type="button" class="btn btn-icon btn-ghost" id="theme-btn" data-act="ux-theme" aria-label="Switch theme"></button>
       <button type="button" class="btn btn-icon btn-ghost" data-act="ux-help" aria-label="Help" aria-keyshortcuts="Shift+Slash" title="Help (?)"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.8M12 17.2v.1"/></svg></button>
     </header>
@@ -48,28 +49,30 @@
 <div id="tour-root"></div>
 <div class="toast-root" id="toast-root" aria-live="polite"></div>
 
-<script src="js/vendor/jsvectormap.min.js?v=2.6"></script>
-<script src="js/vendor/world.js?v=2.6"></script>
-<script src="js/utils.js?v=2.6"></script>
-<script src="js/leave-rules.js?v=2.6"></script>
-<script src="js/attendance-rules.js?v=2.6"></script>
-<script src="js/statutory.js?v=2.6"></script>
-<script src="js/claims-rules.js?v=2.6"></script>
-<script src="js/checkin-rules.js?v=2.6"></script>
-<script src="js/seed.js?v=2.6"></script>
-<script src="js/finance.js?v=2.6"></script>
-<script src="js/tax.js?v=2.6"></script>
-<script src="js/face.js?v=2.6"></script>
-<script src="js/receipt.js?v=2.6"></script>
-<script src="js/claims.js?v=2.6"></script>
-<script src="js/planner.js?v=2.6"></script>
-<script src="js/leave.js?v=2.6"></script>
-<script src="js/roster.js?v=2.6"></script>
-<script src="js/payroll-docs.js?v=2.6"></script>
-<script src="js/kiosk.js?v=2.6"></script>
-<script src="js/geo-map.js?v=2.6"></script>
-<script src="js/experience.js?v=2.6"></script>
-<script src="js/app.js?v=2.6"></script>
+<script src="js/vendor/jsvectormap.min.js?v=2.7"></script>
+<script src="js/vendor/world.js?v=2.7"></script>
+<script src="js/utils.js?v=2.7"></script>
+<script src="js/leave-rules.js?v=2.7"></script>
+<script src="js/attendance-rules.js?v=2.7"></script>
+<script src="js/statutory.js?v=2.7"></script>
+<script src="js/claims-rules.js?v=2.7"></script>
+<script src="js/checkin-rules.js?v=2.7"></script>
+<script src="js/notify-rules.js?v=2.7"></script>
+<script src="js/seed.js?v=2.7"></script>
+<script src="js/finance.js?v=2.7"></script>
+<script src="js/tax.js?v=2.7"></script>
+<script src="js/face.js?v=2.7"></script>
+<script src="js/receipt.js?v=2.7"></script>
+<script src="js/claims.js?v=2.7"></script>
+<script src="js/planner.js?v=2.7"></script>
+<script src="js/leave.js?v=2.7"></script>
+<script src="js/roster.js?v=2.7"></script>
+<script src="js/payroll-docs.js?v=2.7"></script>
+<script src="js/notify.js?v=2.7"></script>
+<script src="js/kiosk.js?v=2.7"></script>
+<script src="js/geo-map.js?v=2.7"></script>
+<script src="js/experience.js?v=2.7"></script>
+<script src="js/app.js?v=2.7"></script>
 <!--app:end-->
 </body>
 </html>

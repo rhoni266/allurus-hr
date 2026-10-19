@@ -41,7 +41,7 @@ window.AllurusSeed = {
 
     const people = [
       ['Amara', 'Okafor', 'Head of People', 'd-people', 128000, '2019-03-11', 'London'],
-      ['Daniel', 'Reyes', 'Senior Software Engineer', 'd-eng', 142000, '2020-07-06', 'Remote'],
+      ['Daniel', 'Reyes', 'Senior Software Engineer', 'd-eng', 142000, '2020-10-19', 'Remote'],
       ['Sofia', 'Lindqvist', 'Lead Product Designer', 'd-design', 124000, '2020-01-20', 'Stockholm'],
       ['Omar', 'Haddad', 'Engineering Manager', 'd-eng', 158000, '2018-09-03', 'Dubai'],
       ['Priya', 'Nair', 'Frontend Engineer', 'd-eng', 112000, '2022-02-14', 'Remote'],
@@ -60,7 +60,7 @@ window.AllurusSeed = {
       ['Samuel', 'Adeyemi', 'QA Engineer', 'd-eng', 94000, '2024-03-18', 'Remote'],
       ['Nurul', 'Aina', 'Payroll Executive', 'd-fin', 54000, U.addDays(T, -12), 'Kuantan'],
     ];
-    const upcoming = { 2: 5, 6: 12, 11: 23, 15: 29 }; // index -> birthday in N days
+    const upcoming = { 2: 5, 6: 0, 11: 23, 15: 29 }; // index -> birthday in N days (Hana's is today)
     const employees = people.map((p, i) => {
       const [first, last, role, dept, salary, start, location] = p;
       let birthday;
@@ -306,6 +306,45 @@ window.AllurusSeed = {
       };
     });
 
+    // Dates the reminders watch: Samuel is on a fixed-term contract with a work permit; Nurul is on probation.
+    Object.assign(employees[17], { nationality: 'Nigeria', contractEnd: U.addDays(T, 25), passportNo: 'A09817263', passportExpiry: U.addDays(T, 150), permitNo: 'EP 2024-118273', permitExpiry: U.addDays(T, 60) });
+    Object.assign(employees[18], { nationality: 'Malaysia', probationEnd: U.addDays(T, 26) });
+    employees.forEach((e) => ['probationEnd', 'confirmedOn', 'contractEnd', 'nationality', 'passportNo', 'passportExpiry', 'permitNo', 'permitExpiry'].forEach((k) => { if (e[k] === undefined) e[k] = k === 'nationality' ? 'Malaysia' : ''; }));
+    // This cycle's appraisals are due in 10 days.
+    reviews.forEach((r) => { r.due = U.addDays(T, 10); });
+
+    // Announcements and policies, with acknowledgements so far.
+    const iso = (d, h) => new Date(`${d}T${h}:00`).toISOString();
+    const ackBy = (ids, d) => Object.fromEntries(ids.map((id, i) => [id, iso(U.addDays(d, i % 3), `${10 + (i % 6)}:${10 + i}`)]));
+    const announcements = [
+      { id: 'an1', kind: 'policy', title: 'Work from home policy 2026', at: iso(U.addDays(T, -9), '09:30'), by: 'e1', depts: [], pinned: false, attachment: null,
+        html: '<p>From 1 November, everyone can work from home up to <strong>two days a week</strong>, agreed with your manager.</p><ul><li>Check in with <em>Work remotely</em> on the days you’re at home.</li><li>Be reachable on Slack between 10am and 4pm (core hours).</li><li>Customer-facing roles keep their office roster.</li></ul><p>Questions? Ask Amara or Aisha in People.</p>',
+        acks: ackBy(['e1', 'e3', 'e4', 'e6', 'e7', 'e9', 'e11', 'e13', 'e14', 'e15', 'e17'], U.addDays(T, -9)) },
+      { id: 'an2', kind: 'announcement', title: 'Deepavali open house, 6 November', at: iso(U.addDays(T, -2), '15:10'), by: 'e15', depts: [], pinned: true, attachment: null,
+        html: '<p>Join us for <strong>Deepavali open house</strong> on Friday 6 November from 12pm at the Kemaman office. Murukku, kuih and teh tarik on us.</p><p>Families are welcome. Tell Aisha by 30 October if you’re coming.</p>', acks: {} },
+      { id: 'an3', kind: 'policy', title: 'Overtime needs pre-approval', at: iso(U.addDays(T, -5), '11:00'), by: 'e1', depts: ['d-eng', 'd-sales'], pinned: false, attachment: null,
+        html: '<p>From this month, overtime is paid only when it was <strong>approved before</strong> you work it. Ask from <em>My attendance → New request</em>.</p><p>Emergencies: ask within the same day.</p>',
+        acks: ackBy(['e4', 'e14', 'e8'], U.addDays(T, -5)) },
+    ];
+    // A few notifications from the last days (the daily reminders add more on the first load).
+    const NR = AllurusNotifyRules;
+    let nid = 0;
+    const note = (type, data, to, at, read = false) => {
+      const e = employees.find((x) => x.id === to);
+      return NR.deliver(type, { company: settings.company, ...data }, [{ id: to, email: e.email, first: e.first, prefs: {} }], { at, ids: () => `s${++nid}` });
+    };
+    const seeded = [
+      note('request.submitted', { who: 'Ethan Brooks', kind: 'ot', summary: 'covering for Omar', href: '#my-approvals' }, 'e2', iso(U.addDays(T, -1), '09:12')),
+      note('announcement.new', { title: 'Deepavali open house, 6 November', excerpt: 'Join us for Deepavali open house on Friday 6 November.', href: '#news' }, 'e2', iso(U.addDays(T, -2), '15:10')),
+      note('request.approved', { kind: 'correction', summary: 'forgot to check out', by: 'Amara Okafor', href: '#my-time' }, 'e2', iso(U.addDays(T, -3), '10:14'), true),
+      note('payslip.ready', { month: U.addMonths(thisMonth, -1), net: 'RM 8,421.50', href: '#my-pay' }, 'e2', iso(U.addDays(T, -21), '17:30'), true),
+      note('checkin.flagged', { who: 'Yusuf Demir', reason: 'The phone reported a suspiciously precise accuracy of exactly 1 m.', href: '#attendance' }, 'e1', iso(T, '08:28')),
+      note('request.submitted', { who: 'Lucas Moreau', kind: 'claim', summary: 'Client visit to Kuala Terengganu, RM 185.90', href: '#claims' }, 'e1', iso(U.addDays(T, -4), '17:40')),
+      note('payroll.paid', { month: U.addMonths(thisMonth, -1), count: 18, net: 'RM 134,842.24', href: '#payroll' }, 'e1', iso(U.addDays(T, -21), '17:28'), true),
+    ];
+    seeded.forEach((x, i) => { if ([2, 3, 6].includes(i)) x.notifications.forEach((n) => { n.read = true; }); });
+    const outbox = seeded.flatMap((x) => x.emails);
+
     const now = Date.now();
     const activity = [
       { t: now - 1000 * 60 * 42, text: 'Leila Rahimi requested 5 days of annual leave' },
@@ -337,7 +376,7 @@ window.AllurusSeed = {
       }
     });
     const plans = { e2: AllurusPlanner.sample() };
-    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, rosters, timeRequests, attAudit, statutory, projects, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
+    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, rosters, timeRequests, attAudit, statutory, projects, announcements, notifications: seeded.flatMap((x) => x.notifications), outbox, notifyKeys: [], settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
   },
 
   // Super Admin data: every company subscribed to Allurus.

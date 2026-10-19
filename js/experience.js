@@ -267,6 +267,9 @@ window.AllurusUX = (function () {
     { roles: ['admin'], label: 'CP22 and CP22A forms', icon: 'doc', keywords: 'new employee leaving resign cp21 cp22 cp22a lhdn notify', run: () => goThen('payroll', 'pd-tab', undefined, 'year') },
     { roles: ['admin'], label: 'Print all payslips', icon: 'doc', keywords: 'pdf payslips download print all', run: () => goThen('payroll', 'pd-tab', undefined, 'run') },
     { roles: ['admin'], label: 'Company registration numbers', icon: 'shield', keywords: 'ssm epf employer number socso code lhdn e number hrd corp mycoid', run: () => goSection('stat-ids') },
+    { roles: ['admin'], label: 'Post an announcement or policy', icon: 'doc', keywords: 'announcement news policy notice memo acknowledge', run: () => goThen('announcements', 'an-new') },
+    { roles: ['admin'], label: 'Who acknowledged a policy', icon: 'check', keywords: 'policy acknowledgement read confirm', run: () => go('announcements') },
+    { roles: ['admin'], label: 'Email outbox', icon: 'doc', keywords: 'email queued notifications outbox provider', run: () => goSection('nt-outbox') },
     { roles: ['admin'], label: 'Review flagged check-ins', icon: 'shield', keywords: 'fake gps mock location spoof speed review selfie face mismatch', run: () => { go('attendance'); setTimeout(() => $('#sec-review')?.scrollIntoView({ block: 'start' }), 80); } },
     { roles: ['admin'], label: 'Set up a check-in kiosk', icon: 'camera', keywords: 'kiosk tablet entrance face recognition shared device', run: () => goSection('ck-kiosks') },
     { roles: ['admin'], label: 'Projects and jobs at check-in', icon: 'briefcase', keywords: 'project job costing code client check-in', run: () => goSection('ck-kiosks') },
@@ -283,6 +286,9 @@ window.AllurusUX = (function () {
     { roles: ['admin'], label: 'Medical benefits policy', icon: 'heart', keywords: 'outpatient dental optical specialist medical limit', run: () => goSection('claim-policy') },
     { roles: ['admin'], label: 'Scan a receipt into the books', icon: 'receipt', keywords: 'expense bookkeeping ocr', run: () => goThen('finance', 'fin-scan') },
     { roles: ['admin'], label: 'Request time off', icon: 'calendar', keywords: 'leave', run: () => act('new-leave') },
+    { roles: ['admin', 'employee'], label: 'Open notifications', icon: 'bell', keywords: 'notifications bell unread alerts inbox', run: () => act('nt-open') },
+    { roles: ['admin', 'employee'], label: 'Notification settings', icon: 'sliders', keywords: 'notifications email push browser preferences off', run: () => goSection('nt-prefs') },
+    { roles: ['employee'], label: 'Announcements and policies', icon: 'doc', keywords: 'news announcement policy acknowledge', run: () => go('news') },
     { roles: ['admin', 'employee'], label: 'Customize this dashboard', icon: 'dashboard', keywords: 'layout widgets arrange drag', run: () => { go(ctx.routes()[0].id); setTimeout(() => act('ux-customize'), 60); } },
     { roles: ['*'], label: 'Use dark mode', icon: 'moon', keywords: 'theme night appearance', run: () => setPref('theme', 'dark') },
     { roles: ['*'], label: 'Use light mode', icon: 'sun', keywords: 'theme day appearance', run: () => setPref('theme', 'light') },
@@ -381,6 +387,8 @@ window.AllurusUX = (function () {
 
   // ---------- Contextual help ----------
   const HELP = {
+    announcements: ['News and policies for your team.', ['Policies ask everyone in the chosen departments to acknowledge them; the bar shows who has.', 'Remind sends a notification to the people who haven’t yet.', 'Formatting is kept simple: bold, italic, lists and links.']],
+    news: ['News and policies from HR.', ['Policies need your acknowledgement: open one, read it and tick the box.']],
     dashboard: ['Your company at a glance.', ['Focus for today lists what needs you first.', 'Customize to drag, resize or hide cards.', 'Numbers update live when staff check in on this browser.']],
     employees: ['Everyone at the company.', ['Search by name, email or role, and filter by department or status.', 'Click a person for their profile, phone and selfie security.']],
     attendance: ['Who checked in, from where, and with which selfie.', ['Check-ins with unusual GPS (impossible speed, 0 m accuracy, repeated coordinates, wrong time zone) wait in the review card with the reason. Choose Looks fine once checked.', 'Tags show kiosk and supervisor check-ins, ones captured offline, and the project.', 'Late, early-out and overtime tags follow each person’s shift and grace minutes.', 'Every edit (the pencil, or Batch edit) keeps who, when, and the old and new times.', 'Overtime, lateness waiver and correction requests wait at the top.', 'Flagged check-ins (face mismatch, uploaded photo) need a look.']],

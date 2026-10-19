@@ -158,6 +158,7 @@ window.AllurusLeave = (function () {
         st().leaves.push(rec);
         ui.filter = 'Pending';
         const next = R.nextStep(chain);
+        if (next) ctx.notify?.request('leave', rec, 'submitted', { summary: `${daysLabel(c.days)} ${lc(t.name)}` });
         ctx.commit(next ? `Sent to ${nameOf(next.approver)} for approval` : 'Leave recorded', `${ctx.fullName(e)} applied for ${daysLabel(c.days)} of ${lc(t.name)} leave`);
       },
     });
@@ -261,6 +262,7 @@ window.AllurusLeave = (function () {
     if (r.status === 'Approved') markAttendance(l);
     ctx.closeOverlay();
     const n = ctx.fullName(ctx.emp(l.empId)), next = R.nextStep(l.chain);
+    ctx.notify?.request('leave', l, !approve ? 'rejected' : r.status === 'Approved' ? 'approved' : 'step', { summary: `${daysLabel(l.days)} ${lc(typeName(l.type))}, ${fmtRange(l)}`, note });
     ctx.commit(!approve ? `Declined for ${n}` : r.status === 'Approved' ? `Approved for ${n}` : `Approved. Now with ${nameOf(next.approver)}`,
       `${n}'s ${lc(typeName(l.type))} leave was ${!approve ? 'declined' : r.status === 'Approved' ? 'approved' : `approved at ${l.chain.filter((s) => s.status === 'approved').pop()?.level || 'one step'}`}`);
   }

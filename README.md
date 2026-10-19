@@ -100,6 +100,34 @@ Try it: sign in as admin and open **Schedule**, then pick Engineering. Mon–Thu
 
 The rules are in `js/attendance-rules.js` (no DOM), with tests in `tests/attendance.test.js`. **Check the overtime rates, the 26-day divisor, the 104-hour limit and the EPF/SOCSO/PCB treatment of overtime and allowances** against the Employment Act 1955, KWSP, PERKESO and LHDN guidance before paying real wages.
 
+## Notifications, reminders and announcements
+
+- **Bell** in the top bar: the unread count, and a list where each item opens its page. Choose All or Unread, or Mark all read. On a phone the list opens as a bottom sheet; Escape closes it.
+- **Events**:
+  - leave, claim, overtime, lateness-waiver and correction requests: submitted (to the next approver, and the backup while they're away), next step, approved and declined (to the person);
+  - payroll paid (HR) and payslip ready (everyone in the run);
+  - new announcement or policy, and policy reminders;
+  - roster changed (each person whose shifts changed);
+  - flagged check-ins (HR).
+- **Preferences** (Settings → Notifications, for everyone): for each category (requests, pay, announcements, roster, check-ins, reminders) choose in the app, by email, both or off.
+- **Email-ready**: every email-routed notification is queued in `state.outbox` with a subject and body. Admins can preview them under Settings → Email outbox. Nothing is sent yet: plug a sender into `AllurusNotify.providers.email` (and `providers.push`) in `js/notify.js`; queued emails go out once it returns true.
+- **Browser notifications**: turn them on under Settings → Notifications. New notifications caused by someone else pop up while Allurus is open, including changes made in another tab; clicking one opens the page.
+- **Daily reminders** run once a day when the app loads, without repeating:
+  - probation confirmation (30 days ahead), contract end (30), work permit (90) and passport expiry (180);
+  - birthdays and work anniversaries;
+  - statutory deadlines and CP22/CP22A;
+  - appraisals not submitted (each person, plus one summary for HR).
+
+  New employee fields: probation end, confirmed on, contract end, nationality, passport and work permit numbers and expiry dates. Reviews have a due date.
+- **Announcements** (admin → Announcements):
+  - Post an announcement or a policy with simple formatting (bold, italic, underline, lists, links; everything else is stripped), an optional attachment (PDF or image, up to 1 MB) and target departments.
+  - Employees see them on Home and under Announcements.
+  - Policies must be acknowledged with a tick box. Admins see how many have, who has, and can remind the rest.
+
+Try it: sign in as admin and open the bell (statutory deadlines, CP22/CP22A, appraisals, Nurul's probation, Samuel's contract, permit and passport, Hana's birthday). Post a policy to Engineering, then sign in as Daniel: he has a 6-year work anniversary, the new policy to acknowledge, and his payslip notifications.
+
+The rules (messages, preferences, delivery and reminders) are in `js/notify-rules.js` (no DOM), with tests in `tests/notify.test.js`.
+
 ## Payroll: EPF, SOCSO, EIS, PCB and HRD Corp
 
 For Malaysian companies (currency MYR), every payslip works out the compulsory deductions:
@@ -268,7 +296,7 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 index.html          App shell: sign-in screen, sidebar, top bar
 brand.html          Brand kit: logo, palette, type, usage rules
 design-system.html  Live tokens and components
-tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules
+tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules, notifications
 css/styles.css      Design tokens (light and dark) and all components
 js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
 js/seed.js          Demo data: the Lumen & Co. workspace and 14 subscribed companies
@@ -283,6 +311,8 @@ js/payroll-docs.js  Payroll tabs for statutory files, bank file and year-end; pr
 js/checkin-rules.js Check-in rules (no DOM): fake-GPS heuristics, kiosk face matching, offline outbox sync
 js/kiosk.js         Kiosk tablet, supervisor check-in, offline outbox, projects at check-in, flagged check-in review
 sw.js               Service worker: keeps a copy of the app so check-in opens offline
+js/notify-rules.js  Notification rules (no DOM): messages, preferences, delivery, daily reminders
+js/notify.js        Bell and list, email outbox and provider hook, browser notifications, reminders run, announcements
 js/claims-rules.js  Claims rules (no DOM): categories, mileage, limits, edits, payroll split, GL rows, reports, migration
 js/claims.js        Claims screens: multi-item claims with receipt scanning, approvals, corrections, reports, settings
 js/planner.js       Employee financial planner

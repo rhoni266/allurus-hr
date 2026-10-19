@@ -218,6 +218,10 @@ window.AllurusTime = (function () {
     if (v) st().rosters[day][empId] = v; else delete st().rosters[day][empId];
     if (!Object.keys(st().rosters[day]).length) delete st().rosters[day];
   }
+  // Tells each person whose shifts changed, once per change.
+  function rosterNotify(empIds, monday, detail) {
+    [...new Set(empIds)].forEach((id) => ctx.notify?.event('roster.changed', { week: monday, detail: detail || `Your shifts for the week of ${fmtDay(monday, { day: 'numeric', month: 'short' })} were updated.`, href: '#my-time' }, id));
+  }
   function mergeRoster(plan, empIds, days) {
     days.forEach((d) => empIds.forEach((id) => setRoster(d, id, '')));
     Object.entries(plan).forEach(([d, x]) => Object.entries(x).forEach(([id, v]) => setRoster(d, id, v)));
@@ -238,6 +242,7 @@ window.AllurusTime = (function () {
         const days = d.rest ? R.weekDays(R.mondayOf(day)).filter((x) => x >= day) : [day];
         days.forEach((x) => setRoster(x, empId, d.v || ''));
         const p = pat(d.v);
+        rosterNotify([empId], R.mondayOf(day), `${fmtDay(day, { weekday: 'long', day: 'numeric', month: 'short' })}${days.length > 1 ? ' onwards' : ''}: ${d.v === 'off' ? 'day off' : p ? `${p.name}, ${R.shiftLabel(p)}` : 'your usual pattern'}.`);
         ctx.commit(`${e.first}: ${d.v === 'off' ? 'day off' : p ? p.name : 'usual pattern'}${days.length > 1 ? ` for ${days.length} days` : ''}`);
       },
     });
@@ -259,6 +264,7 @@ window.AllurusTime = (function () {
         const plan = R.applyTemplate(t, { monday: ui.week, weeks, empIds: team.map((e) => e.id), startWeek: Math.max(0, (Number(d.start) || 1) - 1), stagger: !!d.stagger });
         const days = Array.from({ length: weeks * 7 }, (_, i) => R.addDays(ui.week, i));
         mergeRoster(plan, team.map((e) => e.id), days);
+        rosterNotify(team.map((e) => e.id), ui.week, `${t.name} rotation applied from the week of ${fmtDay(ui.week, { day: 'numeric', month: 'short' })} for ${weeks} week${weeks === 1 ? '' : 's'}.`);
         ctx.commit(`${t.name} applied for ${weeks} week${weeks === 1 ? '' : 's'}`, `${t.name} rotation applied to ${team.length} people from ${U.fmtDate(ui.week)}`);
       },
     });
@@ -351,6 +357,7 @@ window.AllurusTime = (function () {
         q.chain = LR.buildChain({ applicant: e.id, chain: L.chains?.[e.dept], hr: L.hr, hrBackup: L.hrBackup });
         reqs().push(q);
         const n = LR.nextStep(q.chain);
+        ctx.notify?.request(q.kind, q, 'submitted', { summary: `${fmtDay(q.date)}${q.kind === 'ot' ? `, ${hrs(q.minutes)}` : ''}` });
         ctx.commit(`Sent to ${n ? firstOf(n.approver) : 'HR'}`, `${ctx.fullName(e)} asked for ${KINDS[q.kind].toLowerCase()} on ${U.fmtDate(q.date)}`);
       },
     });
@@ -406,6 +413,7 @@ window.AllurusTime = (function () {
     if (r.status === 'Approved' && q.kind === 'correction') setRecord(q.date, q.empId, { s: q.s || 'present', in: q.in, out: q.out }, `Correction approved: ${q.reason}`);
     ctx.closeOverlay();
     const n = ctx.fullName(ctx.emp(q.empId)), nx = LR.nextStep(q.chain);
+    ctx.notify?.request(q.kind, q, !approve ? 'rejected' : r.status === 'Approved' ? 'approved' : 'step', { summary: `${fmtDay(q.date)}${q.kind === 'ot' ? `, ${hrs(q.minutes)}` : ''}`, note });
     ctx.commit(!approve ? `Declined for ${n}` : r.status === 'Approved' ? `Approved for ${n}` : `Approved. Now with ${nameOf(nx.approver)}`,
       `${n}'s ${KINDS[q.kind].toLowerCase()} request for ${U.fmtDate(q.date)} was ${!approve ? 'declined' : r.status === 'Approved' ? 'approved' : 'approved at one step'}`);
   }
@@ -640,6 +648,7 @@ window.AllurusTime = (function () {
         const plan = R.copyWeek(st().rosters, last, ui.week, ids);
         if (!Object.values(plan).some((x) => Object.keys(x).length)) { ctx.toast('Last week has no roster to copy', 'info'); return; }
         mergeRoster(plan, ids, R.weekDays(ui.week));
+        rosterNotify(Object.values(plan).flatMap((x) => Object.keys(x)), ui.week);
         ctx.commit('Copied last week', `Roster for the week of ${U.fmtDate(ui.week)} copied from the week before`);
       },
       'ro-clear': () => { mergeRoster({}, people().map((e) => e.id), R.weekDays(ui.week)); ctx.commit('Week cleared. Everyone is back on their usual pattern.'); },
