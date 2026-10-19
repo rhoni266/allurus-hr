@@ -110,6 +110,12 @@ window.AllurusNotify = (function () {
   function closePanel(focusBell = true) { ui.open = false; const p = document.getElementById('nt-panel'); if (p) p.hidden = true; if (focusBell) document.getElementById('nt-bell')?.focus(); }
 
   // ---------- Reminders (once a day, on load) ----------
+  // Self-reviews still to submit, due on their cycle's self-review date. The manager and HR steps have their own
+  // overdue reminders in js/appraisal.js.
+  const appraisalReminders = () => (st().reviews || []).filter((r) => !r.cycleId || r.stage === 'self').map((r) => {
+    const c = r.cycleId && (st().cycles || []).find((x) => x.id === r.cycleId);
+    return c ? { ...r, due: c.status === 'Open' ? c.selfDue : '' } : r;
+  });
   function runReminders() {
     if (!viewer() && ctx.role() !== 'employee') return;
     if (st().reminderRun === T()) return;
@@ -124,15 +130,16 @@ window.AllurusNotify = (function () {
       });
       AllurusStatutory.eventForms(st().employees, T()).forEach((x) => stat.push({ key: `${x.form}-${x.empId}`, title: `${x.form} for ${x.name} ${x.daysLeft < 0 ? `${-x.daysLeft} days late` : `due in ${x.daysLeft} days`}`, detail: x.form === 'CP22' ? 'Tell LHDN about the new employee.' : 'Tell LHDN before their last day.' }));
     }
-    const hrefFor = (r) => (r.type === 'reminder.statutory' ? '#payroll' : r.type.startsWith('reminder.appraisal') ? (r.to === 'hr' ? '#performance' : '#my-profile') : r.data.empId ? '#employees' : '#dashboard');
+    const hrefFor = (r) => (r.type === 'reminder.statutory' ? '#payroll' : r.type.startsWith('reminder.appraisal') ? (r.to === 'hr' ? '#performance' : '#my-appraisal') : r.data.empId ? '#employees' : '#dashboard');
     let n = 0;
-    N.reminders({ employees: st().employees, today: T(), reviews: st().reviews, statutory: stat }).forEach((r) => {
+    N.reminders({ employees: st().employees, today: T(), reviews: appraisalReminders(), statutory: stat }).forEach((r) => {
       const to = Array.isArray(r.to) ? r.to : [r.to];
       to.forEach((t) => {
         const self = t !== 'hr';
-        n += event(r.type, { ...r.data, self, href: self ? (r.type.startsWith('reminder.appraisal') ? '#my-profile' : '#home') : hrefFor(r) }, t, { from: 'system', self, key: `${r.key}:${self ? 'self' : 'hr'}` });
+        n += event(r.type, { ...r.data, self, href: self ? (r.type.startsWith('reminder.appraisal') ? '#my-appraisal' : '#home') : hrefFor(r) }, t, { from: 'system', self, key: `${r.key}:${self ? 'self' : 'hr'}` });
       });
     });
+    ctx.appraisal?.runReminders();
     ctx.save();
     updateBell();
     return n;

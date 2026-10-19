@@ -5,7 +5,7 @@ People operations SaaS for growing companies: a minimal, Apple-style HRMS with t
 | Role | Who | What they can do |
 |---|---|---|
 | **Super Admin** | You, the Allurus owner | See every subscribed company on a world map, MRR and ARR, plans, invoices, trials, past-due and suspended accounts. Change plans and seats, suspend or reactivate a company, mark invoices paid, open any company's workspace. |
-| **Company Admin** | HR at a customer company | Dashboard, employees, departments, attendance, time-off approvals, payroll with payslips and CSV export, a recruitment pipeline with drag and drop, performance reviews, and company settings. |
+| **Company Admin** | HR at a customer company | Dashboard, employees, departments, attendance, time-off approvals, payroll with payslips and CSV export, a recruitment pipeline with drag and drop, appraisals with goals and 360° feedback, and company settings. |
 | **Employee** | Staff at a customer company | Time clock with location-stamped check-in and check-out, attendance history, time-off requests and balances, payslips, profile, goals, and the company directory. |
 
 ## Signing in
@@ -127,6 +127,21 @@ The rules are in `js/attendance-rules.js` (no DOM), with tests in `tests/attenda
 Try it: sign in as admin and open the bell (statutory deadlines, CP22/CP22A, appraisals, Nurul's probation, Samuel's contract, permit and passport, Hana's birthday). Post a policy to Engineering, then sign in as Daniel: he has a 6-year work anniversary, the new policy to acknowledge, and his payslip notifications.
 
 The rules (messages, preferences, delivery and reminders) are in `js/notify-rules.js` (no DOM), with tests in `tests/notify.test.js`.
+
+## Appraisals and goals
+
+- **Templates** (Settings → Appraisal templates): sections for KPIs, competencies and values, each with a weight; questions with their own weight and an optional comment box; a 1–5 scale or a custom one (for example 1–4 or 0–10). Assign a template to departments or to named people; otherwise the cycle's template is used. A sales template comes with the demo.
+- **Grade bands** (Settings → Grade bands): the score a grade starts at, plus the guideline increment % and bonus months. These are company policy, not statutory rates, and you can edit them.
+- **Review cycles**: HR launches a cycle (Performance → Launch a cycle) with the template, the period, a due date for each step, an optional second manager (L2), optional 360° feedback with a limit on how many peers, the month increments take effect, and the payroll month the bonus is paid in. You can include everyone or chosen departments.
+- **Flow**: the employee does a self-review (save a draft, then submit) → L1 manager scores each item → optional L2 (the manager's manager) → HR final → completed. Someone without a manager goes straight from self-review to HR. Overdue steps are flagged, HR can remind people one at a time or all together, and a weekly reminder goes to whoever is holding an overdue step.
+- **Scoring**: each rating is put on a 5-point scale, weighted within its section, then the sections are weighted. The grade comes from the bands. Managers see the employee's self-ratings and comments while they score, and the live score and band as they go.
+- **Recommendations**: the manager's increment %, bonus months and promotion are prefilled from the band. L2 can adjust them, and HR approves or edits them at the final step, or sends the appraisal back with a note.
+- **Pay changes**: approving creates scheduled changes (Performance → Pay changes). Payroll uses the salary in effect for each month: the increment counts from its effective month, the bonus is added to the chosen month's pay run (labelled on the payslip and handled like any other bonus in the pay calculation), and on the effective date the new salary and job title are written to the employee. Re-running an older month still uses the salary at that time.
+- **360° feedback**: employees ask up to the cycle's limit of colleagues. Answers are combined, comments are shown without names, and nothing is shown until at least two people have answered.
+- **Goals**: SMART goals (what, how it's measured, target, due date, why, weight) with check-ins that record progress, status and a note. Weighted goal progress shows on the appraisal and the home page.
+- **Reports**: score distribution by grade and by department, completion by step, and a CSV export.
+
+The rules (scoring, grades, the flow, 360° summaries, goals and pay changes) are in `js/appraisal-rules.js` (no DOM), with tests in `tests/appraisal.test.js`. One limit to know about: editing a template while a cycle is running changes the questions for appraisals already in progress.
 
 ## Payroll: EPF, SOCSO, EIS, PCB and HRD Corp
 
@@ -296,7 +311,7 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 index.html          App shell: sign-in screen, sidebar, top bar
 brand.html          Brand kit: logo, palette, type, usage rules
 design-system.html  Live tokens and components
-tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules, notifications
+tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules, notifications, appraisals
 css/styles.css      Design tokens (light and dark) and all components
 js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
 js/seed.js          Demo data: the Lumen & Co. workspace and 14 subscribed companies
@@ -313,6 +328,8 @@ js/kiosk.js         Kiosk tablet, supervisor check-in, offline outbox, projects 
 sw.js               Service worker: keeps a copy of the app so check-in opens offline
 js/notify-rules.js  Notification rules (no DOM): messages, preferences, delivery, daily reminders
 js/notify.js        Bell and list, email outbox and provider hook, browser notifications, reminders run, announcements
+js/appraisal-rules.js  Appraisal rules (no DOM): weighted scores, grade bands, flow, 360° summary, goals, pay changes
+js/appraisal.js     Templates and bands, review cycles, self/manager/HR scoring, goals, 360°, reports, pay changes
 js/claims-rules.js  Claims rules (no DOM): categories, mileage, limits, edits, payroll split, GL rows, reports, migration
 js/claims.js        Claims screens: multi-item claims with receipt scanning, approvals, corrections, reports, settings
 js/planner.js       Employee financial planner

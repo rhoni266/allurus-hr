@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2.7';
+  const APP_VERSION = '2.8';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   const STORE_KEY = 'allurus-hr-v7';
   const esc = U.esc;
@@ -36,6 +36,7 @@
       (w.employees || []).forEach((e) => ['probationEnd', 'confirmedOn', 'contractEnd', 'nationality', 'passportNo', 'passportExpiry', 'permitNo', 'permitExpiry'].forEach((k) => { if (e[k] === undefined) e[k] = ''; }));
       (w.reviews || []).forEach((r) => { if (!r.due) { const m = /^(H[12]) (\d{4})/.exec(r.cycle || ''); if (m) r.due = `${m[2]}-${m[1] === 'H1' ? '06' : '12'}-15`; } });
     });
+    [s, ...Object.values(s.workspaces || {})].forEach(migrateAppraisal);
     [s, ...Object.values(s.workspaces || {})].forEach((w) => {
       const c = w.settings?.checkin; if (!c) return;
       c.kiosks = c.kiosks || []; if (c.supervisor === undefined) c.supervisor = true; c.projects = c.projects || 'off';
@@ -72,6 +73,30 @@
       }
     });
   }
+  // Appraisals: templates and grade bands, review cycles, goals and pay changes. Older single-rating reviews become
+  // a cycle each, keeping their status, rating and notes.
+  function migrateAppraisal(ws) {
+    const A = AllurusAppraisalRules, st = ws.settings;
+    if (!st) return;
+    st.appraisal = st.appraisal || { templates: [A.defaultTemplate()], bands: A.defaultBands(), peerMin: 2 };
+    if (!st.appraisal.templates?.length) st.appraisal.templates = [A.defaultTemplate()];
+    st.appraisal.bands = st.appraisal.bands || A.defaultBands();
+    if (st.appraisal.peerMin == null) st.appraisal.peerMin = 2;
+    ws.cycles = ws.cycles || []; ws.goals = ws.goals || []; ws.payChanges = ws.payChanges || [];
+    (ws.reviews || []).filter((r) => !r.cycleId).forEach((r) => {
+      const name = r.cycle || 'Review', id = 'cy-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      let c = ws.cycles.find((x) => x.id === id);
+      if (!c) {
+        const m = /^(H[12]) (\d{4})/.exec(name), y = m ? +m[2] : +U.today().slice(0, 4), h2 = !m || m[1] === 'H2';
+        const due = r.due || `${y}-${h2 ? '12' : '06'}-15`;
+        c = { id, name, start: `${y}-${h2 ? '07' : '01'}-01`, end: `${y}-${h2 ? '12-31' : '06-30'}`, templateId: st.appraisal.templates[0].id, selfDue: due, managerDue: U.addDays(due, 14), hrDue: U.addDays(due, 28), l2: false, peers: false, maxPeers: 3, effective: `${h2 ? y + 1 : y}-${h2 ? '01' : '07'}-01`, bonusMonth: `${y}-${h2 ? '12' : '06'}`, status: 'Open', launched: `${y}-${h2 ? '07' : '01'}-01`, by: '' };
+        ws.cycles.push(c);
+      }
+      Object.assign(r, { cycleId: c.id, templateId: c.templateId, stage: r.status === 'Completed' ? 'done' : 'self', self: r.status === 'In progress' ? { scores: {}, comment: '', draftAt: new Date().toISOString() } : null, l1: null, l2: null, hr: null, peers: [] });
+      if (r.status === 'Completed' && r.rating) r.final = { score: r.rating, grade: A.grade(r.rating, st.appraisal.bands)?.code || '', pct: r.rating * 20 };
+      else r.final = null;
+    });
+  }
   // A new company has no check-in point until the admin sets one. Until then check-ins are blocked
   // and Settings shows a warning. The city centre is only used to centre the map picker.
   function defaultZone(company) {
@@ -104,7 +129,7 @@
   const ui = {
     empQuery: '', empDept: 'all', empStatus: 'all',
     attDate: U.today(), leaveFilter: 'Pending',
-    payMonth: U.monthKey(U.today()), jobFilter: 'all', perfDept: 'all',
+    payMonth: U.monthKey(U.today()), jobFilter: 'all',
     tenantQuery: '', tenantStatus: 'all',
   };
 
@@ -278,7 +303,8 @@
       { id: 'my-time', label: 'My attendance', icon: 'clock', group: 'Me' },
       { id: 'my-leave', label: 'My time off', icon: 'calendar', group: 'Me' },
       { id: 'my-approvals', label: 'Approvals', icon: 'check', group: 'Me' },
-      { id: 'my-profile', label: 'Profile & goals', icon: 'trend', group: 'Me' },
+      { id: 'my-appraisal', label: 'Appraisal & goals', icon: 'trend', group: 'Me' },
+      { id: 'my-profile', label: 'Profile', icon: 'people', group: 'Me' },
       { id: 'my-pay', label: 'Payslips', icon: 'wallet', group: 'Finance' },
       { id: 'my-claims', label: 'Claims', icon: 'receipt', group: 'Finance' },
       { id: 'my-tax', label: 'Tax reliefs', icon: 'percent', group: 'Finance' },
@@ -327,7 +353,7 @@
     let html = '', group = '';
     const rs = routes(), pinned = AllurusUX.pins().map((id) => rs.find((r) => r.id === id)).filter(Boolean);
     const navItem = (r) => {
-      const count = r.id === 'my-approvals' ? leaveApi.myCount(me().id) + timeApi.myCount(me().id) + claimsApi.myCount(me().id) : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
+      const count = r.id === 'my-approvals' ? leaveApi.myCount(me().id) + timeApi.myCount(me().id) + claimsApi.myCount(me().id) : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'performance' || r.id === 'my-appraisal' ? appraisalApi?.badge(r.id) || 0 : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
       const on = AllurusUX.pins().includes(r.id), cur = route() === r.id;
       return `<div class="nav-item"><a href="#${r.id}" class="${cur ? 'active' : ''}" ${cur ? 'aria-current="page"' : ''}>${icon(r.icon)}<span>${r.label}</span>${count ? `<span class="count" aria-label="${count} waiting">${count}</span>` : ''}</a><button type="button" class="nav-pin ${on ? 'on' : ''}" data-act="ux-pin" data-id="${r.id}" aria-pressed="${on}" aria-label="${on ? 'Unpin' : 'Pin'} ${esc(r.label)}" title="${on ? 'Unpin' : 'Pin to top'}">${icon(on ? 'starFill' : 'star')}</button></div>`;
     };
@@ -385,7 +411,7 @@
   const VIEWS = {};
   const AFTER = {};
   const ACTIONS_EXTRA = {};
-  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null;
+  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null, appraisalApi = null;
   let clockTimer = null;
 
   // ---------- Automated insights (what needs attention, trends and wellbeing nudges) ----------
@@ -458,6 +484,7 @@
     if (docsApi) out.push(...docsApi.insights());
     if (claimsApi) out.push(...claimsApi.insights());
     if (notifyApi) out.push(...notifyApi.insights());
+    if (appraisalApi) out.push(...appraisalApi.insights());
     return out.sort((a, b) => b.prio - a.prio);
   }
   const actionLink = (a, cls = 'btn btn-sm') => a.href ? `<a class="${cls}" href="${a.href}">${esc(a.label)}</a>` : `<button type="button" class="${cls}" data-act="${a.act}" ${a.id ? `data-id="${a.id}"` : ''} ${a.v ? `data-v="${a.v}"` : ''}>${esc(a.label)}</button>`;
@@ -689,7 +716,7 @@
         else {
           const ne = { id: U.uid('e'), cp22Filed: '', leaverFiled: '', ...d };
           state.employees.push(ne);
-          state.reviews.push({ id: U.uid('r'), empId: ne.id, cycle: 'H2 ' + U.today().slice(0, 4), status: 'Not started', rating: 0, progress: 0, notes: '' });
+          if (appraisalApi.current()?.status === 'Open') appraisalApi.addParticipant(ne);
           onCreated?.(ne);
           commit(`${d.first} added. ${docsApi.afterSave(null, ne)}`, `${d.first} ${d.last} joined as ${d.role}`);
         }
@@ -824,7 +851,9 @@
   // ----- Payroll -----
   const isMY = () => state.settings.currency === 'MYR' && U.statutory(state.settings).on;
   // One employee's line in a pay run: salary, overtime and allowances, statutory deductions and approved claims.
-  function payItem(e, bonus, mk) {
+  function payItem(e0, bonus, mk) {
+    // The salary in effect that month: an appraisal increment counts from its effective month.
+    const e = appraisalApi ? { ...e0, salary: appraisalApi.salaryFor(e0, mk) } : e0;
     // Approved unpaid leave in the month comes off basic pay before statutory deductions.
     const up = leaveApi ? leaveApi.unpaidFor(e.id, mk, U.round2(e.salary / 12)) : { days: 0, amount: 0, divisor: 0 };
     // Approved overtime and daily allowances from attendance, each flagged for EPF, SOCSO/EIS and PCB, and approved
@@ -838,6 +867,8 @@
     it.claims = cl ? cl.nonTaxable : 0;
     it.claimGL = cl ? cl.byGL : {};
     it.net = U.round2(it.net + it.claims);
+    const note = appraisalApi ? appraisalApi.payNote(e0, mk) : {};
+    it.salaryNote = note.salary || ''; it.bonusNote = it.bonus ? note.bonus || '' : '';
     return it;
   }
   VIEWS.payroll = () => {
@@ -893,8 +924,8 @@
       <div class="card card-flush"><div class="table-wrap"><table>
         <thead><tr><th>Employee</th><th class="r">Bonus</th><th class="r">Gross</th>${my ? '<th class="r hide-sm">EPF</th><th class="r hide-sm">SOCSO + EIS</th><th class="r hide-sm">PCB</th>' : '<th class="r hide-sm">Tax</th><th class="r hide-sm">Benefits</th>'}${t.claims ? '<th class="r hide-sm">Claims</th>' : ''}<th class="r">Net</th></tr></thead>
         <tbody>${run.items.map((it) => { const e = emp(it.empId); if (!e) return ''; return `<tr>
-          <td><button class="cell-btn" data-act="payslip" data-id="${it.empId}" title="Open payslip">${person(e)}</button></td>
-          <td class="r num">${run.status === 'Draft' ? `<input class="input num" style="width:84px;text-align:right" type="number" min="0" step="100" data-bonus="${it.empId}" value="${it.bonus}" aria-label="Bonus for ${esc(fullName(e))}">` : money(it.bonus)}</td>
+          <td><button class="cell-btn" data-act="payslip" data-id="${it.empId}" title="Open payslip">${person(e)}</button>${it.salaryNote ? `<div class="person-sub"><span class="tag ok">${esc(it.salaryNote)}</span></div>` : ''}</td>
+          <td class="r num">${run.status === 'Draft' ? `<input class="input num" style="width:84px;text-align:right" type="number" min="0" step="100" data-bonus="${it.empId}" value="${it.bonus}" aria-label="Bonus for ${esc(fullName(e))}">` : money(it.bonus)}${it.bonusNote ? `<div class="person-sub">${esc(it.bonusNote)}</div>` : ''}</td>
           <td class="r num">${money(it.gross, 2)}${it.unpaid ? `<div class="person-sub">−${money(it.unpaid, 2)} unpaid leave</div>` : ''}${it.extras ? `<div class="person-sub">+${money(it.extras, 2)} added earnings</div>` : ''}</td>
           ${my ? `<td class="r num muted hide-sm">${money(it.epf ?? it.benefits, 2)}</td><td class="r num muted hide-sm">${money((it.socso || 0) + (it.eis || 0), 2)}</td><td class="r num muted hide-sm">${money(it.tax + (it.zakat || 0), 2)}</td>` : `<td class="r num muted hide-sm">${money(it.tax, 2)}</td><td class="r num muted hide-sm">${money(it.benefits, 2)}</td>`}
           ${t.claims ? `<td class="r num hide-sm">${it.claims ? money(it.claims, 2) : '<span class="faint">—</span>'}</td>` : ''}
@@ -920,7 +951,7 @@
     const flags = (l) => statutory ? [l.epf ? 'EPF' : '', l.socso ? 'SOCSO' : '', l.tax ? 'taxed' : 'not taxed'].filter(Boolean).join(' · ') : '';
     const extras = (it.extraLines || []).map((l) => row(`${esc(l.label)}<div class="person-sub">${esc(l.detail || '')}${flags(l) ? ` · ${flags(l)}` : ''}</div>`, money(l.amount, 2))).join('');
     const lines = statutory
-      ? `${head('Earnings')}${row('Basic salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'} (basic ÷ ${it.unpaidDivisor})`, neg(it.unpaid)) : ''}${extras}${it.bonus ? row('Bonus', money(it.bonus, 2)) : ''}${row('Gross pay', money(it.gross, 2))}
+      ? `${head('Earnings')}${row('Basic salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'} (basic ÷ ${it.unpaidDivisor})`, neg(it.unpaid)) : ''}${extras}${it.bonus ? row(it.bonusNote ? `Bonus<div class="person-sub">${esc(it.bonusNote)}</div>` : 'Bonus', money(it.bonus, 2)) : ''}${row('Gross pay', money(it.gross, 2))}
          ${head('Deductions')}${row('EPF (KWSP), employee', neg(it.epf))}${row('SOCSO (PERKESO), employee', neg(it.socso))}${row('EIS, employee', neg(it.eis))}${row('Income tax (PCB)', neg(it.tax))}${it.zakat ? row('Zakat', neg(it.zakat)) : ''}
          ${it.claims ? `${head('Reimbursements')}${row('Claims reimbursed (not taxed)', money(it.claims, 2))}` : ''}
          ${row('Net pay', money(it.net, 2), true)}
@@ -1006,45 +1037,7 @@
     });
   }
 
-  // ----- Performance -----
-  VIEWS.performance = () => {
-    const reviews = state.reviews.filter((r) => { const e = emp(r.empId); return e && e.status === 'Active' && (ui.perfDept === 'all' || e.dept === ui.perfDept); });
-    const rated = reviews.filter((r) => r.rating);
-    const avg = rated.length ? rated.reduce((s, r) => s + r.rating, 0) / rated.length : 0;
-    const done = reviews.filter((r) => r.status === 'Completed').length;
-    const prog = reviews.length ? Math.round(reviews.reduce((s, r) => s + r.progress, 0) / reviews.length) : 0;
-    const pill = (s) => `<span class="pill ${({ Completed: 'ok', 'In progress': 'info', 'Not started': '' })[s]}">${s}</span>`;
-    return `
-      <div class="page-head"><div><div class="eyebrow">Review cycle</div><h1>Performance, ${esc(state.reviews[0]?.cycle || 'H2')}</h1><p class="sub">Goal progress and ratings for every active employee.</p></div>
-        <div class="actions"><select class="select" id="perf-dept" aria-label="Department"><option value="all">All departments</option>${state.departments.map((d) => `<option value="${d.id}" ${ui.perfDept === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></div></div>
-      <div class="grid g-3">
-        <div class="card kpi"><div class="kpi-label">Average rating</div><div class="kpi-value">${avg ? avg.toFixed(1) : '—'}<span class="faint" style="font-size:18px"> / 5</span></div><div class="kpi-foot">${rated.length} people rated</div></div>
-        <div class="card kpi"><div class="kpi-label">Reviews completed</div><div class="kpi-value">${done}<span class="faint" style="font-size:18px"> of ${reviews.length}</span></div><div class="progress" style="margin-top:6px"><i style="width:${reviews.length ? (done / reviews.length) * 100 : 0}%"></i></div></div>
-        <div class="card kpi"><div class="kpi-label">Average goal progress</div><div class="kpi-value">${prog}%</div><div class="progress" style="margin-top:6px"><i style="width:${prog}%;background:var(--gold)"></i></div></div>
-      </div>
-      <div class="card card-flush"><div class="table-wrap"><table>
-        <thead><tr><th>Employee</th><th class="hide-sm">Department</th><th>Goals</th><th>Rating</th><th>Status</th><th></th></tr></thead>
-        <tbody>${reviews.map((r) => { const e = emp(r.empId); return `<tr>
-          <td>${person(e)}</td><td class="hide-sm">${deptTag(e.dept)}</td>
-          <td><div style="display:flex;align-items:center;gap:10px"><div class="progress" style="flex:1"><i style="width:${r.progress}%"></i></div><span class="num muted" style="width:36px">${r.progress}%</span></div></td>
-          <td>${stars(r.rating)}</td><td>${pill(r.status)}</td>
-          <td><div class="row-actions"><button class="btn btn-sm" data-act="review" data-id="${r.id}">Review</button></div></td></tr>`; }).join('')}</tbody>
-      </table></div></div>`;
-  };
-  AFTER.performance = () => { $('#perf-dept').addEventListener('change', (ev) => { ui.perfDept = ev.target.value; render(); }); };
-  function openReviewModal(id) {
-    const r = state.reviews.find((x) => x.id === id); const e = emp(r.empId);
-    openModal({
-      title: `Review ${e.first}`, size: 'sm', submit: 'Save review',
-      body: `<div class="form-grid">
-        <div class="field full">${person(e)}</div>
-        <div class="field"><label for="r-rating">Rating</label><select class="select" id="r-rating" name="rating"><option value="0">Not rated</option>${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${r.rating === n ? 'selected' : ''}>${n} — ${['Below expectations', 'Needs improvement', 'Meets expectations', 'Exceeds expectations', 'Outstanding'][n - 1]}</option>`).join('')}</select></div>
-        <div class="field"><label for="r-status">Status</label><select class="select" id="r-status" name="status">${['Not started', 'In progress', 'Completed'].map((s) => `<option ${r.status === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
-        <div class="field full"><label for="r-progress">Goal progress: <output id="r-out">${r.progress}%</output></label><input id="r-progress" name="progress" type="range" min="0" max="100" step="5" value="${r.progress}" oninput="document.getElementById('r-out').textContent=this.value+'%'" style="accent-color:var(--brand)"></div>
-        <div class="field full"><label for="r-notes">Manager notes</label><textarea class="textarea" id="r-notes" name="notes" placeholder="Strengths, growth areas, next steps">${esc(r.notes)}</textarea></div></div>`,
-      onSubmit(d) { Object.assign(r, { rating: Number(d.rating), status: d.status, progress: Number(d.progress), notes: d.notes }); commit('Review saved', d.status === 'Completed' ? `${fullName(e)}'s review was completed` : null); },
-    });
-  }
+  // ----- Performance: appraisals live in js/appraisal.js -----
 
   // ----- Settings -----
   // ----- Check-in location (Settings) -----
@@ -1201,6 +1194,7 @@
       ${leaveApi.settingsCards()}
       ${timeApi.settingsCards()}
       ${claimsApi.settingsCards()}
+      ${appraisalApi.settingsCards()}
       ${checkinCard(s)}
         <div class="settings-row"><div><div class="label">Remote check-in</div><div class="desc">Lets employees check in from anywhere with a selfie. Marked as Remote.</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="zone-remote" data-v="${v}" class="${(s.checkin.remote ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
         ${[['deviceLock', 'One phone per person', 'Each person checks in only from their approved phone, and a phone checks in for one person. New phones need your approval.'],
@@ -1228,6 +1222,7 @@
     leaveApi.bindSettings();
     timeApi.bindSettings();
     docsApi.bindSettings();
+    appraisalApi.bindSettings();
     claimsApi.bindSettings();
     kioskApi.bindSettings();
     bind('#s-company', 'company'); bind('#s-currency', 'currency'); bind('#s-office', 'office'); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
@@ -1469,7 +1464,7 @@
     const lastPay = runs[0] ? state.payroll[runs[0]].items.find((i) => i.empId === e.id) : null;
     const myLeaves = state.leaves.filter((l) => l.empId === e.id && l.to >= T).sort((a, b) => a.from.localeCompare(b.from));
     const out = activeEmployees().filter((x) => x.dept === e.dept && x.id !== e.id && onLeaveOn(x.id, T));
-    const review = state.reviews.find((r) => r.empId === e.id);
+    const cyc = appraisalApi.current(), review = cyc && state.reviews.find((r) => r.empId === e.id && r.cycleId === cyc.id);
     const birthday = e.birthday && e.birthday.slice(5) === T.slice(5);
     const ins = insights(), focus = ins.filter((x) => x.prio >= 2 && x.action).slice(0, 3);
     let clock;
@@ -1505,8 +1500,8 @@
       { id: 'shifts', title: 'My shifts', span: 4, render: () => timeApi.myShiftsCard(e) },
       { id: 'news', title: 'Announcements', span: 6, render: () => notifyApi.homeCard(e) },
       ...(leaveApi.isApprover(e.id) ? [{ id: 'teamoff', title: 'Who’s off in your team', span: 4, render: () => leaveApi.whoOffCard({ depts: leaveApi.myDepts(e.id), title: 'Who’s off in your team' }) }] : []),
-      { id: 'goals', title: 'My goals', span: 6, render: () => `<div class="card"><div class="card-head"><h3>My goals</h3><a class="hint" href="#my-profile">Update</a></div>
-        ${review ? `<div class="kpi"><div class="kpi-value">${review.progress}%</div><div class="progress"><i style="width:${review.progress}%"></i></div><div class="kpi-foot" style="margin-top:6px">${esc(review.cycle)} · ${review.status}</div><div style="margin-top:6px">${stars(review.rating)}</div></div>` : '<div class="empty">No review cycle yet.</div>'}</div>` },
+      { id: 'goals', title: 'My goals', span: 6, render: () => `<div class="card"><div class="card-head"><h3>My goals</h3><a class="hint" href="#my-appraisal">Update</a></div>
+        ${review ? `<div class="kpi"><div class="kpi-value">${review.progress}%</div><div class="progress"><i style="width:${review.progress}%"></i></div><div class="kpi-foot" style="margin-top:6px">${esc(cyc.name)} · ${AllurusAppraisalRules.STAGES[review.stage]}${review.final ? ` · grade ${esc(review.final.grade)}` : ''}</div></div>` : '<div class="empty">No review cycle yet.</div>'}</div>` },
       { id: 'team', title: 'Team', span: 6, render: () => `<div class="card"><div class="card-head"><h3>Team</h3><span class="hint">${esc(dept(e.dept)?.name || '')}</span></div>
         <div class="kpi-foot" style="margin-bottom:10px">${out.length ? `Out today: ${esc(out.map((x) => x.first).join(', '))}` : 'Everyone on your team is in today.'}</div>${upcomingList()}</div>` },
     ];
@@ -1569,9 +1564,9 @@
   };
 
   VIEWS['my-profile'] = () => {
-    const e = me(), r = state.reviews.find((x) => x.empId === e.id), mgr = emp(e.manager);
+    const e = me(), cyc = appraisalApi.current(), r = state.reviews.find((x) => x.empId === e.id && (!cyc || x.cycleId === cyc.id)), mgr = emp(e.manager);
     return `
-      <div class="page-head"><div><h1>Profile & goals</h1><p class="sub">Keep your contact details current and track progress on your goals.</p></div></div>
+      <div class="page-head"><div><h1>Profile</h1><p class="sub">Keep your contact details current.</p></div></div>
       <div class="grid g-2">
         <div class="card">
           <div style="display:flex;align-items:center;gap:16px;margin-bottom:18px">${avatar(fullName(e), 'lg')}<div><h2 style="font-size:22px">${esc(fullName(e))}</h2><div class="muted">${esc(e.role)}</div><div style="margin-top:6px">${deptTag(e.dept)}</div></div></div>
@@ -1583,23 +1578,14 @@
           </form>
         </div>
         <div class="card">
-          <div class="card-head"><h3>${esc(r?.cycle || 'Review')}</h3>${r ? `<span class="pill ${({ Completed: 'ok', 'In progress': 'info', 'Not started': '' })[r.status]}">${r.status}</span>` : ''}</div>
-          ${r ? `<form id="goal-form" style="display:flex;flex-direction:column;gap:16px">
-            <div class="field"><label for="g-progress">My goal progress: <output id="g-out">${r.progress}%</output></label><input id="g-progress" name="progress" type="range" min="0" max="100" step="5" value="${r.progress}" style="accent-color:var(--brand)" oninput="document.getElementById('g-out').textContent=this.value+'%'"></div>
-            <div><div class="field-hint" style="margin-bottom:4px">Manager rating</div>${stars(r.rating)}</div>
-            <div><div class="field-hint" style="margin-bottom:4px">Manager notes</div><p>${esc(r.notes) || '<span class="faint">No notes yet.</span>'}</p></div>
-            <div><button class="btn btn-primary" type="submit">Update progress</button></div></form>` : '<div class="empty">No review yet.</div>'}
+          <div class="card-head"><h3>${esc(r?.cycle || 'Appraisal')}</h3>${r ? `<span class="pill ${({ Completed: 'ok', 'In progress': 'info', 'Not started': '' })[r.status]}">${r.status}</span>` : ''}</div>
+          ${r ? `<div class="kpi"><div class="kpi-label">Goal progress</div><div class="kpi-value">${r.progress}%</div><div class="progress"><i style="width:${r.progress}%"></i></div><div class="kpi-foot" style="margin-top:6px">${AllurusAppraisalRules.STAGES[r.stage] || ''}${r.final ? ` · grade ${esc(r.final.grade)}` : ''}</div></div>` : '<div class="empty">No review yet.</div>'}
+          <div class="actions" style="margin-top:14px"><a class="btn btn-primary" href="#my-appraisal">${icon('trend')}Open appraisal and goals</a></div>
         </div>
       </div>`;
   };
   AFTER['my-profile'] = () => {
     $('#profile-form').addEventListener('submit', (ev) => { ev.preventDefault(); const d = Object.fromEntries(new FormData(ev.target)); Object.assign(me(), d); commit('Details saved'); });
-    $('#goal-form')?.addEventListener('submit', (ev) => {
-      ev.preventDefault(); const r = state.reviews.find((x) => x.empId === me().id);
-      r.progress = Number(new FormData(ev.target).get('progress'));
-      if (r.status === 'Not started' && r.progress > 0) r.status = 'In progress';
-      commit('Progress updated', `${fullName(me())} updated goal progress to ${r.progress}%`);
-    });
   };
 
   VIEWS.directory = () => {
@@ -1617,7 +1603,7 @@
   };
 
   // ---------- Workspaces (one per company) ----------
-  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects', 'notifications', 'outbox', 'announcements', 'notifyKeys', 'reminderRun'];
+  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects', 'notifications', 'outbox', 'announcements', 'notifyKeys', 'reminderRun', 'cycles', 'goals', 'payChanges'];
   function switchWorkspace(tid) {
     if (tid === state.session.tenantId) return;
     const cur = {}; WS_KEYS.forEach((k) => { cur[k] = state[k]; });
@@ -1644,15 +1630,14 @@
       settings: { ...base.settings, company: d.name, domain, office: d.city, currency: d.currency, checkin: defaultZone(d.name) },
       departments: base.departments.map((x) => ({ ...x, lead: withSamples ? x.lead : (x.id === 'd-people' ? 'e1' : '') })),
       employees: [admin], leaves: [], attendance: {}, payroll: {}, jobs: [], candidates: [],
-      reviews: [{ id: 'r1', empId: 'e1', cycle: 'H2 ' + U.today().slice(0, 4), status: 'Not started', rating: 0, progress: 0, notes: '' }],
+      reviews: [], cycles: [], goals: [], payChanges: [],
       activity: [{ t: Date.now(), text: `${d.name} joined Allurus on the ${plan(d.plan).name} plan` }],
       finance: AllurusFinance.blank({ taxLabel: d.currency === 'MYR' ? 'SST' : 'Sales tax' }),
       claims: [], plans: {}, leaveCarry: {}, leaveCredits: [], rosters: {}, timeRequests: [], attAudit: [], statutory: { filed: {}, eaIssued: {}, formEFiled: {} }, projects: [], notifications: [], outbox: [], announcements: [], notifyKeys: [],
     };
     if (withSamples) {
       const team = base.employees.slice(1).map((e) => ({ ...e, email: `${e.first}.${e.last}`.toLowerCase() + '@' + domain, location: d.city }));
-      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, finance: base.finance, claims: base.claims, leaveCarry: base.leaveCarry, leaveCredits: base.leaveCredits, rosters: base.rosters, timeRequests: base.timeRequests, attAudit: [], statutory: base.statutory, projects: base.projects });
-      ws.reviews[0] = { ...ws.reviews[0], empId: 'e1' };
+      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, cycles: base.cycles, goals: base.goals, payChanges: base.payChanges, finance: base.finance, claims: base.claims, leaveCarry: base.leaveCarry, leaveCredits: base.leaveCredits, rosters: base.rosters, timeRequests: base.timeRequests, attAudit: [], statutory: base.statutory, projects: base.projects });
     }
     ws.settings.leave = AllurusLeaveRules.defaultSettings({ state: d.currency === 'MYR' ? (AllurusLeaveRules.CITY_STATE[d.city] || '') : '', departments: ws.departments, hr: 'e1' });
     ws.settings.employer = withSamples ? { ...base.settings.employer } : { signatory: d.adminName.trim(), signatoryTitle: 'HR Administrator' };
@@ -2256,6 +2241,8 @@
       state.employees = state.employees.filter((e) => e.id !== id);
       state.leaves = state.leaves.filter((l) => l.empId !== id);
       state.reviews = state.reviews.filter((r) => r.empId !== id);
+      state.goals = (state.goals || []).filter((g) => g.empId !== id);
+      state.payChanges = (state.payChanges || []).filter((c) => c.empId !== id);
       state.departments.forEach((d) => { if (d.lead === id) d.lead = ''; });
       state.employees.forEach((e) => { if (e.manager === id) e.manager = ''; });
       closeOverlay(); commit(`${n} removed`, `${n} was removed from the directory`);
@@ -2289,7 +2276,7 @@
     'pay-shift': (_, v) => { ui.payMonth = U.addMonths(ui.payMonth, Number(v)); render(); },
     'pay-run': () => {
       const mk = ui.payMonth;
-      const items = activeEmployees().filter((e) => e.start <= U.monthEnd(mk)).map((e) => payItem(e, 0, mk));
+      const items = activeEmployees().filter((e) => e.start <= U.monthEnd(mk)).map((e) => payItem(e, appraisalApi ? appraisalApi.bonusFor(e.id, mk) : 0, mk));
       if (!items.length) { toast('No employees were active that month'); return; }
       state.payroll[mk] = { status: 'Draft', items };
       commit('Draft created', `Payroll draft created for ${U.fmtMonth(mk)}`);
@@ -2299,6 +2286,7 @@
       const run = state.payroll[ui.payMonth]; run.status = 'Paid'; run.paidOn = U.today();
       state.statutory.filed[ui.payMonth] = {};
       claimsApi.markPaid(run.items.flatMap((i) => i.claimIds || []), ui.payMonth);
+      appraisalApi.markBonusPaid(ui.payMonth, run.items.filter((i) => i.bonus > 0).map((i) => i.empId));
       notifyApi.event('payroll.paid', { month: ui.payMonth, count: run.items.length, net: money(payTotal(run).net), href: '#payroll' }, 'hr');
       run.items.forEach((i) => notifyApi.event('payslip.ready', { month: ui.payMonth, net: money(i.net, 2), href: '#my-pay' }, i.empId, { self: true }));
       commit('Payroll paid', `Payroll for ${U.fmtMonth(ui.payMonth)} was paid (${money(payTotal(run).net)} net)`);
@@ -2330,7 +2318,6 @@
       const [first, ...rest] = c.name.split(' ');
       openEmployeeModal(null, { first, last: rest.join(' '), email: `${first}.${rest.join('')}`.toLowerCase().replace(/[^a-z.]/g, '') + '@' + state.settings.domain, role: j?.title || '', dept: j?.dept, location: j?.location || '', start: U.addDays(U.today(), 14) }, () => { c.converted = true; });
     },
-    'review': (id) => openReviewModal(id),
     'theme': (_, v) => ACTIONS['ux-pref']('theme', v),
     'ask-reset': () => { $('#reset-confirm').innerHTML = `<div class="confirm-bar"><span style="flex:1">Replace all data with the sample company?</span><button class="btn btn-sm" data-act="cancel-reset">Cancel</button><button class="btn btn-sm btn-danger" data-act="do-reset">Reset</button></div>`; },
     'cancel-reset': () => { $('#reset-confirm').innerHTML = ''; },
@@ -2367,7 +2354,7 @@
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
     downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
     save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
-    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
+    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
   };
   AllurusUX.install(moduleCtx);
   finApi = AllurusFinance.install(moduleCtx);
@@ -2378,6 +2365,7 @@
   timeApi = AllurusTime.install(moduleCtx);
   docsApi = AllurusPayDocs.install(moduleCtx);
   notifyApi = AllurusNotify.install(moduleCtx);
+  appraisalApi = AllurusAppraisal.install(moduleCtx);
   kioskApi = AllurusKiosk.install(moduleCtx, { write: writeCheckin, zone, deviceId, deviceName, squareCanvas, nowHM, isField, selfieThumb, cloudWrite: (p, d) => cloudWrite(p, d), cloudOn: () => !!cloud.db });
   // Approvers see their team's claims under Approvals, after leave and attendance requests.
   const approvalsBase = VIEWS['my-approvals'];

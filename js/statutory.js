@@ -77,7 +77,7 @@ window.AllurusStatutory = (function () {
     const earnings = [{ label: 'Basic salary', amount: r2(it.base) }];
     if (it.unpaid) earnings.push({ label: `Unpaid leave, ${it.unpaidDays || 0} day${it.unpaidDays === 1 ? '' : 's'}`, amount: -r2(it.unpaid) });
     lines(it).forEach((l) => earnings.push({ label: l.label, amount: r2(l.amount), note: l.detail || '' }));
-    if (it.bonus) earnings.push({ label: 'Bonus', amount: r2(it.bonus) });
+    if (it.bonus) earnings.push({ label: it.bonusNote ? `Bonus (${it.bonusNote})` : 'Bonus', amount: r2(it.bonus) });
     const statutory = it.epf != null && (it.epf || it.socso || it.eis || it.erEpf);
     const deductions = statutory
       ? [['EPF (KWSP), employee', it.epf], ['SOCSO (PERKESO), employee', it.socso], ['EIS, employee', it.eis], ['Income tax (PCB)', it.tax], ['Zakat', it.zakat]].filter(([, v]) => v).map(([label, amount]) => ({ label, amount: r2(amount) }))

@@ -14,7 +14,7 @@ window.AllurusNotifyRules = (function () {
   // Categories people can set a channel for.
   const CATEGORIES = {
     requests: 'Requests and approvals', pay: 'Payroll and payslips', announcements: 'Announcements and policies',
-    schedule: 'Roster changes', attendance: 'Flagged check-ins', reminders: 'Reminders',
+    schedule: 'Roster changes', attendance: 'Flagged check-ins', appraisals: 'Appraisals and feedback', reminders: 'Reminders',
   };
   const CHANNELS = { both: 'In the app and by email', inapp: 'In the app only', email: 'By email only', off: 'Off' };
   const defaultPrefs = () => Object.fromEntries(Object.keys(CATEGORIES).map((k) => [k, k === 'reminders' ? 'inapp' : 'both']));
@@ -34,6 +34,12 @@ window.AllurusNotifyRules = (function () {
     'announcement.remind': { cat: 'announcements', icon: 'doc', text: (d) => [`Reminder: acknowledge “${d.title}”`, 'HR is waiting for your acknowledgement.'] },
     'roster.changed': { cat: 'schedule', icon: 'calendar', text: (d) => [`Your roster changed`, d.detail || `Week of ${fmt(d.week)}.`] },
     'checkin.flagged': { cat: 'attendance', icon: 'shield', text: (d) => [`${d.who}’s check-in needs a look`, d.reason] },
+    'appraisal.launched': { cat: 'appraisals', icon: 'trend', text: (d) => [`${d.cycle} appraisals have started`, `Rate yourself and add your goals. Your self-review is due ${fmt(d.date)}.`] },
+    'appraisal.toscore': { cat: 'appraisals', icon: 'trend', text: (d) => [`Score ${d.who}’s ${d.cycle} appraisal`, d.note ? `Sent back by HR: “${d.note}”` : 'Their part is done. Rate each item and add your recommendation.'] },
+    'appraisal.final': { cat: 'appraisals', icon: 'trend', text: (d) => [`${d.who}’s appraisal is ready for HR final`, `${d.cycle}: approve or edit the recommendation.`] },
+    'appraisal.done': { cat: 'appraisals', icon: 'star', text: (d) => [`Your ${d.cycle} appraisal is complete`, d.grade ? `Final grade ${d.grade}. Open it to see the details.` : 'Open it to see the details.'] },
+    'appraisal.peer': { cat: 'appraisals', icon: 'people', text: (d) => [`${d.who} asked for your feedback`, `${d.cycle} 360° feedback. Your answers are anonymous.`] },
+    'appraisal.overdue': { cat: 'appraisals', icon: 'trend', text: (d) => [d.self ? `Your ${d.cycle} ${d.step} is overdue` : `${d.who}’s appraisal is overdue with you`, `The ${d.step} step was due ${fmt(d.date)}.`] },
     'reminder.probation': { cat: 'reminders', icon: 'people', text: (d) => [`Confirm ${d.who}’s probation`, `Probation ends ${fmt(d.date)} (${inDays(d.left)}).`] },
     'reminder.contract': { cat: 'reminders', icon: 'doc', text: (d) => [`${d.who}’s contract ends ${inDays(d.left)}`, `Contract end date ${fmt(d.date)}. Renew it or plan the handover.`] },
     'reminder.passport': { cat: 'reminders', icon: 'doc', text: (d) => [`${d.who}’s passport ${d.left < 0 ? 'has expired' : 'expires ' + inDays(d.left)}`, `Expiry ${fmt(d.date)}. A valid passport is needed to renew the work permit.`] },

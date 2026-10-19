@@ -295,23 +295,93 @@ window.AllurusSeed = {
       applied: U.addDays(T, -2 - i * 2),
     }));
 
-    const statuses = ['Completed', 'In progress', 'In progress', 'Not started'];
+    // Appraisals: the H2 cycle with people at every step, SMART goals with check-ins, 360° feedback, and approved
+    // results whose increments start in January and bonuses are paid with December payroll.
+    const AR = AllurusAppraisalRules, y = +T.slice(0, 4);
+    const salesTpl = {
+      id: 'tpl-sales', name: 'Sales appraisal', scale: { ...AR.SCALE_1_5, labels: [...AR.SCALE_1_5.labels] }, depts: ['d-sales'], people: [],
+      sections: [
+        { id: 's-skpi', name: 'Sales results', kind: 'kpi', weight: 60, questions: [{ id: 'sk1', text: 'Revenue against target', weight: 2, comment: true }, { id: 'sk2', text: 'New accounts opened', weight: 1, comment: true }, { id: 'sk3', text: 'Pipeline kept up to date', weight: 1, comment: false }] },
+        { id: 's-scomp', name: 'Selling skills', kind: 'competency', weight: 25, questions: [{ id: 'sc1', text: 'Negotiation and closing', weight: 1, comment: true }, { id: 'sc2', text: 'Product knowledge', weight: 1, comment: false }] },
+        { id: 's-sval', name: 'Company values', kind: 'value', weight: 15, questions: [{ id: 'sv1', text: 'Amanah: integrity and trust', weight: 1, comment: false }, { id: 'sv2', text: 'Customer first', weight: 1, comment: true }] },
+      ],
+    };
+    settings.appraisal = { templates: [AR.defaultTemplate(), salesTpl], bands: AR.defaultBands(), peerMin: 2 };
+    const cycle = { id: 'cy-h2', name: `H2 ${y}`, start: `${y}-07-01`, end: `${y}-12-31`, templateId: 'tpl-standard', selfDue: U.addDays(T, -3), managerDue: U.addDays(T, 11), hrDue: U.addDays(T, 25), l2: true, peers: true, maxPeers: 3, effective: `${y + 1}-01-01`, bonusMonth: `${y}-12`, status: 'Open', launched: U.addDays(T, -24), by: 'e1' };
+    const cycles = [cycle];
+    const empById = (id) => employees.find((e) => e.id === id);
+    const hrOf = 'e1', l1Of = (e) => e.manager || (e.id !== hrOf ? hrOf : ''), l2Of = (e) => { const m = empById(l1Of(e)); return m?.manager && m.manager !== e.id && m.manager !== m.id ? m.manager : ''; };
+    // Ratings around a level: a fixed pattern so each person's scores differ a little from item to item.
+    const WOBBLE = [0, 1, 0, -1, 0, 1, -1, 0, 0];
+    const rate = (tpl, level, shift = 0) => Object.fromEntries(AR.questions(tpl).map((q, i) => [q.id, { r: Math.max(1, Math.min(5, level + WOBBLE[(i + shift) % WOBBLE.length])), c: '' }]));
+    const PLAN = {
+      e5: ['done', 4, 'Owned the booking app front end and mentored our intern.'], e7: ['done', 5, 'Built the cash-flow dashboard the board now uses every month.', 'Senior Data Analyst'],
+      e10: ['done', 4, 'Best quarter yet for booked meetings.'], e13: ['done', 3, 'Steady content calendar; wants more SEO depth.'], e16: ['done', 3, 'Delivered the brand refresh on time.'], e17: ['done', 2, 'Month-end close slipped twice; a plan is agreed.'],
+      e8: ['hr', 4, 'Led the move to the new database with no downtime.'], e12: ['hr', 4, 'Cut cloud costs by a fifth.'], e6: ['hr', 3, 'Solid pipeline, closing rate to improve.'],
+      e18: ['l2', 4, 'Caught two release blockers before launch.'],
+      e3: ['l1'], e9: ['l1'], e19: ['l1'], e15: ['l1'],
+      e2: ['draft'], e14: ['draft'], e4: ['self'], e11: ['self'], e1: ['self'],
+    };
     const reviews = employees.map((e, i) => {
-      const status = statuses[i % 4];
-      return {
-        id: 'r' + (i + 1), empId: e.id, cycle: 'H2 ' + T.slice(0, 4), status,
-        rating: status === 'Not started' ? 0 : 3 + Math.round(r() * 2),
-        progress: status === 'Completed' ? 100 : status === 'Not started' ? Math.round(r() * 20) : 35 + Math.round(r() * 50),
-        notes: '',
-      };
+      const [stage, level = 4, why = '', promo = ''] = PLAN[e.id] || ['self'];
+      const tpl = AR.templateFor(e, cycle, settings.appraisal.templates);
+      const a = { id: 'r' + (i + 1), empId: e.id, cycleId: cycle.id, cycle: cycle.name, templateId: tpl.id, stage: stage === 'draft' ? 'self' : stage, self: null, l1: null, l2: null, hr: null, final: null, peers: [], due: cycle.hrDue, notes: '' };
+      const at = (d) => U.addDays(T, d);
+      if (stage === 'draft') a.self = { scores: Object.fromEntries(Object.entries(rate(tpl, 4, i)).slice(0, 4)), comment: '', draftAt: `${at(-2)}T16:20:00.000Z` };
+      if (['l1', 'l2', 'hr', 'done'].includes(stage)) a.self = { scores: rate(tpl, Math.min(5, level + (i % 2)), i), comment: 'A busy half. I am proud of what we shipped and want to grow as a lead.', draftAt: `${at(-12)}T10:00:00.000Z`, submittedAt: `${at(-6 + (i % 3))}T11:30:00.000Z` };
+      if (['l2', 'hr', 'done'].includes(stage)) {
+        const sc = rate(tpl, level, i + 2), g = AR.grade(AR.score(tpl, sc).total, settings.appraisal.bands);
+        a.l1 = { by: l1Of(e), scores: sc, comment: why, at: at(-3 + (i % 2)), rec: { inc: g.inc, bonus: g.bonus, promo, why } };
+      }
+      if (['hr', 'done'].includes(stage) && l2Of(e)) a.l2 = { by: l2Of(e), at: at(-2), comment: 'Agree with the scores.', rec: { ...a.l1.rec } };
+      return a;
+    });
+    const payChanges = [];
+    reviews.filter((a) => a.stage === 'done').forEach((a) => {
+      const e = empById(a.empId), tpl = settings.appraisal.templates.find((t) => t.id === a.templateId), total = AR.score(tpl, a.l1.scores).total, g = AR.grade(total, settings.appraisal.bands);
+      a.hr = { by: hrOf, at: U.addDays(T, -1), rec: { ...(a.l2 || a.l1).rec }, note: '' };
+      a.final = { score: total, grade: g.code, pct: Math.round((total / 5) * 100) };
+      payChanges.push(...AR.changesFrom({ review: a, emp: e, cycle, rec: a.hr.rec, by: hrOf, at: a.hr.at }));
+    });
+    // 360°: Daniel asked three colleagues (two answered); Ethan's feedback is complete; Samuel asked Daniel.
+    const peer = (empId, answers, comment, d) => (answers ? { empId, status: 'done', asked: U.addDays(T, -14), answers, comment, at: U.addDays(T, d) } : { empId, status: 'requested', asked: U.addDays(T, -5) });
+    const pa = (lv) => ({ c1: lv, c2: lv, c3: Math.max(1, lv - 1), v1: 5, v2: lv, v3: lv });
+    const R = (id) => reviews.find((x) => x.empId === id);
+    R('e2').peers = [peer('e5', pa(4), 'Explains hard problems simply. Could delegate more.', -6), peer('e8', pa(5), 'Always first to help when production breaks.', -4), peer('e12')];
+    R('e8').peers = [peer('e2', pa(4), 'Calm under pressure during the migration.', -9), peer('e5', pa(4), '', -8)];
+    R('e18').peers = [peer('e2'), peer('e12', pa(4), 'Thorough testing; share findings earlier.', -7)];
+    R('e5').peers = [peer('e2', pa(4), 'Great eye for detail on the booking flow.', -16), peer('e16', pa(5), 'A joy to work with on design handoffs.', -15)];
+    // SMART goals for the half, with check-ins along the way.
+    const GOALS = {
+      'd-eng': [['Ship the Kenyir Resorts booking app', 'App live in both stores, bookings tracked', '200 bookings a month', 2], ['Cut booking API response time', 'p95 latency on the booking API', 'Under 300 ms', 1]],
+      'd-sales': [['Hit the H2 sales target', 'Closed-won revenue in the CRM', 'RM 1.2 million', 2], ['Open new East Coast accounts', 'New customers signed in Pahang and Terengganu', '10 accounts', 1]],
+      'd-fin': [['Close the books by working day 5', 'Month-end close date each month', 'Day 5, six months running', 1], ['Move invoicing to MyInvois', 'Invoices validated by LHDN', 'All invoices from 1 January', 1]],
+      'd-mkt': [['Grow organic leads', 'Website leads in the CRM', '40% more than H1', 2], ['Launch the Hari Raya campaign', 'Campaign live with tracked results', 'Live by 1 March', 1]],
+      'd-design': [['Refresh the design system', 'Components in the shared library', '60 components', 1], ['Run usability tests', 'Sessions recorded and summarised', '12 sessions', 1]],
+      'd-people': [['Cut time to hire', 'Days from job opening to signed offer', 'Under 30 days', 1], ['Roll out online appraisals', 'Staff who submit their self-review on time', '95%', 1]],
+    };
+    const NOTES = ['Plan agreed with my manager.', 'First milestone done.', 'Halfway there; one blocker cleared.', 'On track for the due date.'];
+    const goals = [];
+    reviews.forEach((a, i) => {
+      const e = empById(a.empId), list = GOALS[e.dept] || GOALS['d-people'];
+      const base = { done: 85, hr: 75, l2: 70, l1: 65, self: a.self ? 50 : 30 }[a.stage];
+      list.forEach(([title, measure, target, weight], j) => {
+        const progress = Math.min(100, Math.max(0, Math.round((base + (j ? -15 : 10) + ((i * 7) % 15)) / 5) * 5));
+        const steps = Math.max(1, Math.round(progress / 30));
+        const checkins = Array.from({ length: steps }, (_, k) => ({ at: U.addDays(T, -6 - (steps - 1 - k) * 21 - j * 2), by: e.id, progress: Math.round((progress * (k + 1)) / steps / 5) * 5, note: progress >= 100 && k === steps - 1 ? 'Done and handed over.' : NOTES[Math.min(NOTES.length - 1, k)] }));
+        goals.push({ id: `g${i + 1}-${j + 1}`, empId: e.id, cycleId: cycle.id, title, measure, target, due: cycle.end, why: '', weight, progress, status: progress < 40 && a.stage !== 'self' ? 'At risk' : 'On track', checkins, created: cycle.start });
+      });
+    });
+    reviews.forEach((a) => {
+      a.status = AR.statusOf(a);
+      a.rating = a.final ? Math.round(a.final.score) : 0;
+      a.progress = AR.goalProgress(goals.filter((g) => g.empId === a.empId));
     });
 
     // Dates the reminders watch: Samuel is on a fixed-term contract with a work permit; Nurul is on probation.
     Object.assign(employees[17], { nationality: 'Nigeria', contractEnd: U.addDays(T, 25), passportNo: 'A09817263', passportExpiry: U.addDays(T, 150), permitNo: 'EP 2024-118273', permitExpiry: U.addDays(T, 60) });
     Object.assign(employees[18], { nationality: 'Malaysia', probationEnd: U.addDays(T, 26) });
     employees.forEach((e) => ['probationEnd', 'confirmedOn', 'contractEnd', 'nationality', 'passportNo', 'passportExpiry', 'permitNo', 'permitExpiry'].forEach((k) => { if (e[k] === undefined) e[k] = k === 'nationality' ? 'Malaysia' : ''; }));
-    // This cycle's appraisals are due in 10 days.
-    reviews.forEach((r) => { r.due = U.addDays(T, 10); });
 
     // Announcements and policies, with acknowledgements so far.
     const iso = (d, h) => new Date(`${d}T${h}:00`).toISOString();
@@ -338,11 +408,12 @@ window.AllurusSeed = {
       note('announcement.new', { title: 'Deepavali open house, 6 November', excerpt: 'Join us for Deepavali open house on Friday 6 November.', href: '#news' }, 'e2', iso(U.addDays(T, -2), '15:10')),
       note('request.approved', { kind: 'correction', summary: 'forgot to check out', by: 'Amara Okafor', href: '#my-time' }, 'e2', iso(U.addDays(T, -3), '10:14'), true),
       note('payslip.ready', { month: U.addMonths(thisMonth, -1), net: 'RM 8,421.50', href: '#my-pay' }, 'e2', iso(U.addDays(T, -21), '17:30'), true),
+      note('appraisal.peer', { who: 'Samuel Adeyemi', cycle: `H2 ${y}`, href: '#my-appraisal' }, 'e2', iso(U.addDays(T, -5), '11:02')),
       note('checkin.flagged', { who: 'Yusuf Demir', reason: 'The phone reported a suspiciously precise accuracy of exactly 1 m.', href: '#attendance' }, 'e1', iso(T, '08:28')),
       note('request.submitted', { who: 'Lucas Moreau', kind: 'claim', summary: 'Client visit to Kuala Terengganu, RM 185.90', href: '#claims' }, 'e1', iso(U.addDays(T, -4), '17:40')),
       note('payroll.paid', { month: U.addMonths(thisMonth, -1), count: 18, net: 'RM 134,842.24', href: '#payroll' }, 'e1', iso(U.addDays(T, -21), '17:28'), true),
     ];
-    seeded.forEach((x, i) => { if ([2, 3, 6].includes(i)) x.notifications.forEach((n) => { n.read = true; }); });
+    seeded.forEach((x, i) => { if ([2, 3, 7].includes(i)) x.notifications.forEach((n) => { n.read = true; }); });
     const outbox = seeded.flatMap((x) => x.emails);
 
     const now = Date.now();
@@ -376,7 +447,7 @@ window.AllurusSeed = {
       }
     });
     const plans = { e2: AllurusPlanner.sample() };
-    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, rosters, timeRequests, attAudit, statutory, projects, announcements, notifications: seeded.flatMap((x) => x.notifications), outbox, notifyKeys: [], settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
+    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, rosters, timeRequests, attAudit, statutory, projects, announcements, notifications: seeded.flatMap((x) => x.notifications), outbox, notifyKeys: [], settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, cycles, goals, payChanges, activity, platform };
   },
 
   // Super Admin data: every company subscribed to Allurus.
