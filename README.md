@@ -57,6 +57,34 @@ The tax features use keyword matching and the rates in `js/tax.js`. They help pr
 | Navigation & search | A command palette (**⌘K**, **Ctrl+K** or **/**) to search people, pages and actions such as "check in", "run payroll" or "dark mode". |
 | Design consistency | Shared tokens and components, documented live in [`design-system.html`](design-system.html). |
 
+## Leave (e-Leave)
+
+A full Malaysian leave module under **Time off** (admin), **My time off** and **Approvals** (employees who approve).
+
+- **Leave types** (Settings → Leave types): name, days a year, paid or unpaid, needs an MC or document, half days, carry-forward limit and expiry month, who can take it (gender, married), minimum service, and pro-rating for new joiners. The defaults follow Employment Act 1955 minimums:
+  - Annual: 8, 12 or 16 days by years of service.
+  - Sick (MC): 14, 18 or 22 days by years of service.
+  - Hospitalisation: 60 days, including sick days already taken.
+  - Maternity: 98 consecutive days.
+  - Paternity: 7 consecutive days, for married men with 12 months' service.
+  - Also: Compassionate, Replacement (days granted by HR), Unpaid, and Emergency (taken from annual).
+  - The demo company gives more annual leave: 14, 16 or 20 days.
+- **Public holidays and rest days**: each company has a state and a holiday calendar. The demo company is in Terengganu, with Friday–Saturday rest days.
+  - Kedah, Kelantan and Terengganu default to Friday–Saturday rest days. Attendance and dashboards use the same work week.
+  - National holidays and Terengganu's state holidays are built in for 2026. When a holiday falls on a rest day, the next working day becomes a replacement holiday.
+  - You can switch any holiday off and add your own company holidays.
+  - Rest days and holidays are never counted as leave. Maternity and paternity count calendar days.
+- **Applying**: full day or half day (AM/PM), a live day count that shows the days not counted and the balance after, and a photo or PDF upload (MC) where the type needs one.
+- **Approvals**: up to three steps per department: L1 (department head), an optional L2, then HR. Each approver has a backup who decides while they're on leave. Self-approval steps are skipped.
+  - Each request shows its chain and who's next.
+  - Reviewing shows the MC, the balance before and after, and who else in the department is off on those dates. Declining needs a note, and decisions can be undone.
+- **Calendar**: a month view of approved and pending leave for everyone, filtered by department, with rest days and holidays marked. Managers get a team calendar.
+- **Dashboards**: a "Who's off today" card (company-wide for HR, team-wide for managers) with tomorrow's absences. Insights cover approvals waiting, someone off tomorrow, managers covering for an absent approver, and carried days about to lapse.
+- **Year-end carry forward** (Settings → Year-end carry forward): previews and moves unused days up to each type's limit into next year, with an expiry date. Carried days are used first, and any left after expiry lapse. In the demo you can run it any time.
+- **Unpaid leave in payroll**: approved unpaid days in the month are deducted as basic pay ÷ divisor × days, before EPF, SOCSO, EIS and PCB. The divisor is working days in the month (default), 26, or days in the month. It shows on the payslip and in the payroll export.
+
+The leave rules (day counting, holidays, entitlements, balances, carry forward, approval chains, the unpaid deduction) are in `js/leave-rules.js`, with tests in `tests/leave.test.js`. **Check the built-in holiday dates against the official gazette** (kabinet.gov.my and the State Secretary) before using them for payroll: Islamic holidays can move by a day. Check the entitlements against the Employment Act 1955 and your contracts.
+
 ## Payroll: EPF, SOCSO, EIS, PCB and HRD Corp
 
 For Malaysian companies (currency MYR), every payslip works out the compulsory deductions:
@@ -156,12 +184,14 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 index.html          App shell: sign-in screen, sidebar, top bar
 brand.html          Brand kit: logo, palette, type, usage rules
 design-system.html  Live tokens and components
-tests/              Unit tests (npm test)
+tests/              Unit tests (npm test): check-in geometry, leave rules
 css/styles.css      Design tokens (light and dark) and all components
 js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
 js/seed.js          Demo data: the Lumen & Co. workspace and 14 subscribed companies
 js/geo-map.js       Check-in map picker, preview and place search (Leaflet, OpenStreetMap, Nominatim)
 js/experience.js    Preferences, ⌘K palette, dashboards, setup, tour, help, live updates
+js/leave-rules.js   Leave rules (no DOM): types, states, holidays, day counts, balances, carry forward, approval chains, unpaid pay
+js/leave.js         Leave screens: apply, approvals, calendar, balances, leave settings
 js/claims.js        Medical claims: policy, employee claims, HR review
 js/planner.js       Employee financial planner
 js/app.js           Views, routing per role, actions, registration, shared-link sync

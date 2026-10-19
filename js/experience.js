@@ -237,13 +237,21 @@ window.AllurusUX = (function () {
   let pal = null;
   const ROLE_ACTIONS = [
     { roles: ['employee'], label: 'Check in with a selfie', icon: 'camera', keywords: 'clock in attendance', run: () => goThen('home', 'check-in', undefined, 'present') },
-    { roles: ['employee'], label: 'Request time off', icon: 'calendar', keywords: 'leave holiday vacation sick', run: () => act('new-leave') },
+    { roles: ['employee'], label: 'Apply for leave', icon: 'calendar', keywords: 'request time off holiday vacation sick mc cuti half day', run: () => act('new-leave') },
+    { roles: ['employee'], label: 'Approve my team’s leave', icon: 'check', keywords: 'approvals leave requests manager', when: () => ctx.leave?.isApprover(ctx.me()?.id), run: () => go('my-approvals') },
+    { roles: ['employee'], label: 'My leave balance', icon: 'calendar', keywords: 'annual sick days left time off', run: () => go('my-leave') },
     { roles: ['employee'], label: 'New medical claim', icon: 'heart', keywords: 'clinic doctor receipt reimburse', when: () => ctx.claimsOn(), run: () => goThen('my-claims', 'cl-new') },
     { roles: ['employee'], label: 'Scan a tax relief receipt', icon: 'receipt', keywords: 'lhdn relief be form', run: () => goThen('my-tax', 'rel-scan') },
     { roles: ['employee'], label: 'Plan my month', icon: 'target', keywords: 'budget planner disposable spend', run: () => go('my-plan') },
     { roles: ['admin'], label: 'Add an employee', icon: 'userplus', keywords: 'hire new staff onboard', run: () => act('add-emp') },
     { roles: ['admin'], label: 'Run payroll', icon: 'wallet', keywords: 'salary pay epf socso pcb', run: () => go('payroll') },
     { roles: ['admin'], label: 'Approve time off', icon: 'calendar', keywords: 'leave requests pending', run: () => go('leave') },
+    { roles: ['admin'], label: 'Leave calendar', icon: 'calendar', keywords: 'who is off month team holidays', run: () => act('lv-open-cal') },
+    { roles: ['admin'], label: 'Leave balances', icon: 'calendar', keywords: 'annual sick carried entitlement', run: () => act('lv-open-bal') },
+    { roles: ['admin'], label: 'Public holidays and rest days', icon: 'calendar', keywords: 'holiday state terengganu weekend friday cuti umum', run: () => goSection('leave-holidays') },
+    { roles: ['admin'], label: 'Leave types and entitlements', icon: 'sliders', keywords: 'maternity paternity hospitalisation policy', run: () => goSection('leave-types') },
+    { roles: ['admin'], label: 'Leave approval chains', icon: 'people', keywords: 'approver backup department head hr', run: () => goSection('leave-approvals') },
+    { roles: ['admin'], label: 'Year-end carry forward', icon: 'calendar', keywords: 'carry forward expiry year end leave', run: () => goSection('leave-yearend') },
     { roles: ['admin'], label: 'Review medical claims', icon: 'heart', keywords: 'claims approve', run: () => go('claims') },
     { roles: ['admin'], label: 'Scan a receipt into the books', icon: 'receipt', keywords: 'expense bookkeeping ocr', run: () => goThen('finance', 'fin-scan') },
     { roles: ['admin'], label: 'Request time off', icon: 'calendar', keywords: 'leave', run: () => act('new-leave') },
@@ -256,6 +264,7 @@ window.AllurusUX = (function () {
     { roles: ['*'], label: 'Help and keyboard shortcuts', icon: 'help', keywords: 'support tips', run: () => openHelp() },
     { roles: ['*'], label: 'Sign out', icon: 'lock', keywords: 'logout log out', run: () => act('logout') },
   ];
+  const goSection = (id) => { go('settings'); setTimeout(() => $('#' + id)?.scrollIntoView({ block: 'start' }), 80); };
   const go = (id) => { if (location.hash === '#' + id) ctx.render(); else location.hash = id; };
   const act = (name, id, v) => ctx.ACTIONS[name]?.(id, v);
   const goThen = (route, name, id, v) => { go(route); setTimeout(() => act(name, id, v), 80); };
@@ -292,7 +301,7 @@ window.AllurusUX = (function () {
   // Suggestions adapt to the role and the time of day.
   function suggestions(items) {
     const r = ctx.role(), h = new Date().getHours(), pick = (label) => items.find((x) => x.label === label);
-    const list = r === 'employee' ? [h < 12 ? 'Check in with a selfie' : null, 'Request time off', 'New medical claim', 'Plan my month']
+    const list = r === 'employee' ? [h < 12 ? 'Check in with a selfie' : null, 'Apply for leave', 'New medical claim', 'Plan my month']
       : r === 'admin' ? ['Approve time off', 'Review medical claims', new Date().getDate() >= 20 ? 'Run payroll' : 'Add an employee']
         : ['Take the tour'];
     return list.filter(Boolean).map(pick).filter(Boolean);
@@ -347,7 +356,9 @@ window.AllurusUX = (function () {
     dashboard: ['Your company at a glance.', ['Focus for today lists what needs you first.', 'Customize to drag, resize or hide cards.', 'Numbers update live when staff check in on this browser.']],
     employees: ['Everyone at the company.', ['Search by name, email or role, and filter by department or status.', 'Click a person for their profile, phone and selfie security.']],
     attendance: ['Who checked in, from where, and with which selfie.', ['Flagged check-ins (face mismatch, uploaded photo) need a look.', 'Approve new phones before staff can check in from them.']],
-    leave: ['Time-off requests.', ['Approve or decline from here or the dashboard.', 'Undo is available for a few seconds after each decision.']],
+    leave: ['Requests, the leave calendar and balances.', ['Requests go L1 → L2 → HR, as set per department in Settings. The dots show where each one is.', 'Review shows the balance before and after, who else in the team is off, and any MC.', 'Rest days and public holidays are never counted. Maternity and paternity count calendar days.', 'Run the year-end carry forward in Settings.']],
+    'my-leave': ['Your balances and requests.', ['Half days (AM or PM) are allowed for annual, emergency, replacement and unpaid leave.', 'Sick leave needs a photo or PDF of your MC.', 'Carried days must be used by their expiry date.']],
+    'my-approvals': ['Leave waiting for you.', ['You see requests when you’re the next approver, or the backup while your manager is on leave.', 'The team calendar shows who is already off.']],
     payroll: ['Monthly payroll with EPF, SOCSO, EIS, PCB and HRD Corp.', ['Run payroll to create a draft, add bonuses, then approve and pay.', 'Statutory payments are due by the 15th of the next month.', 'Click a name to see the payslip.']],
     claims: ['Medical claims and your claim policy.', ['Approvals are capped by the per-claim limit and the yearly balance.', 'Approved claims go out with the next payroll, or pay them now.']],
     finance: ['Cash, profit and what is owed.', ['Scan a receipt to add expenses item by item.', 'Close a month and send it to your auditor from Reports.']],

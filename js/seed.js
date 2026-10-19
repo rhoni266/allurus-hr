@@ -10,7 +10,7 @@ window.AllurusSeed = {
     // Check-in zone: employees must be inside this circle (radius in meters) and take a selfie.
     const P = AllurusSeed.published;
     const checkin = { label: P.label, lat: P.lat, lng: P.lng, radius: P.radius, remote: false, field: [...P.field], setAt: P.at };
-    const settings = { company: 'Allurus', domain: 'allurus.com', currency: 'MYR', office: 'Kuantan', checkin, taxRate: 8, benefitsRate: 11.7, annualDays: 20, sickDays: 10, theme: 'system', statutory: { ...U.STATUTORY }, claims: AllurusClaims.policyDefaults() };
+    const settings = { company: 'Allurus', domain: 'allurus.com', currency: 'MYR', office: 'Kuantan', checkin, taxRate: 8, benefitsRate: 11.7, theme: 'system', statutory: { ...U.STATUTORY }, claims: AllurusClaims.policyDefaults() };
 
     const departments = [
       { id: 'd-people', name: 'People', lead: 'e1', color: '#14958A', about: 'Hires, develops and looks after staff, and keeps employment practices compliant.', duties: 'Recruitment, Onboarding, Leave and attendance, Performance reviews, Employee relations' },
@@ -23,6 +23,21 @@ window.AllurusSeed = {
         duties: 'Bookkeeping, Budgeting, Payroll, Invoicing, Accounts payable and receivable, Tax filing, Financial reporting',
         note: 'Very small SMEs often outsource this function to external accounting firms or use automated cloud accounting software. In Allurus the books keep themselves and each month’s report goes to your auditor to verify.' },
     ];
+
+    // e-Leave: Terengganu calendar (rest days Friday and Saturday), Employment Act leave types with a
+    // more generous annual allowance, and approval chains per department with backups.
+    const L = AllurusLeaveRules;
+    settings.leave = L.defaultSettings({ state: 'Terengganu', departments, hr: 'e1', hrBackup: 'e15' });
+    Object.assign(settings.leave.types.find((t) => t.id === 'annual'), { tiers: [14, 16, 20] });
+    Object.assign(settings.leave.chains, {
+      'd-people': { l1: 'e1', l1b: 'e15', l2: '', l2b: '' },
+      'd-eng': { l1: 'e4', l1b: 'e2', l2: '', l2b: '' },
+      'd-design': { l1: 'e3', l1b: 'e16', l2: '', l2b: '' },
+      'd-sales': { l1: 'e14', l1b: 'e6', l2: '', l2b: '' },
+      'd-mkt': { l1: 'e9', l1b: 'e13', l2: 'e14', l2b: 'e11' },
+      'd-fin': { l1: 'e11', l1b: 'e17', l2: '', l2b: '' },
+    });
+    U.setWeekend(L.weekendDays(settings.leave));
 
     const people = [
       ['Amara', 'Okafor', 'Head of People', 'd-people', 128000, '2019-03-11', 'London'],
@@ -63,20 +78,63 @@ window.AllurusSeed = {
         manager: dept === 'd-eng' && i !== 3 ? 'e4' : (departments.find((d) => d.id === dept).lead === 'e' + (i + 1) ? 'e1' : departments.find((d) => d.id === dept).lead),
       };
     });
+    // Gender and marital status decide maternity and paternity leave.
+    const fam = { e1: ['female', true], e2: ['male', true], e3: ['female', false], e4: ['male', true], e5: ['female', false], e6: ['male', false], e7: ['female', true], e8: ['male', false], e9: ['female', true],
+      e10: ['male', true], e11: ['female', true], e12: ['male', true], e13: ['female', false], e14: ['male', true], e15: ['female', false], e16: ['male', false], e17: ['female', true], e18: ['male', false] };
+    employees.forEach((e) => { [e.gender, e.married] = fam[e.id] || ['', false]; });
     employees[0].manager = '';
     employees[0].email = 'admin@allurus.com';
     employees[1].email = 'emp@allurus.com';
     employees.forEach((e) => { if (e.location !== 'Remote') e.location = 'Kuantan'; });
 
-    const leaves = [
-      { empId: 'e5', type: 'Annual', from: U.addDays(T, -1), to: U.addDays(T, 3), reason: 'Family trip', status: 'Approved' },
-      { empId: 'e9', type: 'Annual', from: U.addDays(T, 7), to: U.addDays(T, 11), reason: 'Holiday in Lisbon', status: 'Pending' },
-      { empId: 'e8', type: 'Sick', from: U.addDays(T, 1), to: U.addDays(T, 1), reason: 'Dentist appointment', status: 'Pending' },
-      { empId: 'e13', type: 'Personal', from: U.addDays(T, 14), to: U.addDays(T, 15), reason: 'Moving apartments', status: 'Pending' },
-      { empId: 'e6', type: 'Annual', from: U.addDays(T, -20), to: U.addDays(T, -16), reason: 'Vacation', status: 'Approved' },
-      { empId: 'e17', type: 'Sick', from: U.addDays(T, -9), to: U.addDays(T, -9), reason: 'Flu', status: 'Approved' },
-      { empId: 'e10', type: 'Annual', from: U.addDays(T, -40), to: U.addDays(T, -38), reason: 'Long weekend', status: 'Rejected' },
-    ].map((l, i) => ({ id: 'l' + (i + 1), days: U.workdaysBetween(l.from, l.to), created: U.addDays(l.from, -10), ...l }));
+    // Leave requests, dated around today on working days of the Terengganu calendar.
+    const yr = +T.slice(0, 4);
+    const lctx = L.calendarCtx(settings.leave, `${yr - 1}-01-01`, `${yr + 1}-12-31`);
+    const work = (d) => { while (!L.isWorkingDay(d, lctx)) d = U.addDays(d, 1); return d; };
+    const wd = (offset) => work(U.addDays(T, offset));
+    const span = (from, n) => { let d = from, k = 1; while (k < n) { d = U.addDays(d, 1); if (L.isWorkingDay(d, lctx)) k++; } return d; };
+    // A medical certificate image for the demo (real uploads are photos or PDFs).
+    const doc = (title, lines) => {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="420" height="560" viewBox="0 0 420 560"><rect width="420" height="560" fill="#fbfaf6"/><rect x="18" y="18" width="384" height="524" fill="none" stroke="#c9c3b3" stroke-width="2"/><text x="40" y="70" font-family="Arial" font-size="20" font-weight="700" fill="#1c3f6e">${title}</text>${lines.map((l, i) => `<text x="40" y="${120 + i * 34}" font-family="Arial" font-size="15" fill="#333">${l}</text>`).join('')}<circle cx="320" cy="470" r="42" fill="none" stroke="#b5382f" stroke-width="3"/><text x="320" y="476" font-family="Arial" font-size="12" text-anchor="middle" fill="#b5382f">CHOP</text></svg>`;
+      return { name: `${title.toLowerCase().replace(/[^a-z]+/g, '-')}.jpg`, mime: 'image/svg+xml', data: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg), size: svg.length };
+    };
+    const typeById = (id) => settings.leave.types.find((t) => t.id === id);
+    const leaves = [];
+    // decisions: how many steps were approved (true) or the step that declined (a note string)
+    const leave = (id, empId, type, from, to, reason, decisions = [], extra = {}) => {
+      const e = employees.find((x) => x.id === empId), t = typeById(type);
+      let chain = L.buildChain({ applicant: empId, chain: settings.leave.chains[e.dept], hr: settings.leave.hr, hrBackup: settings.leave.hrBackup });
+      let status = 'Pending';
+      decisions.forEach((d) => {
+        const step = L.nextStep(chain); if (!step) return;
+        const r = L.decide(chain, { by: step.approver, approve: d === true, note: d === true ? '' : d, at: U.addDays(from, -3) < T ? U.addDays(from, -3) : T });
+        chain = r.chain; status = r.status;
+      });
+      const days = L.countDays({ from, to, half: extra.half || '', calendar: t.calendar }, lctx).days;
+      leaves.push({ id, empId, type, from, to, half: '', days, reason, attachment: null, status, created: U.addDays(from, -10) < T ? U.addDays(from, -10) : T, chain, ...extra });
+    };
+    const all = [true, true, true];
+    const omarFrom = wd(-1);
+    leave('l1', 'e4', 'annual', omarFrom, span(omarFrom, 5), 'Family trip to Langkawi', all);
+    leave('l2', 'e8', 'sick', wd(-1), wd(-1), 'Fever and cough. MC from Klinik Kesihatan Kemaman.', [], { attachment: doc('Medical Certificate', ['Klinik Kesihatan Kemaman', 'Patient: Ethan Brooks', `Unfit for duty: ${U.fmtDate(wd(-1))}`, '1 day', 'Dr. Nurul Huda binti Ahmad', 'MMC 54321']) });
+    leave('l3', 'e5', 'annual', wd(3), span(wd(3), 3), 'Balik kampung to Ipoh');
+    leave('l4', 'e13', 'annual', wd(10), span(wd(10), 3), 'Cousin’s wedding in Melaka', [true]);
+    leave('l5', 'e7', 'maternity', wd(14), U.addDays(wd(14), 97), 'Expected delivery in early November', [true], { attachment: doc('Antenatal Record', ['Hospital Sultanah Nur Zahirah', 'Patient: Hana Sato', 'Expected date of delivery:', U.fmtDate(U.addDays(wd(14), 10)), 'Obstetrics clinic']) });
+    leave('l6', 'e10', 'paternity', wd(-30), U.addDays(wd(-30), 6), 'Birth of our son', all, { attachment: doc('Birth Certificate', ['Jabatan Pendaftaran Negara', 'Child: Adam Silva', `Born: ${U.fmtDate(wd(-31))}`, 'Father: Mateo Silva']) });
+    leave('l7', 'e12', 'unpaid', wd(-6), span(wd(-6), 2), 'Family matter in Johor Bahru', all);
+    leave('l8', 'e6', 'emergency', wd(-3), wd(-3), 'Car broke down on the way to work', all, { half: 'AM' });
+    leave('l9', 'e17', 'compassionate', wd(-12), span(wd(-12), 3), 'Passing of my grandmother', all);
+    leave('l10', 'e9', 'annual', wd(1), wd(1), 'Family day', all);
+    leave('l11', 'e16', 'replacement', wd(2), wd(2), 'Replacement for working on Malaysia Day');
+    leave('l12', 'e10', 'annual', wd(-40), span(wd(-40), 2), 'Long weekend in Cameron Highlands', ['Quarter-end demos that week. Can you move it a week later?']);
+    leave('l13', 'e2', 'annual', work(`${yr}-03-10`), span(work(`${yr}-03-10`), 2), 'Hari Raya preparations', all);
+    leave('l14', 'e2', 'annual', wd(-50), span(wd(-50), 2), 'School holidays with the kids', all);
+    leave('l15', 'e15', 'sick', wd(-9), wd(-9), 'Migraine. MC attached.', all, { attachment: doc('Medical Certificate', ['Klinik Mediviron Kemaman', 'Patient: Aisha Bello', `Unfit for duty: ${U.fmtDate(wd(-9))}`, '1 day']) });
+    leave('l16', 'e14', 'annual', wd(20), span(wd(20), 5), 'Umrah with my parents');
+    leaves.forEach((l) => { if (l.half) l.days = 0.5; });
+    // Replacement days earned and annual leave carried in from last year (expired at the end of June).
+    const leaveCredits = [{ id: 'cr1', empId: 'e16', days: 2, date: `${yr}-09-16`, reason: 'Worked on Malaysia Day for the system cut-over' }];
+    const leaveCarry = { [yr]: { e2: { annual: { days: 4, expires: `${yr}-06-30`, from: yr - 1 } }, e3: { annual: { days: 5, expires: `${yr}-06-30`, from: yr - 1 } }, e11: { annual: { days: 3, expires: `${yr}-06-30`, from: yr - 1 } } } };
 
     const attendance = {};
     for (let k = -30; k <= 0; k++) {
@@ -94,9 +152,7 @@ window.AllurusSeed = {
       });
     }
     leaves.filter((l) => l.status === 'Approved').forEach((l) => {
-      for (let d = l.from; d <= l.to; d = U.addDays(d, 1)) {
-        if (attendance[d]) attendance[d][l.empId] = { s: 'leave', in: '' };
-      }
+      L.countDays({ from: l.from, to: l.to }, lctx).dates.forEach((d) => { if (attendance[d]) attendance[d][l.empId] = { s: 'leave', in: '' }; });
     });
 
     const payroll = {};
@@ -163,7 +219,7 @@ window.AllurusSeed = {
       if (it) { it.claims = U.round2((it.claims || 0) + c.approved); it.claimIds = [...(it.claimIds || []), c.id]; it.net = U.round2(it.net + c.approved); }
     });
     const plans = { e2: AllurusPlanner.sample() };
-    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
+    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
   },
 
   // Super Admin data: every company subscribed to Allurus.

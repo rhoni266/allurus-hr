@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2.1';
+  const APP_VERSION = '2.2';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   const STORE_KEY = 'allurus-hr-v7';
   const esc = U.esc;
@@ -26,11 +26,37 @@
       // so employees' phones measured check-ins from there. Replace it with the published point.
       U.applyPublishedZone(st, AllurusSeed.published);
     });
+    [s, ...Object.values(s.workspaces || {})].forEach(migrateLeave);
     if (!s.finance) s.finance = AllurusFinance.blank();
     Object.values(s.workspaces || {}).forEach((w) => { if (!w.finance) w.finance = AllurusFinance.blank(); });
     s.reliefs = s.reliefs || {}; s.taxProfiles = s.taxProfiles || {};
     [s, ...Object.values(s.workspaces || {})].forEach((w) => { w.claims = w.claims || []; w.plans = w.plans || {}; });
     return s;
+  }
+  // e-Leave: older saved data gets leave settings, type ids, approval chains, carry-forward and credits.
+  function migrateLeave(ws) {
+    const LEGACY_LEAVE_TYPES = { Annual: 'annual', Sick: 'sick', Personal: 'emergency', Parental: 'paternity', Unpaid: 'unpaid' };
+    const st = ws.settings, L = AllurusLeaveRules;
+    if (!st) return;
+    if (!st.leave) {
+      const stateName = st.company === AllurusSeed.published.company ? 'Terengganu' : st.currency === 'MYR' ? (L.CITY_STATE[st.office] || '') : '';
+      st.leave = L.defaultSettings({ state: stateName, departments: ws.departments || [], hr: (ws.employees || [])[0]?.id || '' });
+      // Keep a flat annual allowance the company had set, if it meets the statutory minimum.
+      if (st.annualDays >= 8) Object.assign(st.leave.types.find((t) => t.id === 'annual'), { byService: false, days: st.annualDays });
+    }
+    st.leave.types = st.leave.types || L.defaultTypes();
+    st.leave.chains = st.leave.chains || {};
+    (ws.employees || []).forEach((e) => { if (e.gender === undefined) e.gender = ''; if (e.married === undefined) e.married = false; });
+    ws.leaveCarry = ws.leaveCarry || {};
+    ws.leaveCredits = ws.leaveCredits || [];
+    (ws.leaves || []).forEach((l) => {
+      if (LEGACY_LEAVE_TYPES[l.type]) l.type = LEGACY_LEAVE_TYPES[l.type];
+      if (l.half === undefined) l.half = '';
+      if (!l.chain) {
+        const e = (ws.employees || []).find((x) => x.id === l.empId);
+        l.chain = l.status === 'Pending' && e ? L.buildChain({ applicant: e.id, chain: st.leave.chains[e.dept], hr: st.leave.hr, hrBackup: st.leave.hrBackup }) : [];
+      }
+    });
   }
   // A new company has no check-in point until the admin sets one. Until then check-ins are blocked
   // and Settings shows a warning. The city centre is only used to centre the map picker.
@@ -152,15 +178,13 @@
 
   // ---------- Derived data ----------
   const activeEmployees = () => state.employees.filter((e) => e.status === 'Active');
-  const onLeaveOn = (id, day) => state.leaves.some((l) => l.empId === id && l.status === 'Approved' && l.from <= day && l.to >= day);
+  const onLeaveOn = (id, day) => (leaveApi ? leaveApi.onLeave(id, day) : false);
   const empStatus = (e) => e.status !== 'Active' ? 'Inactive' : onLeaveOn(e.id, U.today()) ? 'On leave' : 'Active';
   const statusPill = (s) => `<span class="pill ${({ Active: 'ok', 'On leave': 'gold', Inactive: '' })[s] ?? ''}">${esc(s)}</span>`;
   const leavePill = (s) => `<span class="pill ${({ Pending: 'warn', Approved: 'ok', Rejected: 'bad' })[s]}">${s}</span>`;
   const pendingLeaves = () => state.leaves.filter((l) => l.status === 'Pending');
-  function leaveUsed(id, type) {
-    const y = U.today().slice(0, 4);
-    return state.leaves.filter((l) => l.empId === id && l.type === type && l.status === 'Approved' && l.from.startsWith(y)).reduce((s, l) => s + l.days, 0);
-  }
+  // Days of a leave type used this year (type ids: annual, sick, …).
+  const leaveUsed = (id, type) => (leaveApi ? leaveApi.balance(id, type).used : 0);
   function dayStats(day) {
     const rec = state.attendance[day] || {};
     const c = { present: 0, remote: 0, absent: 0, leave: 0, none: 0 };
@@ -189,6 +213,7 @@
       { id: 'home', label: 'Home', icon: 'dashboard', group: 'Me' },
       { id: 'my-time', label: 'My attendance', icon: 'clock', group: 'Me' },
       { id: 'my-leave', label: 'My time off', icon: 'calendar', group: 'Me' },
+      { id: 'my-approvals', label: 'Approvals', icon: 'check', group: 'Me' },
       { id: 'my-profile', label: 'Profile & goals', icon: 'trend', group: 'Me' },
       { id: 'my-pay', label: 'Payslips', icon: 'wallet', group: 'Finance' },
       { id: 'my-claims', label: 'Medical claims', icon: 'heart', group: 'Finance' },
@@ -228,14 +253,14 @@
     { id: 'performance', label: 'Performance', icon: 'trend', group: 'Talent' },
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
   ];
-  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => r.id !== 'my-claims' || claimsApi?.enabled());
+  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id)));
   const route = () => { const h = location.hash.replace('#', ''); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
   function renderNav() {
     let html = '', group = '';
     const rs = routes(), pinned = AllurusUX.pins().map((id) => rs.find((r) => r.id === id)).filter(Boolean);
     const navItem = (r) => {
-      const count = r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
+      const count = r.id === 'my-approvals' ? leaveApi.myCount(me().id) : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
       const on = AllurusUX.pins().includes(r.id), cur = route() === r.id;
       return `<div class="nav-item"><a href="#${r.id}" class="${cur ? 'active' : ''}" ${cur ? 'aria-current="page"' : ''}>${icon(r.icon)}<span>${r.label}</span>${count ? `<span class="count" aria-label="${count} waiting">${count}</span>` : ''}</a><button type="button" class="nav-pin ${on ? 'on' : ''}" data-act="ux-pin" data-id="${r.id}" aria-pressed="${on}" aria-label="${on ? 'Unpin' : 'Pin'} ${esc(r.label)}" title="${on ? 'Unpin' : 'Pin to top'}">${icon(on ? 'starFill' : 'star')}</button></div>`;
     };
@@ -263,6 +288,8 @@
   let navigated = false;
   function render() {
     applyTheme();
+    // Rest days follow the company's leave settings (Friday–Saturday in Kedah, Kelantan and Terengganu).
+    if (state.settings.leave) U.setWeekend(AllurusLeaveRules.weekendDays(state.settings.leave));
     const signedIn = !!role();
     $('#login').hidden = signedIn;
     $('.app').hidden = !signedIn;
@@ -286,7 +313,7 @@
   const VIEWS = {};
   const AFTER = {};
   const ACTIONS_EXTRA = {};
-  let finApi = null, claimsApi = null;
+  let finApi = null, claimsApi = null, leaveApi = null;
   let clockTimer = null;
 
   // ---------- Automated insights (what needs attention, trends and wellbeing nudges) ----------
@@ -324,7 +351,7 @@
       const od = (state.finance?.invoices || []).filter((i) => i.status === 'Sent' && i.due < T);
       if (od.length) add('warn', 'doc', `${plural(od.length, 'invoice is', 'invoices are')} overdue`, `${money(od.reduce((s, i) => s + AllurusFinance.invoiceTotals(i).total, 0))} is owed to you.`, { label: 'Chase', href: '#invoices' }, 2);
       const since = U.addDays(T, -183);
-      const tired = activeEmployees().filter((e) => e.start < since && !state.leaves.some((l) => l.empId === e.id && l.status === 'Approved' && l.type === 'Annual' && l.to >= since));
+      const tired = activeEmployees().filter((e) => e.start < since && !state.leaves.some((l) => l.empId === e.id && l.status === 'Approved' && l.type === 'annual' && l.to >= since));
       if (tired.length) add('info', 'heart', `${plural(tired.length, 'person hasn’t', 'people haven’t')} had a break in 6 months`, `${tired.slice(0, 3).map((e) => e.first).join(', ')}${tired.length > 3 ? ' and others' : ''}. A nudge to rest goes a long way.`, { label: 'Time off', href: '#leave' }, 1);
       const bdays = activeEmployees().filter((e) => e.birthday && [0, 1, 2, 3, 4, 5, 6].some((i) => U.addDays(T, i).slice(5) === e.birthday.slice(5)));
       if (bdays.length) add('good', 'sparkle', bdays.length === 1 ? `${bdays[0].first}’s birthday is this week` : `${bdays.length} birthdays this week`, bdays.map((e) => fullName(e)).join(', '), null, 1);
@@ -340,7 +367,7 @@
         if (x && ['present', 'remote'].includes(x.s)) { streak++; d = U.addDays(d, -1); } else break;
       }
       if (streak >= 3) add('good', 'sparkle', `${streak}-day check-in streak`, streak >= 15 ? 'A great run. Remember to plan some rest too.' : 'Nice and consistent. Keep it going!', null, 0);
-      const aLeft = state.settings.annualDays - leaveUsed(e.id, 'Annual'), toYearEnd = daysUntil(T.slice(0, 4) + '-12-31');
+      const aLeft = leaveApi.balance(e.id, 'annual').available, toYearEnd = daysUntil(T.slice(0, 4) + '-12-31');
       if (aLeft >= 3 && toYearEnd <= 120) add('info', 'calendar', `${aLeft} annual leave days left`, `The year ends in ${toYearEnd} days. You’ve earned a break.`, { label: 'Plan time off', act: 'new-leave' }, 2);
       const claims = (state.claims || []).filter((c) => c.empId === e.id);
       const coming = claims.filter((c) => c.status === 'Approved').reduce((s, c) => s + c.approved, 0);
@@ -354,6 +381,7 @@
       if (pd >= 0 && pd <= 7) add('good', 'wallet', pd === 0 ? 'It’s payday' : `Payday in ${plural(pd, 'day', 'days')}`, U.fmtDate(payday, { weekday: 'long', month: 'short', day: 'numeric' }), { label: 'Payslips', href: '#my-pay' }, 1);
       if (+T.slice(5, 7) >= 9) add('info', 'percent', 'Lower your tax before the year ends', 'Add receipts for books, sports, medical and courses.', { label: 'Tax reliefs', href: '#my-tax' }, 0);
     }
+    if (leaveApi) out.push(...leaveApi.insights());
     return out.sort((a, b) => b.prio - a.prio);
   }
   const actionLink = (a, cls = 'btn btn-sm') => a.href ? `<a class="${cls}" href="${a.href}">${esc(a.label)}</a>` : `<button type="button" class="${cls}" data-act="${a.act}" ${a.v ? `data-v="${a.v}"` : ''}>${esc(a.label)}</button>`;
@@ -426,8 +454,9 @@
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Open roles</div><div class="kpi-value">${state.jobs.length}</div><div class="kpi-foot">${state.candidates.filter((c) => c.stage !== 'Hired').length} candidates in the pipeline</div></div></div>` },
       { id: 'attendance', title: 'Attendance trend', span: 8, render: () => `<div class="card"><div class="card-head"><h3>Attendance, last 7 workdays</h3><div class="legend"><span><i style="background:var(--brand)"></i>In office</span><span><i style="background:var(--gold)"></i>Remote</span></div></div>${attendanceChart(wd)}</div>` },
       { id: 'live', title: 'Who’s in now', span: 4, render: liveWidget },
+      { id: 'off', title: 'Who’s off today', span: 4, render: () => leaveApi.whoOffCard() },
       { id: 'approvals', title: 'Waiting for approval', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Waiting for you</h3><span class="hint">${pend.length + pendC.length} open</span></div>
-        ${pend.length || pendC.length ? `<div class="list">${pend.slice(0, 3).map((l) => { const e = emp(l.empId); return `<div class="list-item">${avatar(fullName(e), 'sm')}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">${l.type} leave · ${l.days} day${l.days > 1 ? 's' : ''} · ${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}</div></div>
+        ${pend.length || pendC.length ? `<div class="list">${pend.slice(0, 3).map((l) => { const e = emp(l.empId); return `<div class="list-item">${avatar(fullName(e), 'sm')}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">${esc(leaveApi.typeName(l.type))} leave · ${l.days} day${l.days > 1 ? 's' : ''} · ${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}</div></div>
             <button class="btn btn-sm btn-icon btn-ok" data-act="approve-leave" data-id="${l.id}" aria-label="Approve ${esc(fullName(e))}’s leave">${icon('check')}</button><button class="btn btn-sm btn-icon btn-danger" data-act="reject-leave" data-id="${l.id}" aria-label="Decline ${esc(fullName(e))}’s leave">${icon('x')}</button></div>`; }).join('')}
           ${pendC.slice(0, 3).map((c) => { const e = emp(c.empId); return e ? `<div class="list-item">${avatar(fullName(e), 'sm')}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">Medical claim · ${money(c.amount, 2)}</div></div><button class="btn btn-sm" data-act="cl-review" data-id="${c.id}">Review</button></div>` : ''; }).join('')}</div>`
           : '<div class="empty"><strong>All caught up</strong>New requests will show up here.</div>'}</div>` },
@@ -501,7 +530,7 @@
         if (years > 0 && a >= T && a <= end) items.push({ date: a, e, text: `${years}-year work anniversary` });
       });
     });
-    state.leaves.filter((l) => l.status === 'Approved' && l.from > T && l.from <= end).forEach((l) => items.push({ date: l.from, e: emp(l.empId), text: `${l.type} leave, ${l.days} day${l.days > 1 ? 's' : ''}` }));
+    state.leaves.filter((l) => l.status === 'Approved' && l.from > T && l.from <= end).forEach((l) => items.push({ date: l.from, e: emp(l.empId), text: `${leaveApi.typeName(l.type)} leave, ${l.days} day${l.days > 1 ? 's' : ''}` }));
     items.sort((a, b) => a.date.localeCompare(b.date));
     if (!items.length) return '<div class="empty"><strong>A quiet month</strong>No birthdays, anniversaries or leave ahead.</div>';
     return `<div class="list">${items.slice(0, 5).map((it) => `<div class="list-item">${avatar(fullName(it.e), 'sm')}<div class="grow"><div class="person-name">${esc(fullName(it.e))}</div><div class="person-sub">${esc(it.text)}</div></div><span class="pill ${it.text === 'Birthday' ? 'gold' : 'brand'}">${U.fmtDate(it.date, { month: 'short', day: 'numeric' })}</span></div>`).join('')}</div>`;
@@ -556,6 +585,8 @@
       <div class="field"><label for="f-location">Location</label><input class="input" id="f-location" name="location" value="${esc(e.location)}"></div>
       <div class="field"><label for="f-salary">Annual salary (${esc(state.settings.currency)})</label><input class="input" id="f-salary" name="salary" type="number" min="0" step="500" required value="${esc(e.salary)}"></div>
       <div class="field"><label for="f-start">Start date</label><input class="input" id="f-start" name="start" type="date" required value="${esc(e.start || U.today())}"></div>
+      <div class="field"><label for="f-gender">Gender</label><select class="select" id="f-gender" name="gender">${opt([['', 'Not set'], ['female', 'Female'], ['male', 'Male']], e.gender || '')}</select><span class="field-hint">Used for maternity and paternity leave.</span></div>
+      <div class="field"><label for="f-married">Marital status</label><select class="select" id="f-married" name="married">${opt([['no', 'Single'], ['yes', 'Married']], e.married ? 'yes' : 'no')}</select></div>
       <div class="field"><label for="f-birthday">Date of birth</label><input class="input" id="f-birthday" name="birthday" type="date" value="${esc(e.birthday)}"><span class="field-hint">Sets EPF, SOCSO and EIS rules from age 60.</span></div>
       ${state.settings.currency === 'MYR' ? `<div class="field"><label for="f-zakat">Zakat through payroll (RM a month)</label><input class="input num" id="f-zakat" name="zakat" type="number" min="0" step="1" value="${esc(e.zakat || 0)}"><span class="field-hint">Deducted from pay and offsets the PCB.</span></div>` : ''}
       <div class="field"><label for="f-status">Status</label><select class="select" id="f-status" name="status">${opt(['Active', 'Inactive'], e.status || 'Active')}</select></div>
@@ -567,6 +598,7 @@
       title: id ? 'Edit employee' : 'Add employee', body: employeeForm(e), submit: id ? 'Save changes' : 'Add employee',
       onSubmit(d) {
         d.salary = Number(d.salary) || 0;
+        d.married = d.married === 'yes';
         if ('zakat' in d) d.zakat = Math.max(0, Number(d.zakat) || 0);
         if (id) { Object.assign(emp(id), d); commit('Changes saved', `${d.first} ${d.last}'s profile was updated`); }
         else {
@@ -586,7 +618,7 @@
     const days = []; let d = U.lastWorkday(T);
     while (days.length < 10) { if (!U.isWeekend(d)) days.unshift(d); d = U.addDays(d, -1); }
     const mgr = emp(e.manager);
-    const aU = leaveUsed(id, 'Annual'), sU = leaveUsed(id, 'Sick');
+    const lvA = leaveApi.balance(id, 'annual'), lvS = leaveApi.balance(id, 'sick');
     const label = { present: 'P', remote: 'R', absent: 'A', leave: 'L', none: '·' };
     openDrawer(`
       <div class="drawer-hero">
@@ -602,8 +634,7 @@
         <dt>Start date</dt><dd>${U.fmtDate(e.start)}</dd><dt>Date of birth</dt><dd>${U.fmtDate(e.birthday)}</dd>
         <dt>Salary</dt><dd class="num">${money(e.salary)} / year</dd><dt>Monthly gross</dt><dd class="num">${money(e.salary / 12)}</dd></dl></div>
       <div class="drawer-section"><h4>Time off this year</h4>
-        <div class="hbar" style="grid-template-columns:70px minmax(0,1fr) 70px"><span>Annual</span><div class="hbar-track"><i style="width:${Math.min(100, (aU / state.settings.annualDays) * 100)}%;background:var(--brand)"></i></div><span class="num r muted">${aU}/${state.settings.annualDays}</span></div>
-        <div class="hbar" style="grid-template-columns:70px minmax(0,1fr) 70px"><span>Sick</span><div class="hbar-track"><i style="width:${Math.min(100, (sU / state.settings.sickDays) * 100)}%;background:var(--gold)"></i></div><span class="num r muted">${sU}/${state.settings.sickDays}</span></div>
+        ${[['Annual', lvA, 'var(--brand)'], ['Sick', lvS, 'var(--gold)']].map(([n, b, c]) => { const total = b.entitled + b.carried - b.lapsed; return `<div class="hbar" style="grid-template-columns:70px minmax(0,1fr) 90px"><span>${n}</span><div class="hbar-track"><i style="width:${total ? Math.min(100, (b.used / total) * 100) : 0}%;background:${c}"></i></div><span class="num r muted">${b.used} of ${total}</span></div>`; }).join('')}
       </div>
       ${securitySection(e)}
       <div class="drawer-section"><h4>Last 10 workdays</h4>
@@ -701,80 +732,14 @@
     save(); render();
   }
 
-  // ----- Leave -----
-  VIEWS.leave = () => {
-    const f = ui.leaveFilter;
-    const list = state.leaves.filter((l) => f === 'All' || l.status === f).sort((a, b) => b.from.localeCompare(a.from));
-    const counts = { Pending: 0, Approved: 0, Rejected: 0 }; state.leaves.forEach((l) => counts[l.status]++);
-    return `
-      <div class="page-head"><div><h1>Time off</h1><p class="sub">Policy: ${state.settings.annualDays} annual days and ${state.settings.sickDays} sick days per person each year. Weekends are not counted.</p></div>
-        <div class="actions"><button class="btn btn-primary" data-act="new-leave">${icon('plus')}New request</button></div></div>
-      <div class="card card-flush">
-        <div class="toolbar"><div class="seg" role="group" aria-label="Filter">${['Pending', 'Approved', 'Rejected', 'All'].map((s) => `<button data-act="leave-filter" data-v="${s}" class="${f === s ? 'on' : ''}">${s}${s !== 'All' ? ` <span class="faint">${counts[s]}</span>` : ''}</button>`).join('')}</div></div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Employee</th><th>Type</th><th>Dates</th><th class="r">Days</th><th class="hide-sm">Reason</th><th>Status</th><th></th></tr></thead>
-          <tbody>${list.map((l) => { const e = emp(l.empId); if (!e) return ''; return `<tr>
-            <td>${person(e)}</td><td>${l.type}</td>
-            <td class="num" style="white-space:nowrap">${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}${l.to !== l.from ? ' – ' + U.fmtDate(l.to, { month: 'short', day: 'numeric' }) : ''}</td>
-            <td class="r num">${l.days}</td><td class="hide-sm muted">${esc(l.reason || '—')}</td><td>${leavePill(l.status)}</td>
-            <td><div class="row-actions">${l.status === 'Pending'
-              ? `<button class="btn btn-sm btn-ok" data-act="approve-leave" data-id="${l.id}">Approve</button><button class="btn btn-sm btn-danger" data-act="reject-leave" data-id="${l.id}">Decline</button>`
-              : `<button class="btn btn-sm btn-icon btn-ghost" data-act="del-leave" data-id="${l.id}" aria-label="Delete request">${icon('trash')}</button>`}</div></td></tr>`; }).join('')}</tbody>
-        </table>${list.length ? '' : `<div class="empty"><strong>No ${f.toLowerCase()} requests</strong>${f === 'Pending' ? 'You are all caught up.' : ''}</div>`}</div>
-      </div>
-      <div class="card card-flush">
-        <div class="card-head" style="padding-bottom:14px"><h3>Balances, ${U.today().slice(0, 4)}</h3></div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Employee</th><th>Annual leave</th><th class="r">Remaining</th><th>Sick leave</th><th class="r">Remaining</th></tr></thead>
-          <tbody>${activeEmployees().sort((a, b) => a.first.localeCompare(b.first)).map((e) => {
-            const a = leaveUsed(e.id, 'Annual'), s = leaveUsed(e.id, 'Sick');
-            return `<tr><td>${person(e)}</td>
-              <td><div class="progress"><i style="width:${Math.min(100, (a / state.settings.annualDays) * 100)}%"></i></div></td><td class="r num">${state.settings.annualDays - a}</td>
-              <td><div class="progress"><i style="width:${Math.min(100, (s / state.settings.sickDays) * 100)}%;background:var(--gold)"></i></div></td><td class="r num">${state.settings.sickDays - s}</td></tr>`;
-          }).join('')}</tbody></table></div>
-      </div>`;
-  };
-  function openLeaveModal(empId) {
-    const T = U.today();
-    const self = role() === 'employee';
-    if (self) empId = me().id;
-    openModal({
-      title: 'Request time off', size: 'sm', submit: 'Submit request',
-      body: `<div class="form-grid">
-        ${self ? `<input type="hidden" name="empId" value="${empId}">` : `<div class="field full"><label for="l-emp">Employee</label><select class="select" id="l-emp" name="empId">${activeEmployees().map((e) => `<option value="${e.id}" ${e.id === empId ? 'selected' : ''}>${esc(fullName(e))}</option>`).join('')}</select></div>`}
-        <div class="field full"><label for="l-type">Type</label><select class="select" id="l-type" name="type">${['Annual', 'Sick', 'Personal', 'Parental', 'Unpaid'].map((t) => `<option>${t}</option>`).join('')}</select></div>
-        <div class="field"><label for="l-from">From</label><input class="input" type="date" id="l-from" name="from" required value="${U.addDays(T, 7)}"></div>
-        <div class="field"><label for="l-to">To</label><input class="input" type="date" id="l-to" name="to" required value="${U.addDays(T, 8)}"></div>
-        <div class="field full"><label for="l-reason">Note</label><textarea class="textarea" id="l-reason" name="reason" placeholder="Optional"></textarea></div></div>`,
-      onSubmit(d) {
-        if (d.to < d.from) { toast('The end date must be on or after the start date'); return false; }
-        const days = U.workdaysBetween(d.from, d.to);
-        if (!days) { toast('Those dates fall on a weekend. Pick at least one weekday.'); return false; }
-        state.leaves.push({ id: U.uid('l'), ...d, days, status: 'Pending', created: U.today() });
-        ui.leaveFilter = 'Pending';
-        commit(self ? 'Request sent to your manager' : 'Request submitted', `${fullName(emp(d.empId))} requested ${days} day${days > 1 ? 's' : ''} of ${d.type.toLowerCase()} leave`);
-      },
-    });
-  }
-  function decideLeave(id, approve) {
-    const l = state.leaves.find((x) => x.id === id); if (!l) return;
-    l.status = approve ? 'Approved' : 'Rejected';
-    if (approve) {
-      for (let d = l.from; d <= l.to; d = U.addDays(d, 1)) {
-        if (U.isWeekend(d)) continue;
-        state.attendance[d] = state.attendance[d] || {};
-        state.attendance[d][l.empId] = { s: 'leave', in: '' };
-      }
-    }
-    const n = fullName(emp(l.empId));
-    commit(approve ? `Approved for ${n}` : `Declined for ${n}`, `${n}'s ${l.type.toLowerCase()} leave was ${approve ? 'approved' : 'declined'}`);
-  }
-
   // ----- Payroll -----
   const isMY = () => state.settings.currency === 'MYR' && U.statutory(state.settings).on;
   // One employee's line in a pay run: salary, statutory deductions and approved medical claims.
   function payItem(e, bonus, mk) {
-    const it = { empId: e.id, ...U.payCalc(e.salary, bonus, state.settings, e, U.monthEnd(mk)) };
+    // Approved unpaid leave in the month comes off basic pay before statutory deductions.
+    const up = leaveApi ? leaveApi.unpaidFor(e.id, mk, U.round2(e.salary / 12)) : { days: 0, amount: 0, divisor: 0 };
+    const it = { empId: e.id, ...U.payCalc(e.salary, bonus, state.settings, e, U.monthEnd(mk), { unpaid: up.amount, unpaidDays: up.days }) };
+    if (it.unpaid) it.unpaidDivisor = up.divisor;
     const cl = claimsApi?.enabled() ? claimsApi.forPayroll(e.id, mk) : [];
     it.claimIds = cl.map((c) => c.id);
     it.claims = U.round2(cl.reduce((s, c) => s + c.approved, 0));
@@ -824,7 +789,7 @@
         <tbody>${run.items.map((it) => { const e = emp(it.empId); if (!e) return ''; return `<tr>
           <td><button class="cell-btn" data-act="payslip" data-id="${it.empId}" title="Open payslip">${person(e)}</button></td>
           <td class="r num">${run.status === 'Draft' ? `<input class="input num" style="width:84px;text-align:right" type="number" min="0" step="100" data-bonus="${it.empId}" value="${it.bonus}" aria-label="Bonus for ${esc(fullName(e))}">` : money(it.bonus)}</td>
-          <td class="r num">${money(it.gross, 2)}</td>
+          <td class="r num">${money(it.gross, 2)}${it.unpaid ? `<div class="person-sub">−${money(it.unpaid, 2)} unpaid leave</div>` : ''}</td>
           ${my ? `<td class="r num muted hide-sm">${money(it.epf ?? it.benefits, 2)}</td><td class="r num muted hide-sm">${money((it.socso || 0) + (it.eis || 0), 2)}</td><td class="r num muted hide-sm">${money(it.tax + (it.zakat || 0), 2)}</td>` : `<td class="r num muted hide-sm">${money(it.tax, 2)}</td><td class="r num muted hide-sm">${money(it.benefits, 2)}</td>`}
           ${t.claims ? `<td class="r num hide-sm">${it.claims ? money(it.claims, 2) : '<span class="faint">—</span>'}</td>` : ''}
           <td class="r num" style="font-weight:600">${money(it.net, 2)}</td></tr>`; }).join('')}</tbody>
@@ -846,12 +811,12 @@
     const neg = (n) => '−' + money(n, 2);
     const statutory = it.epf != null;
     const lines = statutory
-      ? `${head('Earnings')}${row('Basic salary', money(it.base, 2))}${it.bonus ? row('Bonus', money(it.bonus, 2)) : ''}${row('Gross pay', money(it.gross, 2))}
+      ? `${head('Earnings')}${row('Basic salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'} (basic ÷ ${it.unpaidDivisor})`, neg(it.unpaid)) : ''}${it.bonus ? row('Bonus', money(it.bonus, 2)) : ''}${row('Gross pay', money(it.gross, 2))}
          ${head('Deductions')}${row('EPF (KWSP), employee', neg(it.epf))}${row('SOCSO (PERKESO), employee', neg(it.socso))}${row('EIS, employee', neg(it.eis))}${row('Income tax (PCB)', neg(it.tax))}${it.zakat ? row('Zakat', neg(it.zakat)) : ''}
          ${it.claims ? `${head('Reimbursements')}${row('Medical claims (not taxed)', money(it.claims, 2))}` : ''}
          ${row('Net pay', money(it.net, 2), true)}
          ${head('Paid by the company on top of your pay')}${row('EPF, employer', money(it.erEpf, 2))}${row('SOCSO, employer', money(it.erSocso, 2))}${row('EIS, employer', money(it.erEis, 2))}`
-      : `${row('Base salary', money(it.base, 2))}${row('Bonus', money(it.bonus, 2))}${row('Gross pay', money(it.gross, 2))}${row(`Income tax (${state.settings.taxRate}%)`, neg(it.tax))}${row(`Benefits (${state.settings.benefitsRate}%)`, neg(it.benefits))}${it.claims ? row('Medical claims', money(it.claims, 2)) : ''}${row('Net pay', money(it.net, 2), true)}`;
+      : `${row('Base salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'}`, neg(it.unpaid)) : ''}${row('Bonus', money(it.bonus, 2))}${row('Gross pay', money(it.gross, 2))}${row(`Income tax (${state.settings.taxRate}%)`, neg(it.tax))}${row(`Benefits (${state.settings.benefitsRate}%)`, neg(it.benefits))}${it.claims ? row('Medical claims', money(it.claims, 2)) : ''}${row('Net pay', money(it.net, 2), true)}`;
     openModal({
       title: 'Payslip', size: 'sm', submit: null,
       body: `<div style="display:flex;flex-direction:column;gap:18px">
@@ -1116,12 +1081,12 @@
         <div class="card"><div class="card-head"><h3>Pay and leave rules</h3></div>
           ${s.currency === 'MYR' ? '' : `<div class="settings-row"><div><div class="label">Income tax withholding</div><div class="desc">Percent of gross pay.</div></div><input class="input num" id="s-tax" type="number" min="0" max="60" step="0.5" value="${s.taxRate}" style="width:100px"></div>
           <div class="settings-row"><div><div class="label">Benefit contributions</div><div class="desc">Deducted from pay, as percent of gross.</div></div><input class="input num" id="s-benefits" type="number" min="0" max="30" step="0.5" value="${s.benefitsRate}" style="width:100px"></div>`}
-          <div class="settings-row"><div><div class="label">Annual leave</div><div class="desc">Days per person per year.</div></div><input class="input num" id="s-annual" type="number" min="0" max="60" value="${s.annualDays}" style="width:100px"></div>
-          <div class="settings-row"><div><div class="label">Sick leave</div><div class="desc">Days per person per year.</div></div><input class="input num" id="s-sick" type="number" min="0" max="60" value="${s.sickDays}" style="width:100px"></div>
+          <div class="settings-row"><div><div class="label">Leave policy</div><div class="desc">Leave types, public holidays, rest days, approvals and carry forward.</div></div><button class="btn" data-act="lv-goto-settings">${icon('calendar')}Leave settings</button></div>
         </div>
       </div>
       ${AllurusUX.appearanceCard()}
       ${s.currency === 'MYR' ? statutoryCard(s) : ''}
+      ${leaveApi.settingsCards()}
       ${checkinCard(s)}
         <div class="settings-row"><div><div class="label">Remote check-in</div><div class="desc">Lets employees check in from anywhere with a selfie. Marked as Remote.</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="zone-remote" data-v="${v}" class="${(s.checkin.remote ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
         ${[['deviceLock', 'One phone per person', 'Each person checks in only from their approved phone, and a phone checks in for one person. New phones need your approval.'],
@@ -1142,8 +1107,9 @@
     if (role() !== 'admin') return;
     const bind = (id, key, num) => $(id).addEventListener('change', (ev) => { state.settings[key] = num ? Math.max(0, Number(ev.target.value) || 0) : ev.target.value.trim() || state.settings[key]; commit('Settings saved'); });
     bindCheckinCard();
+    leaveApi.bindSettings();
     bind('#s-company', 'company'); bind('#s-currency', 'currency'); bind('#s-office', 'office'); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
-    $$('[data-stat]').forEach((el) => el.addEventListener('change', () => { state.settings.statutory = { ...U.statutory(state.settings), [el.dataset.stat]: Math.min(20, Math.max(0, Number(el.value) || 0)) }; commit('Statutory rates saved'); })); bind('#s-annual', 'annualDays', 1); bind('#s-sick', 'sickDays', 1);
+    $$('[data-stat]').forEach((el) => el.addEventListener('change', () => { state.settings.statutory = { ...U.statutory(state.settings), [el.dataset.stat]: Math.min(20, Math.max(0, Number(el.value) || 0)) }; commit('Statutory rates saved'); }));
   };
 
   // ---------- Sign-in ----------
@@ -1371,8 +1337,9 @@
   VIEWS.home = () => {
     const e = me(), T = U.today();
     const rec = myRecord(T);
-    const aLeft = state.settings.annualDays - leaveUsed(e.id, 'Annual');
-    const sLeft = state.settings.sickDays - leaveUsed(e.id, 'Sick');
+    const lvA = leaveApi.balance(e.id, 'annual'), lvS = leaveApi.balance(e.id, 'sick');
+    const aLeft = lvA.available, sLeft = lvS.available;
+    const aTot = lvA.entitled + lvA.carried - lvA.lapsed, sTot = lvS.entitled;
     const monthDays = Object.keys(state.attendance).filter((d) => d.startsWith(U.monthKey(T)) && !U.isWeekend(d));
     const inDays = monthDays.filter((d) => ['present', 'remote'].includes(state.attendance[d][e.id]?.s)).length;
     const runs = myRuns();
@@ -1399,8 +1366,8 @@
         focus: focus.filter((f) => f.action.act !== 'check-in'), calm: 'Nothing needs you right now. Have a good day.' }) },
       { id: 'setup', title: 'Getting started', span: 12, fixed: true, render: () => AllurusUX.setupCard() },
       { id: 'kpis', title: 'My numbers', span: 12, render: () => `<div class="grid g-4 keep-2">
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Annual leave left</div><div class="kpi-value">${aLeft}</div><div class="progress"><i style="width:${Math.min(100, (aLeft / state.settings.annualDays) * 100)}%"></i></div><div class="kpi-foot">of ${state.settings.annualDays} days</div></div>
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>Sick leave left</div><div class="kpi-value">${sLeft}</div><div class="progress"><i style="width:${Math.min(100, (sLeft / state.settings.sickDays) * 100)}%;background:var(--gold)"></i></div><div class="kpi-foot">of ${state.settings.sickDays} days</div></div>
+        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Annual leave left</div><div class="kpi-value">${aLeft}</div><div class="progress"><i style="width:${aTot ? Math.min(100, (aLeft / aTot) * 100) : 0}%"></i></div><div class="kpi-foot">of ${aTot} days${lvA.pending ? ` · ${lvA.pending} pending` : ''}</div></div>
+        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>Sick leave left</div><div class="kpi-value">${sLeft}</div><div class="progress"><i style="width:${sTot ? Math.min(100, (sLeft / sTot) * 100) : 0}%;background:var(--gold)"></i></div><div class="kpi-foot">of ${sTot} days</div></div>
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>Days worked</div><div class="kpi-value">${inDays}<span class="faint" style="font-size:18px"> / ${monthDays.length}</span></div><div class="kpi-foot">${U.fmtMonth(U.monthKey(T), { month: 'long' })} so far</div></div>
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Last net pay</div><div class="kpi-value">${lastPay ? compactMoney(lastPay.net) : '—'}</div><div class="kpi-foot">${runs[0] ? U.fmtMonth(runs[0]) : 'No payslips yet'}</div></div></div>` },
       { id: 'insights', title: 'For you', span: 4, render: () => insightsCard(ins.filter((x) => x.action?.act !== 'check-in')) },
@@ -1411,7 +1378,8 @@
           <dt>Next payday</dt><dd>${U.fmtDate(payday, { weekday: 'short', month: 'short', day: 'numeric' })}</dd></dl>
         <div class="actions" style="margin-top:14px"><a class="btn btn-sm" href="#my-pay">${icon('wallet')}Payslips</a>${claimsApi?.enabled() ? `<a class="btn btn-sm" href="#my-claims">${icon('heart')}Claims</a>` : ''}</div></div>` },
       { id: 'timeoff', title: 'My time off', span: 4, render: () => `<div class="card"><div class="card-head"><h3>My time off</h3><a class="hint" href="#my-leave">All requests</a></div>
-        ${myLeaves.length ? `<div class="list">${myLeaves.slice(0, 4).map((l) => `<div class="list-item"><div class="grow"><div class="person-name">${l.type} · ${l.days} day${l.days > 1 ? 's' : ''}</div><div class="person-sub">${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}${l.to !== l.from ? ' – ' + U.fmtDate(l.to, { month: 'short', day: 'numeric' }) : ''}</div></div>${leavePill(l.status)}</div>`).join('')}</div>` : `<div class="empty"><strong>Nothing booked</strong>You have ${aLeft} days to enjoy. <button class="link-btn" data-act="new-leave">Plan a break</button></div>`}</div>` },
+        ${myLeaves.length ? `<div class="list">${myLeaves.slice(0, 4).map((l) => `<div class="list-item"><div class="grow"><div class="person-name">${esc(leaveApi.typeName(l.type))} · ${l.days} day${l.days === 1 ? '' : 's'}</div><div class="person-sub">${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}${l.to !== l.from ? ' – ' + U.fmtDate(l.to, { month: 'short', day: 'numeric' }) : ''}</div></div>${leavePill(l.status)}</div>`).join('')}</div>` : `<div class="empty"><strong>Nothing booked</strong>You have ${aLeft} days to enjoy. <button class="link-btn" data-act="new-leave">Plan a break</button></div>`}</div>` },
+      ...(leaveApi.isApprover(e.id) ? [{ id: 'teamoff', title: 'Who’s off in your team', span: 4, render: () => leaveApi.whoOffCard({ depts: leaveApi.myDepts(e.id), title: 'Who’s off in your team' }) }] : []),
       { id: 'goals', title: 'My goals', span: 6, render: () => `<div class="card"><div class="card-head"><h3>My goals</h3><a class="hint" href="#my-profile">Update</a></div>
         ${review ? `<div class="kpi"><div class="kpi-value">${review.progress}%</div><div class="progress"><i style="width:${review.progress}%"></i></div><div class="kpi-foot" style="margin-top:6px">${esc(review.cycle)} · ${review.status}</div><div style="margin-top:6px">${stars(review.rating)}</div></div>` : '<div class="empty">No review cycle yet.</div>'}</div>` },
       { id: 'team', title: 'Team', span: 6, render: () => `<div class="card"><div class="card-head"><h3>Team</h3><span class="hint">${esc(dept(e.dept)?.name || '')}</span></div>
@@ -1444,24 +1412,6 @@
         <thead><tr><th>Date</th><th>Status</th><th>Check-in</th><th>Check-out</th><th class="hide-sm">Location</th><th class="r">Hours</th></tr></thead>
         <tbody>${days.map((x) => { const r = myRecord(x); return `<tr><td class="num">${U.fmtDate(x, { weekday: 'short', month: 'short', day: 'numeric' })}</td><td>${r ? pill[r.s] : '<span class="pill">Not marked</span>'}</td><td class="num muted">${r?.in || '—'}</td><td class="num muted">${r?.out || '—'}</td><td class="hide-sm muted" style="font-size:12.5px"><div class="loc-cell">${selfieThumb(me().id, x, r)}<span>${r?.loc ? esc(locText(r.loc)) : '—'}</span></div></td><td class="r num">${r?.in ? (r.out ? hoursBetween(r.in, r.out) : 8).toFixed(1) : '—'}</td></tr>`; }).join('')}</tbody>
       </table></div></div>`;
-  };
-
-  VIEWS['my-leave'] = () => {
-    const e = me();
-    const list = state.leaves.filter((l) => l.empId === e.id).sort((a, b) => b.from.localeCompare(a.from));
-    const aU = leaveUsed(e.id, 'Annual'), sU = leaveUsed(e.id, 'Sick');
-    return `
-      <div class="page-head"><div><h1>My time off</h1><p class="sub">Requests go to your manager${emp(e.manager) ? `, ${esc(fullName(emp(e.manager)))}` : ''}, for approval.</p></div>
-        <div class="actions"><button class="btn btn-primary" data-act="new-leave">${icon('plus')}Request time off</button></div></div>
-      <div class="grid g-2">
-        <div class="card kpi"><div class="kpi-label">Annual leave</div><div class="kpi-value">${state.settings.annualDays - aU}<span class="faint" style="font-size:18px"> days left</span></div><div class="progress" style="margin-top:6px"><i style="width:${Math.min(100, (aU / state.settings.annualDays) * 100)}%"></i></div><div class="kpi-foot">${aU} used this year</div></div>
-        <div class="card kpi"><div class="kpi-label">Sick leave</div><div class="kpi-value">${state.settings.sickDays - sU}<span class="faint" style="font-size:18px"> days left</span></div><div class="progress" style="margin-top:6px"><i style="width:${Math.min(100, (sU / state.settings.sickDays) * 100)}%;background:var(--gold)"></i></div><div class="kpi-foot">${sU} used this year</div></div>
-      </div>
-      <div class="card card-flush"><div class="table-wrap"><table>
-        <thead><tr><th>Type</th><th>Dates</th><th class="r">Days</th><th class="hide-sm">Note</th><th>Status</th><th></th></tr></thead>
-        <tbody>${list.map((l) => `<tr><td>${l.type}</td><td class="num">${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}${l.to !== l.from ? ' – ' + U.fmtDate(l.to, { month: 'short', day: 'numeric' }) : ''}</td><td class="r num">${l.days}</td><td class="hide-sm muted">${esc(l.reason || '—')}</td><td>${leavePill(l.status)}</td>
-          <td><div class="row-actions">${l.status === 'Pending' ? `<button class="btn btn-sm btn-ghost" data-act="del-leave" data-id="${l.id}">Cancel</button>` : ''}</div></td></tr>`).join('')}</tbody>
-      </table>${list.length ? '' : '<div class="empty"><strong>No requests yet</strong>Your time-off history will show here.</div>'}</div></div>`;
   };
 
   VIEWS['my-pay'] = () => {
@@ -1532,7 +1482,7 @@
   };
 
   // ---------- Workspaces (one per company) ----------
-  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans'];
+  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits'];
   function switchWorkspace(tid) {
     if (tid === state.session.tenantId) return;
     const cur = {}; WS_KEYS.forEach((k) => { cur[k] = state[k]; });
@@ -1562,13 +1512,14 @@
       reviews: [{ id: 'r1', empId: 'e1', cycle: 'H2 ' + U.today().slice(0, 4), status: 'Not started', rating: 0, progress: 0, notes: '' }],
       activity: [{ t: Date.now(), text: `${d.name} joined Allurus on the ${plan(d.plan).name} plan` }],
       finance: AllurusFinance.blank({ taxLabel: d.currency === 'MYR' ? 'SST' : 'Sales tax' }),
-      claims: [], plans: {},
+      claims: [], plans: {}, leaveCarry: {}, leaveCredits: [],
     };
     if (withSamples) {
       const team = base.employees.slice(1).map((e) => ({ ...e, email: `${e.first}.${e.last}`.toLowerCase() + '@' + domain, location: d.city }));
-      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, finance: base.finance, claims: base.claims });
+      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, finance: base.finance, claims: base.claims, leaveCarry: base.leaveCarry, leaveCredits: base.leaveCredits });
       ws.reviews[0] = { ...ws.reviews[0], empId: 'e1' };
     }
+    ws.settings.leave = AllurusLeaveRules.defaultSettings({ state: d.currency === 'MYR' ? (AllurusLeaveRules.CITY_STATE[d.city] || '') : '', departments: ws.departments, hr: 'e1' });
     return ws;
   }
 
@@ -2179,11 +2130,6 @@
       activeEmployees().filter((e) => e.start <= day).forEach((e) => { if (!state.attendance[day][e.id]) { state.attendance[day][e.id] = { s: onLeaveOn(e.id, day) ? 'leave' : 'present', in: '09:00' }; n++; } });
       commit(n ? `${n} marked present` : 'Everyone is already marked');
     },
-    'new-leave': (id) => openLeaveModal(id),
-    'approve-leave': (id) => decideLeave(id, true),
-    'reject-leave': (id) => decideLeave(id, false),
-    'del-leave': (id) => { state.leaves = state.leaves.filter((l) => l.id !== id); commit('Request deleted'); },
-    'leave-filter': (_, v) => { ui.leaveFilter = v; render(); },
     'stat-set': (key, v) => { state.settings.statutory = { ...U.statutory(state.settings), [key]: v === 'true' ? true : v === 'false' ? false : isNaN(+v) ? v : +v }; commit('Statutory settings saved'); },
     'pay-shift': (_, v) => { ui.payMonth = U.addMonths(ui.payMonth, Number(v)); render(); },
     'pay-run': () => {
@@ -2201,8 +2147,8 @@
     },
     'pay-export': () => {
       const run = state.payroll[ui.payMonth];
-      downloadCSV(`payroll-${ui.payMonth}.csv`, [['Employee', 'Email', 'Base', 'Bonus', 'Gross', 'EPF (employee)', 'SOCSO (employee)', 'EIS (employee)', 'PCB', 'Zakat', 'Medical claims', 'Net pay', 'EPF (employer)', 'SOCSO (employer)', 'EIS (employer)', 'HRD levy', 'Employer cost'],
-        ...run.items.map((i) => { const e = emp(i.empId); return [fullName(e), e?.email, i.base, i.bonus, i.gross, i.epf ?? i.benefits, i.socso || 0, i.eis || 0, i.tax, i.zakat || 0, i.claims || 0, i.net, i.erEpf || 0, i.erSocso || 0, i.erEis || 0, i.hrdf || 0, U.round2(i.gross + (i.erCost || 0))]; })]);
+      downloadCSV(`payroll-${ui.payMonth}.csv`, [['Employee', 'Email', 'Base', 'Unpaid leave days', 'Unpaid leave deduction', 'Bonus', 'Gross', 'EPF (employee)', 'SOCSO (employee)', 'EIS (employee)', 'PCB', 'Zakat', 'Medical claims', 'Net pay', 'EPF (employer)', 'SOCSO (employer)', 'EIS (employer)', 'HRD levy', 'Employer cost'],
+        ...run.items.map((i) => { const e = emp(i.empId); return [fullName(e), e?.email, i.base, i.unpaidDays || 0, i.unpaid || 0, i.bonus, i.gross, i.epf ?? i.benefits, i.socso || 0, i.eis || 0, i.tax, i.zakat || 0, i.claims || 0, i.net, i.erEpf || 0, i.erSocso || 0, i.erEis || 0, i.hrdf || 0, U.round2(i.gross + (i.erCost || 0))]; })]);
     },
     'payslip': (id) => openPayslip(id),
     'job-filter': (_, v) => { ui.jobFilter = v; render(); },
@@ -2235,7 +2181,7 @@
     ...ACTIONS_EXTRA,
   };
 
-  const UNDOABLE = new Set(['del-leave', 'approve-leave', 'reject-leave', 'cand-del', 'cand-move', 'close-job', 'pay-discard', 'att-clear', 'dev-remove', 'cl-cancel', 'cl-approve', 'cl-reject', 'cl-paynow', 'cl-type-del', 'plan-del', 'rel-del', 'fin-del-txn', 'ux-w-hide']);
+  const UNDOABLE = new Set(['lv-type-del', 'lv-hol-del', 'del-leave', 'approve-leave', 'reject-leave', 'cand-del', 'cand-move', 'close-job', 'pay-discard', 'att-clear', 'dev-remove', 'cl-cancel', 'cl-approve', 'cl-reject', 'cl-paynow', 'cl-type-del', 'plan-del', 'rel-del', 'fin-del-txn', 'ux-w-hide']);
   document.addEventListener('click', (ev) => {
     const scrim = ev.target.closest('[data-scrim]');
     if (scrim && ev.target === scrim) { closeOverlay(); return; }
@@ -2262,13 +2208,15 @@
   const moduleCtx = {
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
     downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
-    save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(),
+    save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
+    get leave() { return leaveApi; },
   };
   AllurusUX.install(moduleCtx);
   finApi = AllurusFinance.install(moduleCtx);
   AllurusTax.install(moduleCtx);
   claimsApi = AllurusClaims.install(moduleCtx);
   AllurusPlanner.install(moduleCtx);
+  leaveApi = AllurusLeave.install(moduleCtx);
 
   // ---------- Boot ----------
   $('#today').textContent = U.fmtDate(U.today(), { weekday: 'short', month: 'short', day: 'numeric' });
