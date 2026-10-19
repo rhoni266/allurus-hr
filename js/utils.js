@@ -194,6 +194,17 @@ window.U = (function () {
     const city = CITIES.find((x) => x.name === settings.office) || CITIES[0];
     return { ...c, label, radius, lat: city.lat, lng: city.lng, source: 'office', city: `${city.name}, ${city.country}` };
   }
+  // Apply the check-in point published with the app (AllurusSeed.published) to a browser's copy of the
+  // settings, unless this browser has a newer point (set here by HR, or from a newer setup link).
+  // Returns true when it changed something.
+  function applyPublishedZone(settings, pub) {
+    if (!settings || !pub || !hasCoords(pub)) return false;
+    if (String(settings.company || '').toLowerCase() !== String(pub.company || '').toLowerCase()) return false;
+    const c = settings.checkin || (settings.checkin = {});
+    if (hasCoords(c) && c.setAt && c.setAt >= pub.at) return false;
+    Object.assign(c, { label: c.setAt ? c.label || pub.label : pub.label, lat: pub.lat, lng: pub.lng, radius: pub.radius || c.radius || 50, setAt: pub.at });
+    return true;
+  }
   // Distance from a GPS position to the zone centre, and whether it counts as inside.
   function checkZone(pos, zone) {
     const m = Math.round(distanceM(pos, zone));
@@ -238,5 +249,5 @@ window.U = (function () {
     } catch (e) { return sha256js(msg); }
   }
 
-  return { parseCoords, parseCoordsDetailed, hasCoords, distanceM, resolveZone, checkZone, GPS_SLACK_M, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, pad, iso, parse, today, addDays, isWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
+  return { parseCoords, parseCoordsDetailed, hasCoords, distanceM, resolveZone, applyPublishedZone, checkZone, GPS_SLACK_M, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, pad, iso, parse, today, addDays, isWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
 })();

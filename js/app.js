@@ -22,6 +22,9 @@
       // copy as "not set", so Settings warns instead of measuring check-ins from the middle of the city.
       if (!c.setAt && city && U.hasCoords(c) && Math.abs(c.lat - city.lat) < 1e-4 && Math.abs(c.lng - city.lng) < 1e-4) { c.lat = null; c.lng = null; }
       if (U.hasCoords(c)) { c.lat = +c.lat; c.lng = +c.lng; }
+      // Old builds seeded every browser with a placeholder point in Kuantan (3.769833, 103.224556) and no setAt,
+      // so employees' phones measured check-ins from there. Replace it with the published point.
+      U.applyPublishedZone(st, AllurusSeed.published);
     });
     if (!s.finance) s.finance = AllurusFinance.blank();
     Object.values(s.workspaces || {}).forEach((w) => { if (!w.finance) w.finance = AllurusFinance.blank(); });
@@ -29,8 +32,8 @@
     [s, ...Object.values(s.workspaces || {})].forEach((w) => { w.claims = w.claims || []; w.plans = w.plans || {}; });
     return s;
   }
-  // A new company has no check-in point until the admin sets one. Until then check-ins are measured
-  // from the head office city centre and Settings shows a warning (see U.resolveZone).
+  // A new company has no check-in point until the admin sets one. Until then check-ins are blocked
+  // and Settings shows a warning. The city centre is only used to centre the map picker.
   function defaultZone(company) {
     return { label: `${company} office`, lat: null, lng: null, radius: 50, remote: false };
   }
@@ -970,16 +973,16 @@
 
   // ----- Settings -----
   // ----- Check-in location (Settings) -----
-  // Everything here reads and writes state.settings.checkin only. The head office city is never used,
-  // except as the fallback centre (with a warning) while no check-in point is set.
+  // Everything here reads and writes state.settings.checkin only. The head office city is never used for
+  // check-ins; it only centres the map while no check-in point is set.
   let zonePicker = null;
   function checkinCard(s) {
     const c = s.checkin, z = zone(), set = z.source === 'checkin';
     return `<div class="card" id="checkin-card"><div class="card-head"><h3>Check-in location</h3><a class="hint" id="z-maplink" href="${mapsLink(z)}" target="_blank" rel="noopener">View on Google Maps</a></div>
         <p class="muted" style="margin-bottom:6px">Employees must be inside this circle and take a selfie to check in. This is separate from the head office city above.</p>
-        <div class="lock-banner warn" id="z-warn" ${set ? 'hidden' : ''}>${icon('pin')}<span>No check-in point is set, so check-ins are measured from the centre of ${esc(z.city || s.office)}. Drop the pin on the map or paste coordinates below.</span></div>
+        <div class="lock-banner warn" id="z-warn" ${set ? 'hidden' : ''}>${icon('pin')}<span>No check-in point is set, so employees can’t check in yet. Drop the pin on the map or paste coordinates below.</span></div>
         <div class="settings-row"><div><div class="label">Name</div><div class="desc">Shown to employees, for example “Allurus HQ”.</div></div><input class="input" id="z-label" value="${esc(c.label || '')}" style="width:min(260px,100%)"></div>
-        <div class="settings-row zone-coords"><div><div class="label"><label for="z-coords">Coordinates</label></div><div class="desc">Paste from Google Maps: 3.769833, 103.224556 or 3°46'11.4"N 103°13'28.4"E. Press Enter to save.</div></div>
+        <div class="settings-row zone-coords"><div><div class="label"><label for="z-coords">Coordinates</label></div><div class="desc">Paste from Google Maps, as decimals (4.238203, 103.419428) or degrees (4°14'17.5"N 103°25'10.0"E). Saves automatically.</div></div>
           <div class="zone-field"><div class="actions"><input class="input num" id="z-coords" value="${set ? esc(U.fmtCoords(c)) : ''}" placeholder="4.238203, 103.419428" autocomplete="off" spellcheck="false" inputmode="text" aria-describedby="z-coords-msg"><button class="btn" data-act="zone-here">${icon('pin')}Use my location</button></div>
           <span class="field-hint" id="z-coords-msg" role="status">${set ? `Saved${c.setAt ? ' ' + new Date(c.setAt).toLocaleString() : ''}.` : 'Not set yet.'}</span></div></div>
         <div class="map-pick">
@@ -1008,8 +1011,10 @@
   function bindCheckinCard() {
     const c = state.settings.checkin, f = $('#z-coords'), msg = $('#z-coords-msg');
     $('#z-label').addEventListener('change', (ev) => { c.label = ev.target.value.trim() || c.label; save(); toast('Check-in name saved'); });
+    let typeTimer = null;
     const showError = (text) => { f.setAttribute('aria-invalid', 'true'); msg.textContent = text; msg.classList.add('field-error'); };
-    f.addEventListener('input', () => { if (f.getAttribute('aria-invalid')) { f.removeAttribute('aria-invalid'); msg.classList.remove('field-error'); msg.textContent = 'Press Enter to save.'; } });
+    f.addEventListener('input', () => { if (f.getAttribute('aria-invalid')) { f.removeAttribute('aria-invalid'); msg.classList.remove('field-error'); msg.textContent = 'Saves when you stop typing.'; }
+      clearTimeout(typeTimer); typeTimer = setTimeout(() => { if (U.parseCoordsDetailed(f.value).ok) commitField(); }, 900); });
     const commitField = () => {
       const r = U.parseCoordsDetailed(f.value);
       if (!r.ok) { showError(r.error); return; }
@@ -1017,7 +1022,9 @@
       setZonePoint(r, 'field');
       zonePicker?.setPoint(r, { zoom: 17 });
     };
-    f.addEventListener('change', commitField);
+    f.addEventListener('change', () => { clearTimeout(typeTimer); commitField(); });
+    f.addEventListener('blur', () => { clearTimeout(typeTimer); if (f.value.trim()) commitField(); });
+    f.addEventListener('paste', () => setTimeout(() => { clearTimeout(typeTimer); commitField(); }, 0));
     f.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); commitField(); } });
     const rf = $('#z-radius');
     const radiusVal = () => Math.min(5000, Math.max(10, Math.round(Number(rf.value) || 50)));
@@ -1709,6 +1716,11 @@
   }
   async function ciLocate() {
     const z = zone();
+    // Never guess: without a check-in point set by HR there is nothing to measure against.
+    if (z.source !== 'checkin') {
+      ciProblem('Your admin hasn’t set a check-in location yet', `Ask HR to set the check-in point in Settings, then send you the setup link. ${esc(state.settings.company)} check-ins open once it’s set.`);
+      return;
+    }
     ciStep(`<div class="ci-status"><span class="spinner" aria-hidden="true"></span><div><strong>Finding your location</strong><p class="muted">Allow location access if your browser asks. You need to be within ${z.radius} m of ${esc(z.label)}.</p></div></div>`);
     const loc = await U.locate({ gpsOnly: true });
     if (!$('#ci-body')) return;
@@ -1725,7 +1737,6 @@
         `<div class="map-canvas map-sm" id="ci-map" role="img" aria-label="Map of the check-in zone and your position"></div>
         <dl class="kv zone-debug"><dt>Check-in point</dt><dd class="num">${U.fmtCoords(z)} · ${z.radius} m</dd><dt>You are at</dt><dd class="num">${U.fmtCoords(loc)} · ±${loc.accuracy} m</dd>
           ${z.setAt ? `<dt>Point updated</dt><dd>${new Date(z.setAt).toLocaleString()}</dd>` : ''}</dl>
-        ${z.source === 'office' ? `<p class="faint" style="font-size:12.5px">${esc(state.settings.company)} hasn’t set an exact check-in point yet, so this is measured from the centre of ${esc(z.city)}. Ask HR to set it in Settings.</p>` : ''}
         <a class="hint" href="${mapsLink(z)}" target="_blank" rel="noopener">Open the check-in point in Google Maps</a>`);
       AllurusMap.preview($('#ci-map'), z, loc).catch((e) => { console.warn('Check-in map unavailable:', e); $('#ci-map')?.remove(); });
       return;

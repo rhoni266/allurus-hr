@@ -104,3 +104,42 @@ test('radius is clamped to 10–5000 m', () => {
   assert.equal(U.resolveZone({ checkin: { lat: 1, lng: 1, radius: 99999 } }).radius, 5000);
   assert.equal(U.resolveZone({ checkin: { lat: 1, lng: 1 } }).radius, 50);
 });
+
+// ----- Published check-in point (the value every employee phone starts from) -----
+const PUB = { company: 'Allurus', label: 'Allurus HQ', lat: 4.238203, lng: 103.419428, radius: 50, at: Date.UTC(2026, 9, 19, 1, 0) };
+const OLD_SEED = () => ({ company: 'Allurus', office: 'Kuantan', checkin: { label: 'Allurus HQ', lat: 3.769833, lng: 103.224556, radius: 50, remote: false } });
+
+test('a phone holding the old Kuantan placeholder switches to the published point', () => {
+  const s = OLD_SEED();
+  assert.equal(U.applyPublishedZone(s, PUB), true);
+  const z = U.resolveZone(s);
+  assert.equal(z.source, 'checkin'); assert.equal(z.lat, 4.238203); assert.equal(z.lng, 103.419428);
+  assert.equal(s.checkin.remote, false, 'keeps other check-in settings');
+});
+
+test('the employee from the bug report passes once the published point is used', () => {
+  const s = OLD_SEED(); U.applyPublishedZone(s, PUB);
+  const r = U.checkZone({ lat: 4.238161, lng: 103.419466, accuracy: 8 }, U.resolveZone(s));
+  assert.equal(r.inside, true); assert.ok(r.m < 10, `${r.m} m`);
+  // ...and was 56 km away from the placeholder.
+  const before = U.checkZone({ lat: 4.238161, lng: 103.419466, accuracy: 8 }, U.resolveZone(OLD_SEED()));
+  assert.equal(before.inside, false); assert.ok(before.m > 50000);
+});
+
+test('a newer point set on this phone (by HR or a setup link) is not overwritten', () => {
+  const s = OLD_SEED(); Object.assign(s.checkin, { lat: 4.3, lng: 103.4, setAt: PUB.at + 1000 });
+  assert.equal(U.applyPublishedZone(s, PUB), false);
+  assert.equal(U.resolveZone(s).lat, 4.3);
+});
+
+test('an older point set on this phone gives way to the published one', () => {
+  const s = OLD_SEED(); Object.assign(s.checkin, { setAt: PUB.at - 1000 });
+  assert.equal(U.applyPublishedZone(s, PUB), true);
+  assert.equal(U.resolveZone(s).lat, 4.238203);
+});
+
+test('other companies are left alone, and with no point set the zone is not a real check-in point', () => {
+  const s = { company: 'Acme', office: 'Kuantan', checkin: { label: 'Acme office', lat: null, lng: null, radius: 50 } };
+  assert.equal(U.applyPublishedZone(s, PUB), false);
+  assert.notEqual(U.resolveZone(s).source, 'checkin', 'unset zone must not be treated as configured (check-in is blocked)');
+});

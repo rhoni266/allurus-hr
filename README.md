@@ -107,12 +107,12 @@ Employees check in with **Check in with selfie** on their Home screen:
 
 ### Check-in location
 
-Check-ins are measured only from the **check-in point** in Settings → Check-in location (latitude, longitude and radius). The **head office city** just places the company on the Allurus map. If no check-in point is set, check-ins fall back to the city centre and Settings shows a warning until you set one.
+Check-ins are measured only from the **check-in point** in Settings → Check-in location (latitude, longitude and radius). The **head office city** just places the company on the Allurus map. If no check-in point is set, check-ins are blocked (“Your admin hasn’t set a check-in location yet”) and Settings shows a warning. The coordinates field saves as you type or paste; no Enter needed.
 
 - **Map picker** (Leaflet with OpenStreetMap tiles, no API key): tap the map to drop the pin, drag it to fine-tune, or search for a place. The circle shows the radius and updates as you type it. Moving the pin updates the coordinates field (6 decimals), and editing the field moves the pin. **Use my location** puts the pin at the phone's GPS position.
 - **Coordinates field**: accepts `4.238203, 103.419428` or `3°46'11.4"N 103°13'28.4"E`. Values are stored as numbers, and invalid input shows an error next to the field.
 - **Distance**: the Haversine formula in metres. A check-in counts if it is within the radius, plus up to 20 m to allow for GPS accuracy. When a check-in is refused, the employee sees how far away they are, the check-in point, their position and a small map.
-- **Staff phones**: in this demo every browser keeps its own copy of the settings. **Copy setup link** gives staff a link that makes their phone use the same check-in point. A real deployment would load this from the server.
+- **Staff phones**: in this demo every browser keeps its own copy of the settings (localStorage), so an admin's change never reaches other phones by itself. Phones start from the point published in `js/seed.js` (`AllurusSeed.published`); when HR moves the check-in point, either update that and bump `at`, or use **Copy setup link** to send staff a link that sets it on their phone. A real deployment would load this from a server.
 
 Run the unit tests for coordinate parsing and the zone check with `npm test` (Node 18 or later, no dependencies).
 
