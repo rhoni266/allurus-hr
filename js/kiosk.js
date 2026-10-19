@@ -73,7 +73,10 @@ window.AllurusKiosk = (function () {
   const projects = () => (st().projects || []).filter((p) => p.active !== false);
   const projectMode = () => cfg().projects || 'off';
   const projectOf = (id) => (st().projects || []).find((p) => p.id === id);
-  const projectField = (id = 'ci-project', cur = '') => (projectMode() === 'off' || !projects().length ? '' : `<div class="field ci-project"><label for="${id}">Project or job${projectMode() === 'required' ? '' : ' (optional)'}</label><select class="select" id="${id}"><option value="">${projectMode() === 'required' ? 'Choose a project' : 'None'}</option>${projects().map((p) => `<option value="${p.id}" ${cur === p.id ? 'selected' : ''}>${esc(p.code)} · ${esc(p.name)}</option>`).join('')}</select></div>`);
+  // Projects with jobs list each job (value "project|job") under the project; others are picked as a whole.
+  const jobsOf = (pid) => { const c = st().costing || {}; return (c.groups || []).filter((g) => g.projectId === pid).flatMap((g) => (c.jobs || []).filter((j) => j.groupId === g.id && j.active !== false).map((j) => ({ ...j, group: g }))); };
+  const projectOptions = (cur) => projects().map((p) => { const js = jobsOf(p.id); return js.length ? `<optgroup label="${esc(p.code)} · ${esc(p.name)}"><option value="${p.id}" ${cur === p.id ? 'selected' : ''}>${esc(p.code)} · general</option>${js.map((j) => `<option value="${p.id}|${j.id}" ${cur === `${p.id}|${j.id}` ? 'selected' : ''}>${esc(j.code || '')} ${esc(j.group.name)} · ${esc(j.name)}</option>`).join('')}</optgroup>` : `<option value="${p.id}" ${cur === p.id ? 'selected' : ''}>${esc(p.code)} · ${esc(p.name)}</option>`; }).join('');
+  const projectField = (id = 'ci-project', cur = '') => (projectMode() === 'off' || !projects().length ? '' : `<div class="field ci-project"><label for="${id}">Project or job${projectMode() === 'required' ? '' : ' (optional)'}</label><select class="select" id="${id}"><option value="">${projectMode() === 'required' ? 'Choose a project' : 'None'}</option>${projectOptions(cur)}</select></div>`);
   // Reads the picked project; false when one is required and missing.
   function pickedProject(id = 'ci-project') {
     const v = document.getElementById(id)?.value || '';

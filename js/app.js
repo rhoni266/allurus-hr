@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2.9';
+  const APP_VERSION = '3.0';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   const STORE_KEY = 'allurus-hr-v7';
   const esc = U.esc;
@@ -38,6 +38,8 @@
     });
     [s, ...Object.values(s.workspaces || {})].forEach(migrateAppraisal);
     [s, ...Object.values(s.workspaces || {})].forEach(migrateHR);
+    // Reports and project costing: saved custom reports, and job groups, jobs and timesheets under projects.
+    [s, ...Object.values(s.workspaces || {})].forEach((w) => { w.savedReports = w.savedReports || []; w.costing = { groups: [], jobs: [], timesheets: [], ...(w.costing || {}) }; w.projects = w.projects || []; });
     [s, ...Object.values(s.workspaces || {})].forEach((w) => {
       const c = w.settings?.checkin; if (!c) return;
       c.kiosks = c.kiosks || []; if (c.supervisor === undefined) c.supervisor = true; c.projects = c.projects || 'off';
@@ -189,6 +191,8 @@
     moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
     auto: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor" stroke="none"/>',
     help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.8M12 17.2v.1"/>',
+    chart: '<path d="M4 20V11M10 20V5M16 20v-6M2 20h20"/>',
+    layers: '<path d="M12 3 2 8l10 5 10-5z"/><path d="M2 13l10 5 10-5"/>',
     box: '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>',
     org: '<rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M6 16v-4h12v4"/>',
     star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>',
@@ -324,6 +328,7 @@
       { id: 'my-leave', label: 'My time off', icon: 'calendar', group: 'Me' },
       { id: 'my-approvals', label: 'Approvals', icon: 'check', group: 'Me' },
       { id: 'my-appraisal', label: 'Appraisal & goals', icon: 'trend', group: 'Me' },
+      { id: 'my-timesheet', label: 'Timesheet', icon: 'layers', group: 'Me' },
       { id: 'my-profile', label: 'Profile', icon: 'people', group: 'Me' },
       { id: 'my-pay', label: 'Payslips', icon: 'wallet', group: 'Finance' },
       { id: 'my-claims', label: 'Claims', icon: 'receipt', group: 'Finance' },
@@ -368,9 +373,11 @@
     { id: 'reports', label: 'Reports & audit', icon: 'shield', group: 'Finance & Accounting' },
     { id: 'recruitment', label: 'Recruitment', icon: 'briefcase', group: 'Talent' },
     { id: 'performance', label: 'Performance', icon: 'trend', group: 'Talent' },
+    { id: 'hr-reports', label: 'HR reports', icon: 'chart', group: 'Insights' },
+    { id: 'projects', label: 'Project costing', icon: 'layers', group: 'Insights' },
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
   ];
-  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id)));
+  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()));
   const route = () => { const h = location.hash.replace('#', ''); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
   function renderNav() {
@@ -435,7 +442,7 @@
   const VIEWS = {};
   const AFTER = {};
   const ACTIONS_EXTRA = {};
-  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null, appraisalApi = null, hrApi = null;
+  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null, appraisalApi = null, hrApi = null, costingApi = null;
   let clockTimer = null;
 
   // ---------- Automated insights (what needs attention, trends and wellbeing nudges) ----------
@@ -510,6 +517,7 @@
     if (notifyApi) out.push(...notifyApi.insights());
     if (appraisalApi) out.push(...appraisalApi.insights());
     if (hrApi) out.push(...hrApi.insights());
+    if (costingApi) out.push(...costingApi.insights());
     return out.sort((a, b) => b.prio - a.prio);
   }
   const actionLink = (a, cls = 'btn btn-sm') => a.href ? `<a class="${cls}" href="${a.href}">${esc(a.label)}</a>` : `<button type="button" class="${cls}" data-act="${a.act}" ${a.id ? `data-id="${a.id}"` : ''} ${a.v ? `data-v="${a.v}"` : ''}>${esc(a.label)}</button>`;
@@ -1632,7 +1640,7 @@
   };
 
   // ---------- Workspaces (one per company) ----------
-  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects', 'notifications', 'outbox', 'announcements', 'notifyKeys', 'reminderRun', 'cycles', 'goals', 'payChanges', 'editRequests', 'checklists', 'assets', 'loans', 'insurance', 'documents'];
+  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects', 'notifications', 'outbox', 'announcements', 'notifyKeys', 'reminderRun', 'cycles', 'goals', 'payChanges', 'editRequests', 'checklists', 'assets', 'loans', 'insurance', 'documents', 'costing', 'savedReports'];
   function switchWorkspace(tid) {
     if (tid === state.session.tenantId) return;
     const cur = {}; WS_KEYS.forEach((k) => { cur[k] = state[k]; });
@@ -1659,14 +1667,14 @@
       settings: { ...base.settings, company: d.name, domain, office: d.city, currency: d.currency, checkin: defaultZone(d.name) },
       departments: base.departments.map((x) => ({ ...x, lead: withSamples ? x.lead : (x.id === 'd-people' ? 'e1' : '') })),
       employees: [admin], leaves: [], attendance: {}, payroll: {}, jobs: [], candidates: [],
-      reviews: [], cycles: [], goals: [], payChanges: [], editRequests: [], checklists: [], assets: [], loans: [], insurance: [], documents: [],
+      reviews: [], cycles: [], goals: [], payChanges: [], editRequests: [], checklists: [], assets: [], loans: [], insurance: [], documents: [], costing: { groups: [], jobs: [], timesheets: [] }, savedReports: [],
       activity: [{ t: Date.now(), text: `${d.name} joined Allurus on the ${plan(d.plan).name} plan` }],
       finance: AllurusFinance.blank({ taxLabel: d.currency === 'MYR' ? 'SST' : 'Sales tax' }),
       claims: [], plans: {}, leaveCarry: {}, leaveCredits: [], rosters: {}, timeRequests: [], attAudit: [], statutory: { filed: {}, eaIssued: {}, formEFiled: {} }, projects: [], notifications: [], outbox: [], announcements: [], notifyKeys: [],
     };
     if (withSamples) {
       const team = base.employees.slice(1).map((e) => ({ ...e, email: `${e.first}.${e.last}`.toLowerCase() + '@' + domain, location: d.city }));
-      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, cycles: base.cycles, goals: base.goals, payChanges: base.payChanges, editRequests: base.editRequests, checklists: base.checklists, assets: base.assets, loans: base.loans, insurance: base.insurance, documents: base.documents, finance: base.finance, claims: base.claims, leaveCarry: base.leaveCarry, leaveCredits: base.leaveCredits, rosters: base.rosters, timeRequests: base.timeRequests, attAudit: [], statutory: base.statutory, projects: base.projects });
+      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, cycles: base.cycles, goals: base.goals, payChanges: base.payChanges, editRequests: base.editRequests, checklists: base.checklists, assets: base.assets, loans: base.loans, insurance: base.insurance, documents: base.documents, costing: base.costing, finance: base.finance, claims: base.claims, leaveCarry: base.leaveCarry, leaveCredits: base.leaveCredits, rosters: base.rosters, timeRequests: base.timeRequests, attAudit: [], statutory: base.statutory, projects: base.projects });
     }
     ws.settings.leave = AllurusLeaveRules.defaultSettings({ state: d.currency === 'MYR' ? (AllurusLeaveRules.CITY_STATE[d.city] || '') : '', departments: ws.departments, hr: 'e1' });
     ws.settings.employer = withSamples ? { ...base.settings.employer } : { signatory: d.adminName.trim(), signatoryTitle: 'HR Administrator' };
@@ -1945,7 +1953,7 @@
   function ciReview() {
     const f = ci.face;
     ciStep(`${ciWhere()}${f ? FACE_NOTE[f.result](f) : ''}${ci.loc?.flags?.length ? `<div class="ci-where">${icon('pin')}<span>HR will double-check this location.</span></div>` : ''}${navigator.onLine === false ? `<div class="ci-where">${icon('clock')}<span>You’re offline. The check-in is saved on this phone and syncs later.</span></div>` : ''}<div class="ci-cam"><img class="ci-photo" src="${ci.photo}" alt="Your selfie"></div>
-      ${kioskApi.projectField('ci-project', myRecord(U.today())?.project || '')}
+      ${kioskApi.projectField('ci-project', [myRecord(U.today())?.project, myRecord(U.today())?.job].filter(Boolean).join('|'))}
       <div class="ci-actions"><button class="btn" data-act="ci-retake">Retake</button><button class="btn btn-primary" data-act="ci-confirm">${icon('check')}${f?.result === 'mismatch' ? 'Check in for HR review' : `Check in at ${nowHM()}`}</button></div>`);
   }
   // Saves a check-in for e today: a new record, or a new session after a check-out (the first check-in time is
@@ -1954,10 +1962,12 @@
   function writeCheckin(e, { mode = 'present', time, photo, loc, face = null, device, upload = false, via = 'self', by = '', project = '', flags = [], offline = false }) {
     const T = U.today();
     state.attendance[T] = state.attendance[T] || {};
-    const extra = { photo, loc, face, device, upload, via, by, project, flags, offline, reviewed: null, syncedAt: '' };
+    // The picker sends "project|job" when a job is chosen; costing reads both.
+    const [pj = '', job = ''] = String(project || '').split('|');
+    const extra = { photo, loc, face, device, upload, via, by, project: pj, job, flags, offline, reviewed: null, syncedAt: '' };
     const prev = state.attendance[T][e.id];
     if (prev?.in && prev.out) {
-      prev.history = [...(prev.history || []), { in: prev.lastIn || prev.in, out: prev.out, photo: prev.photo, loc: prev.loc, face: prev.face, via: prev.via, project: prev.project }];
+      prev.history = [...(prev.history || []), { in: prev.lastIn || prev.in, out: prev.out, photo: prev.photo, loc: prev.loc, face: prev.face, via: prev.via, project: prev.project, job: prev.job || '' }];
       Object.assign(prev, { s: mode, out: '', lastIn: time, ...extra });
     } else {
       state.attendance[T][e.id] = { s: mode, in: time, out: '', ...extra };
@@ -2396,6 +2406,8 @@
   docsApi = AllurusPayDocs.install(moduleCtx);
   notifyApi = AllurusNotify.install(moduleCtx);
   hrApi = AllurusHR.install(moduleCtx);
+  AllurusReports.install(moduleCtx);
+  costingApi = AllurusCosting.install(moduleCtx);
   appraisalApi = AllurusAppraisal.install(moduleCtx);
   kioskApi = AllurusKiosk.install(moduleCtx, { write: writeCheckin, zone, deviceId, deviceName, squareCanvas, nowHM, isField, selfieThumb, cloudWrite: (p, d) => cloudWrite(p, d), cloudOn: () => !!cloud.db });
   // Approvers see their team's claims under Approvals, after leave and attendance requests.

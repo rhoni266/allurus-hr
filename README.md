@@ -128,6 +128,20 @@ Try it: sign in as admin and open the bell (statutory deadlines, CP22/CP22A, app
 
 The rules (messages, preferences, delivery and reminders) are in `js/notify-rules.js` (no DOM), with tests in `tests/notify.test.js`.
 
+## Reports and project costing
+
+- **HR reports** (Insights → HR reports): a library of ready reports, each with a date range (plus quick picks), department and employee filters, a table with totals, a chart in the app's style, and CSV or print (save as PDF):
+  - People: headcount by department (on the end date, with joiners and leavers), joiners and leavers, turnover rate (leavers ÷ average of start and end headcount, by month and annualised).
+  - Pay: payroll summary with month-on-month variance (gross, deductions, net, employer contributions and cost), statutory contributions (EPF, SOCSO and EIS employee and employer, PCB, zakat, HRD levy).
+  - Time: overtime by person or department (from attendance and the overtime rules), lateness and absenteeism, leave taken by person or type with this year's annual balance.
+  - Money and dates: claims by category, birthdays, confirmations due.
+- **Custom report writer**: pick a data source (employees, attendance, leave, payroll or claims), tick the columns, add filters (is, contains, more or less than, empty), group by a field with totals, averages, lowest or highest, and sort. Save the definition to reuse it; saved reports sit under Custom in the library.
+- **Project costing** (Insights → Project costing): projects → job groups → jobs, each job with target hours and a budget. Time comes from check-ins, where people pick a project or job (the picker lists jobs under each project), split across the projects picked during the day, and from timesheets (HR logs time for anyone; staff use Me → Timesheet). A timesheet for a day replaces that day's check-in time, so nothing is counted twice, and a day can't go over 24 hours.
+- **Labour cost**: hours × each person's hourly cost = (monthly basic + employer EPF + SOCSO + EIS) ÷ standard hours (working days × normal hours from the overtime settings, 26 × 8 = 208 by default). The month's pay run is used when there is one; otherwise it is estimated from salary.
+- **Costing reports**: monthly man-hours by project, wages by project, target vs actual hours per job, budget vs actual cost per job, and hourly cost by person, with CSV and print. Jobs over target or budget are flagged on the project page and in Focus for today.
+
+The aggregations are in `js/report-rules.js` and the costing maths in `js/costing-rules.js` (both without DOM), with tests in `tests/reports.test.js` and `tests/costing.test.js`. Project cost here is labour only; materials and other costs are not included.
+
 ## HR admin: employee file, onboarding, assets, org chart and letters
 
 - **Employee file** (open anyone under Employees): tabs for Summary, Personal, Career, Documents, Assets and Checklists. Personal holds IC or passport, nationality and work permit, home address, personal email, emergency contact, bank and statutory numbers, education and previous employment.
@@ -324,7 +338,7 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 index.html          App shell: sign-in screen, sidebar, top bar
 brand.html          Brand kit: logo, palette, type, usage rules
 design-system.html  Live tokens and components
-tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules, notifications, appraisals, HR admin
+tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules, notifications, appraisals, HR admin, reports, project costing
 css/styles.css      Design tokens (light and dark) and all components
 js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
 js/seed.js          Demo data: the Lumen & Co. workspace and 14 subscribed companies
@@ -342,6 +356,10 @@ sw.js               Service worker: keeps a copy of the app so check-in opens of
 js/notify-rules.js  Notification rules (no DOM): messages, preferences, delivery, daily reminders
 js/notify.js        Bell and list, email outbox and provider hook, browser notifications, reminders run, announcements
 js/appraisal-rules.js  Appraisal rules (no DOM): weighted scores, grade bands, flow, 360° summary, goals, pay changes
+js/report-rules.js  Report aggregations (no DOM): headcount, turnover, payroll variance, statutory totals, custom report engine
+js/costing-rules.js Project costing maths (no DOM): job tree, splitting check-in time, timesheets, hourly labour cost, roll-ups
+js/reports.js       HR reports library and custom report writer
+js/costing.js       Projects, job groups and jobs, timesheets, costing reports
 js/hr-rules.js      HR admin rules (no DOM): edit requests, checklists, org tree, loans, letters, career history, expiry
 js/hr.js            Employee file tabs, change requests, onboarding/offboarding, assets/loans/insurance, org chart, letters, documents
 js/appraisal.js     Templates and bands, review cycles, self/manager/HR scoring, goals, 360°, reports, pay changes

@@ -221,6 +221,54 @@ window.AllurusSeed = {
     if (attendance[T]?.e17?.in) Object.assign(attendance[T].e17, { loc: zoneLoc(fixAt(-0.000214, 0.000331), 16), offline: true, syncedAt: new Date(`${T}T09:41:00`).toISOString(), project: 'pj4', via: 'self' });
     if (attendance[T]?.e10?.in) Object.assign(attendance[T].e10, { loc: zoneLoc(fixAt(0.000301, -0.000122), 9), via: 'supervisor', by: 'e14', project: 'pj2', face: { result: 'match', sim: 58 }, device: { id: 'dev-noah', name: 'iPhone, Safari (Noah’s phone)' } });
     [['e5', 'pj2'], ['e8', 'pj1'], ['e2', 'pj3']].forEach(([id, pj]) => { if (attendance[T]?.[id]?.in) attendance[T][id].project = pj; });
+    // Project costing: job groups and jobs with target hours and budgets, check-ins this month tagged with a job,
+    // and weekly timesheets for July to September from before the check-in app was used for projects.
+    const G = (id, projectId, code, name) => ({ id, projectId, code, name });
+    const J = (id, groupId, code, name, targetHours, budget) => ({ id, groupId, code, name, targetHours, budget, active: true });
+    const costing = {
+      groups: [G('jg1', 'pj1', '1', 'Discovery'), G('jg2', 'pj1', '2', 'Build'), G('jg3', 'pj1', '3', 'Site rollout'), G('jg4', 'pj2', '1', 'Design'), G('jg5', 'pj2', '2', 'Build'), G('jg6', 'pj2', '3', 'Launch'), G('jg7', 'pj3', '1', 'Integration')],
+      jobs: [
+        J('jb1', 'jg1', '1.1', 'Site survey at Kerteh', 60, 4200), J('jb2', 'jg1', '1.2', 'Requirements workshop', 40, 3000),
+        J('jb3', 'jg2', '2.1', 'Maintenance scheduling module', 420, 33000), J('jb4', 'jg2', '2.2', 'Mobile work orders', 300, 24000), J('jb5', 'jg2', '2.3', 'Testing', 160, 10500),
+        J('jb6', 'jg3', '3.1', 'Training plant staff', 80, 5600),
+        J('jb7', 'jg4', '1.1', 'UX research and wireframes', 90, 6300), J('jb8', 'jg4', '1.2', 'Visual design', 120, 8200),
+        J('jb9', 'jg5', '2.1', 'Booking engine', 360, 29000), J('jb10', 'jg5', '2.2', 'Payments (FPX and cards)', 120, 9800),
+        J('jb11', 'jg6', '3.1', 'App store release', 40, 3000),
+        J('jb12', 'jg7', '1.1', 'MyInvois API connection', 140, 11000), J('jb13', 'jg7', '1.2', 'e-Invoice validation and testing', 80, 5800),
+      ],
+      timesheets: [],
+    };
+    // Who works on what: [employee, [project, job, share of the week]].
+    const WORK = { e2: [['pj3', 'jb12', 0.6], ['pj1', 'jb3', 0.4]], e5: [['pj2', 'jb9', 0.7], ['pj2', 'jb10', 0.3]], e8: [['pj1', 'jb3', 0.6], ['pj1', 'jb4', 0.4]], e12: [['pj1', 'jb4', 0.5], ['pj3', 'jb13', 0.5]], e18: [['pj1', 'jb5', 0.7], ['pj2', 'jb9', 0.3]], e3: [['pj2', 'jb7', 0.5], ['pj2', 'jb8', 0.5]], e16: [['pj2', 'jb8', 0.8], ['pj1', 'jb6', 0.2]], e4: [['pj1', 'jb1', 0.3], ['pj1', 'jb2', 0.3]] };
+    // Daily entries Monday to Friday, split between each person's jobs.
+    let tsn = 0;
+    for (let d = '2026-07-01'; d < '2026-10-01'; d = U.addDays(d, 1)) {
+      if (U.isWeekend(d)) continue;
+      Object.entries(WORK).forEach(([id, plan], i) => {
+        if ((tsn + i) % 23 === 0) { tsn++; return; } // the odd day off or on other work
+        plan.forEach(([project, job, share], k) => {
+          const hours = Math.round(8 * share * (0.85 + ((tsn * 7 + i * 3 + k) % 30) / 100) * 4) / 4;
+          if (hours > 0) costing.timesheets.push({ id: `ts${++tsn}`, empId: id, day: d, project, job, hours, note: '', by: id, at: d });
+        });
+      });
+    }
+    // This month's check-ins: the job for the day (alternating between each person's main jobs).
+    Object.keys(attendance).filter((d) => d >= '2026-10-01').forEach((d, n) => Object.entries(WORK).forEach(([id, plan], i) => {
+      const r = attendance[d]?.[id];
+      if (!r?.in || !['present', 'remote'].includes(r.s)) return;
+      const [project, job] = plan[(n + i) % plan.length];
+      Object.assign(r, { project, job });
+    }));
+    // Targets and budgets: most jobs part-way through, a couple running over.
+    const logged = {};
+    costing.timesheets.forEach((t) => { logged[t.job] = (logged[t.job] || 0) + t.hours; });
+    Object.values(attendance).forEach((day) => Object.values(day).forEach((r) => { if (r.job) logged[r.job] = (logged[r.job] || 0) + 7.5; }));
+    const USED = [0.55, 0.7, 0.85, 0.95, 1.08, 0.6, 0.75, 0.9, 0.5, 0.65, 0.8, 1.12, 0.7];
+    costing.jobs.forEach((j, n) => {
+      if (!logged[j.id]) return;
+      j.targetHours = Math.ceil(logged[j.id] / USED[n % USED.length] / 10) * 10;
+      j.budget = Math.round((j.targetHours * 58) / 100) * 100;
+    });
 
     // Overtime, lateness waiver and correction requests, through the same approval chains as leave.
     const back = (n) => { let d = T, k = 0; while (k < n) { d = U.addDays(d, -1); if (L.isWorkingDay(d, lctx)) k++; } return d; };
@@ -518,7 +566,7 @@ window.AllurusSeed = {
       }
     });
     const plans = { e2: AllurusPlanner.sample() };
-    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, rosters, timeRequests, attAudit, statutory, projects, announcements, notifications: seeded.flatMap((x) => x.notifications), outbox, notifyKeys: [], settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, cycles, goals, payChanges, editRequests, checklists, assets, loans, insurance, documents, activity, platform };
+    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, rosters, timeRequests, attAudit, statutory, projects, announcements, notifications: seeded.flatMap((x) => x.notifications), outbox, notifyKeys: [], settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, cycles, goals, payChanges, costing, savedReports: [], editRequests, checklists, assets, loans, insurance, documents, activity, platform };
   },
 
   // Super Admin data: every company subscribed to Allurus.
