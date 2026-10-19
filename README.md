@@ -407,6 +407,7 @@ js/planner.js       Employee financial planner
 js/app.js           Views, routing per role, actions, registration, shared-link sync
 js/vendor/          jsVectorMap (MIT) for the Super Admin world map; Leaflet 1.9.4 (BSD-2) for the check-in map
 assets/             logo.svg, logo-mark.svg
+docs/backend-plan.md  Plan for replacing localStorage with a backend (not built yet)
 ```
 
 ## Brand
@@ -421,6 +422,8 @@ assets/             logo.svg, logo-mark.svg
 | Mist | `#F5F5F7` | Background |
 
 ## How data is stored (read this before going live)
+
+The plan for moving to a real backend (stack, schema with row-level security, auth, API layer, files and PDPA, server jobs, security, Stripe billing and a phased timeline) is in [`docs/backend-plan.md`](docs/backend-plan.md). Nothing in it is built yet.
 
 This is a working **front-end prototype**. Each browser keeps its own data in `localStorage`. When the app runs as a claude.ai artifact, company sign-ups and check-ins are also written to the artifact's shared database, so the owner sees them in the Super Admin console.
 
