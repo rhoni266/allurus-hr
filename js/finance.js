@@ -11,17 +11,21 @@ window.AllurusFinance = (function () {
   function blank(settings = {}) {
     return {
       openingCash: 0, openingDate: U.today().slice(0, 7) + '-01',
-      txns: [], invoices: [], bills: [], budgets: {}, reports: {},
+      txns: [], invoices: [], bills: [], contacts: [], budgets: {}, reports: {},
       settings: { taxRate: 8, taxLabel: 'SST', auditorFirm: '', auditorName: '', auditorEmail: '', ...settings },
     };
   }
 
   // ---------- Calculations (pure; used by the seed and the screens) ----------
+  // balance = what the customer still owes after credit and debit notes (adjust is their net effect).
   const invoiceTotals = (inv) => {
     const sub = sum(inv.items, (i) => i.qty * i.price);
     const tax = r2(sub * inv.taxRate / 100);
-    return { sub, tax, total: r2(sub + tax) };
+    const total = r2(sub + tax);
+    return { sub, tax, total, balance: r2(total + (inv.adjust || 0)) };
   };
+  // Credit, debit and refund notes live with the invoices but are not receivables themselves.
+  const isInvoice = (i) => (i.type || 'invoice') === 'invoice';
   const invoiceStatus = (inv, today) => (inv.status === 'Sent' && inv.due < today ? 'Overdue' : inv.status);
   const billStatus = (b, today) => (b.status === 'Unpaid' && b.due < today ? 'Overdue' : b.status);
 
@@ -67,7 +71,7 @@ window.AllurusFinance = (function () {
     const pay = run && run.status === 'Paid'
       ? { people: run.items.length, gross: sum(run.items, (i) => i.gross), tax: sum(run.items, (i) => i.tax), benefits: sum(run.items, (i) => i.benefits), net: sum(run.items, (i) => i.net) }
       : null;
-    const ar = sum(fin.invoices.filter((i) => i.status !== 'Draft' && i.issue <= end && (i.status !== 'Paid' || i.paidOn > end)), (i) => invoiceTotals(i).total);
+    const ar = sum(fin.invoices.filter((i) => isInvoice(i) && i.status !== 'Draft' && i.issue <= end && (i.status !== 'Paid' || i.paidOn > end)), (i) => invoiceTotals(i).balance);
     const ap = sum(fin.bills.filter((b) => b.issue <= end && (b.status !== 'Paid' || b.paidOn > end)), (b) => b.amount + b.tax);
     return {
       mk, income, expenses, totalIn, totalOut, net: r2(totalIn - totalOut),
@@ -183,6 +187,9 @@ window.AllurusFinance = (function () {
     const SOURCE = { invoice: 'Invoice', bill: 'Bill', payroll: 'Payroll', manual: 'Manual', receipt: 'Receipt', claim: 'Claim' };
     const invPill = (s) => `<span class="pill ${({ Draft: '', Sent: 'info', Overdue: 'bad', Paid: 'ok' })[s]}">${s}</span>`;
     const billPill = (s) => `<span class="pill ${({ Unpaid: 'warn', Overdue: 'bad', Paid: 'ok' })[s]}">${s}</span>`;
+    const NOTE_NAMES = { invoice: 'Invoice', credit: 'Credit note', debit: 'Debit note', refund: 'Refund note' };
+    const noteName = (i) => NOTE_NAMES[i.type || 'invoice'] || 'Invoice';
+    const contactOf = (i) => (fin().contacts || []).find((c) => c.id === i.contactId) || (fin().contacts || []).find((c) => c.kind === 'customer' && c.name === i.customer);
     const repStatus = (mk) => {
       if (mk >= cur()) return 'Open';
       return fin().reports[mk]?.status || 'Not submitted';
@@ -237,14 +244,14 @@ window.AllurusFinance = (function () {
 
     VIEWS.finance = () => {
       const f = fin(), mk = cur(), c = compute(f, pay(), mk);
-      const out = f.invoices.filter((i) => ['Sent', 'Overdue'].includes(invoiceStatus(i, T())));
+      const out = f.invoices.filter((i) => isInvoice(i) && ['Sent', 'Overdue'].includes(invoiceStatus(i, T())));
       const overdueInv = out.filter((i) => invoiceStatus(i, T()) === 'Overdue');
       const unpaid = f.bills.filter((b) => b.status !== 'Paid');
       const overdueBills = unpaid.filter((b) => billStatus(b, T()) === 'Overdue');
       const due14 = unpaid.filter((b) => b.due <= U.addDays(T(), 14));
       const recent = months().slice(0, 6).reverse();
       const attention = [
-        ...overdueInv.map((i) => ({ text: `<strong>${esc(i.customer)}</strong> owes ${money(invoiceTotals(i).total)} on ${esc(i.no)}, due ${U.fmtDate(i.due, { month: 'short', day: 'numeric' })}`, pill: '<span class="pill bad">Overdue invoice</span>', act: `data-act="fin-view-inv" data-id="${i.id}"` })),
+        ...overdueInv.map((i) => ({ text: `<strong>${esc(i.customer)}</strong> owes ${money(invoiceTotals(i).balance)} on ${esc(i.no)}, due ${U.fmtDate(i.due, { month: 'short', day: 'numeric' })}`, pill: '<span class="pill bad">Overdue invoice</span>', act: `data-act="fin-view-inv" data-id="${i.id}"` })),
         ...overdueBills.map((b) => ({ text: `Pay <strong>${esc(b.supplier)}</strong> ${money(b.amount + b.tax)}, due ${U.fmtDate(b.due, { month: 'short', day: 'numeric' })}`, pill: '<span class="pill bad">Overdue bill</span>', act: 'data-act="fin-go" data-v="bills"' })),
         ...Object.entries(f.reports).filter(([, r]) => r.status === 'Changes requested').map(([k]) => ({ text: `Your auditor asked for changes to the ${U.fmtMonth(k)} report`, pill: '<span class="pill warn">Auditor</span>', act: `data-act="fin-report" data-v="${k}"` })),
         ...months().filter((k) => k < mk && repStatus(k) === 'Not submitted').slice(0, 2).map((k) => ({ text: `${U.fmtMonth(k)} is closed. Submit its report to your auditor.`, pill: '<span class="pill warn">To submit</span>', act: `data-act="fin-report" data-v="${k}"` })),
@@ -256,7 +263,7 @@ window.AllurusFinance = (function () {
         <div class="grid g-4 keep-2">
           <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Cash in bank</div><div class="kpi-value">${compactMoney(c.cash.closing)}</div><div class="kpi-foot num">${money(c.cash.closing)} today</div></div>
           <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:${c.net >= 0 ? 'var(--ok)' : 'var(--bad)'}"></span>Profit this month</div><div class="kpi-value">${compactMoney(c.net)}</div><div class="kpi-foot">${money(c.totalIn)} in · ${money(c.totalOut)} out so far</div></div>
-          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Customers owe you</div><div class="kpi-value">${compactMoney(sum(out, (i) => invoiceTotals(i).total))}</div><div class="kpi-foot">${out.length} open invoices${overdueInv.length ? ` · <span style="color:var(--bad)">${overdueInv.length} overdue</span>` : ''}</div></div>
+          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Customers owe you</div><div class="kpi-value">${compactMoney(sum(out, (i) => invoiceTotals(i).balance))}</div><div class="kpi-foot">${out.length} open invoices${overdueInv.length ? ` · <span style="color:var(--bad)">${overdueInv.length} overdue</span>` : ''}</div></div>
           <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>You owe suppliers</div><div class="kpi-value">${compactMoney(sum(unpaid, (b) => b.amount + b.tax))}</div><div class="kpi-foot">${due14.length} due in 14 days${overdueBills.length ? ` · <span style="color:var(--bad)">${overdueBills.length} overdue</span>` : ''}</div></div>
         </div>
         <div class="grid g-main">
@@ -342,39 +349,39 @@ window.AllurusFinance = (function () {
     // ----- Invoices -----
     VIEWS.invoices = () => {
       const f = fin();
-      const list = f.invoices.map((i) => ({ ...i, st: invoiceStatus(i, T()), tot: invoiceTotals(i) })).filter((i) => fui.inv === 'all' || i.st === fui.inv).sort((a, b) => b.issue.localeCompare(a.issue));
-      const open = f.invoices.filter((i) => ['Sent', 'Overdue'].includes(invoiceStatus(i, T())));
+      const list = f.invoices.map((i) => ({ ...i, st: invoiceStatus(i, T()), tot: invoiceTotals(i) })).filter((i) => fui.inv === 'all' || (fui.inv === 'Notes' ? !isInvoice(i) : isInvoice(i) && i.st === fui.inv)).sort((a, b) => b.issue.localeCompare(a.issue) || b.no.localeCompare(a.no));
+      const open = f.invoices.filter((i) => isInvoice(i) && ['Sent', 'Overdue'].includes(invoiceStatus(i, T())));
       const overdue = open.filter((i) => invoiceStatus(i, T()) === 'Overdue');
-      const paidMonth = f.invoices.filter((i) => i.status === 'Paid' && i.paidOn.startsWith(cur()));
+      const paidMonth = f.invoices.filter((i) => isInvoice(i) && i.status === 'Paid' && i.paidOn.startsWith(cur()));
       return `
         <div class="page-head"><div><div class="eyebrow">Finance & Accounting</div><h1>Invoices</h1><p class="sub">Bill your customers and track who has paid. Recording a payment adds it to the books.</p></div>
           <div class="actions">${isAuditor() ? '' : `<button class="btn btn-primary" data-act="fin-new-inv">${icon('plus')}New invoice</button>`}</div></div>
         <div class="grid g-4 keep-2">
-          <div class="card kpi"><div class="kpi-label">Outstanding</div><div class="kpi-value">${compactMoney(sum(open, (i) => invoiceTotals(i).total))}</div><div class="kpi-foot">${open.length} invoices</div></div>
-          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--bad)"></span>Overdue</div><div class="kpi-value">${compactMoney(sum(overdue, (i) => invoiceTotals(i).total))}</div><div class="kpi-foot">${overdue.length} invoices</div></div>
-          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>Paid this month</div><div class="kpi-value">${compactMoney(sum(paidMonth, (i) => invoiceTotals(i).total))}</div><div class="kpi-foot">${paidMonth.length} invoices</div></div>
-          <div class="card kpi"><div class="kpi-label">Drafts</div><div class="kpi-value">${f.invoices.filter((i) => i.status === 'Draft').length}</div><div class="kpi-foot">Not sent yet</div></div>
+          <div class="card kpi"><div class="kpi-label">Outstanding</div><div class="kpi-value">${compactMoney(sum(open, (i) => invoiceTotals(i).balance))}</div><div class="kpi-foot">${open.length} invoices</div></div>
+          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--bad)"></span>Overdue</div><div class="kpi-value">${compactMoney(sum(overdue, (i) => invoiceTotals(i).balance))}</div><div class="kpi-foot">${overdue.length} invoices</div></div>
+          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>Paid this month</div><div class="kpi-value">${compactMoney(sum(paidMonth, (i) => invoiceTotals(i).balance))}</div><div class="kpi-foot">${paidMonth.length} invoices</div></div>
+          <div class="card kpi"><div class="kpi-label">Drafts</div><div class="kpi-value">${f.invoices.filter((i) => isInvoice(i) && i.status === 'Draft').length}</div><div class="kpi-foot">Not sent yet</div></div>
         </div>
         <div class="card card-flush">
-          <div class="toolbar"><div class="seg">${['all', 'Draft', 'Sent', 'Overdue', 'Paid'].map((s) => `<button data-act="fin-inv-filter" data-v="${s}" class="${fui.inv === s ? 'on' : ''}">${s === 'all' ? 'All' : s}</button>`).join('')}</div></div>
+          <div class="toolbar"><div class="seg">${['all', 'Draft', 'Sent', 'Overdue', 'Paid', 'Notes'].map((s) => `<button data-act="fin-inv-filter" data-v="${s}" class="${fui.inv === s ? 'on' : ''}">${s === 'all' ? 'All' : s === 'Notes' ? 'Credit, debit and refund notes' : s}</button>`).join('')}</div></div>
           <div class="table-wrap"><table>
-            <thead><tr><th>Invoice</th><th>Customer</th><th class="hide-sm">Issued</th><th>Due</th><th class="r">Total</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Number</th><th>Customer</th><th class="hide-sm">Issued</th><th class="hide-sm">Due</th><th class="r">Total</th><th>Status</th><th class="hide-sm">e-Invoice</th><th></th></tr></thead>
             <tbody>${list.map((i) => `<tr class="clickable" data-act="fin-view-inv" data-id="${i.id}">
-              <td class="num">${esc(i.no)}</td><td>${esc(i.customer)}</td><td class="hide-sm muted num">${U.fmtDate(i.issue, { month: 'short', day: 'numeric' })}</td>
-              <td class="muted num">${U.fmtDate(i.due, { month: 'short', day: 'numeric' })}</td><td class="r num">${m2(i.tot.total)}</td><td>${invPill(i.st)}</td>
-              <td><div class="row-actions">${isAuditor() ? '' : i.st === 'Draft' ? `<button class="btn btn-sm" data-act="fin-send-inv" data-id="${i.id}">Mark sent</button>` : i.st !== 'Paid' ? `<button class="btn btn-sm btn-ok" data-act="fin-pay-inv" data-id="${i.id}">Record payment</button>` : ''}</div></td></tr>`).join('')}</tbody>
+              <td class="num inv-no">${esc(i.no)}${isInvoice(i) ? '' : `<div><span class="tag ${i.type === 'credit' ? 'warn' : i.type === 'refund' ? 'bad' : 'info'}">${esc(noteName(i))}</span></div>`}</td><td>${esc(i.customer)}</td><td class="hide-sm muted num">${U.fmtDate(i.issue, { month: 'short', day: 'numeric' })}</td>
+              <td class="muted num hide-sm">${isInvoice(i) ? U.fmtDate(i.due, { month: 'short', day: 'numeric' }) : '—'}</td><td class="r num">${isInvoice(i) ? m2(i.tot.balance) : `${i.type === 'debit' ? '' : '−'}${m2(i.tot.total)}`}${isInvoice(i) && i.tot.balance !== i.tot.total ? `<div class="person-sub">was ${m2(i.tot.total)}</div>` : ''}</td><td>${isInvoice(i) ? invPill(i.st) : '<span class="pill">Issued</span>'}</td><td class="hide-sm">${ctx.einvoice ? ctx.einvoice.pill(i.einvoice) : ''}</td>
+              <td><div class="row-actions">${isAuditor() || !isInvoice(i) ? '' : i.st === 'Draft' ? `<button class="btn btn-sm" data-act="fin-send-inv" data-id="${i.id}">Mark sent</button>` : i.st !== 'Paid' ? `<button class="btn btn-sm btn-ok" data-act="fin-pay-inv" data-id="${i.id}">Record payment</button>` : ''}</div></td></tr>`).join('')}</tbody>
           </table>${list.length ? '' : '<div class="empty"><strong>No invoices here</strong>Create one with New invoice.</div>'}</div>
         </div>`;
     };
 
     function invoiceModal() {
       const rate = fin().settings.taxRate, label = fin().settings.taxLabel;
-      const custs = [...new Set(fin().invoices.map((i) => i.customer))].sort();
+      const custs = [...new Set([...(fin().contacts || []).filter((c) => c.kind === 'customer').map((c) => c.name), ...fin().invoices.map((i) => i.customer)])].sort();
       const row = (n) => `<div class="inv-line"><input class="input" name="d${n}" placeholder="Description" aria-label="Line ${n + 1} description" ${n === 0 ? 'required' : ''}><input class="input num" name="q${n}" type="number" min="0" step="1" placeholder="Qty" value="${n === 0 ? 1 : ''}" aria-label="Line ${n + 1} quantity"><input class="input num" name="p${n}" type="number" min="0" step="0.01" placeholder="Unit price" aria-label="Line ${n + 1} unit price"></div>`;
       openModal({
         title: 'New invoice', submit: 'Save draft',
         body: `<div class="form-grid">
-          <div class="field"><label for="in-cust">Customer</label><input class="input" id="in-cust" name="customer" list="cust-list" required><datalist id="cust-list">${custs.map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
+          <div class="field"><label for="in-cust">Customer</label><input class="input" id="in-cust" name="customer" list="cust-list" required><datalist id="cust-list">${custs.map((c) => `<option value="${esc(c)}">`).join('')}</datalist><span class="field-hint" id="in-cust-hint">Pick a saved customer so the e-Invoice has their TIN and address.</span></div>
           <div class="field"><label for="in-email">Customer email</label><input class="input" id="in-email" name="email" type="email"></div>
           <div class="field"><label for="in-issue">Issue date</label><input class="input" id="in-issue" name="issue" type="date" required value="${T()}"></div>
           <div class="field"><label for="in-due">Due date</label><input class="input" id="in-due" name="due" type="date" required value="${U.addDays(T(), 30)}"></div>
@@ -386,30 +393,75 @@ window.AllurusFinance = (function () {
           if (d.due < d.issue) { toast('The due date must be on or after the issue date', 'error'); return false; }
           const mk = U.monthKey(d.issue).replace('-', '');
           const n = fin().invoices.filter((i) => i.no.includes(mk)).length + 1;
-          const inv = { id: U.uid('i'), no: `INV-${mk}-${U.pad(n)}`, customer: d.customer.trim(), email: d.email.trim(), issue: d.issue, due: d.due, items, taxRate: Number(d.taxRate), status: 'Draft', paidOn: '' };
+          const contact = (fin().contacts || []).find((c) => c.kind === 'customer' && c.name.toLowerCase() === d.customer.trim().toLowerCase());
+          const inv = { id: U.uid('i'), type: 'invoice', no: `INV-${mk}-${U.pad(n)}`, customer: contact?.name || d.customer.trim(), contactId: contact?.id || '', email: d.email.trim() || contact?.email || '', issue: d.issue, due: d.due, items: items.map((x) => ({ ...x, classification: '022' })), taxRate: Number(d.taxRate), status: 'Draft', paidOn: '', einvoice: { status: 'Draft' } };
           fin().invoices.push(inv);
           fui.inv = 'all';
           commit(`${inv.no} saved as a draft`, `Invoice ${inv.no} created for ${inv.customer}`);
           setTimeout(() => viewInvoice(inv.id), 50);
         },
       });
+      ctx.$('#in-cust')?.addEventListener('change', (ev) => {
+        const c = (fin().contacts || []).find((x) => x.kind === 'customer' && x.name.toLowerCase() === ev.target.value.trim().toLowerCase());
+        const em = ctx.$('#in-email'); if (c && em && !em.value) em.value = c.email || '';
+        const h = ctx.$('#in-cust-hint'); if (h) h.textContent = c ? (ctx.einvoice?.contactReady(c) ? 'Saved customer, ready for e-Invoice.' : 'Saved customer, but some e-Invoice details are missing.') : 'New name: add them under Customers & suppliers for the e-Invoice.';
+      });
     }
 
     function viewInvoice(id) {
       const i = fin().invoices.find((x) => x.id === id); if (!i) return;
-      const t = invoiceTotals(i), st = invoiceStatus(i, T()), s = ctx.state.settings;
+      const t = invoiceTotals(i), st = isInvoice(i) ? invoiceStatus(i, T()) : 'Issued', s = ctx.state.settings, e = s.einvoice || {}, c = contactOf(i);
+      const orig = i.ref ? fin().invoices.find((x) => x.id === i.ref) : null;
+      const notes = isInvoice(i) ? fin().invoices.filter((x) => x.ref === i.id) : [];
+      const party = (p) => p ? [p.tin && `TIN ${esc(p.tin)}`, p.idNo && `${esc(p.idType || 'BRN')} ${esc(p.idNo)}`, p.sst && p.sst !== 'NA' && `SST ${esc(p.sst)}`].filter(Boolean).join(' · ') : '';
+      const addr = (a) => (a ? [a.line1, a.line2, a.line3, [a.postcode, a.city].filter(Boolean).join(' '), window.AllurusEInvoiceRules?.STATES[a.state]].filter(Boolean).map(esc).join(', ') : '');
       openModal({
-        title: i.no, size: 'lg', submit: null,
+        title: `${noteName(i)} ${i.no}`, size: 'lg', submit: null,
         body: `<div class="doc">
-          <div class="doc-head"><div style="display:flex;align-items:center;gap:12px">${ctx.LOGO_MARK}<div><div style="font-weight:600;letter-spacing:.2em">${esc(s.company.toUpperCase())}</div><div class="faint" style="font-size:12px">${esc(s.office || '')}</div></div></div>
-            <div style="text-align:right"><div class="doc-title">Invoice</div><div class="num muted">${esc(i.no)}</div>${invPill(st)}</div></div>
-          <div class="doc-meta"><div><div class="faint">Bill to</div><strong>${esc(i.customer)}</strong><div class="muted">${esc(i.email || '')}</div></div>
-            <div><div class="faint">Issued</div>${U.fmtDate(i.issue)}</div><div><div class="faint">Due</div>${U.fmtDate(i.due)}</div>${i.paidOn ? `<div><div class="faint">Paid</div>${U.fmtDate(i.paidOn)}</div>` : ''}</div>
+          <div class="doc-head"><div style="display:flex;align-items:center;gap:12px">${ctx.LOGO_MARK}<div><div style="font-weight:600;letter-spacing:.2em">${esc(s.company.toUpperCase())}</div><div class="faint" style="font-size:12px">${esc(addr(e.address) || s.office || '')}</div>${e.tin ? `<div class="faint" style="font-size:12px">TIN ${esc(e.tin)}${e.brn ? ` · SSM ${esc(e.brn)}` : ''}${e.sst && e.sst !== 'NA' ? ` · SST ${esc(e.sst)}` : ''}</div>` : ''}</div></div>
+            <div style="text-align:right"><div class="doc-title">${esc(noteName(i))}</div><div class="num muted">${esc(i.no)}</div>${isInvoice(i) ? invPill(st) : ''}</div></div>
+          <div class="doc-meta"><div><div class="faint">Bill to</div><strong>${esc(i.customer)}</strong><div class="muted">${esc(i.email || c?.email || '')}</div>${c ? `<div class="faint" style="font-size:12px">${party(c)}</div><div class="faint" style="font-size:12px">${addr(c.address)}</div>` : ''}</div>
+            <div><div class="faint">Issued</div>${U.fmtDate(i.issue)}</div>${isInvoice(i) ? `<div><div class="faint">Due</div>${U.fmtDate(i.due)}</div>` : `<div><div class="faint">For invoice</div>${orig ? `<button class="link-btn" data-act="fin-view-inv" data-id="${orig.id}">${esc(orig.no)}</button>` : '—'}</div>`}${i.paidOn ? `<div><div class="faint">Paid</div>${U.fmtDate(i.paidOn)}</div>` : ''}</div>
+          ${i.reason ? `<p class="muted"><strong>Reason:</strong> ${esc(i.reason)}</p>` : ''}
           <div class="table-wrap"><table><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead>
             <tbody>${i.items.map((it) => `<tr><td>${esc(it.desc)}</td><td class="r num">${it.qty}</td><td class="r num">${m2(it.price)}</td><td class="r num">${m2(it.qty * it.price)}</td></tr>`).join('')}</tbody></table></div>
-          <div class="doc-totals"><div><span>Subtotal</span><span class="num">${m2(t.sub)}</span></div><div><span>${esc(fin().settings.taxLabel)} ${i.taxRate}%</span><span class="num">${m2(t.tax)}</span></div><div class="grand"><span>Total</span><span class="num">${m2(t.total)}</span></div></div>
-          ${isAuditor() ? '' : `<div class="ci-actions" style="justify-content:flex-end">${st === 'Draft' ? `<button class="btn" data-act="fin-del-inv" data-id="${i.id}">Delete draft</button><button class="btn btn-primary" data-act="fin-send-inv" data-id="${i.id}">Mark as sent</button>` : st !== 'Paid' ? `<button class="btn btn-primary" data-act="fin-pay-inv" data-id="${i.id}">${icon('check')}Record payment today</button>` : ''}</div>`}
+          <div class="doc-totals"><div><span>Subtotal</span><span class="num">${m2(t.sub)}</span></div><div><span>${esc(fin().settings.taxLabel)} ${i.taxRate}%</span><span class="num">${m2(t.tax)}</span></div><div class="grand"><span>Total</span><span class="num">${m2(t.total)}</span></div>
+            ${notes.length ? notes.map((n) => `<div><span><button class="link-btn" data-act="fin-view-inv" data-id="${n.id}">${esc(noteName(n))} ${esc(n.no)}</button></span><span class="num">${n.type === 'debit' ? '+' : '−'}${m2(invoiceTotals(n).total)}</span></div>`).join('') + `<div class="grand"><span>${st === 'Paid' ? 'Paid' : 'Still owed'}</span><span class="num">${m2(t.balance)}</span></div>` : ''}</div>
+          ${ctx.einvoice ? ctx.einvoice.panel(i) : ''}
+          ${isAuditor() ? '' : `<div class="ci-actions" style="justify-content:flex-end">${!isInvoice(i) ? '' : st === 'Draft' ? `<button class="btn" data-act="fin-del-inv" data-id="${i.id}">Delete draft</button><button class="btn btn-primary" data-act="fin-send-inv" data-id="${i.id}">Mark as sent</button>` : st !== 'Paid' ? `<button class="btn" data-act="fin-note" data-id="${i.id}" data-v="credit">Credit note</button><button class="btn" data-act="fin-note" data-id="${i.id}" data-v="debit">Debit note</button><button class="btn btn-primary" data-act="fin-pay-inv" data-id="${i.id}">${icon('check')}Record payment today</button>` : `<button class="btn" data-act="fin-note" data-id="${i.id}" data-v="refund">Refund note</button>`}</div>`}
         </div>`,
+      });
+    }
+    // Credit and debit notes change what an unpaid invoice is owed; a refund note on a paid invoice pays money back.
+    function noteModal(id, type) {
+      const inv = fin().invoices.find((x) => x.id === id), t = invoiceTotals(inv), label = noteName({ type });
+      const max = type === 'refund' ? r2(t.balance - (inv.refunded || 0)) : type === 'credit' ? t.balance : Infinity;
+      openModal({
+        title: `${label} for ${inv.no}`, size: 'sm', submit: `Issue ${label.toLowerCase()}`,
+        body: `<p class="muted" style="margin-bottom:10px">${type === 'debit' ? `Adds to what ${esc(inv.customer)} owes, for example for work not on the invoice.` : type === 'credit' ? `Reduces what ${esc(inv.customer)} owes on ${esc(inv.no)} (${m2(t.balance)} now).` : `Records money paid back to ${esc(inv.customer)} on the paid invoice ${esc(inv.no)}.`}</p>
+          <div class="form-grid"><div class="field full"><label for="nt-desc">Description</label><input class="input" id="nt-desc" name="desc" required value="${esc(type === 'debit' ? 'Additional ' : 'Adjustment to ')}${esc(inv.items[0].desc)}"></div>
+          <div class="field"><label for="nt-amt">Amount before ${esc(fin().settings.taxLabel)}</label><input class="input num" id="nt-amt" name="amount" type="number" min="0.01" step="0.01" required></div>
+          <div class="field"><label for="nt-date">Date</label><input class="input" id="nt-date" name="issue" type="date" required value="${T()}" max="${T()}"></div>
+          <div class="field full"><label for="nt-reason">Reason</label><input class="input" id="nt-reason" name="reason" required placeholder="${type === 'credit' ? 'Two seats cancelled in October' : type === 'debit' ? 'Extra onboarding session' : 'Refund for cancelled seats'}"></div></div>
+          <p class="faint">${esc(fin().settings.taxLabel)} ${inv.taxRate}% is added, as on the invoice.</p>`,
+        onSubmit(d) {
+          const amount = r2(+d.amount), tax = r2((amount * inv.taxRate) / 100), total = r2(amount + tax);
+          if (!(amount > 0)) { toast('Enter an amount above zero', 'error'); return false; }
+          if (total > max + 0.005) { toast(`That’s more than the ${m2(max)} ${type === 'refund' ? 'paid and not yet refunded' : 'still owed'}`, 'error'); return false; }
+          const pre = { credit: 'CN', debit: 'DN', refund: 'RN' }[type], mk = d.issue.slice(0, 7).replace('-', '');
+          const n = fin().invoices.filter((x) => x.no.startsWith(`${pre}-${mk}`)).length + 1;
+          const note = { id: U.uid('i'), type, ref: inv.id, no: `${pre}-${mk}-${U.pad(n)}`, customer: inv.customer, contactId: inv.contactId || '', email: inv.email, issue: d.issue, due: d.issue, items: [{ desc: d.desc.trim(), qty: 1, price: amount, classification: inv.items[0].classification || '022' }], taxRate: inv.taxRate, status: 'Issued', paidOn: '', reason: d.reason.trim(), einvoice: { status: 'Draft' } };
+          fin().invoices.push(note);
+          if (type === 'credit') inv.adjust = r2((inv.adjust || 0) - total);
+          if (type === 'debit') inv.adjust = r2((inv.adjust || 0) + total);
+          if (type === 'refund') {
+            inv.refunded = r2((inv.refunded || 0) + total);
+            // Money back to the customer: negative income in the month of the refund, with its tax.
+            fin().txns.push({ id: U.uid('x'), date: d.issue, desc: `Refund to ${inv.customer}`, type: 'in', category: /service|implement|consult/i.test(inv.items[0].desc) ? 'Services' : 'Subscriptions', amount: -amount, tax: -tax, ref: note.no, source: 'invoice', reconciled: false });
+          }
+          commit(`${label} ${note.no} issued`, `${label} ${note.no} issued to ${inv.customer} for ${money(total)}`);
+          setTimeout(() => viewInvoice(note.id), 50);
+        },
       });
     }
 
@@ -434,7 +486,7 @@ window.AllurusFinance = (function () {
           <div class="toolbar"><div class="seg">${['all', 'Unpaid', 'Overdue', 'Paid'].map((s) => `<button data-act="fin-bill-filter" data-v="${s}" class="${fui.bill === s ? 'on' : ''}">${s === 'all' ? 'All' : s}</button>`).join('')}</div></div>
           <div class="table-wrap"><table>
             <thead><tr><th>Supplier</th><th class="hide-sm">Reference</th><th class="hide-sm">Category</th><th>Due</th><th class="r">Amount</th><th>Status</th><th></th></tr></thead>
-            <tbody>${list.map((b) => `<tr><td>${esc(b.supplier)}</td><td class="hide-sm muted num">${esc(b.ref)}</td><td class="hide-sm">${esc(b.category)}</td>
+            <tbody>${list.map((b) => `<tr><td>${esc(b.supplier)}${b.selfBilled ? `<div><button class="link-btn" data-act="einv-bill" data-id="${b.id}"><span class="tag info">Self-billed</span></button> ${ctx.einvoice ? ctx.einvoice.pill(b.einvoice) : ''}</div>` : ''}</td><td class="hide-sm muted num">${esc(b.ref)}</td><td class="hide-sm">${esc(b.category)}</td>
               <td class="muted num">${U.fmtDate(b.due, { month: 'short', day: 'numeric' })}</td><td class="r num">${m2(b.amount + b.tax)}</td><td>${billPill(b.st)}</td>
               <td><div class="row-actions">${isAuditor() || b.status === 'Paid' ? (b.paidOn ? `<span class="faint num">Paid ${U.fmtDate(b.paidOn, { month: 'short', day: 'numeric' })}</span>` : '') : `<button class="btn btn-sm btn-ok" data-act="fin-pay-bill" data-id="${b.id}">Pay today</button><button class="btn btn-sm btn-icon btn-ghost" data-act="fin-del-bill" data-id="${b.id}" aria-label="Delete bill">${icon('trash')}</button>`}</div></td></tr>`).join('')}</tbody>
           </table>${list.length ? '' : '<div class="empty"><strong>No bills here</strong></div>'}</div>
@@ -446,7 +498,7 @@ window.AllurusFinance = (function () {
       openModal({
         title: 'Add bill', size: 'sm', submit: 'Add bill',
         body: `<div class="form-grid">
-          <div class="field full"><label for="bl-sup">Supplier</label><input class="input" id="bl-sup" name="supplier" required></div>
+          <div class="field full"><label for="bl-sup">Supplier</label><input class="input" id="bl-sup" name="supplier" required list="sup-list"><datalist id="sup-list">${(fin().contacts || []).filter((c) => c.kind === 'supplier').map((c) => `<option value="${esc(c.name)}">`).join('')}</datalist></div>
           <div class="field"><label for="bl-ref">Supplier’s reference</label><input class="input" id="bl-ref" name="ref" required></div>
           <div class="field"><label for="bl-cat">Category</label><select class="select" id="bl-cat" name="category">${EXPENSE_CATS.filter((c) => c !== 'Payroll').map((c) => `<option>${c}</option>`).join('')}</select></div>
           <div class="field"><label for="bl-issue">Bill date</label><input class="input" id="bl-issue" name="issue" type="date" required value="${T()}"></div>
@@ -454,12 +506,17 @@ window.AllurusFinance = (function () {
           <div class="field"><label for="bl-amt">Amount before tax</label><input class="input num" id="bl-amt" name="amount" type="number" min="0.01" step="0.01" required></div>
           <div class="field"><label for="bl-tax">${esc(label)}</label><select class="select" id="bl-tax" name="taxRate"><option value="0">No ${esc(label)}</option><option value="${rate}">${rate}%</option></select></div>
           <div class="field full"><label for="bl-desc">What is it for?</label><input class="input" id="bl-desc" name="desc" placeholder="Google Ads campaign, office rental, aircond servicing"></div>
+          <label class="check field full"><input type="checkbox" name="selfBilled"><span>Self-billed: we issue the e-Invoice for this supplier (for example a freelancer, an agent or a foreign supplier)</span></label>
           ${window.AllurusTax.formFields()}</div>`,
         onSubmit(d) {
           const amount = r2(Number(d.amount));
           if (!(amount > 0)) { toast('Enter an amount above zero', 'error'); return false; }
           const extra = window.AllurusTax.readForm(d, `${d.supplier} ${d.desc}`);
-          fin().bills.push({ id: U.uid('b'), supplier: d.supplier.trim(), ref: d.ref.trim(), category: d.category, issue: d.issue, due: d.due, amount, tax: r2((amount * Number(d.taxRate)) / 100), status: 'Unpaid', paidOn: '', note: (d.desc || '').trim(), ...extra });
+          const sup = (fin().contacts || []).find((c) => c.kind === 'supplier' && c.name.toLowerCase() === d.supplier.trim().toLowerCase());
+          const self = d.selfBilled === 'on';
+          const nb = { id: U.uid('b'), supplier: sup?.name || d.supplier.trim(), contactId: sup?.id || '', ref: d.ref.trim(), category: d.category, issue: d.issue, due: d.due, amount, tax: r2((amount * Number(d.taxRate)) / 100), status: 'Unpaid', paidOn: '', note: (d.desc || '').trim(), ...extra, ...(self ? { selfBilled: true, selfNo: `SBI-${d.issue.slice(0, 7).replace('-', '')}-${U.pad(fin().bills.filter((x) => x.selfBilled && x.issue.slice(0, 7) === d.issue.slice(0, 7)).length + 1)}`, einvoice: { status: 'Draft' } } : {}) };
+          fin().bills.push(nb);
+          if (self) setTimeout(() => ctx.ACTIONS['einv-bill']?.(nb.id), 60);
           commit('Bill added', `Bill from ${d.supplier.trim()} added, ${money(amount)}`);
         },
       });
@@ -649,14 +706,17 @@ window.AllurusFinance = (function () {
         ...allTxns(fin(), pay()).filter((t) => fui.month === 'all' || t.date.startsWith(fui.month)).map((t) => [t.date, t.desc, t.ref, SOURCE[t.source], t.category, t.type === 'in' ? 'In' : 'Out', t.amount, t.tax, r2(t.amount + t.tax), t.reconciled ? 'Yes' : 'No'])]),
       'fin-new-inv': () => invoiceModal(),
       'fin-view-inv': (id) => viewInvoice(id),
+      'fin-note': (id, v) => noteModal(id, v),
       'fin-inv-filter': (_, v) => { fui.inv = v; ctx.render(); },
       'fin-send-inv': (id) => { const i = fin().invoices.find((x) => x.id === id); i.status = 'Sent'; closeOverlay(); commit(`${i.no} marked as sent`, `Invoice ${i.no} sent to ${i.customer}`); },
       'fin-del-inv': (id) => { const i = fin().invoices.find((x) => x.id === id); fin().invoices = fin().invoices.filter((x) => x.id !== id); closeOverlay(); commit(`${i.no} deleted`); },
       'fin-pay-inv': (id) => {
         const i = fin().invoices.find((x) => x.id === id), t = invoiceTotals(i);
+        // After credit or debit notes the payment is the balance, split between amount and tax in proportion.
+        const k = t.total ? t.balance / t.total : 1, tax = r2(t.tax * k);
         i.status = 'Paid'; i.paidOn = T();
-        fin().txns.push({ id: U.uid('x'), date: T(), desc: `Payment from ${i.customer}`, type: 'in', category: /service|implement|consult/i.test(i.items[0].desc) ? 'Services' : 'Subscriptions', amount: t.sub, tax: t.tax, ref: i.no, source: 'invoice', reconciled: false });
-        closeOverlay(); commit(`${money(t.total)} received from ${i.customer}`, `Payment of ${money(t.total)} received for ${i.no}`);
+        fin().txns.push({ id: U.uid('x'), date: T(), desc: `Payment from ${i.customer}`, type: 'in', category: /service|implement|consult/i.test(i.items[0].desc) ? 'Services' : 'Subscriptions', amount: r2(t.balance - tax), tax, ref: i.no, source: 'invoice', reconciled: false });
+        closeOverlay(); commit(`${money(t.balance)} received from ${i.customer}`, `Payment of ${money(t.balance)} received for ${i.no}`);
       },
       'fin-new-bill': () => billModal(),
       'fin-bill-filter': (_, v) => { fui.bill = v; ctx.render(); },
@@ -705,5 +765,5 @@ window.AllurusFinance = (function () {
     return { badge };
   }
 
-  return { blank, seed, install, compute, allTxns, invoiceTotals, INCOME_CATS, EXPENSE_CATS };
+  return { blank, seed, install, compute, allTxns, invoiceTotals, isInvoice, INCOME_CATS, EXPENSE_CATS };
 })();

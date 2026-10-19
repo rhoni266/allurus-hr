@@ -553,6 +553,56 @@ window.AllurusSeed = {
       { email: 'emp@allurus.com', name: 'Daniel Reyes', hash: '3d18388e7dd6f616a46254f4c8eb14b0aaeca178e246cd9832d4785daa11b7c9', roles: ['employee'], tenantId: 't1', empId: 'e2' },
     ];
     const finance = AllurusFinance.seed({ employees, payroll, today: T, customers: platform.tenants.filter((t) => t.id !== 't1').map((t) => ({ name: t.name, email: t.admin })) });
+    // e-Invoice: the company's details, customers and suppliers with TIN, ID and address, and invoices at every
+    // stage (validated, one still cancellable, one rejected, drafts), a credit note and a self-billed bill.
+    settings.einvoice = { tin: 'C25845632000', brn: '202101023456', sst: 'W10-2108-32000187', ttx: 'NA', msic: '62010', activity: 'Computer programming activities (HR software as a service)', phone: '+60 9-859 2210', email: 'finance@allurus.com', env: 'sandbox',
+      address: { line1: 'Lot 7, Jalan Kampung Tengah', line2: 'Kawasan Perindustrian Chukai', line3: '', city: 'Kemaman', postcode: '24000', state: '13', country: 'MYS' } };
+    const PLACES = [['Jalan Tun Ismail', 'Kuantan', '25000', '06'], ['Jalan Ampang', 'Kuala Lumpur', '50450', '14'], ['Persiaran Kayangan', 'Shah Alam', '40000', '10'], ['Jalan Sultan Ismail', 'Kuala Terengganu', '20200', '13'], ['Lebuh Farquhar', 'George Town', '10200', '07'], ['Jalan Wong Ah Fook', 'Johor Bahru', '80000', '01'], ['Jalan Tun Razak', 'Kuala Lumpur', '50400', '14']];
+    const custNames = [...new Set(finance.invoices.map((i) => i.customer))];
+    const contacts = custNames.map((name, i) => {
+      const [street, city, postcode, state] = PLACES[i % PLACES.length], email = finance.invoices.find((x) => x.customer === name)?.email || '';
+      const c = { id: `ct-c${i + 1}`, kind: 'customer', name: `${name} Sdn Bhd`, tin: `C${String(2190000000 + i * 7340117).slice(0, 10)}0`, idType: 'BRN', idNo: `20${15 + (i % 9)}01${String(100000 + i * 37211).slice(0, 6)}`, sst: i % 3 === 0 ? `W10-${1800 + i}-3200${String(i).padStart(4, '0')}` : 'NA', email, phone: `+60 ${3 + (i % 7)}-${String(2000 + i * 131).slice(-4)} ${String(5000 + i * 271).slice(-4)}`, contactName: ['Siti Rahman', 'Lim Wei Jie', 'Arjun Pillai', 'Nur Aisyah', 'Tan Chee Keong', 'Farid Hakim'][i % 6], address: { line1: `${12 + i * 3}, ${street}`, line2: '', line3: '', city, postcode, state, country: 'MYS' } };
+      // One customer still missing details, to show the e-Invoice check.
+      if (name === 'Vela Fintech') Object.assign(c, { tin: '', idNo: '', address: { ...c.address, postcode: '', state: '' } });
+      return c;
+    });
+    contacts.push(
+      { id: 'ct-s1', kind: 'supplier', name: 'Menara Kuantan Properties Sdn Bhd', tin: 'C10293847560', idType: 'BRN', idNo: '199801012345', sst: 'NA', email: 'accounts@menarakuantan.my', phone: '+60 9-513 2200', contactName: 'Mohd Azlan', address: { line1: 'Menara Kuantan, Jalan Teluk Sisek', line2: '', line3: '', city: 'Kuantan', postcode: '25000', state: '06', country: 'MYS' } },
+      { id: 'ct-s2', kind: 'supplier', name: 'Tenaga Nasional Berhad', tin: 'C10012345670', idType: 'BRN', idNo: '199001009294', sst: 'NA', email: 'customer@tnb.com.my', phone: '+60 15-4600 1300', contactName: '', address: { line1: 'No. 129, Jalan Bangsar', line2: '', line3: '', city: 'Kuala Lumpur', postcode: '59200', state: '14', country: 'MYS' } },
+      { id: 'ct-s3', kind: 'supplier', name: 'Google Workspace and AWS', tin: 'EI00000000030', idType: 'BRN', idNo: 'NA', sst: 'NA', email: 'billing@example.com', phone: '+65 6521 8000', contactName: '', address: { line1: '70 Pasir Panjang Road', line2: '', line3: '', city: 'Singapore', postcode: '117371', state: '17', country: 'SGP' } },
+      { id: 'ct-s4', kind: 'supplier', name: 'Kilat Digital Marketing Sdn Bhd', tin: 'C24680135790', idType: 'BRN', idNo: '201901033456', sst: 'B16-1905-32001122', email: 'billing@kilatdigital.my', phone: '+60 3-7931 8800', contactName: 'Jason Lee', address: { line1: 'B-12-3, Menara Uncang Emas', line2: '', line3: '', city: 'Kuala Lumpur', postcode: '50490', state: '14', country: 'MYS' } },
+      { id: 'ct-s5', kind: 'supplier', name: 'Tan & Partners Chartered Accountants', tin: 'D1357924680', idType: 'BRN', idNo: '200503002211', sst: 'NA', email: 'admin@tanpartners.my', phone: '+60 9-622 1188', contactName: 'Tan Mei Ling', address: { line1: '23, Jalan Bukit Kuang', line2: '', line3: '', city: 'Kemaman', postcode: '24000', state: '13', country: 'MYS' } },
+      { id: 'ct-s6', kind: 'supplier', name: 'Ahmad Fauzi bin Hassan', tin: 'IG23456789010', idType: 'NRIC', idNo: '880214065123', sst: 'NA', msic: '00000', activity: 'Freelance photography', email: 'fauzi.lens@gmail.com', phone: '+60 13-922 4410', contactName: '', address: { line1: 'No. 5, Kampung Gelugor', line2: '', line3: '', city: 'Kuantan', postcode: '25150', state: '06', country: 'MYS' } },
+    );
+    const cByName = (n) => contacts.find((c) => c.name === `${n} Sdn Bhd` || c.name === n || c.name.startsWith(n));
+    const uuid = (k, n = 26) => Array.from({ length: n }, (_, i) => 'ABCDEFGHJKMNPQRSTVWXYZ0123456789'[(k * 131 + i * 17 + ((k + i) * (i + 3)) % 29) % 32]).join('');
+    let ek = 0;
+    finance.invoices.forEach((inv) => {
+      const c = cByName(inv.customer);
+      if (c) { inv.customer = c.name; inv.contactId = c.id; }
+      inv.type = 'invoice'; inv.items.forEach((it) => { it.classification = '022'; });
+      if (inv.status === 'Draft' || c?.tin === '') { inv.einvoice = { status: 'Draft' }; return; }
+      const at = `${inv.issue}T${String(9 + (ek % 7)).padStart(2, '0')}:${String((ek * 13) % 60).padStart(2, '0')}:00.000Z`;
+      inv.einvoice = { status: 'Valid', uuid: uuid(++ek), longId: uuid(ek + 500, 40), submissionUid: uuid(ek + 900), submittedAt: at, validatedAt: new Date(Date.parse(at) + 90000).toISOString(), errors: [], simulated: true };
+    });
+    const recent = finance.invoices.filter((i) => i.type === 'invoice' && i.status !== 'Draft' && i.einvoice.status === 'Valid').sort((a, b) => b.issue.localeCompare(a.issue));
+    // The newest is still inside the 72-hour cancellation window; the one before was rejected for a TIN mismatch.
+    if (recent[0]) Object.assign(recent[0].einvoice, { submittedAt: `${U.addDays(T, -1)}T07:20:00.000Z`, validatedAt: `${U.addDays(T, -1)}T07:21:30.000Z` });
+    if (recent[1]) recent[1].einvoice = { status: 'Rejected', uuid: '', longId: '', submissionUid: uuid(77), submittedAt: `${recent[1].issue}T08:05:00.000Z`, validatedAt: '', errors: [{ code: 'CF321', message: 'Buyer TIN and registration number do not match LHDN records (simulated).' }], simulated: true };
+    // A credit note: two seats cancelled on an unpaid invoice.
+    const open = finance.invoices.filter((i) => i.type === 'invoice' && i.status === 'Sent' && i.einvoice.status === 'Valid').sort((a, b) => a.issue.localeCompare(b.issue))[0];
+    if (open) {
+      const cnDay = U.addDays(T, -6), sub = 1900, tax = Math.round(sub * open.taxRate) / 100;
+      finance.invoices.push({ id: 'cn1', type: 'credit', ref: open.id, no: `CN-${cnDay.slice(0, 7).replace('-', '')}-01`, customer: open.customer, contactId: open.contactId, email: open.email, issue: cnDay, due: cnDay, items: [{ desc: 'Two seats cancelled from 1 October', qty: 2, price: 950, classification: '022' }], taxRate: open.taxRate, status: 'Issued', paidOn: '', reason: 'Two seats cancelled from 1 October',
+        einvoice: { status: 'Valid', uuid: uuid(301), longId: uuid(302, 40), submissionUid: uuid(303), submittedAt: `${cnDay}T03:10:00.000Z`, validatedAt: `${cnDay}T03:11:20.000Z`, errors: [], simulated: true } });
+      open.adjust = -Math.round((sub + tax) * 100) / 100;
+    }
+    finance.bills.forEach((b) => { const c = contacts.find((x) => x.kind === 'supplier' && (x.name === b.supplier || x.name.startsWith(b.supplier))); if (c) { b.supplier = c.name; b.contactId = c.id; } });
+    // A self-billed purchase from a freelancer, already validated.
+    const sbDay = U.addDays(T, -9);
+    finance.bills.push({ id: 'bsb1', supplier: 'Ahmad Fauzi bin Hassan', contactId: 'ct-s6', ref: 'AF-OCT-01', category: 'Marketing', issue: sbDay, due: U.addDays(sbDay, 14), amount: 1200, tax: 0, status: 'Unpaid', paidOn: '', note: 'Product photography for the website', selfBilled: true, selfNo: `SBI-${sbDay.slice(0, 7).replace('-', '')}-01`,
+      einvoice: { status: 'Valid', uuid: uuid(401), longId: uuid(402, 40), submissionUid: uuid(403), submittedAt: `${sbDay}T02:00:00.000Z`, validatedAt: `${sbDay}T02:01:10.000Z`, errors: [], simulated: true } });
+    finance.contacts = contacts;
     const reliefs = AllurusTax.seedReliefs(T);
     // Claims: the standard categories plus a taxable wellness benefit. Claims already reimbursed through payroll
     // show on those payslips and in the books under their GL category.

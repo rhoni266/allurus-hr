@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.0';
+  const APP_VERSION = '3.1';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   const STORE_KEY = 'allurus-hr-v7';
   const esc = U.esc;
@@ -47,6 +47,7 @@
     });
     if (!s.finance) s.finance = AllurusFinance.blank();
     Object.values(s.workspaces || {}).forEach((w) => { if (!w.finance) w.finance = AllurusFinance.blank(); });
+    [s, ...Object.values(s.workspaces || {})].forEach(migrateEInvoice);
     s.reliefs = s.reliefs || {}; s.taxProfiles = s.taxProfiles || {};
     [s, ...Object.values(s.workspaces || {})].forEach((w) => { w.claims = w.claims || []; w.plans = w.plans || {}; });
     return s;
@@ -116,6 +117,21 @@
       ['education', 'employment'].forEach((k) => { e[k] = e[k] || []; });
       if (!e.career) e.career = e.start ? [{ id: 'cr-' + e.id, date: e.start, type: 'joined', to: e.role, note: (ws.departments || []).find((d) => d.id === e.dept)?.name || '' }] : [];
     });
+  }
+  // e-Invoice: company details, customers and suppliers from the names already on invoices and bills, and an
+  // e-Invoice status on every invoice, note and self-billed bill.
+  function migrateEInvoice(ws) {
+    if (!ws.settings || !ws.finance) return;
+    ws.settings.einvoice = ws.settings.einvoice || AllurusEInvoice.blankCompany(ws.settings);
+    const f = ws.finance;
+    f.contacts = f.contacts || [];
+    const add = (kind, name, email = '') => {
+      if (!name || f.contacts.some((c) => c.kind === kind && c.name === name)) return;
+      f.contacts.push({ id: 'ct-' + kind[0] + '-' + name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), kind, name, tin: '', idType: 'BRN', idNo: '', sst: 'NA', email, phone: '', contactName: '', address: { line1: '', line2: '', line3: '', city: '', postcode: '', state: '', country: 'MYS' } });
+    };
+    f.invoices.forEach((i) => { i.type = i.type || 'invoice'; i.einvoice = i.einvoice || { status: 'Draft' }; if ((i.type === 'invoice')) add('customer', i.customer, i.email); i.items.forEach((it) => { it.classification = it.classification || '022'; }); });
+    f.bills.forEach((b) => { add('supplier', b.supplier); if (b.selfBilled) b.einvoice = b.einvoice || { status: 'Draft' }; });
+    [...f.invoices, ...f.bills].forEach((r) => { if (!r.contactId) { const c = f.contacts.find((x) => x.name === (r.customer || r.supplier)); if (c) r.contactId = c.id; } });
   }
   // A new company has no check-in point until the admin sets one. Until then check-ins are blocked
   // and Settings shows a warning. The city centre is only used to centre the map picker.
@@ -366,6 +382,7 @@
     { id: 'books', label: 'Bookkeeping', icon: 'book', group: 'Finance & Accounting' },
     { id: 'invoices', label: 'Invoices', icon: 'doc', group: 'Finance & Accounting' },
     { id: 'bills', label: 'Bills', icon: 'receipt', group: 'Finance & Accounting' },
+    { id: 'contacts', label: 'Customers & suppliers', icon: 'building', group: 'Finance & Accounting' },
     { id: 'payroll', label: 'Payroll', icon: 'wallet', group: 'Finance & Accounting' },
     { id: 'claims', label: 'Claims', icon: 'receipt', group: 'Finance & Accounting' },
     { id: 'budget', label: 'Budget', icon: 'target', group: 'Finance & Accounting' },
@@ -442,7 +459,7 @@
   const VIEWS = {};
   const AFTER = {};
   const ACTIONS_EXTRA = {};
-  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null, appraisalApi = null, hrApi = null, costingApi = null;
+  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null, appraisalApi = null, hrApi = null, costingApi = null, einvApi = null;
   let clockTimer = null;
 
   // ---------- Automated insights (what needs attention, trends and wellbeing nudges) ----------
@@ -518,6 +535,7 @@
     if (appraisalApi) out.push(...appraisalApi.insights());
     if (hrApi) out.push(...hrApi.insights());
     if (costingApi) out.push(...costingApi.insights());
+    if (einvApi) out.push(...einvApi.insights());
     return out.sort((a, b) => b.prio - a.prio);
   }
   const actionLink = (a, cls = 'btn btn-sm') => a.href ? `<a class="${cls}" href="${a.href}">${esc(a.label)}</a>` : `<button type="button" class="${cls}" data-act="${a.act}" ${a.id ? `data-id="${a.id}"` : ''} ${a.v ? `data-v="${a.v}"` : ''}>${esc(a.label)}</button>`;
@@ -1230,7 +1248,7 @@
         </div>
       </div>
       ${AllurusUX.appearanceCard()}
-      ${s.currency === 'MYR' ? statutoryCard(s) + docsApi.settingsCard() : ''}
+      ${s.currency === 'MYR' ? statutoryCard(s) + docsApi.settingsCard() + einvApi.settingsCard() : ''}
       ${leaveApi.settingsCards()}
       ${timeApi.settingsCards()}
       ${claimsApi.settingsCards()}
@@ -1265,6 +1283,7 @@
     docsApi.bindSettings();
     appraisalApi.bindSettings();
     hrApi.bindSettings();
+    einvApi.bindSettings();
     claimsApi.bindSettings();
     kioskApi.bindSettings();
     bind('#s-company', 'company'); bind('#s-currency', 'currency'); bind('#s-office', 'office'); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
@@ -2394,7 +2413,7 @@
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
     downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
     save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
-    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
+    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, get einvoice() { return einvApi; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
   };
   AllurusUX.install(moduleCtx);
   finApi = AllurusFinance.install(moduleCtx);
@@ -2407,6 +2426,7 @@
   notifyApi = AllurusNotify.install(moduleCtx);
   hrApi = AllurusHR.install(moduleCtx);
   AllurusReports.install(moduleCtx);
+  einvApi = AllurusEInvoice.install(moduleCtx);
   costingApi = AllurusCosting.install(moduleCtx);
   appraisalApi = AllurusAppraisal.install(moduleCtx);
   kioskApi = AllurusKiosk.install(moduleCtx, { write: writeCheckin, zone, deviceId, deviceName, squareCanvas, nowHM, isField, selfieThumb, cloudWrite: (p, d) => cloudWrite(p, d), cloudOn: () => !!cloud.db });

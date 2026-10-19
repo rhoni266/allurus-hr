@@ -128,6 +128,18 @@ Try it: sign in as admin and open the bell (statutory deadlines, CP22/CP22A, app
 
 The rules (messages, preferences, delivery and reminders) are in `js/notify-rules.js` (no DOM), with tests in `tests/notify.test.js`.
 
+## e-Invoice (LHDN MyInvois), ready to connect
+
+- **Company details** (Settings → e-Invoice): TIN, BRN/SSM, SST and tourism tax numbers, MSIC code and business activity, phone and email, and the registered address in structured fields (lines, postcode, city, state code, country). A badge shows what is still missing.
+- **Customers and suppliers** (Finance → Customers & suppliers): registered name, TIN, ID type (BRN, MyKad, passport, army ID) and number, SST, structured address, contact person, phone and email. Wrong formats are refused; missing e-Invoice details are allowed but flagged. Foreign buyers and suppliers use LHDN's general TINs (shown on the form). Existing invoice customers and bill suppliers became contacts in the migration.
+- **Document types**: invoices, credit notes and debit notes (which change what an unpaid invoice is owed) and refund notes (money paid back on a paid invoice, posted to the books as negative income). Bills can be marked **self-billed**, so the company issues the e-Invoice with the vendor as supplier (self-billed invoice, type 11).
+- **Builder**: `AllurusEInvoiceRules.build()` maps an invoice, note or self-billed bill into the MyInvois JSON document (UBL 2.1: parties with TIN, BRN, SST and TTX, addresses, tax totals, lines with classification and unit codes, billing reference for notes). Line taxes always add up to the document tax.
+- **Check before submitting**: each invoice has an e-Invoice panel. *Check and view JSON* lists every missing mandatory field by section (document, lines, supplier, buyer) with a link to fix it, plus warnings (for example an issue date more than 72 hours ago), and lets you download the JSON.
+- **Statuses ready for the API**: Draft (not submitted), Submitted, Valid, Rejected (with LHDN's error codes) and Cancelled, with the UUID, submission ID, long ID, times and the validation-link placeholder. A valid e-Invoice can be cancelled only within 72 hours of validation; after that the app points to a credit note.
+- **Integration stub**: `AllurusMyInvois.submitToMyInvois(doc)` in `js/myinvois.js` does not call LHDN. It explains what a server needs and documents the OAuth 2.0 client-credentials sign-in, document signing (version 1.1), submission, polling, document details and cancellation. A server plugs in through `AllurusMyInvois.transport`. Until then the demo can simulate a valid or rejected answer; simulated documents are labelled Demo.
+
+The rules are in `js/einvoice-rules.js` (no DOM), with tests in `tests/einvoice.test.js` (builder output for every seeded invoice, the credit note and the self-billed bill; missing fields; the cancellation window). **The code lists (document types, states, tax types, classifications, general TINs), the document structure and the validation-link pattern carry `FORMAT: verify against the LHDN MyInvois SDK` comments. Check them at sdk.myinvois.hasil.gov.my before going live.** Digital signatures and the client secret belong on a server, never in the browser.
+
 ## Reports and project costing
 
 - **HR reports** (Insights → HR reports): a library of ready reports, each with a date range (plus quick picks), department and employee filters, a table with totals, a chart in the app's style, and CSV or print (save as PDF):
@@ -338,7 +350,7 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 index.html          App shell: sign-in screen, sidebar, top bar
 brand.html          Brand kit: logo, palette, type, usage rules
 design-system.html  Live tokens and components
-tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules, notifications, appraisals, HR admin, reports, project costing
+tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules, notifications, appraisals, HR admin, reports, project costing, e-Invoice
 css/styles.css      Design tokens (light and dark) and all components
 js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
 js/seed.js          Demo data: the Lumen & Co. workspace and 14 subscribed companies
@@ -356,6 +368,9 @@ sw.js               Service worker: keeps a copy of the app so check-in opens of
 js/notify-rules.js  Notification rules (no DOM): messages, preferences, delivery, daily reminders
 js/notify.js        Bell and list, email outbox and provider hook, browser notifications, reminders run, announcements
 js/appraisal-rules.js  Appraisal rules (no DOM): weighted scores, grade bands, flow, 360° summary, goals, pay changes
+js/einvoice-rules.js e-Invoice rules (no DOM): document types and codes, MyInvois JSON builder, validation, statuses, 72-hour window
+js/myinvois.js      MyInvois integration stub (submitToMyInvois) with the server-side OAuth and submission notes
+js/einvoice.js      e-Invoice company settings, customers and suppliers, invoice and self-billed bill e-Invoice panels
 js/report-rules.js  Report aggregations (no DOM): headcount, turnover, payroll variance, statutory totals, custom report engine
 js/costing-rules.js Project costing maths (no DOM): job tree, splitting check-in time, timesheets, hourly labour cost, roll-ups
 js/reports.js       HR reports library and custom report writer

@@ -1388,3 +1388,24 @@ kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; 
 }
 .cs-table td.num { white-space: nowrap; }
 @media (max-width: 640px) { .rp-filters .rp-quick { flex-basis: 100%; } .rp-filters .rp-quick .seg { width: 100%; } .rp-filters .rp-quick .seg button { flex: 1; } }
+
+/* ---------- e-Invoice ---------- */
+.einv-panel { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); display: flex; flex-direction: column; gap: 8px; }
+.einv-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.einv-head > div { flex: 1; min-width: 0; }
+.einv-kv { margin: 0; font-size: 13px; }
+.einv-kv dd { word-break: break-all; }
+.einv-link { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--fg-2); }
+.einv-errors { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.einv-actions { justify-content: flex-start; flex-wrap: wrap; }
+.einv-sec { margin: 14px 0 6px; }
+.einv-sec-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.einv-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; }
+.einv-list li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.einv-list li .faint { text-align: right; }
+.einv-json { margin-top: 14px; }
+.einv-json summary { cursor: pointer; font-weight: 600; font-size: 13.5px; }
+.einv-json pre { margin: 8px 0 0; max-height: 320px; overflow: auto; padding: 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line); font-size: 11.5px; line-height: 1.45; white-space: pre; }
+.einv-json pre:focus-visible { outline: 2px solid var(--brand); }
+@media (max-width: 640px) { .einv-list li { flex-direction: column; gap: 2px; } .einv-list li .faint { text-align: left; } }
+.inv-no { white-space: nowrap; }
