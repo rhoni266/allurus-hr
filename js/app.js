@@ -331,7 +331,7 @@
     }
     if (r === 'employee') {
       const e = me(), rec = myRecord(T);
-      if (!U.isWeekend(T) && rec?.s !== 'leave' && !rec?.in) add('warn', 'camera', h < 12 ? 'Ready to start your day?' : 'You haven’t checked in today', `Check in within ${zone().radius} m of ${zone().label} with a selfie.`, { label: 'Check in', act: 'check-in', v: 'present' }, 4);
+      if (!U.isWeekend(T) && rec?.s !== 'leave' && !rec?.in) add('warn', 'camera', h < 12 ? 'Ready to start your day?' : 'You haven’t checked in today', (isField(me()) ? 'Check in from wherever you are, with a selfie.' : `Check in within ${zone().radius} m of ${zone().label} with a selfie.`), { label: 'Check in', act: 'check-in', v: 'present' }, 4);
       else if (rec?.in && !rec.out && h >= 17) add('info', 'clock', 'Don’t forget to check out', `You’ve been in since ${rec.lastIn || rec.in}.`, { label: 'Check out', act: 'check-out' }, 3);
       let streak = 0, d = rec?.in ? T : U.addDays(T, -1);
       for (let i = 0; i < 90; i++) {
@@ -992,6 +992,7 @@
           <p class="field-hint">Tap the map to drop the pin, then drag it to fine-tune. The circle shows the radius.</p>
         </div>
         <div class="settings-row"><div><div class="label"><label for="z-radius">Radius</label></div><div class="desc">How close employees must be, in meters. Default is 50 m. GPS readings get up to ${U.GPS_SLACK_M} m of leeway.</div></div><input class="input num" id="z-radius" type="number" min="10" max="5000" step="5" value="${z.radius}" style="width:100px"></div>
+        <div class="settings-row"><div><div class="label">Field staff</div><div class="desc">${(c.field || []).length ? `${(c.field || []).map((id) => emp(id)).filter(Boolean).map((e) => esc(fullName(e))).join(', ')} can check in from anywhere, with a selfie.` : 'Nobody yet.'} Change this on each person’s profile under Employees.</div></div></div>
         <div class="settings-row"><div><div class="label">Staff phones</div><div class="desc">In this demo every browser keeps its own copy of the settings. Send staff this link once so their phone uses this exact check-in point.</div></div><button class="btn" data-act="zone-link" ${set ? '' : 'disabled'}>Copy setup link</button></div>`;
   }
   // Save a new check-in point without re-rendering the page, and keep the field, link and map in sync.
@@ -1074,6 +1075,7 @@
     const c = state.settings.checkin;
     if (c.setAt && c.setAt >= t) { toast('This phone already has the latest check-in point.', 'info'); return; }
     Object.assign(c, { lat: p.lat, lng: p.lng, radius: Math.min(5000, Math.max(10, Number(q.get('r')) || 50)), label: q.get('label') || c.label, setAt: t || Date.now() });
+    if (q.has('field')) c.field = (q.get('field') || '').split(',').filter((id) => state.employees.some((e) => e.id === id));
     save(); render();
     toast(`Check-in point updated: ${c.label}, ${c.radius} m`);
   }
@@ -1393,7 +1395,7 @@
         title: birthday ? `Happy birthday, ${esc(e.first)}!` : greeting(e.first),
         sub: `${esc(e.role)} · ${esc(dept(e.dept)?.name || '')}. ${birthday ? 'Everyone at ' + esc(state.settings.company) + ' wishes you a great day.' : dayNote()}`,
         actions: `<button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button>`,
-        side: `<div class="clock-box"><div class="kpi-label">${icon('clock')}Time clock</div><div class="kpi-value clock-time" id="live-clock">${nowHM()}</div>${clock}<div class="kpi-foot">${U.isWeekend(T) ? 'It’s the weekend. Check-ins still count. ' : ''}Within ${zone().radius} m of ${esc(zone().label)}, with a selfie.${phoneStatus(me()) ? ` ${phoneStatus(me())}` : ''}</div></div>`,
+        side: `<div class="clock-box"><div class="kpi-label">${icon('clock')}Time clock</div><div class="kpi-value clock-time" id="live-clock">${nowHM()}</div>${clock}<div class="kpi-foot">${U.isWeekend(T) ? 'It’s the weekend. Check-ins still count. ' : ''}${isField(me()) ? 'Field staff: check in from anywhere, with a selfie.' : `Within ${zone().radius} m of ${esc(zone().label)}, with a selfie.`}${phoneStatus(me()) ? ` ${phoneStatus(me())}` : ''}</div></div>`,
         focus: focus.filter((f) => f.action.act !== 'check-in'), calm: 'Nothing needs you right now. Have a good day.' }) },
       { id: 'setup', title: 'Getting started', span: 12, fixed: true, render: () => AllurusUX.setupCard() },
       { id: 'kpis', title: 'My numbers', span: 12, render: () => `<div class="grid g-4 keep-2">
@@ -1654,6 +1656,10 @@
   const faceOn = () => zone().faceCheck !== false;
   const liveOnly = () => zone().liveOnly !== false;
   const mapsLink = (p) => `https://www.google.com/maps?q=${p.lat},${p.lng}`;
+  // Field staff (for example sales) may check in from anywhere. Only an admin can grant it, per person.
+  // The selfie, face check and phone lock still apply; only the location rule is lifted.
+  // Stored on the check-in settings so the setup link carries it to staff phones.
+  const isField = (e) => !!e && (state.settings.checkin.field || []).includes(e.id);
   const ciStep = (html) => { const b = $('#ci-body'); if (b) b.innerHTML = html; return !!b; };
   const ciProblem = (title, text, extra = '', buttons) => ciStep(`<div class="ci-problem">${icon('pin')}<div><strong>${title}</strong><p class="muted">${text}</p>${extra}</div></div>
     <div class="ci-actions">${buttons || '<button class="btn" data-act="close-overlay">Cancel</button><button class="btn btn-primary" data-act="ci-retry">Try again</button>'}</div>`);
@@ -1716,6 +1722,14 @@
   }
   async function ciLocate() {
     const z = zone();
+    if (isField(me())) {
+      ciStep(`<div class="ci-status"><span class="spinner" aria-hidden="true"></span><div><strong>Noting where you are</strong><p class="muted">You can check in from anywhere. Your location is saved with the check-in if your phone shares it.</p></div></div>`);
+      const loc = await U.locate({ gpsOnly: true });
+      if (!$('#ci-body')) return;
+      ci.loc = { ...(loc || { lat: null, lng: null, accuracy: null }), field: true, inside: true, m: loc && z.source === 'checkin' ? U.checkZone(loc, z).m : null };
+      ciSelfie();
+      return;
+    }
     // Never guess: without a check-in point set by HR there is nothing to measure against.
     if (z.source !== 'checkin') {
       ciProblem('Your admin hasn’t set a check-in location yet', `Ask HR to set the check-in point in Settings, then send you the setup link. ${esc(state.settings.company)} check-ins open once it’s set.`);
@@ -1745,6 +1759,7 @@
   }
   function ciWhere() {
     const z = zone(), L = ci.loc;
+    if (L.field) return `<div class="ci-where ok">${icon('pin')}<span>Field check-in · ${L.lat != null ? `location saved (±${L.accuracy} m)` : 'location not shared'}</span></div>`;
     return `<div class="ci-where ${L.inside ? 'ok' : ''}">${icon(L.inside ? 'check' : 'pin')}<span>${L.inside ? `Inside the check-in zone · ${U.fmtDist(L.m)} from ${esc(z.label)}` : `Remote · ${U.fmtDist(L.m)} from ${esc(z.label)}`}</span></div>`;
   }
   async function ciSelfie() {
@@ -1831,7 +1846,9 @@
     const L = ci.loc, T = U.today(), t = nowHM(), z = zone(), e = me();
     if (!L || !ci.photo) return;
     state.attendance[T] = state.attendance[T] || {};
-    const loc = { lat: L.lat, lng: L.lng, accuracy: L.accuracy, label: L.label, source: 'gps', m: L.m, inside: L.inside, zone: z.label, radius: z.radius, zoneAt: { lat: z.lat, lng: z.lng, source: z.source } };
+    const loc = L.field
+      ? { lat: L.lat, lng: L.lng, accuracy: L.accuracy, source: L.lat != null ? 'gps' : 'none', field: true, m: L.m, zone: z.label }
+      : { lat: L.lat, lng: L.lng, accuracy: L.accuracy, label: L.label, source: 'gps', m: L.m, inside: L.inside, zone: z.label, radius: z.radius, zoneAt: { lat: z.lat, lng: z.lng, source: z.source } };
     const face = ci.face ? { result: ci.face.result, sim: ci.face.sim ?? null } : null;
     const device = { id: deviceId(), name: deviceName() };
     if (ci.first && lockOn()) {
@@ -1850,13 +1867,14 @@
       state.attendance[T][e.id] = { s: ci.mode, in: t, out: '', ...extra };
     }
     pruneSelfies();
-    cloudWrite('checkins', { company: state.settings.company, employee: fullName(e), mode: ci.mode, time: new Date().toISOString(), label: `${U.fmtDist(L.m)} from ${z.label}`, source: 'gps', lat: L.lat, lng: L.lng, accuracy: L.accuracy });
+    const where = L.field ? (L.m != null ? `field · ${U.fmtDist(L.m)} from ${z.label}` : 'field') : `${U.fmtDist(L.m)} from ${z.label}`;
+    cloudWrite('checkins', { company: state.settings.company, employee: fullName(e), mode: ci.mode, time: new Date().toISOString(), label: where, source: loc.source, lat: L.lat, lng: L.lng, accuracy: L.accuracy });
     const tn = currentTenant(); if (tn) tn.lastActive = T;
     closeOverlay();
     const flagged = face && ['mismatch', 'unavailable'].includes(face.result);
     if (!flagged) setTimeout(() => AllurusUX.celebrate(), 150);
     commit(flagged ? `Checked in at ${t}. HR will review your selfie.` : `Checked in at ${t}`,
-      `${fullName(e)} checked in${ci.mode === 'remote' ? ' remotely' : ''} with a selfie, ${U.fmtDist(L.m)} from ${z.label}${face?.result === 'mismatch' ? '. The face did not match.' : ''}`);
+      `${fullName(e)} checked in${ci.mode === 'remote' ? ' remotely' : ''} with a selfie, ${where}${face?.result === 'mismatch' ? '. The face did not match.' : ''}`);
   }
   // Selfies are kept for 30 days so browser storage does not fill up.
   function pruneSelfies() {
@@ -1913,6 +1931,7 @@
   }
   const locText = (loc) => {
     if (!loc) return '';
+    if (loc.field) return loc.lat != null ? `Field check-in · GPS ±${loc.accuracy} m${loc.m != null ? ` · ${U.fmtDist(loc.m)} from ${loc.zone || 'check-in point'}` : ''}` : 'Field check-in · location not shared';
     if (loc.m != null) return `${loc.inside ? 'Inside zone' : 'Outside zone'} · ${U.fmtDist(loc.m)} from ${loc.zone || 'check-in point'} · GPS ±${loc.accuracy} m`;
     const how = loc.source === 'gps' ? `GPS ±${loc.accuracy < 1000 ? loc.accuracy + ' m' : (loc.accuracy / 1000).toFixed(1) + ' km'}` : 'approx. from time zone';
     return `${loc.label} (${how})`;
@@ -1920,7 +1939,11 @@
   const selfieThumb = (empId, day, r) => (r?.photo ? `<button class="selfie-thumb" data-act="view-selfie" data-id="${empId}" data-v="${day}" aria-label="View selfie"><img src="${r.photo}" alt=""></button>` : '');
   function securitySection(e) {
     const devs = e.devices || [];
-    return `<div class="drawer-section"><h4>Check-in identity</h4>
+    const field = isField(e);
+    return `<div class="drawer-section"><h4>Check-in location</h4>
+      <div class="settings-row" style="padding:0"><div><div class="label">Check in from anywhere</div><div class="desc">For field staff such as sales. The selfie and face check still apply; only the location rule is lifted.</div></div>
+        <div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="field-toggle" data-id="${e.id}" data-v="${v}" class="${(field ? 'on' : 'off') === v ? 'on' : ''}" ${role() === 'admin' ? '' : 'disabled'}>${l}</button>`).join('')}</div></div></div>
+      <div class="drawer-section"><h4>Check-in identity</h4>
       <div style="display:flex;gap:14px;align-items:center">${e.face ? `<img class="ref-thumb lg" src="${e.face.photo}" alt="Reference photo of ${esc(fullName(e))}">` : `<span class="ref-thumb lg empty">${icon('camera')}</span>`}
         <div style="flex:1;min-width:0"><div class="person-name">${e.face ? (e.face.status === 'confirmed' ? 'Reference photo confirmed' : 'Reference photo waiting for HR') : 'No reference photo yet'}</div>
           <div class="person-sub" style="white-space:normal">${e.face ? `Set on ${U.fmtDate(e.face.enrolledOn)}, with consent.` : 'Taken at their first check-in, after they agree.'}</div>
@@ -1983,6 +2006,16 @@
     'dev-remove': (empId, devId) => { const e = emp(empId); e.devices = (e.devices || []).filter((x) => x.id !== devId); commit(`Phone removed from ${e.first}`, `A phone was removed from ${fullName(e)}’s check-in`); openProfile(empId); },
     'face-confirm': (empId) => { const e = emp(empId); e.face.status = 'confirmed'; e.face.confirmedOn = U.today(); commit(`Reference photo confirmed for ${e.first}`, `${fullName(e)}’s reference photo was confirmed`); if ($('.drawer')) openProfile(empId); },
     'face-reset': (empId) => { const e = emp(empId); delete e.face; commit(`${e.first} will set a new reference photo at the next check-in`, `${fullName(e)}’s reference photo was reset`); if ($('.drawer')) openProfile(empId); },
+    'field-toggle': (empId, v) => {
+      if (role() !== 'admin') { toast('Only an admin can change this.', 'error'); return; }
+      const e = emp(empId); if (!e) return;
+      const c = state.settings.checkin, list = new Set(c.field || []);
+      if (v === 'on') list.add(empId); else list.delete(empId);
+      c.field = [...list]; c.setAt = Date.now();
+      commit(v === 'on' ? `${e.first} can now check in from anywhere. Send staff the updated setup link.` : `${e.first} must check in at ${zone().label} again. Send staff the updated setup link.`,
+        `${fullName(e)} ${v === 'on' ? 'can now check in from anywhere (field staff)' : 'was set back to check in at the office'}`);
+      if ($('.drawer')) openProfile(empId);
+    },
     'sec-toggle': (key, v) => {
       state.settings.checkin[key] = v === 'on';
       const label = { deviceLock: 'Phone lock', faceCheck: 'Face check', liveOnly: 'Live camera only' }[key];
@@ -2003,7 +2036,7 @@
     'zone-link': () => {
       const z = zone();
       if (z.source !== 'checkin') { toast('Set the check-in point first.', 'error'); return; }
-      const q = new URLSearchParams({ co: state.settings.company, lat: z.lat, lng: z.lng, r: z.radius, label: z.label, t: z.setAt || Date.now() });
+      const q = new URLSearchParams({ co: state.settings.company, lat: z.lat, lng: z.lng, r: z.radius, label: z.label, field: (state.settings.checkin.field || []).join(','), t: z.setAt || Date.now() });
       const url = `${location.origin}${location.pathname}#setup?${q}`;
       const done = () => toast('Setup link copied. Send it to staff to open once on their phone.');
       (navigator.clipboard?.writeText(url) || Promise.reject()).then(done, () => openModal({ title: 'Setup link for staff phones', size: 'sm', submit: null, body: `<p class="muted" style="margin-bottom:10px">Copy this link and send it to staff. Opening it once makes their phone use this check-in point.</p><textarea class="textarea" readonly style="width:100%;min-height:110px" onfocus="this.select()">${esc(url)}</textarea>` }));

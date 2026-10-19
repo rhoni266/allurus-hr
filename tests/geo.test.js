@@ -143,3 +143,12 @@ test('other companies are left alone, and with no point set the zone is not a re
   assert.equal(U.applyPublishedZone(s, PUB), false);
   assert.notEqual(U.resolveZone(s).source, 'checkin', 'unset zone must not be treated as configured (check-in is blocked)');
 });
+
+test('the published field-staff list reaches phones with an older copy, but not newer ones', () => {
+  const pub = { ...PUB, field: ['e6'] };
+  const old = OLD_SEED(); U.applyPublishedZone(old.settings || old, pub);
+  assert.deepEqual([...old.checkin.field], ['e6']);
+  const newer = OLD_SEED(); Object.assign(newer.checkin, { field: ['e2'], setAt: PUB.at + 1 });
+  U.applyPublishedZone(newer, pub);
+  assert.deepEqual(newer.checkin.field, ['e2']);
+});

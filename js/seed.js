@@ -3,13 +3,13 @@ window.AllurusSeed = {
   // The company's check-in point as published with the app. Every browser keeps its own copy of the
   // settings (localStorage), so this is the only value an employee's phone sees until HR sends a setup
   // link. When HR moves the check-in point, update these numbers and bump `at` so phones pick it up.
-  published: { company: 'Allurus', label: 'Allurus HQ', lat: 4.238203, lng: 103.419428, radius: 50, at: Date.UTC(2026, 9, 19, 1, 0) },
+  published: { company: 'Allurus', label: 'Allurus HQ', lat: 4.238203, lng: 103.419428, radius: 50, field: [], at: Date.UTC(2026, 9, 19, 1, 0) },
   create() {
     const r = U.rng(42);
     const T = U.today();
     // Check-in zone: employees must be inside this circle (radius in meters) and take a selfie.
     const P = AllurusSeed.published;
-    const checkin = { label: P.label, lat: P.lat, lng: P.lng, radius: P.radius, remote: false, setAt: P.at };
+    const checkin = { label: P.label, lat: P.lat, lng: P.lng, radius: P.radius, remote: false, field: [...P.field], setAt: P.at };
     const settings = { company: 'Allurus', domain: 'allurus.com', currency: 'MYR', office: 'Kuantan', checkin, taxRate: 8, benefitsRate: 11.7, annualDays: 20, sickDays: 10, theme: 'system', statutory: { ...U.STATUTORY }, claims: AllurusClaims.policyDefaults() };
 
     const departments = [

@@ -203,6 +203,7 @@ window.U = (function () {
     const c = settings.checkin || (settings.checkin = {});
     if (hasCoords(c) && c.setAt && c.setAt >= pub.at) return false;
     Object.assign(c, { label: c.setAt ? c.label || pub.label : pub.label, lat: pub.lat, lng: pub.lng, radius: pub.radius || c.radius || 50, setAt: pub.at });
+    if (Array.isArray(pub.field)) c.field = [...pub.field];
     return true;
   }
   // Distance from a GPS position to the zone centre, and whether it counts as inside.
