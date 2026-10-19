@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2.5';
+  const APP_VERSION = '2.6';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   const STORE_KEY = 'allurus-hr-v7';
   const esc = U.esc;
@@ -30,6 +30,11 @@
     [s, ...Object.values(s.workspaces || {})].forEach(migrateTime);
     [s, ...Object.values(s.workspaces || {})].forEach(migrateStatutory);
     [s, ...Object.values(s.workspaces || {})].forEach(migrateClaims);
+    [s, ...Object.values(s.workspaces || {})].forEach((w) => {
+      const c = w.settings?.checkin; if (!c) return;
+      c.kiosks = c.kiosks || []; if (c.supervisor === undefined) c.supervisor = true; c.projects = c.projects || 'off';
+      w.projects = w.projects || [];
+    });
     if (!s.finance) s.finance = AllurusFinance.blank();
     Object.values(s.workspaces || {}).forEach((w) => { if (!w.finance) w.finance = AllurusFinance.blank(); });
     s.reliefs = s.reliefs || {}; s.taxProfiles = s.taxProfiles || {};
@@ -343,6 +348,8 @@
     applyTheme();
     // Rest days follow the company's leave settings (Friday–Saturday in Kedah, Kelantan and Terengganu).
     if (state.settings.leave) U.setWeekend(AllurusLeaveRules.weekendDays(state.settings.leave));
+    // A device set up as a check-in kiosk shows only the kiosk, signed in or not.
+    if (kioskApi?.kioskOn()) { kioskApi.renderKiosk(); return; }
     const signedIn = !!role();
     $('#login').hidden = signedIn;
     $('.app').hidden = !signedIn;
@@ -366,7 +373,7 @@
   const VIEWS = {};
   const AFTER = {};
   const ACTIONS_EXTRA = {};
-  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null;
+  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null;
   let clockTimer = null;
 
   // ---------- Automated insights (what needs attention, trends and wellbeing nudges) ----------
@@ -778,7 +785,7 @@
           <thead><tr><th>Employee</th><th class="hide-sm">Shift</th><th>Check-in</th><th class="hide-sm">Location</th><th>Status</th></tr></thead>
           <tbody>${people.map((e) => { const r = rec[e.id], tc = timeApi.attCells(e, day); return `<tr>
             <td>${person(e)}</td><td class="hide-sm">${tc.shift}</td>
-            <td class="num muted"><span class="att-time">${r?.in || '—'}${r?.out ? '–' + r.out : ''}<button class="btn btn-sm btn-icon btn-ghost" data-act="tm-edit" data-id="${e.id}" data-v="${day}" title="Edit times${tc.history ? ` (${tc.history} change${tc.history === 1 ? '' : 's'})` : ''}" aria-label="Edit times for ${esc(fullName(e))}">${icon('edit')}${tc.history ? '<i class="att-edited" aria-hidden="true"></i>' : ''}</button></span>${r?.history?.length ? `<div class="faint" style="font-size:12px">${r.history.length + 1} check-ins</div>` : ''}${tc.tags ? `<div class="tm-tags">${tc.tags}</div>` : ''}${r?.face ? `<div style="margin-top:3px">${faceTag(r)}</div>` : ''}</td>
+            <td class="num muted"><span class="att-time">${r?.in || '—'}${r?.out ? '–' + r.out : ''}<button class="btn btn-sm btn-icon btn-ghost" data-act="tm-edit" data-id="${e.id}" data-v="${day}" title="Edit times${tc.history ? ` (${tc.history} change${tc.history === 1 ? '' : 's'})` : ''}" aria-label="Edit times for ${esc(fullName(e))}">${icon('edit')}${tc.history ? '<i class="att-edited" aria-hidden="true"></i>' : ''}</button></span>${r?.history?.length ? `<div class="faint" style="font-size:12px">${r.history.length + 1} check-ins</div>` : ''}${r && (r.via === 'kiosk' || r.via === 'supervisor' || r.offline || r.project || r.flags?.length) ? `<div class="tm-tags">${r.via === 'kiosk' ? '<span class="tag">Kiosk</span>' : r.via === 'supervisor' ? `<span class="tag" title="Checked in by a supervisor">By ${esc(emp(r.by)?.first || 'supervisor')}</span>` : ''}${r.offline ? `<span class="tag ${r.syncedAt ? '' : 'warn'}" title="${r.syncedAt ? 'Synced ' + new Date(r.syncedAt).toLocaleString('en-MY') : 'Waiting to sync'}">Captured offline</span>` : ''}${r.flags?.length && !r.reviewed ? '<span class="tag bad" title="Location looks unusual">GPS check</span>' : ''}${kioskApi.projectTag(r)}</div>` : ''}${tc.tags ? `<div class="tm-tags">${tc.tags}</div>` : ''}${r?.face ? `<div style="margin-top:3px">${faceTag(r)}</div>` : ''}</td>
             <td class="hide-sm muted" style="font-size:12.5px;max-width:300px"><div class="loc-cell">${selfieThumb(e.id, day, r)}<span>${r?.loc ? esc(locText(r.loc)) : '—'}</span></div></td>
             <td><div class="att-controls"><div class="seg status" role="group" aria-label="Status for ${esc(fullName(e))}">${opts.map(([v, l]) => `<button data-act="att-set" data-id="${e.id}" data-v="${v}" class="${r?.s === v ? 'on' : ''}">${l}</button>`).join('')}</div>${r ? `<button class="btn btn-sm btn-icon btn-ghost" data-act="att-clear" data-id="${e.id}" title="Clear check-in" aria-label="Clear check-in for ${esc(fullName(e))}">${icon('x')}</button>` : ''}</div></td></tr>`; }).join('')}</tbody>
         </table></div>
@@ -1185,6 +1192,7 @@
            ['faceCheck', 'Face check', 'Compares each selfie with the person’s reference photo, on their phone. Asks for consent first.'],
            ['liveOnly', 'Live camera only', 'Blocks uploading a saved photo instead of taking a selfie.']].map(([k, label, desc]) => `<div class="settings-row"><div><div class="label">${label}</div><div class="desc">${desc}</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="sec-toggle" data-id="${k}" data-v="${v}" class="${(s.checkin[k] !== false ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`).join('')}
       </div>
+      ${kioskApi.settingsCard()}
       <div class="card"><div class="card-head"><h3>Brand</h3><a class="hint" href="brand.html">Open brand kit</a></div>
         <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">${LOGO_FULL}<div class="chips">${[['Allurus Teal', '#0F766E'], ['Champagne', '#D9B66F'], ['Obsidian', '#16181D'], ['Mist', '#F5F5F7']].map(([n, c]) => `<span class="chip" style="cursor:default"><i style="width:14px;height:14px;border-radius:50%;background:${c};border:1px solid var(--line-strong)"></i>${n}<span class="n">${c}</span></span>`).join('')}</div></div>
       </div>
@@ -1203,6 +1211,7 @@
     timeApi.bindSettings();
     docsApi.bindSettings();
     claimsApi.bindSettings();
+    kioskApi.bindSettings();
     bind('#s-company', 'company'); bind('#s-currency', 'currency'); bind('#s-office', 'office'); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
     $$('[data-stat]').forEach((el) => el.addEventListener('change', () => { state.settings.statutory = { ...U.statutory(state.settings), [el.dataset.stat]: Math.min(20, Math.max(0, Number(el.value) || 0)) }; commit('Statutory rates saved'); }));
   };
@@ -1458,7 +1467,7 @@
         title: birthday ? `Happy birthday, ${esc(e.first)}!` : greeting(e.first),
         sub: `${esc(e.role)} · ${esc(dept(e.dept)?.name || '')}. ${birthday ? 'Everyone at ' + esc(state.settings.company) + ' wishes you a great day.' : dayNote()}`,
         actions: `<button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button>`,
-        side: `<div class="clock-box"><div class="kpi-label">${icon('clock')}Time clock</div><div class="kpi-value clock-time" id="live-clock">${nowHM()}</div>${clock}<div class="kpi-foot">${U.isWeekend(T) ? 'It’s the weekend. Check-ins still count. ' : ''}${isField(me()) ? 'Field staff: check in from anywhere, with a selfie.' : `Within ${zone().radius} m of ${esc(zone().label)}, with a selfie.`}${phoneStatus(me()) ? ` ${phoneStatus(me())}` : ''}${timeApi.todayShift(e) ? `<div class="clock-shift">${esc(timeApi.todayShift(e))}</div>` : ''}</div></div>`,
+        side: `<div class="clock-box"><div class="kpi-label">${icon('clock')}Time clock</div><div class="kpi-value clock-time" id="live-clock">${nowHM()}</div>${clock}<div class="kpi-foot">${U.isWeekend(T) ? 'It’s the weekend. Check-ins still count. ' : ''}${isField(me()) ? 'Field staff: check in from anywhere, with a selfie.' : `Within ${zone().radius} m of ${esc(zone().label)}, with a selfie.`}${phoneStatus(me()) ? ` ${phoneStatus(me())}` : ''}${timeApi.todayShift(e) ? `<div class="clock-shift">${esc(timeApi.todayShift(e))}</div>` : ''}${kioskApi.syncBanner(e.id)}${kioskApi.isSupervisor(e) ? `<button class="btn btn-sm" data-act="sv-open" style="margin-top:10px">${icon('people')}Check in a team member</button>` : ''}</div></div>`,
         focus: focus.filter((f) => f.action.act !== 'check-in'), calm: 'Nothing needs you right now. Have a good day.' }) },
       { id: 'setup', title: 'Getting started', span: 12, fixed: true, render: () => AllurusUX.setupCard() },
       { id: 'kpis', title: 'My numbers', span: 12, render: () => `<div class="grid g-4 keep-2">
@@ -1504,7 +1513,8 @@
     const pill = { present: '<span class="pill ok">In office</span>', remote: '<span class="pill info">Remote</span>', absent: '<span class="pill bad">Absent</span>', leave: '<span class="pill gold">Leave</span>' };
     return `
       <div class="page-head"><div><h1>My attendance</h1><p class="sub">Your shifts, check-ins and overtime. Days without a check-out count as 8 hours.</p></div>
-        <div class="actions"><button class="btn" data-act="tm-request">${icon('plus')}New request</button><a class="btn btn-primary" href="#home">${icon('clock')}Open time clock</a></div></div>
+        <div class="actions">${kioskApi.isSupervisor(e) ? `<button class="btn" data-act="sv-open">${icon('people')}Check in a team member</button>` : ''}<button class="btn" data-act="tm-request">${icon('plus')}New request</button><a class="btn btn-primary" href="#home">${icon('clock')}Open time clock</a></div></div>
+      ${kioskApi.syncBanner(e.id)}
       <div class="grid g-4 keep-2">
         <div class="card kpi"><div class="kpi-label">Days worked</div><div class="kpi-value">${c.present + c.remote}</div><div class="kpi-foot">${c.remote} remote · last ${days.length} workdays</div></div>
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--bad)"></span>Late this month</div><div class="kpi-value">${m.late.days}</div><div class="kpi-foot">${m.late.min ? `${m.late.min} minutes in all` : 'On time every day'}</div></div>
@@ -1588,7 +1598,7 @@
   };
 
   // ---------- Workspaces (one per company) ----------
-  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory'];
+  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects'];
   function switchWorkspace(tid) {
     if (tid === state.session.tenantId) return;
     const cur = {}; WS_KEYS.forEach((k) => { cur[k] = state[k]; });
@@ -1618,11 +1628,11 @@
       reviews: [{ id: 'r1', empId: 'e1', cycle: 'H2 ' + U.today().slice(0, 4), status: 'Not started', rating: 0, progress: 0, notes: '' }],
       activity: [{ t: Date.now(), text: `${d.name} joined Allurus on the ${plan(d.plan).name} plan` }],
       finance: AllurusFinance.blank({ taxLabel: d.currency === 'MYR' ? 'SST' : 'Sales tax' }),
-      claims: [], plans: {}, leaveCarry: {}, leaveCredits: [], rosters: {}, timeRequests: [], attAudit: [], statutory: { filed: {}, eaIssued: {}, formEFiled: {} },
+      claims: [], plans: {}, leaveCarry: {}, leaveCredits: [], rosters: {}, timeRequests: [], attAudit: [], statutory: { filed: {}, eaIssued: {}, formEFiled: {} }, projects: [],
     };
     if (withSamples) {
       const team = base.employees.slice(1).map((e) => ({ ...e, email: `${e.first}.${e.last}`.toLowerCase() + '@' + domain, location: d.city }));
-      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, finance: base.finance, claims: base.claims, leaveCarry: base.leaveCarry, leaveCredits: base.leaveCredits, rosters: base.rosters, timeRequests: base.timeRequests, attAudit: [], statutory: base.statutory });
+      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, finance: base.finance, claims: base.claims, leaveCarry: base.leaveCarry, leaveCredits: base.leaveCredits, rosters: base.rosters, timeRequests: base.timeRequests, attAudit: [], statutory: base.statutory, projects: base.projects });
       ws.reviews[0] = { ...ws.reviews[0], empId: 'e1' };
     }
     ws.settings.leave = AllurusLeaveRules.defaultSettings({ state: d.currency === 'MYR' ? (AllurusLeaveRules.CITY_STATE[d.city] || '') : '', departments: ws.departments, hr: 'e1' });
@@ -1786,6 +1796,7 @@
       const loc = await U.locate({ gpsOnly: true });
       if (!$('#ci-body')) return;
       ci.loc = { ...(loc || { lat: null, lng: null, accuracy: null }), field: true, inside: true, m: loc && z.source === 'checkin' ? U.checkZone(loc, z).m : null };
+      ci.loc.flags = kioskApi.gpsCheck(me(), ci.loc);
       ciSelfie();
       return;
     }
@@ -1804,6 +1815,8 @@
     const { m, inside } = U.checkZone(loc, z);
     loc.m = m;
     loc.inside = inside;
+    // Fake-GPS heuristics flag the check-in for HR; they never block it.
+    loc.flags = kioskApi.gpsCheck(me(), loc);
     ci.loc = loc;
     if (ci.mode === 'present' && !loc.inside) {
       ciProblem(`You are ${U.fmtDist(m)} from ${esc(z.label)}`, `Move inside the ${z.radius} m check-in zone and try again. Your GPS accuracy is ±${loc.accuracy} m.`,
@@ -1898,13 +1911,33 @@
   };
   function ciReview() {
     const f = ci.face;
-    ciStep(`${ciWhere()}${f ? FACE_NOTE[f.result](f) : ''}<div class="ci-cam"><img class="ci-photo" src="${ci.photo}" alt="Your selfie"></div>
+    ciStep(`${ciWhere()}${f ? FACE_NOTE[f.result](f) : ''}${ci.loc?.flags?.length ? `<div class="ci-where">${icon('pin')}<span>HR will double-check this location.</span></div>` : ''}${navigator.onLine === false ? `<div class="ci-where">${icon('clock')}<span>You’re offline. The check-in is saved on this phone and syncs later.</span></div>` : ''}<div class="ci-cam"><img class="ci-photo" src="${ci.photo}" alt="Your selfie"></div>
+      ${kioskApi.projectField('ci-project', myRecord(U.today())?.project || '')}
       <div class="ci-actions"><button class="btn" data-act="ci-retake">Retake</button><button class="btn btn-primary" data-act="ci-confirm">${icon('check')}${f?.result === 'mismatch' ? 'Check in for HR review' : `Check in at ${nowHM()}`}</button></div>`);
+  }
+  // Saves a check-in for e today: a new record, or a new session after a check-out (the first check-in time is
+  // kept so hours still count from it, and the earlier session goes into the day's history). Used by the
+  // employee's own check-in, the kiosk and supervisor check-in.
+  function writeCheckin(e, { mode = 'present', time, photo, loc, face = null, device, upload = false, via = 'self', by = '', project = '', flags = [], offline = false }) {
+    const T = U.today();
+    state.attendance[T] = state.attendance[T] || {};
+    const extra = { photo, loc, face, device, upload, via, by, project, flags, offline, reviewed: null, syncedAt: '' };
+    const prev = state.attendance[T][e.id];
+    if (prev?.in && prev.out) {
+      prev.history = [...(prev.history || []), { in: prev.lastIn || prev.in, out: prev.out, photo: prev.photo, loc: prev.loc, face: prev.face, via: prev.via, project: prev.project }];
+      Object.assign(prev, { s: mode, out: '', lastIn: time, ...extra });
+    } else {
+      state.attendance[T][e.id] = { s: mode, in: time, out: '', ...extra };
+    }
+    pruneSelfies();
+    const tn = currentTenant(); if (tn) tn.lastActive = T;
+    return state.attendance[T][e.id];
   }
   function ciConfirm() {
     const L = ci.loc, T = U.today(), t = nowHM(), z = zone(), e = me();
     if (!L || !ci.photo) return;
-    state.attendance[T] = state.attendance[T] || {};
+    const project = kioskApi.pickedProject('ci-project');
+    if (project === false) return;
     const loc = L.field
       ? { lat: L.lat, lng: L.lng, accuracy: L.accuracy, source: L.lat != null ? 'gps' : 'none', field: true, m: L.m, zone: z.label }
       : { lat: L.lat, lng: L.lng, accuracy: L.accuracy, label: L.label, source: 'gps', m: L.m, inside: L.inside, zone: z.label, radius: z.radius, zoneAt: { lat: z.lat, lng: z.lng, source: z.source } };
@@ -1915,24 +1948,16 @@
       log(`${fullName(e)} registered a phone for check-in (${device.name})`);
     }
     if (ci.face?.result === 'enrolled') e.face = { photo: ci.photo, descriptor: ci.face.descriptor, status: 'pending', enrolledOn: T, consentOn: T };
-    const extra = { photo: ci.photo, loc, face, device, upload: ci.upload };
-    const prev = state.attendance[T][e.id];
-    if (prev?.in && prev.out) {
-      // Checking in again after a check-out: keep the first check-in time so hours still count from it,
-      // and keep the earlier session (with its selfie) in the day's history.
-      prev.history = [...(prev.history || []), { in: prev.lastIn || prev.in, out: prev.out, photo: prev.photo, loc: prev.loc, face: prev.face }];
-      Object.assign(prev, { s: ci.mode, out: '', lastIn: t, ...extra });
-    } else {
-      state.attendance[T][e.id] = { s: ci.mode, in: t, out: '', ...extra };
-    }
-    pruneSelfies();
+    const offline = navigator.onLine === false;
+    const rec = writeCheckin(e, { mode: ci.mode, time: t, photo: ci.photo, loc, face, device, upload: ci.upload, via: 'self', project, flags: L.flags || [], offline });
     const where = L.field ? (L.m != null ? `field · ${U.fmtDist(L.m)} from ${z.label}` : 'field') : `${U.fmtDist(L.m)} from ${z.label}`;
-    cloudWrite('checkins', { company: state.settings.company, employee: fullName(e), mode: ci.mode, time: new Date().toISOString(), label: where, source: loc.source, lat: L.lat, lng: L.lng, accuracy: L.accuracy });
-    const tn = currentTenant(); if (tn) tn.lastActive = T;
+    // Every check-in goes through the outbox, so one taken offline reaches the server when the phone reconnects.
+    kioskApi.rememberFix(L);
+    kioskApi.queue(e, T, rec, 'self');
     closeOverlay();
     const flagged = face && ['mismatch', 'unavailable'].includes(face.result);
     if (!flagged) setTimeout(() => AllurusUX.celebrate(), 150);
-    commit(flagged ? `Checked in at ${t}. HR will review your selfie.` : `Checked in at ${t}`,
+    commit(offline ? `Checked in at ${t}, captured offline. It syncs when you’re back online.` : flagged ? `Checked in at ${t}. HR will review your selfie.` : `Checked in at ${t}`,
       `${fullName(e)} checked in${ci.mode === 'remote' ? ' remotely' : ''} with a selfie, ${where}${face?.result === 'mismatch' ? '. The face did not match.' : ''}`);
   }
   // Selfies are kept for 30 days so browser storage does not fill up.
@@ -1958,18 +1983,18 @@
       (e.devices || []).filter((d) => d.status === 'pending').forEach((d) => devices.push({ e, d }));
       if (e.face?.status === 'pending') faces.push(e);
     });
-    return { devices, faces, count: devices.length + faces.length };
+    const flagged = kioskApi ? kioskApi.flagged() : [];
+    return { devices, faces, flagged, count: devices.length + faces.length + flagged.length };
   }
   function securityCard() {
-    const q = securityQueue(), T = U.today();
-    const flagged = activeEmployees().map((e) => ({ e, r: state.attendance[T]?.[e.id] })).filter((x) => x.r && (['mismatch', 'unavailable'].includes(x.r.face?.result) || x.r.upload));
-    if (!q.count && !flagged.length) return '';
-    return `<div class="card"><div class="card-head"><h3>Phones and faces to review</h3><span class="hint">${q.count + flagged.length} items</span></div><div class="list">
+    const q = securityQueue();
+    if (!q.count) return '';
+    return `<div class="card" id="sec-review"><div class="card-head"><h3>Check-ins, phones and faces to review</h3><span class="hint">${q.count} items</span></div><div class="list">
       ${q.faces.map((e) => `<div class="list-item"><img class="ref-thumb" src="${e.face.photo}" alt="Reference photo of ${esc(fullName(e))}"><div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">New reference photo from ${U.fmtDate(e.face.enrolledOn)}. Is this really ${esc(e.first)}?</div></div>
         <button class="btn btn-sm btn-ok" data-act="face-confirm" data-id="${e.id}">${icon('check')}It’s ${esc(e.first)}</button><button class="btn btn-sm btn-danger" data-act="face-reset" data-id="${e.id}">Not them</button></div>`).join('')}
       ${q.devices.map(({ e, d }) => `<div class="list-item">${avatar(fullName(e), 'sm')}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">Wants to check in from a new phone: ${esc(d.name)}, requested ${U.fmtDate(d.added)}</div></div>
         <button class="btn btn-sm btn-ok" data-act="dev-approve" data-id="${e.id}" data-v="${d.id}">Approve</button><button class="btn btn-sm btn-danger" data-act="dev-reject" data-id="${e.id}" data-v="${d.id}">Reject</button></div>`).join('')}
-      ${flagged.map(({ e, r }) => `<div class="list-item">${selfieThumb(e.id, T, r)}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">${r.upload ? 'Checked in with an uploaded photo instead of the live camera.' : r.face?.result === 'mismatch' ? 'Checked in today, but the face didn’t match the reference photo.' : 'The face check couldn’t run for today’s check-in.'} Tap the photo to compare.</div></div></div>`).join('')}
+      ${kioskApi.reviewItems()}
     </div></div>`;
   }
   function openSelfie(empId, day) {
@@ -1982,7 +2007,9 @@
         <div class="compare">${ref ? `<figure><img class="ci-photo" src="${ref}" alt="Reference photo of ${esc(fullName(e))}"><figcaption>Reference photo${e.face.status === 'pending' ? ' (not confirmed yet)' : ''}</figcaption></figure>` : ''}
           <figure><img class="ci-photo" src="${r.photo}" alt="Check-in selfie of ${esc(fullName(e))}"><figcaption>Check-in selfie, ${r.lastIn || r.in}</figcaption></figure></div>
         <dl class="kv" style="width:100%"><dt>Face check</dt><dd>${r.face ? `${faceTag(r)} ${r.face.result === 'match' ? 'Matches the reference photo' : r.face.result === 'weak' ? 'Weak match; compare the photos' : r.face.result === 'mismatch' ? 'Did not match after two tries' : r.face.result === 'enrolled' ? 'Became the reference photo' : 'Could not run on the phone'}` : 'Not used'}${r.upload ? ' · uploaded photo, not live camera' : ''}</dd>
-        <dt>Phone</dt><dd>${r.device ? esc(r.device.name) : '—'}</dd>
+        <dt>Phone</dt><dd>${r.device ? esc(r.device.name) : '—'}${r.via && r.via !== 'self' ? ` · ${esc(kioskApi.viaText(r))}` : ''}${r.offline ? ` · captured offline${r.syncedAt ? ', synced' : ', waiting to sync'}` : ''}</dd>
+        ${r.flags?.length ? `<dt>GPS checks</dt><dd>${r.flags.map((f) => esc(f.reason)).join('<br>')}</dd>` : ''}
+        ${r.project && kioskApi.projectOf(r.project) ? `<dt>Project</dt><dd>${esc(kioskApi.projectOf(r.project).code)} · ${esc(kioskApi.projectOf(r.project).name)}</dd>` : ''}
         <dt>Checked in</dt><dd>${r.in}${r.out ? ` · out ${r.out}` : ''}</dd><dt>Location</dt><dd>${r.loc ? esc(locText(r.loc)) : '—'}</dd>
         ${r.loc?.lat != null ? `<dt>Coordinates</dt><dd><a href="${mapsLink(r.loc)}" target="_blank" rel="noopener">${U.fmtCoords(r.loc)}</a></dd>` : ''}
         ${r.history?.length ? `<dt>Earlier today</dt><dd>${r.history.map((h) => `${h.in}–${h.out}`).join(', ')} · latest check-in ${r.lastIn}</dd>` : ''}</dl></div>`,
@@ -2319,7 +2346,7 @@
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
     downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
     save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
-    get leave() { return leaveApi; }, get time() { return timeApi; }, setPayMonth: (mk) => { ui.payMonth = mk; },
+    get leave() { return leaveApi; }, get time() { return timeApi; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
   };
   AllurusUX.install(moduleCtx);
   finApi = AllurusFinance.install(moduleCtx);
@@ -2329,6 +2356,7 @@
   leaveApi = AllurusLeave.install(moduleCtx);
   timeApi = AllurusTime.install(moduleCtx);
   docsApi = AllurusPayDocs.install(moduleCtx);
+  kioskApi = AllurusKiosk.install(moduleCtx, { write: writeCheckin, zone, deviceId, deviceName, squareCanvas, nowHM, isField, selfieThumb, cloudWrite: (p, d) => cloudWrite(p, d), cloudOn: () => !!cloud.db });
   // Approvers see their team's claims under Approvals, after leave and attendance requests.
   const approvalsBase = VIEWS['my-approvals'];
   VIEWS['my-approvals'] = () => approvalsBase() + claimsApi.approvalsCard(me().id);

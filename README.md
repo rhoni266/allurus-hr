@@ -214,7 +214,7 @@ Logging in isn't enough on its own, because people can share passwords. Each che
 - **One phone per person.** An employee's first check-in registers that phone. Checking in from any other phone needs HR approval, so a friend's phone with the right password is blocked. A registered phone can't check in for anyone else.
 - **Face check.** At the first check-in the employee agrees to the face check, and that selfie becomes their reference photo, which HR confirms. Every later selfie is compared with it on the phone using face-api (MIT, `js/vendor/face`). The selfie never leaves the device for this check. A clear mismatch must be retaken; after two tries the check-in is kept but flagged for HR. Selfies with no face, or with two faces, are refused.
 - **Live camera only.** Uploading a saved photo is blocked unless HR turns this off.
-- HR reviews new reference photos, phone requests and flagged check-ins under **Attendance → Phones and faces to review**, with the reference and selfie side by side.
+- HR reviews new reference photos, phone requests and flagged check-ins under **Attendance → Check-ins, phones and faces to review**, with the reference and selfie side by side.
 
 All three can be switched off under **Settings → Check-in location**. Faces are biometric data under Malaysia's PDPA, so the app asks for consent before enrolling a face. A photo or video of the employee held up to the camera can still fool the face check. Stopping that needs a liveness check, such as a server-side service like AWS Rekognition Face Liveness, once there is a backend.
 
@@ -223,6 +223,28 @@ Admins set the zone under **Settings → Check-in location**: paste coordinates 
 GPS and the camera need HTTPS, such as the GitHub Pages site. The claude.ai preview link blocks both, so employees can't check in there.
 
 Clients can **Register company** from the sign-in screen. That creates a new workspace on a 14-day trial, optionally filled with a sample team.
+
+### Fake GPS, offline, kiosk and supervisor check-in
+
+- **Fake-GPS checks** run on the phone at every check-in and flag (never block) a fix that has:
+  - an impossible speed since this phone's last fix (over 300 km/h across more than 2 km);
+  - an accuracy of exactly 0 m, or a whole number of 3 m or less;
+  - coordinates rounded to 4 or fewer decimals;
+  - exactly the same coordinates as on another day;
+  - a device time zone more than 2.5 hours away from what the longitude implies.
+
+  Flagged check-ins go to the review card on Attendance with the reasons; HR clicks **Looks fine** once checked. The thresholds are in `LIMITS` in `js/checkin-rules.js`.
+- **Offline check-in**: every check-in is saved straight away and queued in an outbox on the device (`localStorage`). With no connection it is marked **Captured offline**, and the phone shows how many are waiting. When the phone reconnects (and every 30 seconds) the outbox sends them in order, with a growing wait after failures, and marks them synced. A small service worker (`sw.js`) keeps a copy of the app and the face-check models after the first visit, so the check-in page opens offline. It only runs over HTTPS or on localhost.
+- **Kiosk**: Settings → Kiosks, supervisors and projects → **Make this device a kiosk** turns a tablet into a check-in kiosk.
+  - Staff tap **Check in or out** and look at the camera; the face is matched against every **confirmed** reference photo on the tablet.
+  - The kiosk shows the name with a 3-second countdown and **Not me**, then checks the person in, or out if they're already in. Two people who look too alike, or nobody close enough, means try again.
+  - No password is needed. **Exit kiosk** needs an admin email and password.
+- **Supervisor check-in**: department heads and approvers can **Check in a team member** from Home or My attendance. They take a photo of that person, which is compared with that person's reference photo; the supervisor's GPS and phone are recorded. Only people who already agreed to the face check, on their own phone, can be checked in this way.
+- **Projects and jobs**: an optional or required project picker at check-in (also on the kiosk and supervisor check-in), with projects managed in Settings, for project costing later.
+
+Try it: sign in as admin. On Attendance, Yusuf's check-in is flagged (1 m accuracy and coordinates repeated from an earlier day); Mateo was checked in by Noah, and Mei's was captured offline. In Settings, make this browser a kiosk (exit with `admin@allurus.com` / `1234abcd`). Sign in as Daniel with the network off to see an offline check-in sync when you reconnect.
+
+The rules are in `js/checkin-rules.js` (no DOM), with tests in `tests/checkin.test.js`. The heuristics catch common mock-location apps, not a determined attacker; there is no server yet to send check-ins to, so in the demo "synced" means sent to the shared check-in log (on the published link) or accepted locally.
 
 ## Open it in VS Code for the Web (vscode.dev)
 
@@ -246,7 +268,7 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 index.html          App shell: sign-in screen, sidebar, top bar
 brand.html          Brand kit: logo, palette, type, usage rules
 design-system.html  Live tokens and components
-tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims
+tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules
 css/styles.css      Design tokens (light and dark) and all components
 js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
 js/seed.js          Demo data: the Lumen & Co. workspace and 14 subscribed companies
@@ -258,6 +280,9 @@ js/attendance-rules.js  Time rules (no DOM): patterns, auto-shift, lateness, ove
 js/roster.js        Schedule page, time settings, overtime/waiver/correction requests, audit trail, batch edit, payroll lines
 js/statutory.js     Statutory builders (no DOM): payslip data, KWSP/PERKESO/CP39/HRD files, bank file, EA, Form E, CP8D, CP22/CP22A/CP21, reminders, ID checks
 js/payroll-docs.js  Payroll tabs for statutory files, bank file and year-end; printable payslips and forms
+js/checkin-rules.js Check-in rules (no DOM): fake-GPS heuristics, kiosk face matching, offline outbox sync
+js/kiosk.js         Kiosk tablet, supervisor check-in, offline outbox, projects at check-in, flagged check-in review
+sw.js               Service worker: keeps a copy of the app so check-in opens offline
 js/claims-rules.js  Claims rules (no DOM): categories, mileage, limits, edits, payroll split, GL rows, reports, migration
 js/claims.js        Claims screens: multi-item claims with receipt scanning, approvals, corrections, reports, settings
 js/planner.js       Employee financial planner

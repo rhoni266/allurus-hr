@@ -201,6 +201,27 @@ window.AllurusSeed = {
       L.countDays({ from: l.from, to: l.to }, lctx).dates.forEach((d) => { if (attendance[d]) attendance[d][l.empId] = { s: 'leave', in: '' }; });
     });
 
+    // Projects and jobs staff can pick at check-in (optional), and a few check-ins for HR to look at:
+    // a GPS fix repeated to the last digit, one captured offline and synced, and a supervisor check-in.
+    const projects = [
+      { id: 'pj1', code: 'PRJ-001', name: 'Kerteh plant maintenance system', client: 'Petronas Chemicals', active: true },
+      { id: 'pj2', code: 'PRJ-002', name: 'Kenyir Resorts booking app', client: 'Kenyir Resorts', active: true },
+      { id: 'pj3', code: 'PRJ-003', name: 'MyInvois integration', client: 'Internal', active: true },
+      { id: 'pj4', code: 'OPS', name: 'Office and admin', client: 'Internal', active: true },
+    ];
+    Object.assign(settings.checkin, { kiosks: [], supervisor: true, projects: 'optional' });
+    const P0 = AllurusSeed.published, fixAt = (dLat, dLng) => ({ lat: +(P0.lat + dLat).toFixed(6), lng: +(P0.lng + dLng).toFixed(6) });
+    const zoneLoc = (f, acc, extra = {}) => ({ ...f, accuracy: acc, source: 'gps', m: Math.round(Math.hypot(f.lat - P0.lat, f.lng - P0.lng) * 111000), inside: true, zone: P0.label, radius: P0.radius, ...extra });
+    const backDay = (n) => { let d = T, k = 0; while (k < n) { d = U.addDays(d, -1); if (L.isWorkingDay(d, lctx)) k++; } return d; };
+    const same = fixAt(0.000113, 0.000087);
+    if (attendance[backDay(3)]?.e12?.in) attendance[backDay(3)].e12.loc = zoneLoc(same, 12);
+    if (attendance[T]?.e12?.in) Object.assign(attendance[T].e12, { loc: zoneLoc(same, 1), project: 'pj3', via: 'self', flags: [
+      { code: 'accuracy-round', reason: 'The phone reported a suspiciously precise accuracy of exactly 1 m.' },
+      { code: 'repeat', reason: `Exactly the same coordinates as the check-in on ${backDay(3)}. Real GPS readings always differ slightly.` }] });
+    if (attendance[T]?.e17?.in) Object.assign(attendance[T].e17, { loc: zoneLoc(fixAt(-0.000214, 0.000331), 16), offline: true, syncedAt: new Date(`${T}T09:41:00`).toISOString(), project: 'pj4', via: 'self' });
+    if (attendance[T]?.e10?.in) Object.assign(attendance[T].e10, { loc: zoneLoc(fixAt(0.000301, -0.000122), 9), via: 'supervisor', by: 'e14', project: 'pj2', face: { result: 'match', sim: 58 }, device: { id: 'dev-noah', name: 'iPhone, Safari (Noah’s phone)' } });
+    [['e5', 'pj2'], ['e8', 'pj1'], ['e2', 'pj3']].forEach(([id, pj]) => { if (attendance[T]?.[id]?.in) attendance[T][id].project = pj; });
+
     // Overtime, lateness waiver and correction requests, through the same approval chains as leave.
     const back = (n) => { let d = T, k = 0; while (k < n) { d = U.addDays(d, -1); if (L.isWorkingDay(d, lctx)) k++; } return d; };
     let restDay = U.addDays(T, -1); while (L.isWorkingDay(restDay, lctx)) restDay = U.addDays(restDay, -1);
@@ -316,7 +337,7 @@ window.AllurusSeed = {
       }
     });
     const plans = { e2: AllurusPlanner.sample() };
-    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, rosters, timeRequests, attAudit, statutory, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
+    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, rosters, timeRequests, attAudit, statutory, projects, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
   },
 
   // Super Admin data: every company subscribed to Allurus.
