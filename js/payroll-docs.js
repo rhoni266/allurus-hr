@@ -310,7 +310,7 @@ window.AllurusPayDocs = (function () {
       'pd-form-filed': (empId, form) => { const e = ctx.emp(empId); if (form === 'CP22') e.cp22Filed = T(); else e.leaverFiled = T(); ctx.commit(`${form} for ${e.first} marked as submitted`, `${form} for ${ctx.fullName(e)} was submitted to LHDN`); },
     });
     return {
-      tab, tabBar, tabView, myTaxCard, employeeFields, validateEmployee, afterSave, settingsCard, bindSettings, insights,
+      tab, tabBar, tabView, myTaxCard, printDocs, preview, employeeFields, validateEmployee, afterSave, settingsCard, bindSettings, insights,
       bindTabs: () => {
         ctx.$('#pd-year')?.addEventListener('change', (ev) => { ui.year = +ev.target.value; ctx.render(); });
         ctx.$('#pd-tpl')?.addEventListener('change', (ev) => { ui.bankTpl = ev.target.value; ctx.render(); });

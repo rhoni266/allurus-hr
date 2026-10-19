@@ -5,7 +5,7 @@ People operations SaaS for growing companies: a minimal, Apple-style HRMS with t
 | Role | Who | What they can do |
 |---|---|---|
 | **Super Admin** | You, the Allurus owner | See every subscribed company on a world map, MRR and ARR, plans, invoices, trials, past-due and suspended accounts. Change plans and seats, suspend or reactivate a company, mark invoices paid, open any company's workspace. |
-| **Company Admin** | HR at a customer company | Dashboard, employees, departments, attendance, time-off approvals, payroll with payslips and CSV export, a recruitment pipeline with drag and drop, appraisals with goals and 360° feedback, and company settings. |
+| **Company Admin** | HR at a customer company | Dashboard, employees, departments, onboarding and offboarding, assets and loans, an org chart, letters, attendance, time-off approvals, payroll with payslips and CSV export, a recruitment pipeline with drag and drop, appraisals with goals and 360° feedback, and company settings. |
 | **Employee** | Staff at a customer company | Time clock with location-stamped check-in and check-out, attendance history, time-off requests and balances, payslips, profile, goals, and the company directory. |
 
 ## Signing in
@@ -127,6 +127,19 @@ The rules are in `js/attendance-rules.js` (no DOM), with tests in `tests/attenda
 Try it: sign in as admin and open the bell (statutory deadlines, CP22/CP22A, appraisals, Nurul's probation, Samuel's contract, permit and passport, Hana's birthday). Post a policy to Engineering, then sign in as Daniel: he has a 6-year work anniversary, the new policy to acknowledge, and his payslip notifications.
 
 The rules (messages, preferences, delivery and reminders) are in `js/notify-rules.js` (no DOM), with tests in `tests/notify.test.js`.
+
+## HR admin: employee file, onboarding, assets, org chart and letters
+
+- **Employee file** (open anyone under Employees): tabs for Summary, Personal, Career, Documents, Assets and Checklists. Personal holds IC or passport, nationality and work permit, home address, personal email, emergency contact, bank and statutory numbers, education and previous employment.
+- **Career history**: joined, promotions, transfers and increments with dates. Changing the job title, department or salary in the employee form adds an entry automatically, and so does an appraisal increment or promotion when it takes effect. HR can add or remove entries by hand.
+- **Detail change requests**: employees ask to change their phone, personal email, address, marital status, emergency contact or salary bank account from Profile. HR sees them at the top of Employees, approves or declines with a reply, and both sides are notified. Job, pay and statutory numbers are only changed by HR.
+- **Onboarding and offboarding**: adding an employee (including Onboard on a hired candidate) creates a checklist from the template: documents to collect, accounts to create, assets to issue and training, each with an owner (HR, IT, payroll, the manager or the employee) and a due date counted from the start date. Start offboarding sets the last day and reason and creates the leaver checklist: resignation letter, CP22A/CP21 (links to the payroll form), handover, exit interview notes, asset return (done once everything is back), account closure, final pay and certificate of service. Owners see their tasks under Approvals and on the home page; overdue tasks are reminded weekly. Templates and the IT and payroll owners are under Settings.
+- **Assets, loans and insurance**: an asset register (laptops, phones, access cards, vehicles and more) with tag, serial, value, purchase, issue and return dates and history, plus a CSV export; staff loans with equal monthly instalments, extra repayments and balances; insurance policies with insurer, cover, premium and expiry. Assets still held by leavers are flagged.
+- **Org chart**: built from each person's "Reports to", filterable by department (managers above are kept for context) and printable.
+- **Letters**: templates for offer, confirmation, increment, warning, transfer and resignation acceptance, with `{{placeholders}}` (employee, manager, company, signatory, dates and amounts). Generate one from an employee's Documents tab, edit the wording, then save it to their documents and print or save as PDF. Unknown placeholders are refused when you save a template; empty ones show as [placeholder] in the letter. Have a lawyer check warning and termination wording.
+- **Documents**: photos (resized) and PDFs up to 700 KB, with a type and optional expiry date. HR and the employee are reminded 60 days before a document expires; insurance policy expiry is reminded too.
+
+The rules (edit requests, checklists, org tree, loans, letters, career history and expiry) are in `js/hr-rules.js` (no DOM), with tests in `tests/hr.test.js`. Loans are records only: payroll does not deduct the instalments yet. Documents are stored in the browser with the rest of the demo data, so keep uploads small until there is a server.
 
 ## Appraisals and goals
 
@@ -311,7 +324,7 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 index.html          App shell: sign-in screen, sidebar, top bar
 brand.html          Brand kit: logo, palette, type, usage rules
 design-system.html  Live tokens and components
-tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules, notifications, appraisals
+tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules, notifications, appraisals, HR admin
 css/styles.css      Design tokens (light and dark) and all components
 js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
 js/seed.js          Demo data: the Lumen & Co. workspace and 14 subscribed companies
@@ -329,6 +342,8 @@ sw.js               Service worker: keeps a copy of the app so check-in opens of
 js/notify-rules.js  Notification rules (no DOM): messages, preferences, delivery, daily reminders
 js/notify.js        Bell and list, email outbox and provider hook, browser notifications, reminders run, announcements
 js/appraisal-rules.js  Appraisal rules (no DOM): weighted scores, grade bands, flow, 360° summary, goals, pay changes
+js/hr-rules.js      HR admin rules (no DOM): edit requests, checklists, org tree, loans, letters, career history, expiry
+js/hr.js            Employee file tabs, change requests, onboarding/offboarding, assets/loans/insurance, org chart, letters, documents
 js/appraisal.js     Templates and bands, review cycles, self/manager/HR scoring, goals, 360°, reports, pay changes
 js/claims-rules.js  Claims rules (no DOM): categories, mileage, limits, edits, payroll split, GL rows, reports, migration
 js/claims.js        Claims screens: multi-item claims with receipt scanning, approvals, corrections, reports, settings

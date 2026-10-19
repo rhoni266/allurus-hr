@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2.8';
+  const APP_VERSION = '2.9';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   const STORE_KEY = 'allurus-hr-v7';
   const esc = U.esc;
@@ -37,6 +37,7 @@
       (w.reviews || []).forEach((r) => { if (!r.due) { const m = /^(H[12]) (\d{4})/.exec(r.cycle || ''); if (m) r.due = `${m[2]}-${m[1] === 'H1' ? '06' : '12'}-15`; } });
     });
     [s, ...Object.values(s.workspaces || {})].forEach(migrateAppraisal);
+    [s, ...Object.values(s.workspaces || {})].forEach(migrateHR);
     [s, ...Object.values(s.workspaces || {})].forEach((w) => {
       const c = w.settings?.checkin; if (!c) return;
       c.kiosks = c.kiosks || []; if (c.supervisor === undefined) c.supervisor = true; c.projects = c.projects || 'off';
@@ -95,6 +96,23 @@
       Object.assign(r, { cycleId: c.id, templateId: c.templateId, stage: r.status === 'Completed' ? 'done' : 'self', self: r.status === 'In progress' ? { scores: {}, comment: '', draftAt: new Date().toISOString() } : null, l1: null, l2: null, hr: null, peers: [] });
       if (r.status === 'Completed' && r.rating) r.final = { score: r.rating, grade: A.grade(r.rating, st.appraisal.bands)?.code || '', pct: r.rating * 20 };
       else r.final = null;
+    });
+  }
+  // HR admin: checklist and letter templates, the employee file fields, and the registers.
+  function migrateHR(ws) {
+    const H = AllurusHRRules, st = ws.settings;
+    if (!st) return;
+    st.hr = st.hr || {};
+    st.hr.onboarding = st.hr.onboarding || H.defaultOnboarding();
+    st.hr.offboarding = st.hr.offboarding || H.defaultOffboarding();
+    st.hr.letters = st.hr.letters || H.defaultLetters();
+    ['it', 'payroll'].forEach((k) => { if (st.hr[k] === undefined) st.hr[k] = ''; });
+    ['editRequests', 'checklists', 'assets', 'loans', 'insurance', 'documents'].forEach((k) => { ws[k] = ws[k] || []; });
+    (ws.employees || []).forEach((e) => {
+      ['address', 'personalEmail'].forEach((k) => { if (e[k] === undefined) e[k] = ''; });
+      e.emergency = e.emergency || { name: '', relation: '', phone: '' };
+      ['education', 'employment'].forEach((k) => { e[k] = e[k] || []; });
+      if (!e.career) e.career = e.start ? [{ id: 'cr-' + e.id, date: e.start, type: 'joined', to: e.role, note: (ws.departments || []).find((d) => d.id === e.dept)?.name || '' }] : [];
     });
   }
   // A new company has no check-in point until the admin sets one. Until then check-ins are blocked
@@ -171,6 +189,8 @@
     moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
     auto: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor" stroke="none"/>',
     help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.8M12 17.2v.1"/>',
+    box: '<path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9"/>',
+    org: '<rect x="9" y="3" width="6" height="5" rx="1"/><rect x="3" y="16" width="6" height="5" rx="1"/><rect x="15" y="16" width="6" height="5" rx="1"/><path d="M12 8v4M6 16v-4h12v4"/>',
     star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>',
     starFill: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z" fill="currentColor"/>',
     grip: '<circle cx="9" cy="6" r="1.2"/><circle cx="15" cy="6" r="1.2"/><circle cx="9" cy="12" r="1.2"/><circle cx="15" cy="12" r="1.2"/><circle cx="9" cy="18" r="1.2"/><circle cx="15" cy="18" r="1.2"/>',
@@ -310,6 +330,7 @@
       { id: 'my-tax', label: 'Tax reliefs', icon: 'percent', group: 'Finance' },
       { id: 'my-plan', label: 'Financial planner', icon: 'target', group: 'Finance' },
       { id: 'news', label: 'Announcements', icon: 'doc', group: 'Company' },
+      { id: 'org-chart', label: 'Org chart', icon: 'org', group: 'Company' },
       { id: 'directory', label: 'Directory', icon: 'people', group: 'Company' },
       { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Account' },
     ],
@@ -329,6 +350,9 @@
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', group: 'Overview' },
     { id: 'employees', label: 'Employees', icon: 'people', group: 'Workforce' },
     { id: 'departments', label: 'Departments', icon: 'building', group: 'Workforce' },
+    { id: 'onboarding', label: 'Onboarding', icon: 'userplus', group: 'Workforce' },
+    { id: 'assets', label: 'Assets & loans', icon: 'box', group: 'Workforce' },
+    { id: 'org-chart', label: 'Org chart', icon: 'org', group: 'Workforce' },
     { id: 'announcements', label: 'Announcements', icon: 'doc', group: 'Workforce' },
     { id: 'attendance', label: 'Attendance', icon: 'clock', group: 'Time' },
     { id: 'schedule', label: 'Schedule', icon: 'grip', group: 'Time' },
@@ -346,14 +370,14 @@
     { id: 'performance', label: 'Performance', icon: 'trend', group: 'Talent' },
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
   ];
-  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id)));
+  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id)));
   const route = () => { const h = location.hash.replace('#', ''); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
   function renderNav() {
     let html = '', group = '';
     const rs = routes(), pinned = AllurusUX.pins().map((id) => rs.find((r) => r.id === id)).filter(Boolean);
     const navItem = (r) => {
-      const count = r.id === 'my-approvals' ? leaveApi.myCount(me().id) + timeApi.myCount(me().id) + claimsApi.myCount(me().id) : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'performance' || r.id === 'my-appraisal' ? appraisalApi?.badge(r.id) || 0 : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
+      const count = r.id === 'my-approvals' ? leaveApi.myCount(me().id) + timeApi.myCount(me().id) + claimsApi.myCount(me().id) : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'employees' ? hrApi?.pendingCount() || 0 : r.id === 'onboarding' ? hrApi?.overdueCount() || 0 : r.id === 'performance' || r.id === 'my-appraisal' ? appraisalApi?.badge(r.id) || 0 : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
       const on = AllurusUX.pins().includes(r.id), cur = route() === r.id;
       return `<div class="nav-item"><a href="#${r.id}" class="${cur ? 'active' : ''}" ${cur ? 'aria-current="page"' : ''}>${icon(r.icon)}<span>${r.label}</span>${count ? `<span class="count" aria-label="${count} waiting">${count}</span>` : ''}</a><button type="button" class="nav-pin ${on ? 'on' : ''}" data-act="ux-pin" data-id="${r.id}" aria-pressed="${on}" aria-label="${on ? 'Unpin' : 'Pin'} ${esc(r.label)}" title="${on ? 'Unpin' : 'Pin to top'}">${icon(on ? 'starFill' : 'star')}</button></div>`;
     };
@@ -411,7 +435,7 @@
   const VIEWS = {};
   const AFTER = {};
   const ACTIONS_EXTRA = {};
-  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null, appraisalApi = null;
+  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null, appraisalApi = null, hrApi = null;
   let clockTimer = null;
 
   // ---------- Automated insights (what needs attention, trends and wellbeing nudges) ----------
@@ -485,6 +509,7 @@
     if (claimsApi) out.push(...claimsApi.insights());
     if (notifyApi) out.push(...notifyApi.insights());
     if (appraisalApi) out.push(...appraisalApi.insights());
+    if (hrApi) out.push(...hrApi.insights());
     return out.sort((a, b) => b.prio - a.prio);
   }
   const actionLink = (a, cls = 'btn btn-sm') => a.href ? `<a class="${cls}" href="${a.href}">${esc(a.label)}</a>` : `<button type="button" class="${cls}" data-act="${a.act}" ${a.id ? `data-id="${a.id}"` : ''} ${a.v ? `data-v="${a.v}"` : ''}>${esc(a.label)}</button>`;
@@ -652,6 +677,7 @@
         <div><h1>Employees</h1><p class="sub">${activeEmployees().length} active people across ${state.departments.length} departments.</p></div>
         <div class="actions"><button class="btn" data-act="export-emps">${icon('download')}Export CSV</button><button class="btn btn-primary" data-act="add-emp">${icon('plus')}Add employee</button></div>
       </div>
+      ${hrApi.requestsCard()}
       <div class="card card-flush">
         <div class="toolbar">
           <input class="input" id="emp-q" type="search" placeholder="Search by name, email or role" value="${esc(ui.empQuery)}" style="flex:1;min-width:200px">
@@ -683,7 +709,7 @@
       <div class="field"><label for="f-phone">Phone</label><input class="input" id="f-phone" name="phone" value="${esc(e.phone)}"></div>
       <div class="field"><label for="f-role">Job title</label><input class="input" id="f-role" name="role" required value="${esc(e.role)}"></div>
       <div class="field"><label for="f-dept">Department</label><select class="select" id="f-dept" name="dept">${opt(state.departments.map((d) => [d.id, d.name]), e.dept)}</select></div>
-      <div class="field"><label for="f-manager">Manager</label><select class="select" id="f-manager" name="manager"><option value="">No manager</option>${opt(state.employees.filter((x) => x.id !== e.id).map((x) => [x.id, fullName(x)]), e.manager)}</select></div>
+      <div class="field"><label for="f-manager">Reports to</label><select class="select" id="f-manager" name="manager"><option value="">No manager</option>${opt(state.employees.filter((x) => x.id !== e.id).map((x) => [x.id, fullName(x)]), e.manager)}</select></div>
       <div class="field"><label for="f-pattern">Working pattern</label><select class="select" id="f-pattern" name="timePattern">${opt([['', 'Department’s pattern'], ...state.settings.time.patterns.map((p) => [p.id, `${p.name} (${AllurusTimeRules.shiftLabel(p)})`])], e.timePattern || '')}</select><span class="field-hint">The Schedule can change single days.</span></div>
       <div class="field"><label for="f-type">Employment type</label><select class="select" id="f-type" name="type">${opt(['Full-time', 'Part-time', 'Contract', 'Intern'], e.type || 'Full-time')}</select></div>
       <div class="field"><label for="f-location">Location</label><input class="input" id="f-location" name="location" value="${esc(e.location)}"></div>
@@ -710,22 +736,27 @@
         if (id) {
           const before = { ...emp(id) };
           Object.assign(emp(id), d);
-          const note = docsApi.afterSave(before, emp(id));
+          const note = [docsApi.afterSave(before, emp(id)), hrApi.afterEdit(before, emp(id))].filter(Boolean).join(' ');
           commit(note ? `Changes saved. ${note}` : 'Changes saved', `${d.first} ${d.last}'s profile was updated`);
         }
         else {
           const ne = { id: U.uid('e'), cp22Filed: '', leaverFiled: '', ...d };
           state.employees.push(ne);
           if (appraisalApi.current()?.status === 'Open') appraisalApi.addParticipant(ne);
+          hrApi.onCreated(ne);
           onCreated?.(ne);
-          commit(`${d.first} added. ${docsApi.afterSave(null, ne)}`, `${d.first} ${d.last} joined as ${d.role}`);
+          commit(`${d.first} added. ${docsApi.afterSave(null, ne)} Onboarding checklist started.`, `${d.first} ${d.last} joined as ${d.role}`);
         }
       },
     });
   }
 
-  function openProfile(id) {
+  function openProfile(id, tab = 'summary') {
     const e = emp(id); if (!e) return;
+    if (tab !== 'summary') {
+      openDrawer(`<div class="drawer-hero"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><div style="display:flex;gap:12px;align-items:center;min-width:0">${avatar(fullName(e))}<div style="min-width:0"><h2 style="font-size:20px">${esc(fullName(e))}</h2><div class="muted">${esc(e.role)}</div></div></div><button class="btn btn-icon btn-ghost" data-act="close-overlay" aria-label="Close">${icon('x')}</button></div>${hrApi.tabBar(e, tab)}</div>${hrApi.tabBody(e, tab)}`);
+      return;
+    }
     const T = U.today();
     const days = []; let d = U.lastWorkday(T);
     while (days.length < 10) { if (!U.isWeekend(d)) days.unshift(d); d = U.addDays(d, -1); }
@@ -739,6 +770,7 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap">${statusPill(empStatus(e))}${deptTag(e.dept)}</div>
         <div class="actions"><button class="btn btn-sm btn-primary" data-act="edit-emp" data-id="${e.id}">${icon('edit')}Edit</button><button class="btn btn-sm" data-act="new-leave" data-id="${e.id}">${icon('calendar')}Request leave</button><button class="btn btn-sm btn-danger" data-act="ask-delete-emp" data-id="${e.id}">${icon('trash')}Remove</button></div>
         <div id="del-confirm"></div>
+        ${hrApi.tabBar(e, 'summary')}
       </div>
       <div class="drawer-section"><h4>Contact</h4><dl class="kv"><dt>Email</dt><dd>${esc(e.email)}</dd><dt>Phone</dt><dd>${esc(e.phone || '—')}</dd><dt>Location</dt><dd>${esc(e.location || '—')}</dd></dl></div>
       <div class="drawer-section"><h4>Employment</h4><dl class="kv">
@@ -1195,6 +1227,7 @@
       ${timeApi.settingsCards()}
       ${claimsApi.settingsCards()}
       ${appraisalApi.settingsCards()}
+      ${hrApi.settingsCards()}
       ${checkinCard(s)}
         <div class="settings-row"><div><div class="label">Remote check-in</div><div class="desc">Lets employees check in from anywhere with a selfie. Marked as Remote.</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="zone-remote" data-v="${v}" class="${(s.checkin.remote ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
         ${[['deviceLock', 'One phone per person', 'Each person checks in only from their approved phone, and a phone checks in for one person. New phones need your approval.'],
@@ -1223,6 +1256,7 @@
     timeApi.bindSettings();
     docsApi.bindSettings();
     appraisalApi.bindSettings();
+    hrApi.bindSettings();
     claimsApi.bindSettings();
     kioskApi.bindSettings();
     bind('#s-company', 'company'); bind('#s-currency', 'currency'); bind('#s-office', 'office'); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
@@ -1566,26 +1600,21 @@
   VIEWS['my-profile'] = () => {
     const e = me(), cyc = appraisalApi.current(), r = state.reviews.find((x) => x.empId === e.id && (!cyc || x.cycleId === cyc.id)), mgr = emp(e.manager);
     return `
-      <div class="page-head"><div><h1>Profile</h1><p class="sub">Keep your contact details current.</p></div></div>
+      <div class="page-head"><div><h1>Profile</h1><p class="sub">Your details, documents and what’s been issued to you. Changes to your details go to HR to approve.</p></div></div>
       <div class="grid g-2">
-        <div class="card">
-          <div style="display:flex;align-items:center;gap:16px;margin-bottom:18px">${avatar(fullName(e), 'lg')}<div><h2 style="font-size:22px">${esc(fullName(e))}</h2><div class="muted">${esc(e.role)}</div><div style="margin-top:6px">${deptTag(e.dept)}</div></div></div>
-          <dl class="kv" style="margin:0 0 18px"><dt>Email</dt><dd>${esc(e.email)}</dd><dt>Manager</dt><dd>${mgr ? esc(fullName(mgr)) : '—'}</dd><dt>Start date</dt><dd>${U.fmtDate(e.start)}</dd><dt>Type</dt><dd>${esc(e.type)}</dd></dl>
-          <form id="profile-form" class="form-grid">
-            <div class="field"><label for="p-phone">Phone</label><input class="input" id="p-phone" name="phone" value="${esc(e.phone)}"></div>
-            <div class="field"><label for="p-location">Location</label><input class="input" id="p-location" name="location" value="${esc(e.location)}"></div>
-            <div class="field full" style="align-items:flex-start"><button class="btn btn-primary" type="submit">Save details</button></div>
-          </form>
+        <div>
+          <div class="card">
+            <div style="display:flex;align-items:center;gap:16px;margin-bottom:18px">${avatar(fullName(e), 'lg')}<div><h2 style="font-size:22px">${esc(fullName(e))}</h2><div class="muted">${esc(e.role)}</div><div style="margin-top:6px">${deptTag(e.dept)}</div></div></div>
+            <dl class="kv" style="margin:0"><dt>Work email</dt><dd>${esc(e.email)}</dd><dt>Reports to</dt><dd>${mgr ? esc(fullName(mgr)) : '—'}</dd><dt>Start date</dt><dd>${U.fmtDate(e.start)}</dd><dt>Type</dt><dd>${esc(e.type)}</dd><dt>Location</dt><dd>${esc(e.location || '—')}</dd></dl>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>${esc(r?.cycle || 'Appraisal')}</h3>${r ? `<span class="pill ${({ Completed: 'ok', 'In progress': 'info', 'Not started': '' })[r.status]}">${r.status}</span>` : ''}</div>
+            ${r ? `<div class="kpi"><div class="kpi-label">Goal progress</div><div class="kpi-value">${r.progress}%</div><div class="progress"><i style="width:${r.progress}%"></i></div><div class="kpi-foot" style="margin-top:6px">${AllurusAppraisalRules.STAGES[r.stage] || ''}${r.final ? ` · grade ${esc(r.final.grade)}` : ''}</div></div>` : '<div class="empty">No review yet.</div>'}
+            <div class="actions" style="margin-top:14px"><a class="btn" href="#my-appraisal">${icon('trend')}Appraisal and goals</a></div>
+          </div>
         </div>
-        <div class="card">
-          <div class="card-head"><h3>${esc(r?.cycle || 'Appraisal')}</h3>${r ? `<span class="pill ${({ Completed: 'ok', 'In progress': 'info', 'Not started': '' })[r.status]}">${r.status}</span>` : ''}</div>
-          ${r ? `<div class="kpi"><div class="kpi-label">Goal progress</div><div class="kpi-value">${r.progress}%</div><div class="progress"><i style="width:${r.progress}%"></i></div><div class="kpi-foot" style="margin-top:6px">${AllurusAppraisalRules.STAGES[r.stage] || ''}${r.final ? ` · grade ${esc(r.final.grade)}` : ''}</div></div>` : '<div class="empty">No review yet.</div>'}
-          <div class="actions" style="margin-top:14px"><a class="btn btn-primary" href="#my-appraisal">${icon('trend')}Open appraisal and goals</a></div>
-        </div>
+        <div>${hrApi.myProfileCards(e)}</div>
       </div>`;
-  };
-  AFTER['my-profile'] = () => {
-    $('#profile-form').addEventListener('submit', (ev) => { ev.preventDefault(); const d = Object.fromEntries(new FormData(ev.target)); Object.assign(me(), d); commit('Details saved'); });
   };
 
   VIEWS.directory = () => {
@@ -1603,7 +1632,7 @@
   };
 
   // ---------- Workspaces (one per company) ----------
-  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects', 'notifications', 'outbox', 'announcements', 'notifyKeys', 'reminderRun', 'cycles', 'goals', 'payChanges'];
+  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects', 'notifications', 'outbox', 'announcements', 'notifyKeys', 'reminderRun', 'cycles', 'goals', 'payChanges', 'editRequests', 'checklists', 'assets', 'loans', 'insurance', 'documents'];
   function switchWorkspace(tid) {
     if (tid === state.session.tenantId) return;
     const cur = {}; WS_KEYS.forEach((k) => { cur[k] = state[k]; });
@@ -1630,14 +1659,14 @@
       settings: { ...base.settings, company: d.name, domain, office: d.city, currency: d.currency, checkin: defaultZone(d.name) },
       departments: base.departments.map((x) => ({ ...x, lead: withSamples ? x.lead : (x.id === 'd-people' ? 'e1' : '') })),
       employees: [admin], leaves: [], attendance: {}, payroll: {}, jobs: [], candidates: [],
-      reviews: [], cycles: [], goals: [], payChanges: [],
+      reviews: [], cycles: [], goals: [], payChanges: [], editRequests: [], checklists: [], assets: [], loans: [], insurance: [], documents: [],
       activity: [{ t: Date.now(), text: `${d.name} joined Allurus on the ${plan(d.plan).name} plan` }],
       finance: AllurusFinance.blank({ taxLabel: d.currency === 'MYR' ? 'SST' : 'Sales tax' }),
       claims: [], plans: {}, leaveCarry: {}, leaveCredits: [], rosters: {}, timeRequests: [], attAudit: [], statutory: { filed: {}, eaIssued: {}, formEFiled: {} }, projects: [], notifications: [], outbox: [], announcements: [], notifyKeys: [],
     };
     if (withSamples) {
       const team = base.employees.slice(1).map((e) => ({ ...e, email: `${e.first}.${e.last}`.toLowerCase() + '@' + domain, location: d.city }));
-      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, cycles: base.cycles, goals: base.goals, payChanges: base.payChanges, finance: base.finance, claims: base.claims, leaveCarry: base.leaveCarry, leaveCredits: base.leaveCredits, rosters: base.rosters, timeRequests: base.timeRequests, attAudit: [], statutory: base.statutory, projects: base.projects });
+      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, cycles: base.cycles, goals: base.goals, payChanges: base.payChanges, editRequests: base.editRequests, checklists: base.checklists, assets: base.assets, loans: base.loans, insurance: base.insurance, documents: base.documents, finance: base.finance, claims: base.claims, leaveCarry: base.leaveCarry, leaveCredits: base.leaveCredits, rosters: base.rosters, timeRequests: base.timeRequests, attAudit: [], statutory: base.statutory, projects: base.projects });
     }
     ws.settings.leave = AllurusLeaveRules.defaultSettings({ state: d.currency === 'MYR' ? (AllurusLeaveRules.CITY_STATE[d.city] || '') : '', departments: ws.departments, hr: 'e1' });
     ws.settings.employer = withSamples ? { ...base.settings.employer } : { signatory: d.adminName.trim(), signatoryTitle: 'HR Administrator' };
@@ -2241,6 +2270,7 @@
       state.employees = state.employees.filter((e) => e.id !== id);
       state.leaves = state.leaves.filter((l) => l.empId !== id);
       state.reviews = state.reviews.filter((r) => r.empId !== id);
+      hrApi.remove(id);
       state.goals = (state.goals || []).filter((g) => g.empId !== id);
       state.payChanges = (state.payChanges || []).filter((c) => c.empId !== id);
       state.departments.forEach((d) => { if (d.lead === id) d.lead = ''; });
@@ -2354,7 +2384,7 @@
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
     downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
     save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
-    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
+    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
   };
   AllurusUX.install(moduleCtx);
   finApi = AllurusFinance.install(moduleCtx);
@@ -2365,11 +2395,12 @@
   timeApi = AllurusTime.install(moduleCtx);
   docsApi = AllurusPayDocs.install(moduleCtx);
   notifyApi = AllurusNotify.install(moduleCtx);
+  hrApi = AllurusHR.install(moduleCtx);
   appraisalApi = AllurusAppraisal.install(moduleCtx);
   kioskApi = AllurusKiosk.install(moduleCtx, { write: writeCheckin, zone, deviceId, deviceName, squareCanvas, nowHM, isField, selfieThumb, cloudWrite: (p, d) => cloudWrite(p, d), cloudOn: () => !!cloud.db });
   // Approvers see their team's claims under Approvals, after leave and attendance requests.
   const approvalsBase = VIEWS['my-approvals'];
-  VIEWS['my-approvals'] = () => approvalsBase() + claimsApi.approvalsCard(me().id);
+  VIEWS['my-approvals'] = () => (leaveApi.isApprover(me().id) ? approvalsBase() + claimsApi.approvalsCard(me().id) : '<div class="page-head"><div><h1>Approvals</h1><p class="sub">Tasks waiting for you.</p></div></div>') + hrApi.myTasksCard(me().id);
 
   // ---------- Boot ----------
   $('#today').textContent = U.fmtDate(U.today(), { weekday: 'short', month: 'short', day: 'numeric' });

@@ -56,6 +56,8 @@ window.AllurusAppraisal = (function () {
     const r = A.applyDue(changes(), T());
     if (!r.applied.length) return;
     Object.entries(r.updates).forEach(([id, u]) => Object.assign(ctx.emp(id) || {}, u));
+    // The career history on the employee file shows each applied increment and promotion.
+    changes().filter((c) => r.applied.includes(c.id)).forEach((c) => ctx.hr?.addCareer(c.empId, [{ date: c.effective, type: c.type === 'salary' ? 'increment' : 'promotion', from: c.from, to: c.to, ...(c.type === 'salary' ? { pct: c.pct } : {}), note: `${c.cycle} appraisal` }]));
     changes().forEach((c) => { if (r.applied.includes(c.id)) { c.status = 'applied'; c.appliedOn = T(); } });
     ctx.save();
   }

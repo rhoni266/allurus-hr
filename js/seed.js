@@ -416,6 +416,77 @@ window.AllurusSeed = {
     seeded.forEach((x, i) => { if ([2, 3, 7].includes(i)) x.notifications.forEach((n) => { n.read = true; }); });
     const outbox = seeded.flatMap((x) => x.emails);
 
+    // HR admin: the employee file (addresses, emergency contacts, education, past jobs, career history), assets,
+    // staff loans, insurance, documents and letters, Nurul's onboarding, Julian's offboarding and a pending change.
+    const HR = AllurusHRRules;
+    settings.hr = { onboarding: HR.defaultOnboarding(), offboarding: HR.defaultOffboarding(), letters: HR.defaultLetters(), it: 'e12', payroll: 'e19' };
+    const deptOf = (id) => departments.find((d) => d.id === id)?.name || '';
+    const STREETS = ['Jalan Teluk Sisek, 25000 Kuantan, Pahang', 'Lorong Air Putih 12, 25300 Kuantan, Pahang', 'Taman Chukai Utama, 24000 Kemaman, Terengganu', 'Jalan Sultan Zainal Abidin, 20000 Kuala Terengganu, Terengganu', 'Taman Indera Sempurna, 25150 Kuantan, Pahang', 'Bandar Indera Mahkota 3, 25200 Kuantan, Pahang', 'Jalan Bukit Ubi, 25200 Kuantan, Pahang', 'Kampung Geliga, 24000 Kemaman, Terengganu'];
+    const KIN = [['Siti Aminah', 'Spouse'], ['Ahmad Faizal', 'Brother'], ['Lim Mei Hua', 'Mother'], ['Rajesh Kumar', 'Father'], ['Nor Azizah', 'Sister'], ['Tan Wei Ming', 'Spouse']];
+    const UNI = [['Bachelor’s degree', 'Computer Science', 'Universiti Teknologi Malaysia'], ['Bachelor’s degree', 'Accounting', 'Universiti Kebangsaan Malaysia'], ['Bachelor’s degree', 'Business Administration', 'Universiti Malaysia Pahang'], ['Diploma', 'Graphic Design', 'UiTM Shah Alam'], ['Master’s degree', 'Information Technology', 'Universiti Malaya'], ['Bachelor’s degree', 'Marketing', 'Taylor’s University'], ['Bachelor’s degree', 'Software Engineering', 'Multimedia University'], ['Professional certificate', 'ACCA', 'Sunway College']];
+    const PAST = [['Maxis', 'Analyst'], ['CIMB Bank', 'Executive'], ['AirAsia', 'Associate'], ['Petronas Digital', 'Engineer'], ['Grab Malaysia', 'Specialist'], ['Axiata', 'Officer'], ['Sapura Energy', 'Executive'], ['Top Glove', 'Coordinator']];
+    employees.forEach((e, i) => {
+      e.phone = `01${[2, 3, 6, 7, 9][i % 5]}-${String(2000000 + i * 734119).slice(0, 3)} ${String(4000 + i * 377).slice(-4)}`;
+      e.personalEmail = `${e.first}.${e.last}`.toLowerCase().replace(/[^a-z.]/g, '') + '@gmail.com';
+      e.address = `No. ${12 + i * 7}, ${STREETS[i % STREETS.length]}`;
+      const [kn, rel] = KIN[i % KIN.length];
+      e.emergency = { name: kn, relation: rel, phone: `01${(i + 1) % 10}-${String(5000000 + i * 91357).slice(0, 3)} ${String(1000 + i * 211).slice(-4)}` };
+      const [level, field, inst] = UNI[i % UNI.length];
+      e.education = [{ level, field, institution: inst, year: String(+e.start.slice(0, 4) - 2 - (i % 4)) }, ...(i % 3 === 0 ? [{ level: 'SPM', field: '', institution: 'SMK Sultan Abu Bakar, Kuantan', year: String(+e.start.slice(0, 4) - 7 - (i % 4)) }] : [])];
+      const [co, role] = PAST[i % PAST.length], y0 = +e.start.slice(0, 4);
+      e.employment = i === 18 ? [] : [{ company: co, role: `${role}${i % 2 ? '' : ', ' + deptOf(e.dept)}`, from: `${y0 - 3 - (i % 3)}-0${1 + (i % 9)}`, to: `${y0}-0${1 + ((i + 3) % 9)}` }];
+      // Career: joined, then a yearly increment each January (working back from today's salary), plus promotions.
+      const years = []; for (let y = y0 + 1; y <= 2026; y++) if (`${y}-01-01` > e.start) years.push(y);
+      const pcts = years.map((y, k) => [3, 4, 5, 3.5, 6][(i + k) % 5]);
+      let sal = e.salary; const backs = pcts.map((p) => { const from = Math.round(sal / (1 + p / 100) / 100) * 100; const x = { from, to: sal, pct: Math.round(((sal - from) / from) * 10000) / 100 }; sal = from; return x; }).reverse();
+      e.career = [{ id: `cr-${e.id}`, date: e.start, type: 'joined', to: e.role.replace(/^(Senior|Lead|Head of) /, ''), note: deptOf(e.dept) }, ...years.map((y, k) => ({ id: `cr-${e.id}-${y}`, date: `${y}-01-01`, type: 'increment', ...backs[k], note: 'Annual review' }))];
+      if (/^(Senior|Lead|Head of) /.test(e.role) && years.length) e.career.push({ id: `cr-${e.id}-p`, date: `${years[years.length - 1]}-01-01`, type: 'promotion', from: e.role.replace(/^(Senior|Lead|Head of) /, ''), to: e.role });
+    });
+    employees[3].career.push({ id: 'cr-e4-p', date: '2022-01-01', type: 'promotion', from: 'Senior Software Engineer', to: 'Engineering Manager' });
+    employees[2].career.push({ id: 'cr-e3-t', date: '2021-07-01', type: 'transfer', from: 'Marketing', to: 'Design', note: 'Moved to lead product design' });
+    // Assets: a laptop each, phones for managers and sales, the sales car, and spares in the store.
+    let an = 0;
+    const asset = (type, name, value, holder, issued, extra = {}) => ({ id: `as${++an}`, tag: `AL-${String(an).padStart(4, '0')}`, type, name, serial: extra.serial || `${type === 'Laptop' ? (name.includes('Mac') ? 'C02' : 'PF') : type === 'Phone' ? 'F2L' : 'VH'}${String(731905 + an * 4127).slice(-6)}${'XKQMRT'[an % 6]}`, value, bought: extra.bought || issued || U.addDays(T, -200), holder, issued: holder ? issued : '', returned: '', notes: extra.notes || '', history: [] });
+    const assets = employees.filter((e) => e.status !== 'Inactive').map((e) => asset('Laptop', ['d-eng', 'd-design'].includes(e.dept) ? 'MacBook Pro 14 M3' : 'Lenovo ThinkPad T14', ['d-eng', 'd-design'].includes(e.dept) ? 8999 : 5299, e.id, e.start < '2024-01-01' ? '2024-01-08' : e.start));
+    ['e1', 'e4', 'e14', 'e6', 'e10', 'e11'].forEach((id) => { const e = employees.find((x) => x.id === id); assets.push(asset('Phone', 'iPhone 15', 3999, id, e.start < '2024-06-01' ? '2024-06-03' : e.start)); });
+    assets.push(asset('Vehicle', 'Proton X50 1.5T Executive', 101800, 'e14', '2025-03-01', { serial: 'PMNCX50EX5R018832', notes: 'Plate CEB 4521; road tax and insurance to 2027' }));
+    assets.push(asset('Access card', 'Office access card', 35, 'e16', '2023-01-09', { serial: 'AC-0716' }));
+    assets.push(asset('Laptop', 'Lenovo ThinkPad T14', 5299, '', '', { notes: 'Spare, wiped and ready' }), asset('Monitor', 'Dell 27" P2723D', 1199, '', ''), asset('Phone', 'Samsung Galaxy A55', 1799, '', '', { notes: 'Kiosk spare' }));
+    const loans = [
+      { id: 'loan1', empId: 'e10', purpose: 'Computer loan', amount: 3600, months: 12, start: '2026-06', extra: [], approved: '2026-05-20', by: 'e1' },
+      { id: 'loan2', empId: 'e19', purpose: 'Study loan (ACCA)', amount: 5000, months: 24, start: '2026-11', extra: [], approved: U.addDays(T, -5), by: 'e1' },
+      { id: 'loan3', empId: 'e6', purpose: 'Salary advance', amount: 1200, months: 6, start: '2025-11', extra: [], approved: '2025-10-28', by: 'e1' },
+    ];
+    const insurance = [
+      { id: 'ins1', name: 'Group hospitalisation and surgical', insurer: 'AIA Bhd', policyNo: 'GHS-2025-778120', sum: 100000, premium: 22800, start: U.addDays(T, -353), end: U.addDays(T, 12), covers: 'all' },
+      { id: 'ins2', name: 'Group personal accident', insurer: 'Great Eastern General', policyNo: 'GPA-ALR-2026-0041', sum: 200000, premium: 3420, start: '2026-01-01', end: '2026-12-31', covers: 'all' },
+      { id: 'ins3', name: 'Motor comprehensive (CEB 4521)', insurer: 'Allianz General', policyNo: 'MC-88231947', sum: 92000, premium: 2875.4, start: '2026-03-01', end: '2027-02-28', covers: ['e14'] },
+    ];
+    // Documents: copies kept on file (shown as simple images in the demo), with expiry dates where they matter.
+    const docImg = (title, who, line) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="380" viewBox="0 0 600 380"><rect width="600" height="380" rx="18" fill="#f5f5f7" stroke="#d0d3d9"/><rect x="0" y="0" width="600" height="64" rx="18" fill="#0F766E"/><text x="28" y="41" font-family="Arial" font-size="22" fill="#fff" font-weight="700">${title}</text><text x="28" y="130" font-family="Arial" font-size="26" fill="#16181D">${who}</text><text x="28" y="175" font-family="Arial" font-size="18" fill="#575B63">${line}</text><text x="28" y="350" font-family="Arial" font-size="13" fill="#8A8F98">Sample copy for the Allurus demo</text></svg>`);
+    let dn = 0;
+    const fileDoc = (empId, title, category, expiry, line, uploaded) => { const e = employees.find((x) => x.id === empId); return { id: `doc${++dn}`, empId, title, category, expiry, file: { name: `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.svg`, type: 'image/svg+xml', data: docImg(title, `${e.first} ${e.last}`, line) }, uploaded: uploaded || e.start, by: 'e1' }; };
+    const documents = [
+      ...employees.filter((e) => e.nationality === 'Malaysia' || !e.nationality).slice(0, 12).map((e) => fileDoc(e.id, 'MyKad copy', 'IC or passport', '', `IC ${e.ic || ''}`)),
+      fileDoc('e18', 'Passport copy', 'IC or passport', employees[17].passportExpiry, `Passport ${employees[17].passportNo}`),
+      fileDoc('e18', 'Employment Pass', 'Work permit', employees[17].permitExpiry, employees[17].permitNo),
+      fileDoc('e2', 'Degree certificate', 'Certificate', '', 'Bachelor of Software Engineering', '2020-10-19'),
+      fileDoc('e8', 'AWS Solutions Architect', 'Certificate', U.addDays(T, 41), 'Associate certification', U.addDays(T, -1054)),
+      fileDoc('e14', 'Driving licence', 'Other', U.addDays(T, 230), 'Class D', '2025-03-01'),
+      fileDoc('e19', 'Signed employment contract', 'Contract', '', 'Payroll Executive, permanent', '2026-10-01'),
+    ];
+    const letter = (empId, tplId, date, extra) => { const e = employees.find((x) => x.id === empId), t = settings.hr.letters.find((l) => l.id === tplId), data = { 'employee.name': `${e.first} ${e.last}`, 'employee.first': e.first, 'employee.role': e.role, 'employee.department': deptOf(e.dept), 'company.name': settings.company, ...extra }; return { id: `doc${++dn}`, empId, title: t.name, category: 'Letter', expiry: '', letter: { templateId: tplId, subject: HR.fill(t.subject, data), body: HR.fill(t.body, data), date, ack: false }, uploaded: date, by: 'e1' }; };
+    documents.push(letter('e15', 'confirmation', '2024-12-02', { effective_date: '2 December 2024' }), letter('e16', 'resignation', U.addDays(T, -3), { last_day: `${+employees[15].endDate.slice(8, 10)} ${['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][+employees[15].endDate.slice(5, 7) - 1]} ${employees[15].endDate.slice(0, 4)}` }));
+    // Checklists: Nurul started on the 7th; Julian leaves at the end of next month.
+    const owners = (e) => ({ hr: 'e1', it: 'e12', payroll: 'e19', manager: e.manager || 'e1', employee: e.id });
+    const nurul = employees[18], julian = employees[15];
+    const onb = HR.buildChecklist(settings.hr.onboarding, { empId: nurul.id, anchor: nurul.start, owners: owners(nurul), id: 'onb-e19', created: U.addDays(nurul.start, -14) });
+    onb.tasks.forEach((x) => { if (x.due <= U.addDays(T, -9) && x.id !== 'o3') Object.assign(x, { done: true, doneAt: x.due, doneBy: x.assignee }); });
+    const off = HR.buildChecklist(settings.hr.offboarding, { empId: julian.id, anchor: julian.endDate, owners: owners(julian), id: 'off-e16', created: U.addDays(T, -3) });
+    Object.assign(off.tasks.find((x) => x.id === 'f1'), { done: true, doneAt: U.addDays(T, -3), doneBy: 'e1' });
+    const checklists = [onb, off];
+    const editRequests = [{ id: 'rq1', empId: 'e5', changes: HR.diffRequest(employees[4], { address: 'No. 8, Jalan Beserah 3, 25300 Kuantan, Pahang', 'emergency.phone': '012-778 4410' }), note: 'Moved house last weekend', at: U.addDays(T, -1), status: 'Pending' }];
+
     const now = Date.now();
     const activity = [
       { t: now - 1000 * 60 * 42, text: 'Leila Rahimi requested 5 days of annual leave' },
@@ -447,7 +518,7 @@ window.AllurusSeed = {
       }
     });
     const plans = { e2: AllurusPlanner.sample() };
-    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, rosters, timeRequests, attAudit, statutory, projects, announcements, notifications: seeded.flatMap((x) => x.notifications), outbox, notifyKeys: [], settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, cycles, goals, payChanges, activity, platform };
+    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, rosters, timeRequests, attAudit, statutory, projects, announcements, notifications: seeded.flatMap((x) => x.notifications), outbox, notifyKeys: [], settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, cycles, goals, payChanges, editRequests, checklists, assets, loans, insurance, documents, activity, platform };
   },
 
   // Super Admin data: every company subscribed to Allurus.

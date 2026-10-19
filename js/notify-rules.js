@@ -40,6 +40,12 @@ window.AllurusNotifyRules = (function () {
     'appraisal.done': { cat: 'appraisals', icon: 'star', text: (d) => [`Your ${d.cycle} appraisal is complete`, d.grade ? `Final grade ${d.grade}. Open it to see the details.` : 'Open it to see the details.'] },
     'appraisal.peer': { cat: 'appraisals', icon: 'people', text: (d) => [`${d.who} asked for your feedback`, `${d.cycle} 360° feedback. Your answers are anonymous.`] },
     'appraisal.overdue': { cat: 'appraisals', icon: 'trend', text: (d) => [d.self ? `Your ${d.cycle} ${d.step} is overdue` : `${d.who}’s appraisal is overdue with you`, `The ${d.step} step was due ${fmt(d.date)}.`] },
+    'profile.request': { cat: 'requests', icon: 'edit', text: (d) => [`${d.who} asked to update their details`, `Changes to ${d.fields}. Check and approve them.`] },
+    'profile.decided': { cat: 'requests', icon: 'check', text: (d) => [d.approved ? 'Your details were updated' : 'Your detail change was declined', d.note ? `HR: “${d.note}”` : d.approved ? 'HR approved the change.' : 'Check with HR.'] },
+    'profile.document': { cat: 'requests', icon: 'doc', text: (d) => [`${d.who} added a document`, `“${d.title}” is on their employee file.`] },
+    'task.assigned': { cat: 'reminders', icon: 'userplus', text: (d) => [`${d.count} ${d.kind} task${d.count === 1 ? '' : 's'} for ${d.self ? 'you' : d.who}`, `First: ${d.first}, due ${fmt(d.date)}.`] },
+    'task.overdue': { cat: 'reminders', icon: 'userplus', text: (d) => [`${d.count} onboarding or offboarding task${d.count === 1 ? ' is' : 's are'} overdue`, `${d.first} (${d.who})${d.count > 1 ? ' and more' : ''}.`] },
+    'reminder.document': { cat: 'reminders', icon: 'doc', text: (d) => [`${d.self ? 'Your ' : ''}${d.title}${d.who && !d.self ? ` for ${d.who}` : ''} ${d.left < 0 ? 'has expired' : 'expires ' + inDays(d.left)}`, `Expiry ${fmt(d.date)}. Renew it or upload the new one.`] },
     'reminder.probation': { cat: 'reminders', icon: 'people', text: (d) => [`Confirm ${d.who}’s probation`, `Probation ends ${fmt(d.date)} (${inDays(d.left)}).`] },
     'reminder.contract': { cat: 'reminders', icon: 'doc', text: (d) => [`${d.who}’s contract ends ${inDays(d.left)}`, `Contract end date ${fmt(d.date)}. Renew it or plan the handover.`] },
     'reminder.passport': { cat: 'reminders', icon: 'doc', text: (d) => [`${d.who}’s passport ${d.left < 0 ? 'has expired' : 'expires ' + inDays(d.left)}`, `Expiry ${fmt(d.date)}. A valid passport is needed to renew the work permit.`] },
@@ -88,7 +94,7 @@ window.AllurusNotifyRules = (function () {
 
   // ---------- Reminders ----------
   // Windows in days before the date: when a reminder starts showing.
-  const WINDOWS = { probation: 30, contract: 30, passport: 180, permit: 90, appraisal: 14 };
+  const WINDOWS = { probation: 30, contract: 30, passport: 180, permit: 90, appraisal: 14, document: 60 };
   const fullName = (e) => `${e.first} ${e.last}`.trim();
   // Same month and day this year (29 February counts on 28 February in other years).
   const sameDay = (date, today) => { const md = date.slice(5); return md === today.slice(5) || (md === '02-29' && today.slice(5) === '02-28' && +today.slice(0, 4) % 4 !== 0); };
@@ -97,7 +103,7 @@ window.AllurusNotifyRules = (function () {
    * doesn't repeat it: probation, contract and document reminders repeat at most weekly, birthdays once a year.
    * Returns [{ type, key, data, to: 'hr' | empId | ['hr', empId] }].
    */
-  function reminders({ employees, today, reviews = [], statutory = [], windows = WINDOWS }) {
+  function reminders({ employees, today, reviews = [], statutory = [], documents = [], windows = WINDOWS }) {
     const out = [], W = { ...WINDOWS, ...windows };
     const week = (d) => Math.floor(days('2020-01-06', d) / 7);
     employees.filter((e) => e.status !== 'Inactive').forEach((e) => {
@@ -127,6 +133,14 @@ window.AllurusNotifyRules = (function () {
       (late[r.due] = late[r.due] || { cycle: r.cycle, left, names: [] }).names.push(e.first);
     });
     Object.entries(late).forEach(([due, x]) => out.push({ type: 'reminder.appraisals', key: `appraisals:${due}:${week(today)}`, to: 'hr', data: { count: x.names.length, cycle: x.cycle, date: due, left: x.left, names: x.names.slice(0, 6).join(', ') + (x.names.length > 6 ? ` and ${x.names.length - 6} more` : '') } }));
+    // Documents on employee files and company policies with an expiry date: HR, plus the employee for their own.
+    documents.filter((x) => x.expiry).forEach((x) => {
+      const e = x.empId && employees.find((y) => y.id === x.empId);
+      if (x.empId && (!e || e.status === 'Inactive')) return;
+      const left = days(today, x.expiry);
+      if (left > W.document || left < -30) return;
+      out.push({ type: 'reminder.document', key: `doc:${x.id}:${x.expiry}:${left < 0 ? 'late' : left <= 14 ? 'soon' : 'due'}`, to: e ? ['hr', e.id] : 'hr', data: { title: x.title, who: e ? `${e.first} ${e.last}` : '', date: x.expiry, left, ...(e ? { empId: e.id } : {}) } });
+    });
     statutory.forEach((s) => out.push({ type: 'reminder.statutory', key: `statutory:${s.key}:${today}`, to: 'hr', data: { title: s.title, detail: s.detail } }));
     return out;
   }

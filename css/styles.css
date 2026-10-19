@@ -1255,3 +1255,74 @@ kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; 
   .tpl-q .check, .tpl-q .btn-icon { justify-self: start; }
 }
 @media (prefers-reduced-motion: reduce) { .ap-rate span { transition: none; } }
+
+/* ---------- HR admin: employee file, checklists, assets, org chart, letters ---------- */
+.hr-tabs { margin-top: 4px; max-width: 100%; flex-wrap: wrap; height: auto; }
+.hr-tabs button { white-space: nowrap; }
+.hr-sec-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.hr-sec-head h4 { margin: 0; }
+.hr-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.hr-list li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.hr-list li:last-child { border-bottom: 0; }
+.hr-list li > div:first-child, .hr-list .grow { flex: 1; min-width: 0; }
+.hr-timeline { list-style: none; margin: 0; padding: 0 0 0 4px; position: relative; }
+.hr-timeline li { display: flex; gap: 12px; padding: 0 0 14px 0; position: relative; }
+.hr-timeline li::before { content: ""; position: absolute; left: 5px; top: 14px; bottom: 0; width: 2px; background: var(--line); }
+.hr-timeline li:last-child::before { display: none; }
+.hr-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; margin-top: 4px; background: var(--fg-3); box-shadow: 0 0 0 3px var(--surface); position: relative; }
+.hr-joined { background: var(--brand); } .hr-promotion { background: var(--gold, #D9B66F); } .hr-transfer { background: var(--info); } .hr-increment, .hr-adjustment { background: var(--ok); }
+.hr-tl-head { display: flex; justify-content: space-between; gap: 8px; }
+.hr-bar { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+.hr-bar .progress { flex: 1; }
+.hr-bar .num { font-size: 12.5px; color: var(--fg-2); white-space: nowrap; }
+.hr-cl { padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px; }
+.hr-cl-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.hr-tasks { list-style: none; margin: 0 0 8px; padding: 0; }
+.hr-tasks li { padding: 9px 0; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.hr-tasks li.done .check span { text-decoration: line-through; color: var(--fg-3); }
+.hr-task-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; padding-left: 28px; font-size: 12.5px; color: var(--fg-2); }
+.bad-text { color: var(--bad); font-weight: 600; }
+.hr-doc-img { display: block; max-width: 100%; border-radius: 10px; border: 1px solid var(--line); margin-top: 10px; }
+.hr-letter-body { font-family: var(--font); line-height: 1.5; min-height: 260px; }
+.hr-tpl { border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+.hr-tpl-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.hr-tpl-head .btn { margin-left: auto; }
+.hr-tpl-list { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+.hr-tpl-list li { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px dashed var(--line); }
+.hr-tpl-list li span:last-child { white-space: nowrap; font-size: 12px; }
+.hr-ct { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.hr-ct-head, .hr-ct-row { display: grid; grid-template-columns: minmax(0, 1fr) 130px 110px 70px 36px; gap: 6px; align-items: center; }
+.hr-ct-head { font-size: 12px; color: var(--fg-2); font-weight: 600; margin: 10px 0 4px; }
+.hr-ph { gap: 6px; }
+.hr-ph .chip { height: 26px; padding: 0 10px; font-size: 12px; font-family: ui-monospace, Menlo, monospace; }
+.hr-done summary { cursor: pointer; list-style: none; }
+.org ul { list-style: none; margin: 0; padding: 0 0 0 26px; position: relative; }
+.org > ul { padding-left: 0; }
+.org li { position: relative; padding: 6px 0; }
+.org ul ul li::before { content: ""; position: absolute; left: -16px; top: 0; bottom: 0; border-left: 2px solid var(--line-strong); }
+.org ul ul li:last-child::before { bottom: auto; height: 32px; }
+.org ul ul li::after { content: ""; position: absolute; left: -16px; top: 32px; width: 14px; border-top: 2px solid var(--line-strong); }
+.org-card { display: inline-flex; align-items: center; gap: 10px; padding: 8px 14px 8px 10px; border: 1px solid var(--line); border-left: 4px solid var(--dc); border-radius: 12px; background: var(--surface); min-width: 220px; max-width: 100%; }
+.org-card[role="button"] { cursor: pointer; }
+.org-card[role="button"]:hover { border-color: var(--line-strong); border-left-color: var(--dc); }
+.org-card[role="button"]:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.org-card.dim { opacity: .6; }
+.org-name { font-weight: 600; font-size: 14px; }
+.org-role { font-size: 13px; color: var(--fg-2); }
+.org-dept { font-size: 11.5px; color: var(--fg-3); }
+.org-print .org-card { min-width: 0; padding: 4px 10px; border-color: #d9dbe0; background: #fff; color: #16181d; break-inside: avoid; }
+.org-print .org-role, .org-print .org-dept { color: #4d525c; }
+.org-print .org ul ul li::before, .org-print .org ul ul li::after { border-color: #b8bcc4; }
+.org-print .org li { padding: 3px 0; }
+.letter { font-size: 13.5px; line-height: 1.6; }
+.letter p { margin: 0 0 12px; }
+.letter-date { text-align: right; }
+.letter-sign { margin-top: 28px; }
+.letter-ack { margin-top: 28px; padding-top: 14px; border-top: 1px dashed var(--rule); }
+@media (max-width: 640px) {
+  .hr-ct-head { display: none; }
+  .hr-ct-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px; }
+  .hr-ct-row input[data-f="title"] { grid-column: 1 / -1; }
+  .org ul { padding-left: 18px; }
+  .org-card { min-width: 0; }
+}

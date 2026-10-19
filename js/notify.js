@@ -130,16 +130,17 @@ window.AllurusNotify = (function () {
       });
       AllurusStatutory.eventForms(st().employees, T()).forEach((x) => stat.push({ key: `${x.form}-${x.empId}`, title: `${x.form} for ${x.name} ${x.daysLeft < 0 ? `${-x.daysLeft} days late` : `due in ${x.daysLeft} days`}`, detail: x.form === 'CP22' ? 'Tell LHDN about the new employee.' : 'Tell LHDN before their last day.' }));
     }
-    const hrefFor = (r) => (r.type === 'reminder.statutory' ? '#payroll' : r.type.startsWith('reminder.appraisal') ? (r.to === 'hr' ? '#performance' : '#my-appraisal') : r.data.empId ? '#employees' : '#dashboard');
+    const hrefFor = (r) => (r.type === 'reminder.statutory' ? '#payroll' : r.type.startsWith('reminder.appraisal') ? (r.to === 'hr' ? '#performance' : '#my-appraisal') : r.data.empId ? '#employees' : r.type === 'reminder.document' ? '#assets' : '#dashboard');
     let n = 0;
-    N.reminders({ employees: st().employees, today: T(), reviews: appraisalReminders(), statutory: stat }).forEach((r) => {
+    N.reminders({ employees: st().employees, today: T(), reviews: appraisalReminders(), statutory: stat, documents: ctx.hr ? ctx.hr.expiringItems() : [] }).forEach((r) => {
       const to = Array.isArray(r.to) ? r.to : [r.to];
       to.forEach((t) => {
         const self = t !== 'hr';
-        n += event(r.type, { ...r.data, self, href: self ? (r.type.startsWith('reminder.appraisal') ? '#my-appraisal' : '#home') : hrefFor(r) }, t, { from: 'system', self, key: `${r.key}:${self ? 'self' : 'hr'}` });
+        n += event(r.type, { ...r.data, self, href: self ? (r.type.startsWith('reminder.appraisal') ? '#my-appraisal' : r.type === 'reminder.document' ? '#my-profile' : '#home') : hrefFor(r) }, t, { from: 'system', self, key: `${r.key}:${self ? 'self' : 'hr'}` });
       });
     });
     ctx.appraisal?.runReminders();
+    ctx.hr?.runReminders();
     ctx.save();
     updateBell();
     return n;
