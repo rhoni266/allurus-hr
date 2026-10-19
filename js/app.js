@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2.3';
+  const APP_VERSION = '2.4';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   const STORE_KEY = 'allurus-hr-v7';
   const esc = U.esc;
@@ -28,6 +28,7 @@
     });
     [s, ...Object.values(s.workspaces || {})].forEach(migrateLeave);
     [s, ...Object.values(s.workspaces || {})].forEach(migrateTime);
+    [s, ...Object.values(s.workspaces || {})].forEach(migrateStatutory);
     if (!s.finance) s.finance = AllurusFinance.blank();
     Object.values(s.workspaces || {}).forEach((w) => { if (!w.finance) w.finance = AllurusFinance.blank(); });
     s.reliefs = s.reliefs || {}; s.taxProfiles = s.taxProfiles || {};
@@ -212,6 +213,18 @@
     ws.attAudit = ws.attAudit || [];
     (ws.employees || []).forEach((e) => { if (e.timePattern === undefined) e.timePattern = ''; });
   }
+  // Statutory documents: employer registration numbers, employee IDs and bank details, and what has been submitted.
+  function migrateStatutory(ws) {
+    if (!ws.settings) return;
+    ws.settings.employer = ws.settings.employer || {};
+    ws.statutory = ws.statutory || {};
+    ['filed', 'eaIssued', 'formEFiled'].forEach((k) => { ws.statutory[k] = ws.statutory[k] || {}; });
+    (ws.employees || []).forEach((e) => {
+      ['idType', 'ic', 'epfNo', 'socsoNo', 'taxNo', 'bank', 'accountNo', 'endDate', 'leaveReason', 'leaverFiled'].forEach((k) => { if (e[k] === undefined) e[k] = k === 'idType' ? 'mykad' : ''; });
+      // People already on staff before this update are not new joiners.
+      if (e.cp22Filed === undefined) e.cp22Filed = e.start || '';
+    });
+  }
   const PAY_KEYS = ['gross', 'tax', 'benefits', 'net', 'epf', 'socso', 'eis', 'zakat', 'erEpf', 'erSocso', 'erEis', 'hrdf', 'erCost', 'claims', 'extras'];
   const payTotal = (run) => run.items.reduce((a, i) => { PAY_KEYS.forEach((k) => { a[k] = U.round2(a[k] + (i[k] || 0)); }); return a; }, Object.fromEntries(PAY_KEYS.map((k) => [k, 0])));
 
@@ -334,7 +347,7 @@
   const VIEWS = {};
   const AFTER = {};
   const ACTIONS_EXTRA = {};
-  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null;
+  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null;
   let clockTimer = null;
 
   // ---------- Automated insights (what needs attention, trends and wellbeing nudges) ----------
@@ -404,9 +417,10 @@
     }
     if (leaveApi) out.push(...leaveApi.insights());
     if (timeApi) out.push(...timeApi.insights());
+    if (docsApi) out.push(...docsApi.insights());
     return out.sort((a, b) => b.prio - a.prio);
   }
-  const actionLink = (a, cls = 'btn btn-sm') => a.href ? `<a class="${cls}" href="${a.href}">${esc(a.label)}</a>` : `<button type="button" class="${cls}" data-act="${a.act}" ${a.v ? `data-v="${a.v}"` : ''}>${esc(a.label)}</button>`;
+  const actionLink = (a, cls = 'btn btn-sm') => a.href ? `<a class="${cls}" href="${a.href}">${esc(a.label)}</a>` : `<button type="button" class="${cls}" data-act="${a.act}" ${a.id ? `data-id="${a.id}"` : ''} ${a.v ? `data-v="${a.v}"` : ''}>${esc(a.label)}</button>`;
   const insightRow = (x) => `<div class="insight tone-${x.tone}"><span class="insight-ic">${icon(x.icon)}</span><div class="grow"><div class="insight-t">${esc(x.title)}</div><div class="insight-d">${esc(x.detail)}</div></div>${x.action ? actionLink(x.action, 'btn btn-sm btn-ghost') : ''}</div>`;
   function insightsCard(list) {
     return `<div class="card"><div class="card-head"><h3>Insights</h3><span class="hint">${icon('sparkle')}Updated as things change</span></div>
@@ -414,7 +428,7 @@
   }
   function focusItem(x) {
     const inner = `<span class="focus-ic">${icon(x.icon)}</span><span class="grow"><strong>${esc(x.title)}</strong><small>${esc(x.detail)}</small></span><span class="focus-go">${esc(x.action.label)}${icon('right')}</span>`;
-    return x.action.href ? `<a class="focus-item tone-${x.tone}" href="${x.action.href}">${inner}</a>` : `<button type="button" class="focus-item tone-${x.tone}" data-act="${x.action.act}" ${x.action.v ? `data-v="${x.action.v}"` : ''}>${inner}</button>`;
+    return x.action.href ? `<a class="focus-item tone-${x.tone}" href="${x.action.href}">${inner}</a>` : `<button type="button" class="focus-item tone-${x.tone}" data-act="${x.action.act}" ${x.action.id ? `data-id="${x.action.id}"` : ''} ${x.action.v ? `data-v="${x.action.v}"` : ''}>${inner}</button>`;
   }
   // The welcome card at the top of each dashboard: greeting, what to focus on, quick actions.
   function hero({ title, sub, actions = '', side = '', focus = [], calm }) {
@@ -612,6 +626,7 @@
       <div class="field"><label for="f-married">Marital status</label><select class="select" id="f-married" name="married">${opt([['no', 'Single'], ['yes', 'Married']], e.married ? 'yes' : 'no')}</select></div>
       <div class="field"><label for="f-birthday">Date of birth</label><input class="input" id="f-birthday" name="birthday" type="date" value="${esc(e.birthday)}"><span class="field-hint">Sets EPF, SOCSO and EIS rules from age 60.</span></div>
       ${state.settings.currency === 'MYR' ? `<div class="field"><label for="f-zakat">Zakat through payroll (RM a month)</label><input class="input num" id="f-zakat" name="zakat" type="number" min="0" step="1" value="${esc(e.zakat || 0)}"><span class="field-hint">Deducted from pay and offsets the PCB.</span></div>` : ''}
+      ${docsApi.employeeFields(e)}
       <div class="field"><label for="f-status">Status</label><select class="select" id="f-status" name="status">${opt(['Active', 'Inactive'], e.status || 'Active')}</select></div>
     </div>`;
   }
@@ -623,13 +638,19 @@
         d.salary = Number(d.salary) || 0;
         d.married = d.married === 'yes';
         if ('zakat' in d) d.zakat = Math.max(0, Number(d.zakat) || 0);
-        if (id) { Object.assign(emp(id), d); commit('Changes saved', `${d.first} ${d.last}'s profile was updated`); }
+        if (!docsApi.validateEmployee(d, $('#overlay-root form'))) return false;
+        if (id) {
+          const before = { ...emp(id) };
+          Object.assign(emp(id), d);
+          const note = docsApi.afterSave(before, emp(id));
+          commit(note ? `Changes saved. ${note}` : 'Changes saved', `${d.first} ${d.last}'s profile was updated`);
+        }
         else {
-          const ne = { id: U.uid('e'), ...d };
+          const ne = { id: U.uid('e'), cp22Filed: '', leaverFiled: '', ...d };
           state.employees.push(ne);
           state.reviews.push({ id: U.uid('r'), empId: ne.id, cycle: 'H2 ' + U.today().slice(0, 4), status: 'Not started', rating: 0, progress: 0, notes: '' });
           onCreated?.(ne);
-          commit(`${d.first} added`, `${d.first} ${d.last} joined as ${d.role}`);
+          commit(`${d.first} added. ${docsApi.afterSave(null, ne)}`, `${d.first} ${d.last} joined as ${d.role}`);
         }
       },
     });
@@ -792,6 +813,16 @@
       ...(t.zakat ? [['Zakat', 'Zakat deducted for your state zakat body', t.zakat, 'State zakat portal']] : []),
       ...(t.hrdf ? [['HRD Corp levy', 'Employer levy for training', t.hrdf, 'eTRiS']] : []),
     ] : [];
+    // Statutory files, the bank file and year-end forms live on their own tabs.
+    if (docsApi.tab() !== 'run') return `
+      <div class="page-head"><div><div class="eyebrow">Payroll</div><h1>${U.fmtMonth(mk)}</h1><p class="sub">${run?.status === 'Paid' ? `Paid on ${U.fmtDate(run.paidOn)} to ${run.items.length} people.` : run ? 'This run is still a draft.' : 'Not run yet.'}</p></div>
+        <div class="actions">
+          <button class="btn btn-icon" data-act="pay-shift" data-v="-1" aria-label="Previous month">${icon('left')}</button>
+          ${pill}
+          <button class="btn btn-icon" data-act="pay-shift" data-v="1" aria-label="Next month" ${mk >= U.addMonths(cur, 1) ? 'disabled' : ''}>${icon('right')}</button>
+        </div></div>
+      ${docsApi.tabBar()}
+      ${docsApi.tabView(mk)}`;
     return `
       <div class="page-head"><div><div class="eyebrow">Payroll</div><h1>${U.fmtMonth(mk)}</h1><p class="sub">${run?.status === 'Paid' ? `Paid on ${U.fmtDate(run.paidOn)} to ${run.items.length} people.` : run ? 'Review bonuses, then approve to mark this run as paid. Click a name to see the payslip.' : `${eligible.length} people are eligible. Estimated net pay is ${money(projected)}.`}</p></div>
         <div class="actions">
@@ -800,8 +831,10 @@
           <button class="btn btn-icon" data-act="pay-shift" data-v="1" aria-label="Next month" ${mk >= U.addMonths(cur, 1) ? 'disabled' : ''}>${icon('right')}</button>
           ${!run ? `<button class="btn btn-primary" data-act="pay-run">${icon('wallet')}Run payroll</button>` : ''}
           ${run?.status === 'Draft' ? `<button class="btn" data-act="pay-discard">Discard draft</button><button class="btn btn-primary" data-act="pay-approve">${icon('check')}Approve and pay</button>` : ''}
-          ${run ? `<button class="btn" data-act="pay-export">${icon('download')}Export CSV</button>` : ''}
+          ${run ? `<button class="btn" data-act="pay-export">${icon('download')}Export CSV</button><button class="btn" data-act="pd-slips-all" data-v="${mk}">${icon('doc')}Print all payslips</button>` : ''}
         </div></div>
+      ${role() === 'admin' ? docsApi.tabBar() : ''}
+      ${run?.status === 'Paid' ? `<div class="lock-banner info">${icon('shield')}<span>Paid. The KWSP, PERKESO, LHDN and HRD Corp files and the bank file are ready. <button class="link-btn" data-act="pd-tab" data-v="files">Open statutory files</button></span></div>` : ''}
       ${run ? `
       <div class="grid g-4 keep-2">
         <div class="card kpi"><div class="kpi-label">Gross pay</div><div class="kpi-value">${compactMoney(t.gross)}</div><div class="kpi-foot num">${money(t.gross)}</div></div>
@@ -827,6 +860,7 @@
       <div class="card"><div class="empty" style="padding:48px 12px"><strong>No payroll for ${U.fmtMonth(mk)} yet</strong>Running payroll creates a draft from current salaries, adds approved overtime and daily allowances, works out ${my ? 'EPF, SOCSO, EIS and PCB' : 'deductions'}, and adds approved medical claims. You can add bonuses before approving it.<div style="margin-top:16px"><button class="btn btn-primary" data-act="pay-run">${icon('wallet')}Run payroll</button></div></div></div>`}`;
   };
   AFTER.payroll = () => {
+    docsApi.bindTabs();
     $$('[data-bonus]').forEach((inp) => inp.addEventListener('change', () => {
       const run = state.payroll[ui.payMonth];
       const it = run.items.find((i) => i.empId === inp.dataset.bonus);
@@ -854,7 +888,8 @@
       body: `<div style="display:flex;flex-direction:column;gap:18px">
         <div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:10px">${LOGO_MARK}<div><div style="font-weight:600;letter-spacing:.24em">${esc(state.settings.company.toUpperCase())}</div><div class="faint" style="font-size:12px">${U.fmtMonth(month)}</div></div></div>${run.status === 'Paid' ? '<span class="pill ok">Paid</span>' : '<span class="pill warn">Draft</span>'}</div>
         ${person(e, `${e.role} · ${dept(e.dept)?.name || ''}`)}
-        <div>${lines}</div></div>`,
+        <div>${lines}</div>
+        <button type="button" class="btn" data-act="pd-slip" data-id="${empId}" data-v="${month}">${icon('download')}Print or save as PDF</button></div>`,
     });
   }
 
@@ -1118,7 +1153,7 @@
         </div>
       </div>
       ${AllurusUX.appearanceCard()}
-      ${s.currency === 'MYR' ? statutoryCard(s) : ''}
+      ${s.currency === 'MYR' ? statutoryCard(s) + docsApi.settingsCard() : ''}
       ${leaveApi.settingsCards()}
       ${timeApi.settingsCards()}
       ${checkinCard(s)}
@@ -1143,6 +1178,7 @@
     bindCheckinCard();
     leaveApi.bindSettings();
     timeApi.bindSettings();
+    docsApi.bindSettings();
     bind('#s-company', 'company'); bind('#s-currency', 'currency'); bind('#s-office', 'office'); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
     $$('[data-stat]').forEach((el) => el.addEventListener('change', () => { state.settings.statutory = { ...U.statutory(state.settings), [el.dataset.stat]: Math.min(20, Math.max(0, Number(el.value) || 0)) }; commit('Statutory rates saved'); }));
   };
@@ -1474,8 +1510,9 @@
       </div>
       <div class="card card-flush"><div class="table-wrap"><table>
         <thead><tr><th>Period</th><th class="hide-sm">Paid on</th><th class="r">Gross</th><th class="r hide-sm">Deductions</th><th class="r hide-sm">Claims</th><th class="r">Net</th><th></th></tr></thead>
-        <tbody>${items.map(({ m, it, run }) => `<tr class="clickable" data-act="my-payslip" data-id="${m}"><td>${U.fmtMonth(m)}</td><td class="hide-sm muted num">${U.fmtDate(run.paidOn)}</td><td class="r num">${money(it.gross, 2)}</td><td class="r num muted hide-sm">−${money(it.tax + it.benefits + (it.zakat || 0), 2)}</td><td class="r num hide-sm">${it.claims ? money(it.claims, 2) : '<span class="faint">—</span>'}</td><td class="r num" style="font-weight:600">${money(it.net, 2)}</td><td><div class="row-actions"><button class="btn btn-sm" data-act="my-payslip" data-id="${m}">${icon('doc')}View</button></div></td></tr>`).join('')}</tbody>
-      </table>${items.length ? '' : '<div class="empty"><strong>No payslips yet</strong>Your first payslip appears after payroll runs.</div>'}</div></div>`;
+        <tbody>${items.map(({ m, it, run }) => `<tr class="clickable" data-act="my-payslip" data-id="${m}"><td>${U.fmtMonth(m)}</td><td class="hide-sm muted num">${U.fmtDate(run.paidOn)}</td><td class="r num">${money(it.gross, 2)}</td><td class="r num muted hide-sm">−${money(it.tax + it.benefits + (it.zakat || 0), 2)}</td><td class="r num hide-sm">${it.claims ? money(it.claims, 2) : '<span class="faint">—</span>'}</td><td class="r num" style="font-weight:600">${money(it.net, 2)}</td><td><div class="row-actions"><button class="btn btn-sm" data-act="my-payslip" data-id="${m}">${icon('doc')}View</button><button class="btn btn-sm" data-act="pd-my-slip" data-id="${m}" aria-label="Save ${U.fmtMonth(m)} payslip as PDF">${icon('download')}PDF</button></div></td></tr>`).join('')}</tbody>
+      </table>${items.length ? '' : '<div class="empty"><strong>No payslips yet</strong>Your first payslip appears after payroll runs.</div>'}</div></div>
+      ${docsApi.myTaxCard(e)}`;
   };
 
   VIEWS['my-profile'] = () => {
@@ -1527,7 +1564,7 @@
   };
 
   // ---------- Workspaces (one per company) ----------
-  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit'];
+  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory'];
   function switchWorkspace(tid) {
     if (tid === state.session.tenantId) return;
     const cur = {}; WS_KEYS.forEach((k) => { cur[k] = state[k]; });
@@ -1557,14 +1594,15 @@
       reviews: [{ id: 'r1', empId: 'e1', cycle: 'H2 ' + U.today().slice(0, 4), status: 'Not started', rating: 0, progress: 0, notes: '' }],
       activity: [{ t: Date.now(), text: `${d.name} joined Allurus on the ${plan(d.plan).name} plan` }],
       finance: AllurusFinance.blank({ taxLabel: d.currency === 'MYR' ? 'SST' : 'Sales tax' }),
-      claims: [], plans: {}, leaveCarry: {}, leaveCredits: [], rosters: {}, timeRequests: [], attAudit: [],
+      claims: [], plans: {}, leaveCarry: {}, leaveCredits: [], rosters: {}, timeRequests: [], attAudit: [], statutory: { filed: {}, eaIssued: {}, formEFiled: {} },
     };
     if (withSamples) {
       const team = base.employees.slice(1).map((e) => ({ ...e, email: `${e.first}.${e.last}`.toLowerCase() + '@' + domain, location: d.city }));
-      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, finance: base.finance, claims: base.claims, leaveCarry: base.leaveCarry, leaveCredits: base.leaveCredits, rosters: base.rosters, timeRequests: base.timeRequests, attAudit: [] });
+      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, finance: base.finance, claims: base.claims, leaveCarry: base.leaveCarry, leaveCredits: base.leaveCredits, rosters: base.rosters, timeRequests: base.timeRequests, attAudit: [], statutory: base.statutory });
       ws.reviews[0] = { ...ws.reviews[0], empId: 'e1' };
     }
     ws.settings.leave = AllurusLeaveRules.defaultSettings({ state: d.currency === 'MYR' ? (AllurusLeaveRules.CITY_STATE[d.city] || '') : '', departments: ws.departments, hr: 'e1' });
+    ws.settings.employer = withSamples ? { ...base.settings.employer } : { signatory: d.adminName.trim(), signatoryTitle: 'HR Administrator' };
     ws.settings.time = withSamples ? JSON.parse(JSON.stringify(base.settings.time)) : AllurusTimeRules.defaultSettings({ restDays: AllurusLeaveRules.weekendDays(ws.settings.leave) });
     return ws;
   }
@@ -2189,6 +2227,7 @@
     'pay-discard': () => { delete state.payroll[ui.payMonth]; commit('Draft discarded'); },
     'pay-approve': () => {
       const run = state.payroll[ui.payMonth]; run.status = 'Paid'; run.paidOn = U.today();
+      state.statutory.filed[ui.payMonth] = {};
       claimsApi.markPaid(run.items.flatMap((i) => i.claimIds || []), ui.payMonth);
       commit('Payroll paid', `Payroll for ${U.fmtMonth(ui.payMonth)} was paid (${money(payTotal(run).net)} net)`);
     },
@@ -2256,7 +2295,7 @@
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
     downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
     save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
-    get leave() { return leaveApi; }, get time() { return timeApi; },
+    get leave() { return leaveApi; }, get time() { return timeApi; }, setPayMonth: (mk) => { ui.payMonth = mk; },
   };
   AllurusUX.install(moduleCtx);
   finApi = AllurusFinance.install(moduleCtx);
@@ -2265,6 +2304,7 @@
   AllurusPlanner.install(moduleCtx);
   leaveApi = AllurusLeave.install(moduleCtx);
   timeApi = AllurusTime.install(moduleCtx);
+  docsApi = AllurusPayDocs.install(moduleCtx);
 
   // ---------- Boot ----------
   $('#today').textContent = U.fmtDate(U.today(), { weekday: 'short', month: 'short', day: 'numeric' });

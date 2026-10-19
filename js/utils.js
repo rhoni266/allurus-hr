@@ -102,7 +102,7 @@ window.U = (function () {
     // HRD Corp levy is on basic pay, paid by the employer only.
     const hrdf = round2((base * (Number(st.hrdf) || 0)) / 100);
     const benefits = round2(epf + socso + eis);
-    return { base: fullBase, unpaid, unpaidDays, bonus, extras, gross, tax, benefits, epf, socso, eis, zakat, erEpf, erSocso, erEis, hrdf, erCost: round2(erEpf + erSocso + erEis + hrdf), net: round2(gross - tax - benefits - zakat) };
+    return { base: fullBase, unpaid, unpaidDays, bonus, extras, gross, epfWage, socsoWage: round2(base + bonus + exSocso), tax, benefits, epf, socso, eis, zakat, erEpf, erSocso, erEis, hrdf, erCost: round2(erEpf + erSocso + erEis + hrdf), net: round2(gross - tax - benefits - zakat) };
   };
   // City table for office locations, the platform map and the time-zone fallback for check-in.
   const CITIES = [

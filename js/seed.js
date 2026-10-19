@@ -58,6 +58,7 @@ window.AllurusSeed = {
       ['Julian', 'Rossi', 'Brand Designer', 'd-design', 92000, '2023-01-09', 'Milan'],
       ['Mei', 'Chen', 'Accountant', 'd-fin', 82000, '2022-10-17', 'Singapore'],
       ['Samuel', 'Adeyemi', 'QA Engineer', 'd-eng', 94000, '2024-03-18', 'Remote'],
+      ['Nurul', 'Aina', 'Payroll Executive', 'd-fin', 54000, U.addDays(T, -12), 'Kuantan'],
     ];
     const upcoming = { 2: 5, 6: 12, 11: 23, 15: 29 }; // index -> birthday in N days
     const employees = people.map((p, i) => {
@@ -80,12 +81,28 @@ window.AllurusSeed = {
     });
     // Gender and marital status decide maternity and paternity leave.
     const fam = { e1: ['female', true], e2: ['male', true], e3: ['female', false], e4: ['male', true], e5: ['female', false], e6: ['male', false], e7: ['female', true], e8: ['male', false], e9: ['female', true],
-      e10: ['male', true], e11: ['female', true], e12: ['male', true], e13: ['female', false], e14: ['male', true], e15: ['female', false], e16: ['male', false], e17: ['female', true], e18: ['male', false] };
+      e10: ['male', true], e11: ['female', true], e12: ['male', true], e13: ['female', false], e14: ['male', true], e15: ['female', false], e16: ['male', false], e17: ['female', true], e19: ['female', false], e18: ['male', false] };
     employees.forEach((e) => { [e.gender, e.married] = fam[e.id] || ['', false]; });
     employees[0].manager = '';
     employees[0].email = 'admin@allurus.com';
     employees[1].email = 'emp@allurus.com';
     employees.forEach((e) => { if (e.location !== 'Remote') e.location = 'Kuantan'; });
+    // Statutory IDs and bank accounts (all fictional). IC numbers start with the birth date; 11 is Terengganu.
+    // Samuel has no tax number or bank account yet, so the statutory and bank files show what is missing.
+    const S = AllurusStatutory;
+    employees.forEach((e, i) => {
+      const b = e.birthday.replace(/-/g, '').slice(2);
+      Object.assign(e, {
+        idType: 'mykad', ic: `${b}11${String(1000 + i * 37).slice(-3)}${(e.gender === 'male' ? 1 : 2) + (i % 4) * 2}`,
+        epfNo: String(14000000 + i * 271843).slice(0, 8), socsoNo: '', taxNo: `SG ${String(2100000000 + i * 3711397).slice(0, 10)}`,
+        bank: S.BANKS[i % 7], accountNo: String(1640000000000 + i * 1234567891).slice(0, 12),
+        endDate: '', leaveReason: '', cp22Filed: e.start < U.addDays(T, -60) ? e.start : '', leaverFiled: '',
+      });
+    });
+    Object.assign(employees[17], { taxNo: '', bank: '', accountNo: '' });
+    // Julian is leaving at the end of next month: CP22A is due 30 days before his last day.
+    Object.assign(employees[15], { endDate: U.addDays(T, 40), leaveReason: 'resign' });
+    settings.employer = { ssm: '202101023456 (1418823-K)', epfNo: '021784593', socsoNo: 'E1104002873X', lhdnNo: 'E 9182736401', hrdNo: 'HRDC-AL-2021-0451', address: 'Lot 7, Jalan Kampung Tengah, 24000 Kemaman, Terengganu', phone: '+60 9-859 2210', signatory: 'Amara Okafor', signatoryTitle: 'Head of People' };
 
     // Leave requests, dated around today on working days of the Terengganu calendar.
     const yr = +T.slice(0, 4);
@@ -236,6 +253,11 @@ window.AllurusSeed = {
       payroll[mk] = { status: 'Paid', paidOn: U.addDays(end, -2), items };
     }
 
+    // Contributions for past months were submitted on the 10th; September's PCB is still to be marked as paid.
+    const statutory = { filed: {}, eaIssued: {}, formEFiled: {} };
+    Object.keys(payroll).forEach((mk) => { const d = `${U.addMonths(mk, 1)}-10`; statutory.filed[mk] = { epf: d, socso: d, pcb: d, hrdf: d }; });
+    delete statutory.filed[U.addMonths(thisMonth, -1)].pcb;
+
     const jobs = [
       { id: 'j1', title: 'Senior Backend Engineer', dept: 'd-eng', location: 'Remote', type: 'Full-time', opened: U.addDays(T, -21) },
       { id: 'j2', title: 'Product Marketing Manager', dept: 'd-mkt', location: 'London · Hybrid', type: 'Full-time', opened: U.addDays(T, -12) },
@@ -289,7 +311,7 @@ window.AllurusSeed = {
       if (it) { it.claims = U.round2((it.claims || 0) + c.approved); it.claimIds = [...(it.claimIds || []), c.id]; it.net = U.round2(it.net + c.approved); }
     });
     const plans = { e2: AllurusPlanner.sample() };
-    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, rosters, timeRequests, attAudit, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
+    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, rosters, timeRequests, attAudit, statutory, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
   },
 
   // Super Admin data: every company subscribed to Allurus.

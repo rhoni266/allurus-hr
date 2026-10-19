@@ -114,6 +114,35 @@ For Malaysian companies (currency MYR), every payslip works out the compulsory d
 
 The payroll page shows what goes to **KWSP, PERKESO, LHDN and HRD Corp**, due by the 15th of the next month. Employer contributions are recorded in the books with the wages. Rates are editable under **Settings → Statutory deductions**. The figures are estimates, so check them against the official contribution tables and the LHDN PCB calculator before you pay.
 
+## Payroll documents and statutory files
+
+- **Payslips**: every payslip has **Print or save as PDF**. Admins can **Print all payslips** for a month, one per page. Staff save theirs from **Payslips** (on a phone: Share → Save as PDF). This uses the browser's print, so there is no PDF library.
+- **Statutory files** (Payroll → Statutory files, once a run is paid): KWSP (EPF), PERKESO (SOCSO and EIS), LHDN PCB (CP39) and the HRD Corp levy. Each has:
+  - a preview table;
+  - totals checked against the pay run;
+  - a list of missing IDs, with a Fix link;
+  - a CSV download and **Mark as submitted**.
+
+  The due date (the 15th of the next month) and the total to pay are shown at the top.
+- **Bank file** (Payroll → Bank file): a generic GIRO / IBG CSV with name, IC, bank, account number, amount and reference. People with missing or invalid bank details are held back and listed; the file plus held-back amounts equal net pay. Bank-specific templates plug into `BANK_TEMPLATES` in `js/statutory.js`.
+- **Year-end** (Payroll → Year-end and forms):
+  - **Borang EA** per employee from the year's paid payslips, printable singly or all at once. **Issue to staff** shows it under the employee's Payslips.
+  - **Form E** summary for HR.
+  - **CP8D** CSV.
+- **Joiners and leavers**: adding an employee prompts for **CP22** (due within 30 days of starting). Setting a last day prompts for **CP22A**, or **CP21** when they are leaving Malaysia (due 30 days before the last day). Both have printable forms, Mark as submitted, and dashboard reminders.
+- **Employee record**: IC or passport number, EPF number, SOCSO number, income tax number, bank and account number, last day and reason for leaving. IC numbers (12 digits starting with a valid birth date) and account numbers are validated.
+- **Company registration numbers** (Settings → Statutory registration): SSM, EPF employer number, SOCSO employer code, LHDN E number, HRD Corp MyCoID, address and the authorised officer.
+- **Reminders** in Focus for today:
+  - statutory payments within 14 days of the 15th, and when overdue;
+  - an unpaid previous month;
+  - EA by the end of February;
+  - Form E and CP8D by 31 March;
+  - each CP22, CP22A or CP21 due.
+
+Try it: sign in as admin and go to Payroll. Go back to September, then open **Statutory files**: September's PCB is overdue in the demo. Then open **Bank file** (Samuel is held back for missing bank details) and **Year-end and forms**: issue the EA forms, and open Nurul's CP22 and Julian's CP22A. Sign in as Daniel to save a payslip as PDF and view the EA under Payslips.
+
+The builders are in `js/statutory.js` (no DOM), with tests in `tests/statutory.test.js` run against the seeded payroll. **None of the files claim to be the official upload layouts.** Each builder carries a `FORMAT: verify against …` comment. Check the KWSP, PERKESO, LHDN (CP39, EA, Form E, CP8D, CP22, CP22A, CP21) and HRD Corp specifications and your bank's bulk payment template before submitting anything real.
+
 ## Medical claims
 
 Employees claim medical costs under **Finance → Medical claims**. They choose the type and who it was for, then snap or upload the receipt; the clinic, date and total are read from it. They can see how much they have left of each limit.
@@ -199,7 +228,7 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 index.html          App shell: sign-in screen, sidebar, top bar
 brand.html          Brand kit: logo, palette, type, usage rules
 design-system.html  Live tokens and components
-tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules
+tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files
 css/styles.css      Design tokens (light and dark) and all components
 js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
 js/seed.js          Demo data: the Lumen & Co. workspace and 14 subscribed companies
@@ -209,6 +238,8 @@ js/leave-rules.js   Leave rules (no DOM): types, states, holidays, day counts, b
 js/leave.js         Leave screens: apply, approvals, calendar, balances, leave settings
 js/attendance-rules.js  Time rules (no DOM): patterns, auto-shift, lateness, overtime, caps, allowances, rosters, audit diff
 js/roster.js        Schedule page, time settings, overtime/waiver/correction requests, audit trail, batch edit, payroll lines
+js/statutory.js     Statutory builders (no DOM): payslip data, KWSP/PERKESO/CP39/HRD files, bank file, EA, Form E, CP8D, CP22/CP22A/CP21, reminders, ID checks
+js/payroll-docs.js  Payroll tabs for statutory files, bank file and year-end; printable payslips and forms
 js/claims.js        Medical claims: policy, employee claims, HR review
 js/planner.js       Employee financial planner
 js/app.js           Views, routing per role, actions, registration, shared-link sync
