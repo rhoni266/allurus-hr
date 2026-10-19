@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2.0';
+  const APP_VERSION = '2.1';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   const STORE_KEY = 'allurus-hr-v7';
   const esc = U.esc;
@@ -14,17 +14,38 @@
   function load() {
     let s = null;
     try { const raw = localStorage.getItem(STORE_KEY); if (raw) s = JSON.parse(raw); } catch (e) { /* storage unavailable */ }
-    s = s || AllurusSeed.create();
-    [s.settings, ...Object.values(s.workspaces || {}).map((w) => w.settings)].forEach((st) => { if (!st.checkin) st.checkin = defaultZone(st.company, st.office); });
+    if (!s) { s = AllurusSeed.create(); carryOverZones(s); }
+    [s.settings, ...Object.values(s.workspaces || {}).map((w) => w.settings)].forEach((st) => {
+      if (!st.checkin) st.checkin = defaultZone(st.company);
+      const c = st.checkin, city = U.city(st.office);
+      // Older versions silently copied the head office city centre into the check-in point. Treat an untouched
+      // copy as "not set", so Settings warns instead of measuring check-ins from the middle of the city.
+      if (!c.setAt && city && U.hasCoords(c) && Math.abs(c.lat - city.lat) < 1e-4 && Math.abs(c.lng - city.lng) < 1e-4) { c.lat = null; c.lng = null; }
+      if (U.hasCoords(c)) { c.lat = +c.lat; c.lng = +c.lng; }
+    });
     if (!s.finance) s.finance = AllurusFinance.blank();
     Object.values(s.workspaces || {}).forEach((w) => { if (!w.finance) w.finance = AllurusFinance.blank(); });
     s.reliefs = s.reliefs || {}; s.taxProfiles = s.taxProfiles || {};
     [s, ...Object.values(s.workspaces || {})].forEach((w) => { w.claims = w.claims || []; w.plans = w.plans || {}; });
     return s;
   }
-  function defaultZone(company, office) {
-    const c = U.city(office) || U.CITIES[0];
-    return { label: `${company} office`, lat: c.lat, lng: c.lng, radius: 50, remote: false };
+  // A new company has no check-in point until the admin sets one. Until then check-ins are measured
+  // from the head office city centre and Settings shows a warning (see U.resolveZone).
+  function defaultZone(company) {
+    return { label: `${company} office`, lat: null, lng: null, radius: 50, remote: false };
+  }
+  // When the storage key changes, keep each company's saved check-in point from the previous version.
+  function carryOverZones(s) {
+    for (let v = 6; v >= 1; v--) {
+      let old = null;
+      try { old = JSON.parse(localStorage.getItem(`allurus-hr-v${v}`) || 'null'); } catch (e) { /* unreadable */ }
+      if (!old) continue;
+      const zones = { [old.session?.tenantId || 't1']: old.settings?.checkin };
+      Object.entries(old.workspaces || {}).forEach(([tid, w]) => { zones[tid] = w.settings?.checkin; });
+      const keep = zones[s.session.tenantId];
+      if (keep && U.hasCoords(keep)) s.settings.checkin = { ...s.settings.checkin, ...keep, setAt: keep.setAt || Date.now() };
+      return;
+    }
   }
   let warnedFull = false;
   function save() {
@@ -254,6 +275,8 @@
     $('#sidebar').classList.remove('open');
     AllurusUX.afterRender(r, navigated);
     navigated = false;
+    if (r !== 'settings' && zonePicker) { zonePicker.destroy(); zonePicker = null; }
+    applySetupLink();
   }
 
   // ---------- Views ----------
@@ -946,6 +969,108 @@
   }
 
   // ----- Settings -----
+  // ----- Check-in location (Settings) -----
+  // Everything here reads and writes state.settings.checkin only. The head office city is never used,
+  // except as the fallback centre (with a warning) while no check-in point is set.
+  let zonePicker = null;
+  function checkinCard(s) {
+    const c = s.checkin, z = zone(), set = z.source === 'checkin';
+    return `<div class="card" id="checkin-card"><div class="card-head"><h3>Check-in location</h3><a class="hint" id="z-maplink" href="${mapsLink(z)}" target="_blank" rel="noopener">View on Google Maps</a></div>
+        <p class="muted" style="margin-bottom:6px">Employees must be inside this circle and take a selfie to check in. This is separate from the head office city above.</p>
+        <div class="lock-banner warn" id="z-warn" ${set ? 'hidden' : ''}>${icon('pin')}<span>No check-in point is set, so check-ins are measured from the centre of ${esc(z.city || s.office)}. Drop the pin on the map or paste coordinates below.</span></div>
+        <div class="settings-row"><div><div class="label">Name</div><div class="desc">Shown to employees, for example “Allurus HQ”.</div></div><input class="input" id="z-label" value="${esc(c.label || '')}" style="width:min(260px,100%)"></div>
+        <div class="settings-row zone-coords"><div><div class="label"><label for="z-coords">Coordinates</label></div><div class="desc">Paste from Google Maps: 3.769833, 103.224556 or 3°46'11.4"N 103°13'28.4"E. Press Enter to save.</div></div>
+          <div class="zone-field"><div class="actions"><input class="input num" id="z-coords" value="${set ? esc(U.fmtCoords(c)) : ''}" placeholder="4.238203, 103.419428" autocomplete="off" spellcheck="false" inputmode="text" aria-describedby="z-coords-msg"><button class="btn" data-act="zone-here">${icon('pin')}Use my location</button></div>
+          <span class="field-hint" id="z-coords-msg" role="status">${set ? `Saved${c.setAt ? ' ' + new Date(c.setAt).toLocaleString() : ''}.` : 'Not set yet.'}</span></div></div>
+        <div class="map-pick">
+          <form class="map-search" id="z-search" role="search"><input class="input" type="search" id="z-q" placeholder="Search a place or address" aria-label="Search a place or address" autocomplete="off"><button class="btn" type="submit">${icon('search')}<span>Search</span></button></form>
+          <div class="map-results" id="z-results" hidden></div>
+          <div class="map-canvas" id="z-map" role="application" aria-label="Map. Tap to place the check-in point, then drag the pin to adjust it."><div class="map-loading">Loading map…</div></div>
+          <p class="field-hint">Tap the map to drop the pin, then drag it to fine-tune. The circle shows the radius.</p>
+        </div>
+        <div class="settings-row"><div><div class="label"><label for="z-radius">Radius</label></div><div class="desc">How close employees must be, in meters. Default is 50 m. GPS readings get up to ${U.GPS_SLACK_M} m of leeway.</div></div><input class="input num" id="z-radius" type="number" min="10" max="5000" step="5" value="${z.radius}" style="width:100px"></div>
+        <div class="settings-row"><div><div class="label">Staff phones</div><div class="desc">In this demo every browser keeps its own copy of the settings. Send staff this link once so their phone uses this exact check-in point.</div></div><button class="btn" data-act="zone-link" ${set ? '' : 'disabled'}>Copy setup link</button></div>`;
+  }
+  // Save a new check-in point without re-rendering the page, and keep the field, link and map in sync.
+  function setZonePoint(p, how) {
+    const c = state.settings.checkin;
+    Object.assign(c, { lat: +(+p.lat).toFixed(6), lng: +(+p.lng).toFixed(6), setAt: Date.now() });
+    save();
+    const f = $('#z-coords');
+    if (f) { f.value = U.fmtCoords(c); f.removeAttribute('aria-invalid'); }
+    const msg = $('#z-coords-msg'); if (msg) { msg.textContent = `Saved ${new Date(c.setAt).toLocaleString()}.`; msg.classList.remove('field-error'); }
+    $('#z-maplink')?.setAttribute('href', mapsLink(c));
+    $('#z-warn')?.setAttribute('hidden', '');
+    $('[data-act=zone-link]')?.removeAttribute('disabled');
+    log(`Check-in point moved to ${U.fmtCoords(c)} (${how === 'gps' ? 'GPS' : how === 'field' ? 'typed' : 'map'})`);
+    toast(how === 'gps' ? 'Check-in point set to your location' : 'Check-in point saved');
+  }
+  function bindCheckinCard() {
+    const c = state.settings.checkin, f = $('#z-coords'), msg = $('#z-coords-msg');
+    $('#z-label').addEventListener('change', (ev) => { c.label = ev.target.value.trim() || c.label; save(); toast('Check-in name saved'); });
+    const showError = (text) => { f.setAttribute('aria-invalid', 'true'); msg.textContent = text; msg.classList.add('field-error'); };
+    f.addEventListener('input', () => { if (f.getAttribute('aria-invalid')) { f.removeAttribute('aria-invalid'); msg.classList.remove('field-error'); msg.textContent = 'Press Enter to save.'; } });
+    const commitField = () => {
+      const r = U.parseCoordsDetailed(f.value);
+      if (!r.ok) { showError(r.error); return; }
+      if (U.hasCoords(c) && r.lat === c.lat && r.lng === c.lng) { f.value = U.fmtCoords(c); return; }
+      setZonePoint(r, 'field');
+      zonePicker?.setPoint(r, { zoom: 17 });
+    };
+    f.addEventListener('change', commitField);
+    f.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); commitField(); } });
+    const rf = $('#z-radius');
+    const radiusVal = () => Math.min(5000, Math.max(10, Math.round(Number(rf.value) || 50)));
+    rf.addEventListener('input', () => zonePicker?.setRadius(radiusVal()));
+    rf.addEventListener('change', () => { c.radius = radiusVal(); rf.value = c.radius; c.setAt = Date.now(); save(); zonePicker?.setRadius(c.radius); toast(`Radius set to ${c.radius} m`); });
+    // Map picker
+    zonePicker?.destroy(); zonePicker = null;
+    const z = zone(), el = $('#z-map');
+    AllurusMap.picker(el, { lat: z.lat, lng: z.lng, radius: z.radius, approx: z.source !== 'checkin', onPick: (p) => setZonePoint(p, 'map') })
+      .then((pk) => { if (!pk) return; zonePicker = pk; el.querySelector('.map-loading')?.remove(); })
+      .catch(() => { el.innerHTML = '<div class="map-loading">The map couldn’t load here. You can still paste coordinates above.</div>'; });
+    // Place search (Nominatim)
+    const results = $('#z-results');
+    $('#z-search').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const q = $('#z-q').value.trim(), btn = ev.target.querySelector('button');
+      if (q.length < 3) { $('#z-q').focus(); return; }
+      btn.disabled = true; results.hidden = false; results.innerHTML = '<div class="map-loading">Searching…</div>';
+      try {
+        const list = await AllurusMap.search(q);
+        results.innerHTML = list.length ? list.map((x, i) => `<button type="button" data-i="${i}">${icon('pin')}<span>${esc(x.name)}</span></button>`).join('') : `<div class="map-loading">No places found for “${esc(q)}”. Try a street, building or town.</div>`;
+        results.querySelectorAll('[data-i]').forEach((b) => b.addEventListener('click', () => {
+          const x = list[+b.dataset.i];
+          results.hidden = true;
+          zonePicker?.view(x, 18);
+          toast('Moved the map there. Tap the exact spot to drop the pin.', 'info');
+        }));
+      } catch (e) { results.innerHTML = '<div class="map-loading">Search isn’t available right now. Drag the map or paste coordinates instead.</div>'; }
+      btn.disabled = false;
+    });
+  }
+  // A setup link from HR (#setup?co=…&lat=…) makes this phone use the company's check-in point.
+  function captureSetupLink() {
+    const h = location.hash;
+    if (!h.startsWith('#setup?')) return;
+    try { sessionStorage.setItem('allurus-setup', h.slice(7)); } catch (e) { /* private mode */ }
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+  function applySetupLink() {
+    let raw = null;
+    try { raw = sessionStorage.getItem('allurus-setup'); } catch (e) { /* private mode */ }
+    if (!raw || !role()) return;
+    try { sessionStorage.removeItem('allurus-setup'); } catch (e) { /* private mode */ }
+    const q = new URLSearchParams(raw), p = U.parseCoords(`${q.get('lat')}, ${q.get('lng')}`), t = Number(q.get('t')) || 0;
+    if (!p) { toast('That setup link is damaged. Ask HR for a new one.', 'error'); return; }
+    if ((q.get('co') || '').toLowerCase() !== state.settings.company.toLowerCase()) { toast(`That setup link is for ${q.get('co')}, not ${state.settings.company}.`, 'error'); return; }
+    const c = state.settings.checkin;
+    if (c.setAt && c.setAt >= t) { toast('This phone already has the latest check-in point.', 'info'); return; }
+    Object.assign(c, { lat: p.lat, lng: p.lng, radius: Math.min(5000, Math.max(10, Number(q.get('r')) || 50)), label: q.get('label') || c.label, setAt: t || Date.now() });
+    save(); render();
+    toast(`Check-in point updated: ${c.label}, ${c.radius} m`);
+  }
+
   // Malaysian statutory deductions, used by payroll.
   function statutoryCard(s) {
     const st = U.statutory(s);
@@ -976,7 +1101,7 @@
       <div class="grid g-2">
         <div class="card"><div class="card-head"><h3>Company</h3></div>
           <div class="settings-row"><div><div class="label">Company name</div><div class="desc">Shown in the sidebar and on payslips.</div></div><input class="input" id="s-company" value="${esc(s.company)}" style="width:220px"></div>
-          <div class="settings-row"><div><div class="label">Head office city</div><div class="desc">Where your company appears on the Allurus map.</div></div><select class="select" id="s-office">${U.CITIES.map((c) => `<option value="${esc(c.name)}" ${s.office === c.name ? 'selected' : ''}>${esc(c.name)}, ${esc(c.country)}</option>`).join('')}</select></div>
+          <div class="settings-row"><div><div class="label">Head office city</div><div class="desc">Only places your company on the Allurus map. Check-ins use the check-in location below.</div></div><select class="select" id="s-office">${U.CITIES.map((c) => `<option value="${esc(c.name)}" ${s.office === c.name ? 'selected' : ''}>${esc(c.name)}, ${esc(c.country)}</option>`).join('')}</select></div>
           <div class="settings-row"><div><div class="label">Currency</div><div class="desc">Used for salaries and payroll.</div></div><select class="select" id="s-currency">${currencies.map((c) => `<option ${s.currency === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
         </div>
         <div class="card"><div class="card-head"><h3>Pay and leave rules</h3></div>
@@ -988,12 +1113,7 @@
       </div>
       ${AllurusUX.appearanceCard()}
       ${s.currency === 'MYR' ? statutoryCard(s) : ''}
-      <div class="card"><div class="card-head"><h3>Check-in location</h3><a class="hint" href="${mapsLink(s.checkin)}" target="_blank" rel="noopener">View on Google Maps</a></div>
-        <p class="muted" style="margin-bottom:6px">Employees must be inside this zone and take a selfie to check in.</p>
-        <div class="settings-row"><div><div class="label">Name</div><div class="desc">Shown to employees, for example “Allurus HQ”.</div></div><input class="input" id="z-label" value="${esc(s.checkin.label)}" style="width:240px"></div>
-        <div class="settings-row"><div><div class="label">Coordinates</div><div class="desc">Paste from Google Maps, as 3.769833, 103.224556 or 3°46'11.4"N 103°13'28.4"E.</div></div>
-          <div class="actions"><input class="input num" id="z-coords" value="${esc(U.fmtCoords(s.checkin))}" style="width:240px" aria-label="Check-in coordinates"><button class="btn" data-act="zone-here">${icon('pin')}Use my location</button></div></div>
-        <div class="settings-row"><div><div class="label">Radius</div><div class="desc">How close employees must be, in meters. Default is 50 m.</div></div><input class="input num" id="z-radius" type="number" min="10" max="5000" step="5" value="${s.checkin.radius}" style="width:100px"></div>
+      ${checkinCard(s)}
         <div class="settings-row"><div><div class="label">Remote check-in</div><div class="desc">Lets employees check in from anywhere with a selfie. Marked as Remote.</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="zone-remote" data-v="${v}" class="${(s.checkin.remote ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
         ${[['deviceLock', 'One phone per person', 'Each person checks in only from their approved phone, and a phone checks in for one person. New phones need your approval.'],
            ['faceCheck', 'Face check', 'Compares each selfie with the person’s reference photo, on their phone. Asks for consent first.'],
@@ -1012,13 +1132,7 @@
     bindAccountCard();
     if (role() !== 'admin') return;
     const bind = (id, key, num) => $(id).addEventListener('change', (ev) => { state.settings[key] = num ? Math.max(0, Number(ev.target.value) || 0) : ev.target.value.trim() || state.settings[key]; commit('Settings saved'); });
-    $('#z-label').addEventListener('change', (ev) => { state.settings.checkin.label = ev.target.value.trim() || state.settings.checkin.label; commit('Check-in location saved'); });
-    $('#z-coords').addEventListener('change', (ev) => {
-      const p = U.parseCoords(ev.target.value);
-      if (!p) { toast('Those coordinates aren’t valid. Paste them from Google Maps, for example 3.769833, 103.224556.', 'error'); ev.target.value = U.fmtCoords(state.settings.checkin); return; }
-      Object.assign(state.settings.checkin, p); commit('Check-in point saved');
-    });
-    $('#z-radius').addEventListener('change', (ev) => { state.settings.checkin.radius = Math.min(5000, Math.max(10, Math.round(Number(ev.target.value) || 50))); commit(`Radius set to ${state.settings.checkin.radius} m`); });
+    bindCheckinCard();
     bind('#s-company', 'company'); bind('#s-currency', 'currency'); bind('#s-office', 'office'); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
     $$('[data-stat]').forEach((el) => el.addEventListener('change', () => { state.settings.statutory = { ...U.statutory(state.settings), [el.dataset.stat]: Math.min(20, Math.max(0, Number(el.value) || 0)) }; commit('Statutory rates saved'); })); bind('#s-annual', 'annualDays', 1); bind('#s-sick', 'sickDays', 1);
   };
@@ -1433,7 +1547,7 @@
     const [first, ...rest] = d.adminName.trim().split(/\s+/);
     const admin = { id: 'e1', first, last: rest.join(' ') || '', role: 'HR Administrator', dept: 'd-people', salary: 90000, start: U.today(), location: d.city, birthday: '', email: d.email, phone: '', type: 'Full-time', status: 'Active', manager: '' };
     const ws = {
-      settings: { ...base.settings, company: d.name, domain, office: d.city, currency: d.currency, checkin: defaultZone(d.name, d.city) },
+      settings: { ...base.settings, company: d.name, domain, office: d.city, currency: d.currency, checkin: defaultZone(d.name) },
       departments: base.departments.map((x) => ({ ...x, lead: withSamples ? x.lead : (x.id === 'd-people' ? 'e1' : '') })),
       employees: [admin], leaves: [], attendance: {}, payroll: {}, jobs: [], candidates: [],
       reviews: [{ id: 'r1', empId: 'e1', cycle: 'H2 ' + U.today().slice(0, 4), status: 'Not started', rating: 0, progress: 0, notes: '' }],
@@ -1492,7 +1606,7 @@
         <div class="field"><label for="rg-ind">Industry</label><select class="select" id="rg-ind" name="industry">${['Technology', 'Retail', 'Healthcare', 'Manufacturing', 'Construction', 'Hospitality', 'Education', 'Financial services', 'Logistics', 'Professional services', 'Other'].map((x) => `<option>${x}</option>`).join('')}</select></div>
         <div class="field"><label for="rg-admin">Your full name</label><input class="input" id="rg-admin" name="adminName" required placeholder="Sara Ahmed"></div>
         <div class="field"><label for="rg-email">Work email</label><input class="input" id="rg-email" name="email" type="email" required placeholder="sara@acme.com"></div>
-        <div class="field"><label for="rg-city">Head office</label><select class="select" id="rg-city" name="city">${cities}</select><span class="field-hint">Used for check-in distance and your spot on the map.</span></div>
+        <div class="field"><label for="rg-city">Head office</label><select class="select" id="rg-city" name="city">${cities}</select><span class="field-hint">Places your company on the Allurus map. You’ll pin the exact check-in point in Settings.</span></div>
         <div class="field"><label for="rg-cur">Currency</label><select class="select" id="rg-cur" name="currency">${['USD', 'EUR', 'GBP', 'AED', 'SAR', 'QAR', 'KWD', 'PKR', 'INR', 'MYR', 'SGD', 'AUD', 'CAD'].map((x) => `<option>${x}</option>`).join('')}</select></div>
         <div class="field"><label for="rg-plan">Plan</label><select class="select" id="rg-plan" name="plan">${state.platform.plans.map((p) => `<option value="${p.id}" ${p.id === 'growth' ? 'selected' : ''}>${p.name} · $${p.price}/seat/month</option>`).join('')}</select></div>
         <div class="field"><label for="rg-seats">Team size</label><input class="input" id="rg-seats" name="seats" type="number" min="1" value="25" required></div>
@@ -1527,7 +1641,8 @@
   let camStream = null;
   const stopCamera = () => { camStream?.getTracks().forEach((t) => t.stop()); camStream = null; };
   const ci = { mode: 'present', loc: null, photo: null, canvas: null, face: null, fails: 0, consent: false, first: false, upload: false };
-  const zone = () => state.settings.checkin;
+  // Where check-ins are measured from: always the saved check-in point; the head office city only when none is set.
+  const zone = () => U.resolveZone(state.settings);
   const lockOn = () => zone().deviceLock !== false;
   const faceOn = () => zone().faceCheck !== false;
   const liveOnly = () => zone().liveOnly !== false;
@@ -1601,13 +1716,18 @@
       ciProblem('Location is off', 'Check-in needs your phone’s GPS position. Turn on location for this browser, allow access for this site, then try again.');
       return;
     }
-    const m = Math.round(U.distanceKm(loc, z) * 1000);
+    const { m, inside } = U.checkZone(loc, z);
     loc.m = m;
-    loc.inside = m - Math.min(loc.accuracy || 0, 50) <= z.radius;
+    loc.inside = inside;
     ci.loc = loc;
     if (ci.mode === 'present' && !loc.inside) {
       ciProblem(`You are ${U.fmtDist(m)} from ${esc(z.label)}`, `Move inside the ${z.radius} m check-in zone and try again. Your GPS accuracy is ±${loc.accuracy} m.`,
-        `<a class="hint" href="${mapsLink(z)}" target="_blank" rel="noopener">Open the check-in point in Google Maps</a>`);
+        `<div class="map-canvas map-sm" id="ci-map" role="img" aria-label="Map of the check-in zone and your position"></div>
+        <dl class="kv zone-debug"><dt>Check-in point</dt><dd class="num">${U.fmtCoords(z)} · ${z.radius} m</dd><dt>You are at</dt><dd class="num">${U.fmtCoords(loc)} · ±${loc.accuracy} m</dd>
+          ${z.setAt ? `<dt>Point updated</dt><dd>${new Date(z.setAt).toLocaleString()}</dd>` : ''}</dl>
+        ${z.source === 'office' ? `<p class="faint" style="font-size:12.5px">${esc(state.settings.company)} hasn’t set an exact check-in point yet, so this is measured from the centre of ${esc(z.city)}. Ask HR to set it in Settings.</p>` : ''}
+        <a class="hint" href="${mapsLink(z)}" target="_blank" rel="noopener">Open the check-in point in Google Maps</a>`);
+      AllurusMap.preview($('#ci-map'), z, loc).catch((e) => { console.warn('Check-in map unavailable:', e); $('#ci-map')?.remove(); });
       return;
     }
     ciSelfie();
@@ -1700,7 +1820,7 @@
     const L = ci.loc, T = U.today(), t = nowHM(), z = zone(), e = me();
     if (!L || !ci.photo) return;
     state.attendance[T] = state.attendance[T] || {};
-    const loc = { lat: L.lat, lng: L.lng, accuracy: L.accuracy, label: L.label, source: 'gps', m: L.m, inside: L.inside, zone: z.label, radius: z.radius };
+    const loc = { lat: L.lat, lng: L.lng, accuracy: L.accuracy, label: L.label, source: 'gps', m: L.m, inside: L.inside, zone: z.label, radius: z.radius, zoneAt: { lat: z.lat, lng: z.lng, source: z.source } };
     const face = ci.face ? { result: ci.face.result, sim: ci.face.sim ?? null } : null;
     const device = { id: deviceId(), name: deviceName() };
     if (ci.first && lockOn()) {
@@ -1853,7 +1973,7 @@
     'face-confirm': (empId) => { const e = emp(empId); e.face.status = 'confirmed'; e.face.confirmedOn = U.today(); commit(`Reference photo confirmed for ${e.first}`, `${fullName(e)}’s reference photo was confirmed`); if ($('.drawer')) openProfile(empId); },
     'face-reset': (empId) => { const e = emp(empId); delete e.face; commit(`${e.first} will set a new reference photo at the next check-in`, `${fullName(e)}’s reference photo was reset`); if ($('.drawer')) openProfile(empId); },
     'sec-toggle': (key, v) => {
-      zone()[key] = v === 'on';
+      state.settings.checkin[key] = v === 'on';
       const label = { deviceLock: 'Phone lock', faceCheck: 'Face check', liveOnly: 'Live camera only' }[key];
       commit(`${label} turned ${v}`);
     },
@@ -1865,8 +1985,17 @@
       toast('Finding your location…');
       const loc = await U.locate({ gpsOnly: true });
       if (!loc) { toast('Could not get your GPS position. Turn on location and try again.', 'error'); return; }
-      Object.assign(state.settings.checkin, { lat: loc.lat, lng: loc.lng });
-      commit(`Check-in point set to your location (±${loc.accuracy} m)`);
+      setZonePoint(loc, 'gps');
+      zonePicker?.setPoint(loc, { zoom: 18 });
+      if (loc.accuracy > zone().radius) toast(`Your GPS is only accurate to ±${loc.accuracy} m, more than the ${zone().radius} m radius. Drag the pin to the exact spot.`, 'info');
+    },
+    'zone-link': () => {
+      const z = zone();
+      if (z.source !== 'checkin') { toast('Set the check-in point first.', 'error'); return; }
+      const q = new URLSearchParams({ co: state.settings.company, lat: z.lat, lng: z.lng, r: z.radius, label: z.label, t: z.setAt || Date.now() });
+      const url = `${location.origin}${location.pathname}#setup?${q}`;
+      const done = () => toast('Setup link copied. Send it to staff to open once on their phone.');
+      (navigator.clipboard?.writeText(url) || Promise.reject()).then(done, () => openModal({ title: 'Setup link for staff phones', size: 'sm', submit: null, body: `<p class="muted" style="margin-bottom:10px">Copy this link and send it to staff. Opening it once makes their phone use this check-in point.</p><textarea class="textarea" readonly style="width:100%;min-height:110px" onfocus="this.select()">${esc(url)}</textarea>` }));
     },
     'zone-remote': (_, v) => { state.settings.checkin.remote = v === 'on'; commit(v === 'on' ? 'Remote check-in allowed' : 'Remote check-in turned off'); },
     'check-out': () => { const r = myRecord(U.today()); r.out = nowHM(); commit(`Checked out at ${r.out}`); },
@@ -2100,7 +2229,8 @@
   // ---------- Boot ----------
   $('#today').textContent = U.fmtDate(U.today(), { weekday: 'short', month: 'short', day: 'numeric' });
   $('#brand-mark').innerHTML = LOGO_MARK;
-  window.addEventListener('hashchange', () => { navigated = true; render(); window.scrollTo(0, 0); });
+  captureSetupLink();
+  window.addEventListener('hashchange', () => { captureSetupLink(); navigated = true; render(); window.scrollTo(0, 0); });
   // Live: when another tab on this browser changes data (a check-in, an approval), refresh this screen.
   window.addEventListener('storage', (ev) => {
     if (ev.key !== STORE_KEY || !ev.newValue) return;

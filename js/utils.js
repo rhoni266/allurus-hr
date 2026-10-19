@@ -136,26 +136,70 @@ window.U = (function () {
     try {
       navigator.geolocation.getCurrentPosition((pos) => {
         if (done) return; done = true; clearTimeout(timer);
-        const p = { lat: +pos.coords.latitude.toFixed(4), lng: +pos.coords.longitude.toFixed(4) };
+        const p = { lat: +pos.coords.latitude.toFixed(6), lng: +pos.coords.longitude.toFixed(6) };
         const c = nearestCity(p), km = distanceKm(p, c);
         resolve({ ...p, label: km < 60 ? `Near ${c.name}, ${c.country}` : `${km.toFixed(0)} km from ${c.name}`, source: 'gps', accuracy: Math.round(pos.coords.accuracy) });
       }, () => { if (!done) { done = true; clearTimeout(timer); fallback(); } }, opts.gpsOnly ? { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 } : { enableHighAccuracy: false, timeout: 7000, maximumAge: 300000 });
     } catch (e) { if (!done) { done = true; clearTimeout(timer); fallback(); } }
   });
 
-  // Accepts "3.769833, 103.224556" or degrees-minutes-seconds like 3°46'11.4"N 103°13'28.4"E.
-  const validCoords = (lat, lng) => (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? { lat: +lat.toFixed(6), lng: +lng.toFixed(6) } : null);
-  const parseCoords = (str) => {
-    const s = String(str || '').trim();
-    const dec = s.match(/^(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)$/);
-    if (dec) return validCoords(+dec[1], +dec[2]);
-    const parts = [...s.matchAll(/(\d+(?:\.\d+)?)\s*[°º]\s*(?:(\d+(?:\.\d+)?)\s*['′’]\s*)?(?:(\d+(?:\.\d+)?)\s*(?:"|″|”|'')\s*)?([NSEW])/gi)];
-    if (parts.length !== 2) return null;
-    const conv = (m) => { let v = +m[1] + (+m[2] || 0) / 60 + (+m[3] || 0) / 3600; if (/[SW]/i.test(m[4])) v = -v; return { v, lat: /[NS]/i.test(m[4]) }; };
+  // ---------- Check-in geometry ----------
+  // Parses "3.769833, 103.224556" or degrees-minutes-seconds such as 3°46'11.4"N 103°13'28.4"E.
+  // Returns { ok: true, lat, lng } with numbers rounded to 6 decimals, or { ok: false, error }.
+  const COORD_HINT = 'Use 3.769833, 103.224556 or 3°46\'11.4"N 103°13\'28.4"E.';
+  function parseCoordsDetailed(str) {
+    const s = String(str ?? '').trim()
+      .replace(/[″“”]/g, '"').replace(/[′‘’]/g, "'").replace(/''/g, '"').replace(/[º˚]/g, '°');
+    if (!s) return { ok: false, error: 'Enter the check-in coordinates.' };
+    const range = (lat, lng) => {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return { ok: false, error: `Those coordinates aren’t valid. ${COORD_HINT}` };
+      if (Math.abs(lat) > 90) return { ok: false, error: `Latitude must be between -90 and 90 (got ${lat}). Check the order: latitude first, then longitude.` };
+      if (Math.abs(lng) > 180) return { ok: false, error: `Longitude must be between -180 and 180 (got ${lng}).` };
+      return { ok: true, lat: +lat.toFixed(6), lng: +lng.toFixed(6) };
+    };
+    const dec = s.match(/^\(?\s*([-+]?\d+(?:\.\d+)?)\s*[,;\s]\s*([-+]?\d+(?:\.\d+)?)\s*\)?$/);
+    if (dec) return range(+dec[1], +dec[2]);
+    // Hemisphere letters come either all before the numbers ("N 3°46'…") or all after them ("3°46'…N").
+    const num = `(\\d+(?:\\.\\d+)?)\\s*°\\s*(?:(\\d+(?:\\.\\d+)?)\\s*'\\s*)?(?:(\\d+(?:\\.\\d+)?)\\s*"\\s*)?`;
+    const prefix = /^[NSEW]/i.test(s);
+    const re = new RegExp(prefix ? `([NSEW])\\s*${num}` : `${num}([NSEW])`, 'gi');
+    const parts = [...s.matchAll(re)].map((m) => (prefix ? [m[0], m[1], m[2], m[3], m[4], undefined] : [m[0], undefined, m[1], m[2], m[3], m[4]]));
+    const rest = s.replace(re, '').replace(/[\s,;]/g, '');
+    if (parts.length !== 2 || rest) return { ok: false, error: `Those coordinates aren’t valid. ${COORD_HINT}` };
+    const conv = (m) => {
+      const min = +m[3] || 0, sec = +m[4] || 0;
+      if (min >= 60 || sec >= 60) return null;
+      const hemi = (m[1] || m[5]).toUpperCase();
+      const v = (+m[2] + min / 60 + sec / 3600) * (hemi === 'S' || hemi === 'W' ? -1 : 1);
+      return { v, isLat: hemi === 'N' || hemi === 'S' };
+    };
     const a = conv(parts[0]), b = conv(parts[1]);
-    if (a.lat === b.lat) return null;
-    return a.lat ? validCoords(a.v, b.v) : validCoords(b.v, a.v);
-  };
+    if (!a || !b) return { ok: false, error: 'Minutes and seconds must be below 60.' };
+    if (a.isLat === b.isLat) return { ok: false, error: 'Give one latitude (N or S) and one longitude (E or W).' };
+    return a.isLat ? range(a.v, b.v) : range(b.v, a.v);
+  }
+  const parseCoords = (str) => { const r = parseCoordsDetailed(str); return r.ok ? { lat: r.lat, lng: r.lng } : null; };
+  const hasCoords = (p) => !!p && Number.isFinite(p.lat) && Number.isFinite(p.lng) && Math.abs(p.lat) <= 90 && Math.abs(p.lng) <= 180;
+  // Haversine great-circle distance in meters.
+  const distanceM = (a, b) => distanceKm(a, b) * 1000;
+  // GPS readings wobble; a reading this close outside the circle (at most) still counts as inside.
+  const GPS_SLACK_M = 20;
+  // The one place that decides where check-in is measured from: the saved check-in point,
+  // or, only when none is saved, the head office city centre (flagged so Settings can warn).
+  function resolveZone(settings) {
+    const c = settings.checkin || {};
+    const radius = Math.min(5000, Math.max(10, Math.round(Number(c.radius) || 50)));
+    const label = c.label || `${settings.company || 'Company'} office`;
+    if (hasCoords(c)) return { ...c, label, radius, lat: +c.lat, lng: +c.lng, source: 'checkin' };
+    const city = CITIES.find((x) => x.name === settings.office) || CITIES[0];
+    return { ...c, label, radius, lat: city.lat, lng: city.lng, source: 'office', city: `${city.name}, ${city.country}` };
+  }
+  // Distance from a GPS position to the zone centre, and whether it counts as inside.
+  function checkZone(pos, zone) {
+    const m = Math.round(distanceM(pos, zone));
+    const slack = Math.min(Math.max(0, Number(pos.accuracy) || 0), GPS_SLACK_M);
+    return { m, inside: m <= zone.radius + slack, slack };
+  }
   const fmtCoords = (p) => `${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}`;
   const fmtDist = (m) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} km`);
 
@@ -194,5 +238,5 @@ window.U = (function () {
     } catch (e) { return sha256js(msg); }
   }
 
-  return { parseCoords, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, pad, iso, parse, today, addDays, isWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
+  return { parseCoords, parseCoordsDetailed, hasCoords, distanceM, resolveZone, checkZone, GPS_SLACK_M, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, pad, iso, parse, today, addDays, isWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
 })();

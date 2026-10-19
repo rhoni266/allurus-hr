@@ -105,6 +105,17 @@ Employees check in with **Check in with selfie** on their Home screen:
 2. The employee takes a selfie with the front camera.
 3. The admin sees the selfie, the time and the distance from the check-in point on the **Attendance** page.
 
+### Check-in location
+
+Check-ins are measured only from the **check-in point** in Settings → Check-in location (latitude, longitude and radius). The **head office city** just places the company on the Allurus map. If no check-in point is set, check-ins fall back to the city centre and Settings shows a warning until you set one.
+
+- **Map picker** (Leaflet with OpenStreetMap tiles, no API key): tap the map to drop the pin, drag it to fine-tune, or search for a place. The circle shows the radius and updates as you type it. Moving the pin updates the coordinates field (6 decimals), and editing the field moves the pin. **Use my location** puts the pin at the phone's GPS position.
+- **Coordinates field**: accepts `4.238203, 103.419428` or `3°46'11.4"N 103°13'28.4"E`. Values are stored as numbers, and invalid input shows an error next to the field.
+- **Distance**: the Haversine formula in metres. A check-in counts if it is within the radius, plus up to 20 m to allow for GPS accuracy. When a check-in is refused, the employee sees how far away they are, the check-in point, their position and a small map.
+- **Staff phones**: in this demo every browser keeps its own copy of the settings. **Copy setup link** gives staff a link that makes their phone use the same check-in point. A real deployment would load this from the server.
+
+Run the unit tests for coordinate parsing and the zone check with `npm test` (Node 18 or later, no dependencies).
+
 ### Making sure it's really them
 
 Logging in isn't enough on its own, because people can share passwords. Each check-in also confirms the phone and the face:
@@ -144,14 +155,16 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 index.html          App shell: sign-in screen, sidebar, top bar
 brand.html          Brand kit: logo, palette, type, usage rules
 design-system.html  Live tokens and components
+tests/              Unit tests (npm test)
 css/styles.css      Design tokens (light and dark) and all components
 js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
 js/seed.js          Demo data: the Lumen & Co. workspace and 14 subscribed companies
+js/geo-map.js       Check-in map picker, preview and place search (Leaflet, OpenStreetMap, Nominatim)
 js/experience.js    Preferences, ⌘K palette, dashboards, setup, tour, help, live updates
 js/claims.js        Medical claims: policy, employee claims, HR review
 js/planner.js       Employee financial planner
 js/app.js           Views, routing per role, actions, registration, shared-link sync
-js/vendor/          jsVectorMap (MIT) for the Super Admin world map
+js/vendor/          jsVectorMap (MIT) for the Super Admin world map; Leaflet 1.9.4 (BSD-2) for the check-in map
 assets/             logo.svg, logo-mark.svg
 ```
 

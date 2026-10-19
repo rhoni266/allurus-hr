@@ -781,3 +781,42 @@ kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; 
   .setup-list { grid-template-columns: minmax(0, 1fr); }
 }
 @keyframes sheet { from { transform: translateY(40px); opacity: 0; } }
+
+/* Check-in location: map picker and preview (Leaflet) */
+.zone-field { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; min-width: 0; }
+.zone-field .actions { flex-wrap: nowrap; }
+.zone-field .input { width: min(260px, 100%); }
+.zone-field .field-hint { text-align: right; }
+.zone-field .field-hint.field-error { display: block; max-width: 420px; }
+.map-pick { display: flex; flex-direction: column; gap: 8px; padding: 12px 0 14px; border-bottom: 1px solid var(--line); position: relative; }
+.map-search { display: flex; gap: 8px; }
+.map-search .input { flex: 1; min-width: 0; }
+.map-results { display: flex; flex-direction: column; gap: 2px; padding: 6px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-lg); }
+.map-results button { display: flex; gap: 8px; align-items: flex-start; text-align: left; padding: 8px 10px; border: 0; border-radius: 8px; background: none; cursor: pointer; font-size: 13px; line-height: 1.35; color: var(--fg); }
+.map-results button:hover, .map-results button:focus-visible { background: var(--brand-soft); }
+.map-results svg.i { width: 15px; height: 15px; margin-top: 1px; color: var(--brand); }
+.map-canvas { position: relative; height: 320px; width: 100%; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: var(--surface-2); z-index: 0; }
+.map-canvas.map-sm { height: 200px; margin: 10px 0 8px; }
+.map-loading { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; text-align: center; color: var(--fg-3); font-size: 13px; }
+.map-results .map-loading { position: static; padding: 10px; }
+.map-canvas .leaflet-container, .map-canvas.leaflet-container { font: inherit; background: var(--surface-2); }
+.map-canvas .leaflet-control-zoom a { color: var(--fg); background: var(--surface); border-color: var(--line); }
+.map-canvas .leaflet-control-attribution { font-size: 10.5px; background: color-mix(in srgb, var(--surface) 80%, transparent); color: var(--fg-2); }
+.map-canvas .leaflet-control-attribution a { color: var(--fg-2); }
+.map-pin span { position: absolute; left: 3px; top: 0; width: 24px; height: 24px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--brand); border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
+.map-pin span::after { content: ""; position: absolute; left: 6px; top: 6px; width: 6px; height: 6px; border-radius: 50%; background: #fff; }
+.map-pin.approx span { background: var(--warn); }
+.map-dot span { display: block; width: 18px; height: 18px; border-radius: 50%; background: #2F6AD0; border: 3px solid #fff; box-shadow: 0 0 0 2px rgba(47, 106, 208, .35), 0 2px 6px rgba(0, 0, 0, .3); }
+.zone-debug { margin: 4px 0 8px; font-size: 12.5px; grid-template-columns: 110px minmax(0, 1fr); }
+/* OpenStreetMap tiles are light; dim and invert them in dark mode so the map doesn't glare. */
+:root[data-theme="dark"] .map-canvas .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.88) saturate(.7); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .map-canvas .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.88) saturate(.7); } }
+@media (max-width: 640px) {
+  .zone-coords { flex-direction: column; align-items: stretch; }
+  .zone-field { align-items: stretch; }
+  .zone-field .actions { flex-wrap: wrap; }
+  .zone-field .input { width: 100%; }
+  .zone-field .field-hint { text-align: left; }
+  .map-canvas { height: 280px; }
+  .map-search .btn span { display: none; }
+}
