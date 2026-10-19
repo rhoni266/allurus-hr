@@ -136,24 +136,94 @@ window.AllurusSeed = {
     const leaveCredits = [{ id: 'cr1', empId: 'e16', days: 2, date: `${yr}-09-16`, reason: 'Worked on Malaysia Day for the system cut-over' }];
     const leaveCarry = { [yr]: { e2: { annual: { days: 4, expires: `${yr}-06-30`, from: yr - 1 } }, e3: { annual: { days: 5, expires: `${yr}-06-30`, from: yr - 1 } }, e11: { annual: { days: 3, expires: `${yr}-06-30`, from: yr - 1 } } } };
 
+    // Time attendance: the Terengganu week runs Sunday to Thursday. Most teams work office hours, Engineering is
+    // flexible around core hours, and a support desk (Priya, Ethan and Samuel) rotates morning and evening shifts.
+    const TR = AllurusTimeRules, wk = TR.workDays(L.weekendDays(settings.leave));
+    settings.time = TR.defaultSettings({ restDays: L.weekendDays(settings.leave) });
+    Object.assign(settings.time, {
+      patterns: [
+        { id: 'p-office', name: 'Office hours', start: '09:00', end: '18:00', breakMin: 60, grace: 10, days: wk, flexible: false, color: '#0F766E' },
+        { id: 'p-am', name: 'Morning shift', start: '07:00', end: '16:00', breakMin: 60, grace: 5, days: wk, flexible: false, color: '#4A6FD1' },
+        { id: 'p-pm', name: 'Evening shift', start: '14:00', end: '23:00', breakMin: 60, grace: 5, days: wk, flexible: false, color: '#7A62C9' },
+        { id: 'p-flex', name: 'Flexible', start: '07:00', end: '19:00', coreStart: '10:00', coreEnd: '16:00', hours: 8, breakMin: 60, grace: 0, days: wk, flexible: true, color: '#B8914A' },
+      ],
+      deptPattern: { 'd-people': 'p-office', 'd-eng': 'p-flex', 'd-design': 'p-office', 'd-sales': 'p-office', 'd-mkt': 'p-office', 'd-fin': 'p-office' },
+      minStaff: { 'd-eng': 6, 'd-sales': 3 },
+      allowances: [...TR.defaultAllowances(true), { id: 'al-shift', name: 'Evening shift', kind: 'shift', weekday: 12, rest: 15, holiday: 20, late: 'full', absent: 'forfeit', partialPct: 50, remote: false, patterns: ['p-pm'], epf: true, socso: true, tax: true, on: true }],
+      // Weeks run Monday to Sunday; Friday and Saturday are rest days.
+      templates: [{ id: 't-support', name: 'Support desk', weeks: [['p-am', 'p-am', 'p-am', 'p-am', 'off', 'off', 'p-am'], ['p-pm', 'p-pm', 'p-pm', 'p-pm', 'off', 'off', 'p-pm']] }],
+    });
+    employees.forEach((e) => { e.timePattern = ''; });
+    const rosters = TR.applyTemplate(settings.time.templates[0], { monday: TR.mondayOf(U.addDays(T, -35)), weeks: 8, empIds: ['e5', 'e8', 'e18'] });
+
+    // Check-ins and check-outs follow each person's shift: mostly on time, sometimes late, early or staying on.
     const attendance = {};
+    const rt = U.rng(11);
+    const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+    const shiftOf = (e, day) => TR.resolveDay({ day, roster: rosters[day]?.[e.id], deptPattern: settings.time.deptPattern[e.dept], cfg: settings.time, holiday: lctx.holidays.has(day) }).pattern;
     for (let k = -30; k <= 0; k++) {
       const day = U.addDays(T, k);
-      if (U.isWeekend(day)) continue;
+      if (U.isWeekend(day) || lctx.holidays.has(day)) continue;
       attendance[day] = {};
       employees.forEach((e) => {
         if (e.start > day) return;
         // Leave today empty for people who can sign in (Amara and Daniel), so they can try checking in themselves.
         if (k === 0 && (e.id === 'e1' || e.id === 'e2')) return;
-        const x = r();
+        const x = r(), j = r(), o = rt();
         const s = x < 0.8 ? 'present' : x < 0.93 ? 'remote' : x < 0.98 ? 'absent' : 'present';
-        const mins = 8 * 60 + 25 + Math.floor(r() * 60);
-        attendance[day][e.id] = { s, in: s === 'absent' ? '' : `${U.pad(Math.floor(mins / 60))}:${U.pad(mins % 60)}` };
+        if (s === 'absent') { attendance[day][e.id] = { s, in: '' }; return; }
+        const p = shiftOf(e, day);
+        const inM = p.flexible ? 8 * 60 + Math.floor(j * 130) : TR.toMin(p.start) + (j < 0.9 ? -18 + Math.floor((j / 0.9) * 24) : 12 + Math.floor((j - 0.9) * 300));
+        if (k === 0 && inM > nowMin) return;
+        const endM = p.flexible ? inM + 9 * 60 : TR.toMin(p.end);
+        const outM = endM + (o < 0.08 ? -(20 + Math.floor(o * 400)) : o < 0.88 ? Math.floor((o - 0.08) * 28) : 30 + Math.floor((o - 0.88) * 1000));
+        attendance[day][e.id] = { s, in: TR.fmtMin(inM), out: k === 0 ? '' : TR.fmtMin(outM) };
       });
     }
     leaves.filter((l) => l.status === 'Approved').forEach((l) => {
       L.countDays({ from: l.from, to: l.to }, lctx).dates.forEach((d) => { if (attendance[d]) attendance[d][l.empId] = { s: 'leave', in: '' }; });
     });
+
+    // Overtime, lateness waiver and correction requests, through the same approval chains as leave.
+    const back = (n) => { let d = T, k = 0; while (k < n) { d = U.addDays(d, -1); if (L.isWorkingDay(d, lctx)) k++; } return d; };
+    let restDay = U.addDays(T, -1); while (L.isWorkingDay(restDay, lctx)) restDay = U.addDays(restDay, -1);
+    const setRec = (day, empId, rec) => { attendance[day] = attendance[day] || {}; attendance[day][empId] = rec; };
+    const timeRequests = [];
+    const treq = (id, empId, kind, date, extra, reason, decisions = []) => {
+      const e = employees.find((x) => x.id === empId);
+      let chain = L.buildChain({ applicant: empId, chain: settings.leave.chains[e.dept], hr: settings.leave.hr, hrBackup: settings.leave.hrBackup });
+      let status = 'Pending';
+      const at = U.addDays(date, 1) < T ? U.addDays(date, 1) : T;
+      decisions.forEach((d) => {
+        const step = L.nextStep(chain); if (!step) return;
+        const r2 = L.decide(chain, { by: step.approver, approve: d === true, note: d === true ? '' : d, at });
+        chain = r2.chain; status = r2.status;
+      });
+      timeRequests.push({ id, empId, kind, date, reason, status, created: date, chain, ...(status === 'Pending' ? {} : { decidedAt: at }), ...extra });
+    };
+    setRec(back(1), 'e10', { s: 'present', in: '08:52', out: '20:40' });
+    treq('tr1', 'e10', 'ot', back(1), { from: '18:00', to: '20:30', minutes: 150 }, 'Finishing the Petronas tender proposal, due 9am tomorrow.');
+    rosters[back(2)] = { ...(rosters[back(2)] || {}), e5: 'p-pm' };
+    setRec(back(2), 'e5', { s: 'present', in: '13:55', out: '00:40' });
+    treq('tr2', 'e5', 'ot', back(2), { from: '23:00', to: '00:30', minutes: 90 }, 'Production deploy window for the MyInvois integration.', [true, true]);
+    setRec(back(1), 'e13', { s: 'present', in: '09:47', out: '18:05' });
+    treq('tr3', 'e13', 'waiver', back(1), {}, 'Flash flood on Jalan Kemaman–Kuantan. The road was closed until 9.30am.', [true]);
+    setRec(back(3), 'e2', { s: 'present', in: '09:12', out: '18:20' });
+    treq('tr4', 'e2', 'correction', back(3), { s: 'present', in: '09:12', out: '18:20' }, 'Forgot to check out after the client call.', [true, true]);
+    setRec(restDay, 'e6', { s: 'present', in: '09:55', out: '15:10' });
+    treq('tr5', 'e6', 'ot', restDay, { from: '10:00', to: '15:00', minutes: 300 }, 'Weekend roadshow at Kuantan City Mall.', [true, true]);
+    const ethan = shiftOf(employees[7], back(4));
+    setRec(back(4), 'e8', { s: 'present', in: TR.fmtMin(TR.toMin(ethan.start) - 6), out: TR.fmtMin(TR.toMin(ethan.end) + 110) });
+    treq('tr6', 'e8', 'ot', back(4), { from: ethan.end, to: TR.fmtMin(TR.toMin(ethan.end) + 105), minutes: 105 }, 'Server patching for the Kemaman plant, after hours.');
+    setRec(back(5), 'e7', { s: 'present', in: '09:25', out: '18:00' });
+    treq('tr7', 'e7', 'waiver', back(5), {}, 'Overslept.', ['Not covered by the waiver policy. Let’s talk if mornings are hard at the moment.']);
+    // Manual edits keep who, when, and the old and new values.
+    const stamp = (day, h) => new Date(`${day}T${h}:00`).toISOString();
+    setRec(back(6), 'e12', { s: 'present', in: '09:00', out: '18:00' });
+    const attAudit = [
+      { id: 'au1', day: back(3), empId: 'e2', by: 'e1', byName: 'Amara Okafor', at: stamp(U.addDays(back(3), 1), '10:14'), changes: [{ field: 'out', from: '', to: '18:20' }], note: 'Correction approved: Forgot to check out after the client call.', batch: '' },
+      { id: 'au2', day: back(6), empId: 'e12', by: 'e1', byName: 'Amara Okafor', at: stamp(U.addDays(back(6), 1), '09:02'), changes: [{ field: 's', from: 'absent', to: 'present' }, { field: 'in', from: '', to: '09:00' }, { field: 'out', from: '', to: '18:00' }], note: 'Phone battery died. Omar confirmed he was in.', batch: '' },
+    ];
 
     const payroll = {};
     const thisMonth = U.monthKey(T);
@@ -219,7 +289,7 @@ window.AllurusSeed = {
       if (it) { it.claims = U.round2((it.claims || 0) + c.approved); it.claimIds = [...(it.claimIds || []), c.id]; it.net = U.round2(it.net + c.approved); }
     });
     const plans = { e2: AllurusPlanner.sample() };
-    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
+    return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, rosters, timeRequests, attAudit, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };
   },
 
   // Super Admin data: every company subscribed to Allurus.

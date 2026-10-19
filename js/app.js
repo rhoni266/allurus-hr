@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2.2';
+  const APP_VERSION = '2.3';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   const STORE_KEY = 'allurus-hr-v7';
   const esc = U.esc;
@@ -27,6 +27,7 @@
       U.applyPublishedZone(st, AllurusSeed.published);
     });
     [s, ...Object.values(s.workspaces || {})].forEach(migrateLeave);
+    [s, ...Object.values(s.workspaces || {})].forEach(migrateTime);
     if (!s.finance) s.finance = AllurusFinance.blank();
     Object.values(s.workspaces || {}).forEach((w) => { if (!w.finance) w.finance = AllurusFinance.blank(); });
     s.reliefs = s.reliefs || {}; s.taxProfiles = s.taxProfiles || {};
@@ -192,7 +193,26 @@
     c.total = c.present + c.remote + c.absent + c.leave + c.none;
     return c;
   }
-  const PAY_KEYS = ['gross', 'tax', 'benefits', 'net', 'epf', 'socso', 'eis', 'zakat', 'erEpf', 'erSocso', 'erEis', 'hrdf', 'erCost', 'claims'];
+  // Time attendance: working patterns, overtime and allowance rules, rosters, requests and the audit trail.
+  function migrateTime(ws) {
+    const st = ws.settings, TR = AllurusTimeRules;
+    if (!st) return;
+    const d = TR.defaultSettings({ restDays: AllurusLeaveRules.weekendDays(st.leave) });
+    st.time = st.time || d;
+    const t = st.time;
+    t.patterns = t.patterns || d.patterns;
+    t.deptPattern = t.deptPattern || {};
+    t.minStaff = t.minStaff || {};
+    t.templates = t.templates || [];
+    t.ot = { ...d.ot, ...(t.ot || {}) };
+    t.allowances = t.allowances || d.allowances;
+    if (t.autoShift === undefined) t.autoShift = true;
+    ws.rosters = ws.rosters || {};
+    ws.timeRequests = ws.timeRequests || [];
+    ws.attAudit = ws.attAudit || [];
+    (ws.employees || []).forEach((e) => { if (e.timePattern === undefined) e.timePattern = ''; });
+  }
+  const PAY_KEYS = ['gross', 'tax', 'benefits', 'net', 'epf', 'socso', 'eis', 'zakat', 'erEpf', 'erSocso', 'erEis', 'hrdf', 'erCost', 'claims', 'extras'];
   const payTotal = (run) => run.items.reduce((a, i) => { PAY_KEYS.forEach((k) => { a[k] = U.round2(a[k] + (i[k] || 0)); }); return a; }, Object.fromEntries(PAY_KEYS.map((k) => [k, 0])));
 
   // ---------- Routing ----------
@@ -239,6 +259,7 @@
     { id: 'employees', label: 'Employees', icon: 'people', group: 'Workforce' },
     { id: 'departments', label: 'Departments', icon: 'building', group: 'Workforce' },
     { id: 'attendance', label: 'Attendance', icon: 'clock', group: 'Time' },
+    { id: 'schedule', label: 'Schedule', icon: 'grip', group: 'Time' },
     { id: 'leave', label: 'Time off', icon: 'calendar', group: 'Time' },
     { id: 'finance', label: 'Overview', icon: 'coins', group: 'Finance & Accounting' },
     { id: 'books', label: 'Bookkeeping', icon: 'book', group: 'Finance & Accounting' },
@@ -313,7 +334,7 @@
   const VIEWS = {};
   const AFTER = {};
   const ACTIONS_EXTRA = {};
-  let finApi = null, claimsApi = null, leaveApi = null;
+  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null;
   let clockTimer = null;
 
   // ---------- Automated insights (what needs attention, trends and wellbeing nudges) ----------
@@ -382,6 +403,7 @@
       if (+T.slice(5, 7) >= 9) add('info', 'percent', 'Lower your tax before the year ends', 'Add receipts for books, sports, medical and courses.', { label: 'Tax reliefs', href: '#my-tax' }, 0);
     }
     if (leaveApi) out.push(...leaveApi.insights());
+    if (timeApi) out.push(...timeApi.insights());
     return out.sort((a, b) => b.prio - a.prio);
   }
   const actionLink = (a, cls = 'btn btn-sm') => a.href ? `<a class="${cls}" href="${a.href}">${esc(a.label)}</a>` : `<button type="button" class="${cls}" data-act="${a.act}" ${a.v ? `data-v="${a.v}"` : ''}>${esc(a.label)}</button>`;
@@ -581,6 +603,7 @@
       <div class="field"><label for="f-role">Job title</label><input class="input" id="f-role" name="role" required value="${esc(e.role)}"></div>
       <div class="field"><label for="f-dept">Department</label><select class="select" id="f-dept" name="dept">${opt(state.departments.map((d) => [d.id, d.name]), e.dept)}</select></div>
       <div class="field"><label for="f-manager">Manager</label><select class="select" id="f-manager" name="manager"><option value="">No manager</option>${opt(state.employees.filter((x) => x.id !== e.id).map((x) => [x.id, fullName(x)]), e.manager)}</select></div>
+      <div class="field"><label for="f-pattern">Working pattern</label><select class="select" id="f-pattern" name="timePattern">${opt([['', 'Department’s pattern'], ...state.settings.time.patterns.map((p) => [p.id, `${p.name} (${AllurusTimeRules.shiftLabel(p)})`])], e.timePattern || '')}</select><span class="field-hint">The Schedule can change single days.</span></div>
       <div class="field"><label for="f-type">Employment type</label><select class="select" id="f-type" name="type">${opt(['Full-time', 'Part-time', 'Contract', 'Intern'], e.type || 'Full-time')}</select></div>
       <div class="field"><label for="f-location">Location</label><input class="input" id="f-location" name="location" value="${esc(e.location)}"></div>
       <div class="field"><label for="f-salary">Annual salary (${esc(state.settings.currency)})</label><input class="input" id="f-salary" name="salary" type="number" min="0" step="500" required value="${esc(e.salary)}"></div>
@@ -689,13 +712,15 @@
     const s = dayStats(day);
     const people = activeEmployees().filter((e) => e.start <= day).sort((a, b) => a.first.localeCompare(b.first));
     const opts = [['present', 'Present'], ['remote', 'Remote'], ['absent', 'Absent'], ['leave', 'Leave']];
+    const tt = timeApi.dayTotals(day, people);
     return `
-      <div class="page-head"><div><h1>Attendance</h1><p class="sub">Mark who is in, remote or out. Approved leave is filled in automatically.</p></div>
+      <div class="page-head"><div><h1>Attendance</h1><p class="sub">Mark who is in, remote or out. Approved leave is filled in automatically. Lateness, early-outs and overtime follow each person’s shift.</p></div>
         <div class="actions">
           <button class="btn btn-icon" data-act="att-shift" data-v="-1" aria-label="Previous day">${icon('left')}</button>
           <input class="input" type="date" id="att-date" value="${day}" max="${U.addDays(U.today(), 30)}">
           <button class="btn btn-icon" data-act="att-shift" data-v="1" aria-label="Next day">${icon('right')}</button>
           <button class="btn" data-act="att-today">Today</button>
+          <button class="btn" data-act="tm-batch">${icon('edit')}Batch edit</button>
           <button class="btn btn-primary" data-act="att-all">${icon('check')}Mark rest present</button>
         </div></div>
       <div class="grid g-4 keep-2">
@@ -705,13 +730,14 @@
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>On leave</div><div class="kpi-value">${s.leave}</div><div class="kpi-foot">${s.none} not marked</div></div>
       </div>
       ${securityCard()}
+      ${timeApi.requestsCard()}
       <div class="card card-flush">
-        <div class="card-head" style="padding-bottom:14px"><h3>${U.fmtDate(day, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</h3>${U.isWeekend(day) ? '<span class="pill gold">Weekend</span>' : ''}</div>
+        <div class="card-head" style="padding-bottom:14px"><h3>${U.fmtDate(day, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</h3><div class="actions">${tt.late ? `<span class="tag bad">${tt.late} late</span>` : ''}${tt.early ? `<span class="tag warn">${tt.early} left early</span>` : ''}${tt.ot ? `<span class="tag ok">${U.round2(tt.ot / 60)} h overtime</span>` : ''}${U.isWeekend(day) ? '<span class="pill gold">Weekend</span>' : ''}</div></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Employee</th><th class="hide-sm">Department</th><th>Check-in</th><th class="hide-sm">Location</th><th>Status</th></tr></thead>
-          <tbody>${people.map((e) => { const r = rec[e.id]; return `<tr>
-            <td>${person(e)}</td><td class="hide-sm">${deptTag(e.dept)}</td>
-            <td class="num muted">${r?.in || '—'}${r?.out ? '–' + r.out : ''}${r?.history?.length ? `<div class="faint" style="font-size:12px">${r.history.length + 1} check-ins</div>` : ''}${r?.face ? `<div style="margin-top:3px">${faceTag(r)}</div>` : ''}</td>
+          <thead><tr><th>Employee</th><th class="hide-sm">Shift</th><th>Check-in</th><th class="hide-sm">Location</th><th>Status</th></tr></thead>
+          <tbody>${people.map((e) => { const r = rec[e.id], tc = timeApi.attCells(e, day); return `<tr>
+            <td>${person(e)}</td><td class="hide-sm">${tc.shift}</td>
+            <td class="num muted"><span class="att-time">${r?.in || '—'}${r?.out ? '–' + r.out : ''}<button class="btn btn-sm btn-icon btn-ghost" data-act="tm-edit" data-id="${e.id}" data-v="${day}" title="Edit times${tc.history ? ` (${tc.history} change${tc.history === 1 ? '' : 's'})` : ''}" aria-label="Edit times for ${esc(fullName(e))}">${icon('edit')}${tc.history ? '<i class="att-edited" aria-hidden="true"></i>' : ''}</button></span>${r?.history?.length ? `<div class="faint" style="font-size:12px">${r.history.length + 1} check-ins</div>` : ''}${tc.tags ? `<div class="tm-tags">${tc.tags}</div>` : ''}${r?.face ? `<div style="margin-top:3px">${faceTag(r)}</div>` : ''}</td>
             <td class="hide-sm muted" style="font-size:12.5px;max-width:300px"><div class="loc-cell">${selfieThumb(e.id, day, r)}<span>${r?.loc ? esc(locText(r.loc)) : '—'}</span></div></td>
             <td><div class="att-controls"><div class="seg status" role="group" aria-label="Status for ${esc(fullName(e))}">${opts.map(([v, l]) => `<button data-act="att-set" data-id="${e.id}" data-v="${v}" class="${r?.s === v ? 'on' : ''}">${l}</button>`).join('')}</div>${r ? `<button class="btn btn-sm btn-icon btn-ghost" data-act="att-clear" data-id="${e.id}" title="Clear check-in" aria-label="Clear check-in for ${esc(fullName(e))}">${icon('x')}</button>` : ''}</div></td></tr>`; }).join('')}</tbody>
         </table></div>
@@ -726,9 +752,10 @@
     if (s === 'present' || s === 'remote') {
       if (prev?.in) time = prev.in;
       else if (day === U.today()) { const n = new Date(); time = `${U.pad(n.getHours())}:${U.pad(n.getMinutes())}`; }
-      else time = '09:00';
+      else time = timeApi.shiftStart(emp(id), day) || '09:00';
     }
-    state.attendance[day][id] = { s, in: time };
+    // Manual changes are kept in the audit trail.
+    timeApi.setRecord(day, id, { s, in: time, out: prev?.out || '' }, 'Status set on Attendance');
     save(); render();
   }
 
@@ -738,8 +765,11 @@
   function payItem(e, bonus, mk) {
     // Approved unpaid leave in the month comes off basic pay before statutory deductions.
     const up = leaveApi ? leaveApi.unpaidFor(e.id, mk, U.round2(e.salary / 12)) : { days: 0, amount: 0, divisor: 0 };
-    const it = { empId: e.id, ...U.payCalc(e.salary, bonus, state.settings, e, U.monthEnd(mk), { unpaid: up.amount, unpaidDays: up.days }) };
+    // Approved overtime and daily allowances from attendance, each flagged for EPF, SOCSO/EIS and PCB.
+    const extra = timeApi ? timeApi.forPayroll(e, mk) : [];
+    const it = { empId: e.id, ...U.payCalc(e.salary, bonus, state.settings, e, U.monthEnd(mk), { unpaid: up.amount, unpaidDays: up.days, extra }) };
     if (it.unpaid) it.unpaidDivisor = up.divisor;
+    it.extraLines = extra;
     const cl = claimsApi?.enabled() ? claimsApi.forPayroll(e.id, mk) : [];
     it.claimIds = cl.map((c) => c.id);
     it.claims = U.round2(cl.reduce((s, c) => s + c.approved, 0));
@@ -789,12 +819,12 @@
         <tbody>${run.items.map((it) => { const e = emp(it.empId); if (!e) return ''; return `<tr>
           <td><button class="cell-btn" data-act="payslip" data-id="${it.empId}" title="Open payslip">${person(e)}</button></td>
           <td class="r num">${run.status === 'Draft' ? `<input class="input num" style="width:84px;text-align:right" type="number" min="0" step="100" data-bonus="${it.empId}" value="${it.bonus}" aria-label="Bonus for ${esc(fullName(e))}">` : money(it.bonus)}</td>
-          <td class="r num">${money(it.gross, 2)}${it.unpaid ? `<div class="person-sub">−${money(it.unpaid, 2)} unpaid leave</div>` : ''}</td>
+          <td class="r num">${money(it.gross, 2)}${it.unpaid ? `<div class="person-sub">−${money(it.unpaid, 2)} unpaid leave</div>` : ''}${it.extras ? `<div class="person-sub">+${money(it.extras, 2)} OT and allowances</div>` : ''}</td>
           ${my ? `<td class="r num muted hide-sm">${money(it.epf ?? it.benefits, 2)}</td><td class="r num muted hide-sm">${money((it.socso || 0) + (it.eis || 0), 2)}</td><td class="r num muted hide-sm">${money(it.tax + (it.zakat || 0), 2)}</td>` : `<td class="r num muted hide-sm">${money(it.tax, 2)}</td><td class="r num muted hide-sm">${money(it.benefits, 2)}</td>`}
           ${t.claims ? `<td class="r num hide-sm">${it.claims ? money(it.claims, 2) : '<span class="faint">—</span>'}</td>` : ''}
           <td class="r num" style="font-weight:600">${money(it.net, 2)}</td></tr>`; }).join('')}</tbody>
       </table></div></div>` : `
-      <div class="card"><div class="empty" style="padding:48px 12px"><strong>No payroll for ${U.fmtMonth(mk)} yet</strong>Running payroll creates a draft from current salaries, works out ${my ? 'EPF, SOCSO, EIS and PCB' : 'deductions'}, and adds approved medical claims. You can add bonuses before approving it.<div style="margin-top:16px"><button class="btn btn-primary" data-act="pay-run">${icon('wallet')}Run payroll</button></div></div></div>`}`;
+      <div class="card"><div class="empty" style="padding:48px 12px"><strong>No payroll for ${U.fmtMonth(mk)} yet</strong>Running payroll creates a draft from current salaries, adds approved overtime and daily allowances, works out ${my ? 'EPF, SOCSO, EIS and PCB' : 'deductions'}, and adds approved medical claims. You can add bonuses before approving it.<div style="margin-top:16px"><button class="btn btn-primary" data-act="pay-run">${icon('wallet')}Run payroll</button></div></div></div>`}`;
   };
   AFTER.payroll = () => {
     $$('[data-bonus]').forEach((inp) => inp.addEventListener('change', () => {
@@ -810,13 +840,15 @@
     const head = (k) => `<div class="eyebrow" style="margin:14px 0 2px">${k}</div>`;
     const neg = (n) => '−' + money(n, 2);
     const statutory = it.epf != null;
+    const flags = (l) => statutory ? [l.epf ? 'EPF' : '', l.socso ? 'SOCSO' : '', l.tax ? 'taxed' : 'not taxed'].filter(Boolean).join(' · ') : '';
+    const extras = (it.extraLines || []).map((l) => row(`${esc(l.label)}<div class="person-sub">${esc(l.detail || '')}${flags(l) ? ` · ${flags(l)}` : ''}</div>`, money(l.amount, 2))).join('');
     const lines = statutory
-      ? `${head('Earnings')}${row('Basic salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'} (basic ÷ ${it.unpaidDivisor})`, neg(it.unpaid)) : ''}${it.bonus ? row('Bonus', money(it.bonus, 2)) : ''}${row('Gross pay', money(it.gross, 2))}
+      ? `${head('Earnings')}${row('Basic salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'} (basic ÷ ${it.unpaidDivisor})`, neg(it.unpaid)) : ''}${extras}${it.bonus ? row('Bonus', money(it.bonus, 2)) : ''}${row('Gross pay', money(it.gross, 2))}
          ${head('Deductions')}${row('EPF (KWSP), employee', neg(it.epf))}${row('SOCSO (PERKESO), employee', neg(it.socso))}${row('EIS, employee', neg(it.eis))}${row('Income tax (PCB)', neg(it.tax))}${it.zakat ? row('Zakat', neg(it.zakat)) : ''}
          ${it.claims ? `${head('Reimbursements')}${row('Medical claims (not taxed)', money(it.claims, 2))}` : ''}
          ${row('Net pay', money(it.net, 2), true)}
          ${head('Paid by the company on top of your pay')}${row('EPF, employer', money(it.erEpf, 2))}${row('SOCSO, employer', money(it.erSocso, 2))}${row('EIS, employer', money(it.erEis, 2))}`
-      : `${row('Base salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'}`, neg(it.unpaid)) : ''}${row('Bonus', money(it.bonus, 2))}${row('Gross pay', money(it.gross, 2))}${row(`Income tax (${state.settings.taxRate}%)`, neg(it.tax))}${row(`Benefits (${state.settings.benefitsRate}%)`, neg(it.benefits))}${it.claims ? row('Medical claims', money(it.claims, 2)) : ''}${row('Net pay', money(it.net, 2), true)}`;
+      : `${row('Base salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'}`, neg(it.unpaid)) : ''}${extras}${row('Bonus', money(it.bonus, 2))}${row('Gross pay', money(it.gross, 2))}${row(`Income tax (${state.settings.taxRate}%)`, neg(it.tax))}${row(`Benefits (${state.settings.benefitsRate}%)`, neg(it.benefits))}${it.claims ? row('Medical claims', money(it.claims, 2)) : ''}${row('Net pay', money(it.net, 2), true)}`;
     openModal({
       title: 'Payslip', size: 'sm', submit: null,
       body: `<div style="display:flex;flex-direction:column;gap:18px">
@@ -1082,11 +1114,13 @@
           ${s.currency === 'MYR' ? '' : `<div class="settings-row"><div><div class="label">Income tax withholding</div><div class="desc">Percent of gross pay.</div></div><input class="input num" id="s-tax" type="number" min="0" max="60" step="0.5" value="${s.taxRate}" style="width:100px"></div>
           <div class="settings-row"><div><div class="label">Benefit contributions</div><div class="desc">Deducted from pay, as percent of gross.</div></div><input class="input num" id="s-benefits" type="number" min="0" max="30" step="0.5" value="${s.benefitsRate}" style="width:100px"></div>`}
           <div class="settings-row"><div><div class="label">Leave policy</div><div class="desc">Leave types, public holidays, rest days, approvals and carry forward.</div></div><button class="btn" data-act="lv-goto-settings">${icon('calendar')}Leave settings</button></div>
+          <div class="settings-row"><div><div class="label">Time and overtime</div><div class="desc">Working patterns, overtime rates, daily allowances and rotations.</div></div><button class="btn" data-act="tm-goto" data-v="time-patterns">${icon('clock')}Time settings</button></div>
         </div>
       </div>
       ${AllurusUX.appearanceCard()}
       ${s.currency === 'MYR' ? statutoryCard(s) : ''}
       ${leaveApi.settingsCards()}
+      ${timeApi.settingsCards()}
       ${checkinCard(s)}
         <div class="settings-row"><div><div class="label">Remote check-in</div><div class="desc">Lets employees check in from anywhere with a selfie. Marked as Remote.</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="zone-remote" data-v="${v}" class="${(s.checkin.remote ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
         ${[['deviceLock', 'One phone per person', 'Each person checks in only from their approved phone, and a phone checks in for one person. New phones need your approval.'],
@@ -1108,6 +1142,7 @@
     const bind = (id, key, num) => $(id).addEventListener('change', (ev) => { state.settings[key] = num ? Math.max(0, Number(ev.target.value) || 0) : ev.target.value.trim() || state.settings[key]; commit('Settings saved'); });
     bindCheckinCard();
     leaveApi.bindSettings();
+    timeApi.bindSettings();
     bind('#s-company', 'company'); bind('#s-currency', 'currency'); bind('#s-office', 'office'); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
     $$('[data-stat]').forEach((el) => el.addEventListener('change', () => { state.settings.statutory = { ...U.statutory(state.settings), [el.dataset.stat]: Math.min(20, Math.max(0, Number(el.value) || 0)) }; commit('Statutory rates saved'); }));
   };
@@ -1330,7 +1365,8 @@
 
   // ---------- Employee self-service ----------
   const nowHM = () => { const n = new Date(); return `${U.pad(n.getHours())}:${U.pad(n.getMinutes())}`; };
-  const hoursBetween = (a, b) => { if (!a || !b) return 0; const [h1, m1] = a.split(':').map(Number); const [h2, m2] = b.split(':').map(Number); return Math.max(0, (h2 * 60 + m2 - h1 * 60 - m1) / 60); };
+  // A check-out earlier than the check-in is after midnight.
+  const hoursBetween = (a, b) => { if (!a || !b) return 0; const [h1, m1] = a.split(':').map(Number); const [h2, m2] = b.split(':').map(Number); return ((h2 * 60 + m2 - h1 * 60 - m1 + 1440) % 1440) / 60; };
   const myRecord = (day) => state.attendance[day]?.[me().id];
   const myRuns = () => Object.keys(state.payroll).filter((k) => state.payroll[k].status === 'Paid' && state.payroll[k].items.some((i) => i.empId === me().id)).sort().reverse();
 
@@ -1362,7 +1398,7 @@
         title: birthday ? `Happy birthday, ${esc(e.first)}!` : greeting(e.first),
         sub: `${esc(e.role)} · ${esc(dept(e.dept)?.name || '')}. ${birthday ? 'Everyone at ' + esc(state.settings.company) + ' wishes you a great day.' : dayNote()}`,
         actions: `<button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button>`,
-        side: `<div class="clock-box"><div class="kpi-label">${icon('clock')}Time clock</div><div class="kpi-value clock-time" id="live-clock">${nowHM()}</div>${clock}<div class="kpi-foot">${U.isWeekend(T) ? 'It’s the weekend. Check-ins still count. ' : ''}${isField(me()) ? 'Field staff: check in from anywhere, with a selfie.' : `Within ${zone().radius} m of ${esc(zone().label)}, with a selfie.`}${phoneStatus(me()) ? ` ${phoneStatus(me())}` : ''}</div></div>`,
+        side: `<div class="clock-box"><div class="kpi-label">${icon('clock')}Time clock</div><div class="kpi-value clock-time" id="live-clock">${nowHM()}</div>${clock}<div class="kpi-foot">${U.isWeekend(T) ? 'It’s the weekend. Check-ins still count. ' : ''}${isField(me()) ? 'Field staff: check in from anywhere, with a selfie.' : `Within ${zone().radius} m of ${esc(zone().label)}, with a selfie.`}${phoneStatus(me()) ? ` ${phoneStatus(me())}` : ''}${timeApi.todayShift(e) ? `<div class="clock-shift">${esc(timeApi.todayShift(e))}</div>` : ''}</div></div>`,
         focus: focus.filter((f) => f.action.act !== 'check-in'), calm: 'Nothing needs you right now. Have a good day.' }) },
       { id: 'setup', title: 'Getting started', span: 12, fixed: true, render: () => AllurusUX.setupCard() },
       { id: 'kpis', title: 'My numbers', span: 12, render: () => `<div class="grid g-4 keep-2">
@@ -1379,6 +1415,7 @@
         <div class="actions" style="margin-top:14px"><a class="btn btn-sm" href="#my-pay">${icon('wallet')}Payslips</a>${claimsApi?.enabled() ? `<a class="btn btn-sm" href="#my-claims">${icon('heart')}Claims</a>` : ''}</div></div>` },
       { id: 'timeoff', title: 'My time off', span: 4, render: () => `<div class="card"><div class="card-head"><h3>My time off</h3><a class="hint" href="#my-leave">All requests</a></div>
         ${myLeaves.length ? `<div class="list">${myLeaves.slice(0, 4).map((l) => `<div class="list-item"><div class="grow"><div class="person-name">${esc(leaveApi.typeName(l.type))} · ${l.days} day${l.days === 1 ? '' : 's'}</div><div class="person-sub">${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}${l.to !== l.from ? ' – ' + U.fmtDate(l.to, { month: 'short', day: 'numeric' }) : ''}</div></div>${leavePill(l.status)}</div>`).join('')}</div>` : `<div class="empty"><strong>Nothing booked</strong>You have ${aLeft} days to enjoy. <button class="link-btn" data-act="new-leave">Plan a break</button></div>`}</div>` },
+      { id: 'shifts', title: 'My shifts', span: 4, render: () => timeApi.myShiftsCard(e) },
       ...(leaveApi.isApprover(e.id) ? [{ id: 'teamoff', title: 'Who’s off in your team', span: 4, render: () => leaveApi.whoOffCard({ depts: leaveApi.myDepts(e.id), title: 'Who’s off in your team' }) }] : []),
       { id: 'goals', title: 'My goals', span: 6, render: () => `<div class="card"><div class="card-head"><h3>My goals</h3><a class="hint" href="#my-profile">Update</a></div>
         ${review ? `<div class="kpi"><div class="kpi-value">${review.progress}%</div><div class="progress"><i style="width:${review.progress}%"></i></div><div class="kpi-foot" style="margin-top:6px">${esc(review.cycle)} · ${review.status}</div><div style="margin-top:6px">${stars(review.rating)}</div></div>` : '<div class="empty">No review cycle yet.</div>'}</div>` },
@@ -1394,23 +1431,31 @@
 
   VIEWS['my-time'] = () => {
     const e = me(), T = U.today();
+    // Workdays on the person's own pattern or roster, plus any day they actually worked.
     const days = []; let d = T;
-    while (days.length < 22) { if (!U.isWeekend(d) && d >= e.start) days.push(d); d = U.addDays(d, -1); if (d < e.start) break; }
+    for (let i = 0; i < 60 && days.length < 22 && d >= e.start; i++) {
+      const x = timeApi.dayInfo(e, d);
+      if (x.rec || x.type === 'normal') days.push(x);
+      d = U.addDays(d, -1);
+    }
     const c = { present: 0, remote: 0, absent: 0, leave: 0 }; let hours = 0;
-    days.forEach((x) => { const r = myRecord(x); if (r) { c[r.s]++; hours += r.out ? hoursBetween(r.in, r.out) : (r.in ? 8 : 0); } });
+    days.forEach((x) => { const r = x.rec; if (r) { c[r.s]++; hours += r.out ? hoursBetween(r.in, r.out) : (r.in ? 8 : 0); } });
+    const m = timeApi.monthFor(e, U.monthKey(T));
     const pill = { present: '<span class="pill ok">In office</span>', remote: '<span class="pill info">Remote</span>', absent: '<span class="pill bad">Absent</span>', leave: '<span class="pill gold">Leave</span>' };
     return `
-      <div class="page-head"><div><h1>My attendance</h1><p class="sub">Your last ${days.length} workdays. Days without a check-out count as 8 hours.</p></div>
-        <div class="actions"><a class="btn btn-primary" href="#home">${icon('clock')}Open time clock</a></div></div>
+      <div class="page-head"><div><h1>My attendance</h1><p class="sub">Your shifts, check-ins and overtime. Days without a check-out count as 8 hours.</p></div>
+        <div class="actions"><button class="btn" data-act="tm-request">${icon('plus')}New request</button><a class="btn btn-primary" href="#home">${icon('clock')}Open time clock</a></div></div>
       <div class="grid g-4 keep-2">
-        <div class="card kpi"><div class="kpi-label">In office</div><div class="kpi-value">${c.present}</div></div>
-        <div class="card kpi"><div class="kpi-label">Remote</div><div class="kpi-value">${c.remote}</div></div>
-        <div class="card kpi"><div class="kpi-label">Leave or absent</div><div class="kpi-value">${c.leave + c.absent}</div></div>
-        <div class="card kpi"><div class="kpi-label">Hours logged</div><div class="kpi-value">${Math.round(hours)}</div></div>
+        <div class="card kpi"><div class="kpi-label">Days worked</div><div class="kpi-value">${c.present + c.remote}</div><div class="kpi-foot">${c.remote} remote · last ${days.length} workdays</div></div>
+        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--bad)"></span>Late this month</div><div class="kpi-value">${m.late.days}</div><div class="kpi-foot">${m.late.min ? `${m.late.min} minutes in all` : 'On time every day'}</div></div>
+        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>Overtime this month</div><div class="kpi-value">${U.round2(m.paidMin / 60)}<span class="faint" style="font-size:18px"> h</span></div><div class="kpi-foot">${m.unapproved ? `${U.round2(m.unapproved / 60)} h waiting for approval` : m.pay.amount ? `About ${money(m.pay.amount)} before deductions` : 'Approved overtime shows here'}</div></div>
+        <div class="card kpi"><div class="kpi-label">Hours logged</div><div class="kpi-value">${Math.round(hours)}</div><div class="kpi-foot">Leave or absent: ${c.leave + c.absent} days</div></div>
       </div>
+      <div class="grid g-2">${timeApi.myShiftsCard(e, { days: 14, title: 'My roster', link: false })}${timeApi.myRequestsCard(e)}</div>
       <div class="card card-flush"><div class="table-wrap"><table>
-        <thead><tr><th>Date</th><th>Status</th><th>Check-in</th><th>Check-out</th><th class="hide-sm">Location</th><th class="r">Hours</th></tr></thead>
-        <tbody>${days.map((x) => { const r = myRecord(x); return `<tr><td class="num">${U.fmtDate(x, { weekday: 'short', month: 'short', day: 'numeric' })}</td><td>${r ? pill[r.s] : '<span class="pill">Not marked</span>'}</td><td class="num muted">${r?.in || '—'}</td><td class="num muted">${r?.out || '—'}</td><td class="hide-sm muted" style="font-size:12.5px"><div class="loc-cell">${selfieThumb(me().id, x, r)}<span>${r?.loc ? esc(locText(r.loc)) : '—'}</span></div></td><td class="r num">${r?.in ? (r.out ? hoursBetween(r.in, r.out) : 8).toFixed(1) : '—'}</td></tr>`; }).join('')}</tbody>
+        <thead><tr><th>Date</th><th class="hide-sm">Shift</th><th>Status</th><th>Check-in</th><th>Check-out</th><th class="r">Hours</th><th></th></tr></thead>
+        <tbody>${days.map((x) => { const r = x.rec, tags = timeApi.tagsFor(x); return `<tr><td class="num">${U.fmtDate(x.day, { weekday: 'short', month: 'short', day: 'numeric' })}</td><td class="hide-sm">${timeApi.shiftCell(x)}</td><td>${r ? pill[r.s] : '<span class="pill">Not marked</span>'}${tags ? `<div class="tm-tags">${tags}</div>` : ''}</td><td class="num muted"><div class="loc-cell">${selfieThumb(me().id, x.day, r)}<span>${r?.in || '—'}</span></div></td><td class="num muted">${r?.out || '—'}</td><td class="r num">${r?.in ? (r.out ? hoursBetween(r.in, r.out) : 8).toFixed(1) : '—'}</td>
+          <td><div class="row-actions">${x.ev.unapproved ? `<button class="btn btn-sm" data-act="tm-request-day" data-id="${x.day}" data-v="ot">Ask for OT</button>` : x.ev.late ? `<button class="btn btn-sm btn-ghost" data-act="tm-request-day" data-id="${x.day}" data-v="waiver">Waive</button>` : x.day < T && (!r || (r.in && !r.out)) && x.type === 'normal' && !x.leave ? `<button class="btn btn-sm btn-ghost" data-act="tm-request-day" data-id="${x.day}" data-v="correction">Correct</button>` : ''}</div></td></tr>`; }).join('')}</tbody>
       </table></div></div>`;
   };
 
@@ -1482,7 +1527,7 @@
   };
 
   // ---------- Workspaces (one per company) ----------
-  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits'];
+  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit'];
   function switchWorkspace(tid) {
     if (tid === state.session.tenantId) return;
     const cur = {}; WS_KEYS.forEach((k) => { cur[k] = state[k]; });
@@ -1512,14 +1557,15 @@
       reviews: [{ id: 'r1', empId: 'e1', cycle: 'H2 ' + U.today().slice(0, 4), status: 'Not started', rating: 0, progress: 0, notes: '' }],
       activity: [{ t: Date.now(), text: `${d.name} joined Allurus on the ${plan(d.plan).name} plan` }],
       finance: AllurusFinance.blank({ taxLabel: d.currency === 'MYR' ? 'SST' : 'Sales tax' }),
-      claims: [], plans: {}, leaveCarry: {}, leaveCredits: [],
+      claims: [], plans: {}, leaveCarry: {}, leaveCredits: [], rosters: {}, timeRequests: [], attAudit: [],
     };
     if (withSamples) {
       const team = base.employees.slice(1).map((e) => ({ ...e, email: `${e.first}.${e.last}`.toLowerCase() + '@' + domain, location: d.city }));
-      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, finance: base.finance, claims: base.claims, leaveCarry: base.leaveCarry, leaveCredits: base.leaveCredits });
+      Object.assign(ws, { employees: [admin, ...team], leaves: base.leaves, attendance: base.attendance, payroll: base.payroll, jobs: base.jobs, candidates: base.candidates, reviews: base.reviews, finance: base.finance, claims: base.claims, leaveCarry: base.leaveCarry, leaveCredits: base.leaveCredits, rosters: base.rosters, timeRequests: base.timeRequests, attAudit: [] });
       ws.reviews[0] = { ...ws.reviews[0], empId: 'e1' };
     }
     ws.settings.leave = AllurusLeaveRules.defaultSettings({ state: d.currency === 'MYR' ? (AllurusLeaveRules.CITY_STATE[d.city] || '') : '', departments: ws.departments, hr: 'e1' });
+    ws.settings.time = withSamples ? JSON.parse(JSON.stringify(base.settings.time)) : AllurusTimeRules.defaultSettings({ restDays: AllurusLeaveRules.weekendDays(ws.settings.leave) });
     return ws;
   }
 
@@ -2121,13 +2167,14 @@
     'att-set': (id, v) => setAttendance(id, v),
     'att-clear': (id) => {
       const day = ui.attDate;
-      if (state.attendance[day]) delete state.attendance[day][id];
+      if (state.attendance[day]?.[id]) timeApi.setRecord(day, id, null, 'Cleared on Attendance');
       commit(`Check-in cleared for ${fullName(emp(id))}`, `${fullName(emp(id))}'s check-in on ${U.fmtDate(day)} was cleared`);
     },
     'att-all': () => {
       const day = ui.attDate; state.attendance[day] = state.attendance[day] || {};
       let n = 0;
-      activeEmployees().filter((e) => e.start <= day).forEach((e) => { if (!state.attendance[day][e.id]) { state.attendance[day][e.id] = { s: onLeaveOn(e.id, day) ? 'leave' : 'present', in: '09:00' }; n++; } });
+      const batch = U.uid('b-');
+      activeEmployees().filter((e) => e.start <= day).forEach((e) => { if (!state.attendance[day][e.id]) { const lv = onLeaveOn(e.id, day); timeApi.setRecord(day, e.id, { s: lv ? 'leave' : 'present', in: lv ? '' : timeApi.shiftStart(e, day) || '09:00', out: '' }, 'Marked present in bulk', batch); n++; } });
       commit(n ? `${n} marked present` : 'Everyone is already marked');
     },
     'stat-set': (key, v) => { state.settings.statutory = { ...U.statutory(state.settings), [key]: v === 'true' ? true : v === 'false' ? false : isNaN(+v) ? v : +v }; commit('Statutory settings saved'); },
@@ -2147,8 +2194,8 @@
     },
     'pay-export': () => {
       const run = state.payroll[ui.payMonth];
-      downloadCSV(`payroll-${ui.payMonth}.csv`, [['Employee', 'Email', 'Base', 'Unpaid leave days', 'Unpaid leave deduction', 'Bonus', 'Gross', 'EPF (employee)', 'SOCSO (employee)', 'EIS (employee)', 'PCB', 'Zakat', 'Medical claims', 'Net pay', 'EPF (employer)', 'SOCSO (employer)', 'EIS (employer)', 'HRD levy', 'Employer cost'],
-        ...run.items.map((i) => { const e = emp(i.empId); return [fullName(e), e?.email, i.base, i.unpaidDays || 0, i.unpaid || 0, i.bonus, i.gross, i.epf ?? i.benefits, i.socso || 0, i.eis || 0, i.tax, i.zakat || 0, i.claims || 0, i.net, i.erEpf || 0, i.erSocso || 0, i.erEis || 0, i.hrdf || 0, U.round2(i.gross + (i.erCost || 0))]; })]);
+      downloadCSV(`payroll-${ui.payMonth}.csv`, [['Employee', 'Email', 'Base', 'Unpaid leave days', 'Unpaid leave deduction', 'Overtime', 'Allowances', 'Bonus', 'Gross', 'EPF (employee)', 'SOCSO (employee)', 'EIS (employee)', 'PCB', 'Zakat', 'Medical claims', 'Net pay', 'EPF (employer)', 'SOCSO (employer)', 'EIS (employer)', 'HRD levy', 'Employer cost'],
+        ...run.items.map((i) => { const e = emp(i.empId); return [fullName(e), e?.email, i.base, i.unpaidDays || 0, i.unpaid || 0, U.round2((i.extraLines || []).filter((l) => l.key === 'ot').reduce((s, l) => s + l.amount, 0)), U.round2((i.extraLines || []).filter((l) => l.key !== 'ot').reduce((s, l) => s + l.amount, 0)), i.bonus, i.gross, i.epf ?? i.benefits, i.socso || 0, i.eis || 0, i.tax, i.zakat || 0, i.claims || 0, i.net, i.erEpf || 0, i.erSocso || 0, i.erEis || 0, i.hrdf || 0, U.round2(i.gross + (i.erCost || 0))]; })]);
     },
     'payslip': (id) => openPayslip(id),
     'job-filter': (_, v) => { ui.jobFilter = v; render(); },
@@ -2181,7 +2228,7 @@
     ...ACTIONS_EXTRA,
   };
 
-  const UNDOABLE = new Set(['lv-type-del', 'lv-hol-del', 'del-leave', 'approve-leave', 'reject-leave', 'cand-del', 'cand-move', 'close-job', 'pay-discard', 'att-clear', 'dev-remove', 'cl-cancel', 'cl-approve', 'cl-reject', 'cl-paynow', 'cl-type-del', 'plan-del', 'rel-del', 'fin-del-txn', 'ux-w-hide']);
+  const UNDOABLE = new Set(['lv-type-del', 'lv-hol-del', 'del-leave', 'approve-leave', 'reject-leave', 'cand-del', 'cand-move', 'close-job', 'pay-discard', 'att-clear', 'dev-remove', 'cl-cancel', 'cl-approve', 'cl-reject', 'cl-paynow', 'cl-type-del', 'plan-del', 'rel-del', 'fin-del-txn', 'ux-w-hide', 'ro-copy', 'ro-clear', 'tm-approve', 'tm-reject', 'tm-cancel', 'tm-pat-del', 'tm-al-del', 'tm-tpl-del']);
   document.addEventListener('click', (ev) => {
     const scrim = ev.target.closest('[data-scrim]');
     if (scrim && ev.target === scrim) { closeOverlay(); return; }
@@ -2209,7 +2256,7 @@
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
     downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
     save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
-    get leave() { return leaveApi; },
+    get leave() { return leaveApi; }, get time() { return timeApi; },
   };
   AllurusUX.install(moduleCtx);
   finApi = AllurusFinance.install(moduleCtx);
@@ -2217,6 +2264,7 @@
   claimsApi = AllurusClaims.install(moduleCtx);
   AllurusPlanner.install(moduleCtx);
   leaveApi = AllurusLeave.install(moduleCtx);
+  timeApi = AllurusTime.install(moduleCtx);
 
   // ---------- Boot ----------
   $('#today').textContent = U.fmtDate(U.today(), { weekday: 'short', month: 'short', day: 'numeric' });

@@ -85,6 +85,21 @@ A full Malaysian leave module under **Time off** (admin), **My time off** and **
 
 The leave rules (day counting, holidays, entitlements, balances, carry forward, approval chains, the unpaid deduction) are in `js/leave-rules.js`, with tests in `tests/leave.test.js`. **Check the built-in holiday dates against the official gazette** (kabinet.gov.my and the State Secretary) before using them for payroll: Islamic holidays can move by a day. Check the entitlements against the Employment Act 1955 and your contracts.
 
+## Time attendance and rostering
+
+- **Working patterns** (Settings → Working patterns): name, start and end, break, grace minutes for lateness and working days, as many as you like. A **Flexible** pattern has a window, core hours and hours a day. Set a pattern per department, or per person on their profile. **Auto-shift**: someone with no pattern gets the one whose start is closest to their check-in.
+- **Schedule** (admin): a week grid of people × days. Click a cell to set a shift or a day off, **Copy last week**, or **Apply rotation** from a rotating roster (Settings → Rotating rosters; staggering starts each person a week further on). It warns on shifts that run into the next one, on shifts during approved leave, and on days below the team's minimum on shift. Staff see their roster on Home (My shifts) and My attendance.
+- **Lateness, early-out and overtime** per day, from check-in and check-out against the shift, on Attendance and My attendance.
+- **Overtime rules** (Settings → Overtime rules), defaulting to the Employment Act 1955: 1.5× on normal days; rest days 1.0× up to normal hours and 2.0× beyond; public holidays 2.0× up to normal hours and 3.0× beyond. Also: a different rate after midnight, a flat ringgit rate instead, early overtime before the shift, offsetting late minutes, rounding (15 or 30 minutes, down or nearest), a minimum and maximum per day and per month (warning above 104 hours), a dinner-break deduction, pre-approval, and a wage limit for who gets overtime.
+- **Requests**: from My attendance, staff ask for overtime, a lateness waiver or an attendance correction, with a reason. They go through the same approval chain as leave (department L1 → L2 → HR, with backups) and show on Approvals and on the admin Attendance page. An approved correction updates the record.
+- **Daily allowances** (Settings → Daily allowances): attendance, meal, transport, shift and custom. Each has a working-day, rest-day and holiday rate, and pays in full, in part or nothing when someone is late or absent.
+- **Payroll**: approved overtime (hourly rate = monthly basic ÷ 26 ÷ normal hours, both editable) and the month's allowances are added to the pay run and payslip. Each line is flagged for EPF, SOCSO/EIS and tax as set in Settings; by default overtime is not EPF wages.
+- **Audit trail**: every manual change to an attendance record (the pencil on Attendance, status buttons, clear, mark present, approved corrections) keeps who, when, and the old and new values. **Batch edit** changes a date range for everyone, a team or one person in one go, with a reason.
+
+Try it: sign in as admin and open **Schedule**, then pick Engineering. Mon–Thu are below the minimum because Omar is on leave. On **Attendance**, approve Mateo's overtime (go to the previous day to see it tagged), then run October payroll and open his payslip. Sign in as employee (Daniel) to see My shifts and to make a request. As backup for Omar, Daniel can approve Ethan's overtime under Approvals.
+
+The rules are in `js/attendance-rules.js` (no DOM), with tests in `tests/attendance.test.js`. **Check the overtime rates, the 26-day divisor, the 104-hour limit and the EPF/SOCSO/PCB treatment of overtime and allowances** against the Employment Act 1955, KWSP, PERKESO and LHDN guidance before paying real wages.
+
 ## Payroll: EPF, SOCSO, EIS, PCB and HRD Corp
 
 For Malaysian companies (currency MYR), every payslip works out the compulsory deductions:
@@ -184,7 +199,7 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 index.html          App shell: sign-in screen, sidebar, top bar
 brand.html          Brand kit: logo, palette, type, usage rules
 design-system.html  Live tokens and components
-tests/              Unit tests (npm test): check-in geometry, leave rules
+tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules
 css/styles.css      Design tokens (light and dark) and all components
 js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
 js/seed.js          Demo data: the Lumen & Co. workspace and 14 subscribed companies
@@ -192,6 +207,8 @@ js/geo-map.js       Check-in map picker, preview and place search (Leaflet, Open
 js/experience.js    Preferences, ⌘K palette, dashboards, setup, tour, help, live updates
 js/leave-rules.js   Leave rules (no DOM): types, states, holidays, day counts, balances, carry forward, approval chains, unpaid pay
 js/leave.js         Leave screens: apply, approvals, calendar, balances, leave settings
+js/attendance-rules.js  Time rules (no DOM): patterns, auto-shift, lateness, overtime, caps, allowances, rosters, audit diff
+js/roster.js        Schedule page, time settings, overtime/waiver/correction requests, audit trail, batch edit, payroll lines
 js/claims.js        Medical claims: policy, employee claims, HR review
 js/planner.js       Employee financial planner
 js/app.js           Views, routing per role, actions, registration, shared-link sync

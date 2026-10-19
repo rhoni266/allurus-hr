@@ -61,25 +61,33 @@ window.U = (function () {
   // Monthly payslip from an annual salary. `e` (the employee) gives the age and zakat; `day` is the pay date.
   // opts.unpaid is the unpaid-leave deduction for the month (from the leave rules); it comes off basic pay
   // before EPF, SOCSO, EIS and PCB are worked out.
+  // opts.extra lists other earnings (overtime, allowances) as { amount, epf, socso, tax }: each one is added to
+  // gross pay, and to the EPF, SOCSO/EIS and PCB wages only where its flag is on.
+  // FORMAT: verify against KWSP, PERKESO and LHDN (which payments count as wages, and whether overtime is normal or
+  // additional remuneration for PCB) before production. Here taxable extras are treated as normal monthly pay.
   const payCalc = (salary, bonus, settings, e = null, day = today(), opts = {}) => {
     const fullBase = round2(salary / 12);
     const unpaid = round2(Math.min(fullBase, Math.max(0, Number(opts.unpaid) || 0)));
     const unpaidDays = unpaid ? Number(opts.unpaidDays) || 0 : 0;
     const base = round2(fullBase - unpaid);
     bonus = Number(bonus) || 0;
-    const gross = round2(base + bonus);
+    const ex = (opts.extra || []).filter((x) => Number(x.amount) > 0);
+    const exSum = (f) => round2(ex.filter(f).reduce((s, x) => s + Number(x.amount), 0));
+    const extras = exSum(() => true), exEpf = exSum((x) => x.epf), exSocso = exSum((x) => x.socso), exTax = exSum((x) => x.tax);
+    const gross = round2(base + bonus + extras);
     const st = statutory(settings);
     if (settings.currency !== 'MYR' || !st.on) {
-      const tax = round2(gross * settings.taxRate / 100);
+      const tax = round2((base + bonus + exTax) * settings.taxRate / 100);
       const benefits = round2(gross * settings.benefitsRate / 100);
-      return { base: fullBase, unpaid, unpaidDays, bonus, gross, tax, benefits, epf: 0, socso: 0, eis: 0, zakat: 0, erEpf: 0, erSocso: 0, erEis: 0, hrdf: 0, erCost: 0, net: round2(gross - tax - benefits) };
+      return { base: fullBase, unpaid, unpaidDays, bonus, extras, gross, tax, benefits, epf: 0, socso: 0, eis: 0, zakat: 0, erEpf: 0, erSocso: 0, erEis: 0, hrdf: 0, erCost: 0, net: round2(gross - tax - benefits) };
     }
     const senior = ageOn(e?.birthday, day) >= 60;
     // EPF is rounded up to the next ringgit. From 60, employees stop contributing and employers pay 4%.
     const epfOf = (w) => (senior ? 0 : Math.ceil((w * st.epfEe) / 100));
-    const epf = epfOf(gross);
-    const erEpf = Math.ceil((gross * (senior ? 4 : gross <= 5000 ? st.epfEr : st.epfErHigh)) / 100);
-    const bw = bandWage(gross);
+    const epfWage = round2(base + bonus + exEpf);
+    const epf = epfOf(epfWage);
+    const erEpf = Math.ceil((epfWage * (senior ? 4 : epfWage <= 5000 ? st.epfEr : st.epfErHigh)) / 100);
+    const bw = bandWage(round2(base + bonus + exSocso));
     // SOCSO: employment injury plus invalidity (1.75% employer, 0.5% employee); from 60 only injury, paid by the employer (1.25%).
     const socso = st.socso && !senior ? sen5(bw * 0.005) : 0;
     const erSocso = st.socso ? sen5(bw * (senior ? 0.0125 : 0.0175)) : 0;
@@ -87,13 +95,14 @@ window.U = (function () {
     const eis = st.eis && !senior ? sen5(bw * 0.002) : 0;
     const erEis = eis;
     const zakat = round2(Number(e?.zakat) || 0);
-    const pcbRaw = st.pcb === 'flat' ? round2((gross * settings.taxRate) / 100) : mtd(base, bonus, epfOf(base), epf - epfOf(base));
+    const taxBase = round2(base + exTax), epfMonth = epfOf(round2(base + exEpf));
+    const pcbRaw = st.pcb === 'flat' ? round2(((taxBase + bonus) * settings.taxRate) / 100) : mtd(taxBase, bonus, epfMonth, epf - epfMonth);
     // Zakat paid through payroll reduces the tax deduction ringgit for ringgit.
     const tax = round2(Math.max(0, pcbRaw - zakat));
     // HRD Corp levy is on basic pay, paid by the employer only.
     const hrdf = round2((base * (Number(st.hrdf) || 0)) / 100);
     const benefits = round2(epf + socso + eis);
-    return { base: fullBase, unpaid, unpaidDays, bonus, gross, tax, benefits, epf, socso, eis, zakat, erEpf, erSocso, erEis, hrdf, erCost: round2(erEpf + erSocso + erEis + hrdf), net: round2(gross - tax - benefits - zakat) };
+    return { base: fullBase, unpaid, unpaidDays, bonus, extras, gross, tax, benefits, epf, socso, eis, zakat, erEpf, erSocso, erEis, hrdf, erCost: round2(erEpf + erSocso + erEis + hrdf), net: round2(gross - tax - benefits - zakat) };
   };
   // City table for office locations, the platform map and the time-zone fallback for check-in.
   const CITIES = [
