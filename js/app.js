@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2.4';
+  const APP_VERSION = '2.5';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   const STORE_KEY = 'allurus-hr-v7';
   const esc = U.esc;
@@ -29,6 +29,7 @@
     [s, ...Object.values(s.workspaces || {})].forEach(migrateLeave);
     [s, ...Object.values(s.workspaces || {})].forEach(migrateTime);
     [s, ...Object.values(s.workspaces || {})].forEach(migrateStatutory);
+    [s, ...Object.values(s.workspaces || {})].forEach(migrateClaims);
     if (!s.finance) s.finance = AllurusFinance.blank();
     Object.values(s.workspaces || {}).forEach((w) => { if (!w.finance) w.finance = AllurusFinance.blank(); });
     s.reliefs = s.reliefs || {}; s.taxProfiles = s.taxProfiles || {};
@@ -225,6 +226,24 @@
       if (e.cp22Filed === undefined) e.cp22Filed = e.start || '';
     });
   }
+  // Claims: medical-only claims become one-line claims in the Medical category; categories and mileage rates are added.
+  function migrateClaims(ws) {
+    if (!ws.settings) return;
+    const R = AllurusClaimRules, d = AllurusClaims.policyDefaults();
+    const p = ws.settings.claims = ws.settings.claims || d;
+    p.types = p.types || d.types;
+    p.categories = p.categories || R.defaultCategories();
+    p.mileage = p.mileage || R.defaultMileage();
+    const lv = ws.settings.leave;
+    ws.claims = (ws.claims || []).map((c) => {
+      const n = R.migrateLegacy(c, p.types);
+      if (n.status === 'Pending' && !(n.chain || []).length && lv) {
+        const e = (ws.employees || []).find((x) => x.id === n.empId);
+        if (e) n.chain = AllurusLeaveRules.buildChain({ applicant: e.id, chain: lv.chains?.[e.dept], hr: lv.hr, hrBackup: lv.hrBackup });
+      }
+      return n;
+    });
+  }
   const PAY_KEYS = ['gross', 'tax', 'benefits', 'net', 'epf', 'socso', 'eis', 'zakat', 'erEpf', 'erSocso', 'erEis', 'hrdf', 'erCost', 'claims', 'extras'];
   const payTotal = (run) => run.items.reduce((a, i) => { PAY_KEYS.forEach((k) => { a[k] = U.round2(a[k] + (i[k] || 0)); }); return a; }, Object.fromEntries(PAY_KEYS.map((k) => [k, 0])));
 
@@ -249,7 +268,7 @@
       { id: 'my-approvals', label: 'Approvals', icon: 'check', group: 'Me' },
       { id: 'my-profile', label: 'Profile & goals', icon: 'trend', group: 'Me' },
       { id: 'my-pay', label: 'Payslips', icon: 'wallet', group: 'Finance' },
-      { id: 'my-claims', label: 'Medical claims', icon: 'heart', group: 'Finance' },
+      { id: 'my-claims', label: 'Claims', icon: 'receipt', group: 'Finance' },
       { id: 'my-tax', label: 'Tax reliefs', icon: 'percent', group: 'Finance' },
       { id: 'my-plan', label: 'Financial planner', icon: 'target', group: 'Finance' },
       { id: 'directory', label: 'Directory', icon: 'people', group: 'Company' },
@@ -279,7 +298,7 @@
     { id: 'invoices', label: 'Invoices', icon: 'doc', group: 'Finance & Accounting' },
     { id: 'bills', label: 'Bills', icon: 'receipt', group: 'Finance & Accounting' },
     { id: 'payroll', label: 'Payroll', icon: 'wallet', group: 'Finance & Accounting' },
-    { id: 'claims', label: 'Medical claims', icon: 'heart', group: 'Finance & Accounting' },
+    { id: 'claims', label: 'Claims', icon: 'receipt', group: 'Finance & Accounting' },
     { id: 'budget', label: 'Budget', icon: 'target', group: 'Finance & Accounting' },
     { id: 'tax', label: 'Tax (LHDN)', icon: 'percent', group: 'Finance & Accounting' },
     { id: 'reports', label: 'Reports & audit', icon: 'shield', group: 'Finance & Accounting' },
@@ -294,7 +313,7 @@
     let html = '', group = '';
     const rs = routes(), pinned = AllurusUX.pins().map((id) => rs.find((r) => r.id === id)).filter(Boolean);
     const navItem = (r) => {
-      const count = r.id === 'my-approvals' ? leaveApi.myCount(me().id) : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
+      const count = r.id === 'my-approvals' ? leaveApi.myCount(me().id) + timeApi.myCount(me().id) + claimsApi.myCount(me().id) : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
       const on = AllurusUX.pins().includes(r.id), cur = route() === r.id;
       return `<div class="nav-item"><a href="#${r.id}" class="${cur ? 'active' : ''}" ${cur ? 'aria-current="page"' : ''}>${icon(r.icon)}<span>${r.label}</span>${count ? `<span class="count" aria-label="${count} waiting">${count}</span>` : ''}</a><button type="button" class="nav-pin ${on ? 'on' : ''}" data-act="ux-pin" data-id="${r.id}" aria-pressed="${on}" aria-label="${on ? 'Unpin' : 'Pin'} ${esc(r.label)}" title="${on ? 'Unpin' : 'Pin to top'}">${icon(on ? 'starFill' : 'star')}</button></div>`;
     };
@@ -361,7 +380,7 @@
       const pend = pendingLeaves();
       if (pend.length) add('warn', 'calendar', `${plural(pend.length, 'time-off request', 'time-off requests')} waiting`, 'Decide soon so people can plan their break.', { label: 'Review', href: '#leave' }, 3);
       const cl = claimsApi?.enabled() ? claimsApi.pendingCount() : 0;
-      if (cl) add('warn', 'heart', `${plural(cl, 'medical claim', 'medical claims')} to review`, 'Approved claims are paid with the next payroll.', { label: 'Review', href: '#claims' }, 3);
+      if (cl) add('warn', 'receipt', `${plural(cl, 'claim', 'claims')} waiting for approval`, 'Approved claims are paid with the next payroll.', { label: 'Review', href: '#claims' }, 3);
       const sec = securityQueue().count;
       if (sec) add('bad', 'shield', `${plural(sec, 'check-in needs', 'check-ins need')} a look`, 'A face mismatch, an uploaded photo or a new phone.', { label: 'Check', href: '#attendance' }, 4);
       const days = []; let d = U.addDays(T, -1);
@@ -407,7 +426,7 @@
       const coming = claims.filter((c) => c.status === 'Approved').reduce((s, c) => s + c.approved, 0);
       if (coming) add('good', 'heart', `${money(coming, 2)} in claims on the way`, 'Approved and added to your next salary.', { label: 'Claims', href: '#my-claims' }, 1);
       const waiting = claims.filter((c) => c.status === 'Pending').length;
-      if (waiting) add('info', 'heart', `${plural(waiting, 'claim is', 'claims are')} with HR`, 'You’ll see the decision on Medical claims.', { label: 'View', href: '#my-claims' }, 0);
+      if (waiting) add('info', 'heart', `${plural(waiting, 'claim is', 'claims are')} with HR`, 'You’ll see the decision on Claims.', { label: 'View', href: '#my-claims' }, 0);
       const ps = AllurusPlanner.summary(state, e);
       if (ps?.filled) add(ps.left >= 0 ? 'good' : 'bad', 'target', ps.left >= 0 ? `${money(ps.left)} left to spend this month` : `Your plan is short by ${money(-ps.left)}`, ps.left >= 0 ? `About ${money(ps.left / 30)} a day after bills and savings.` : 'Trim a cost or look again at your savings.', { label: 'Planner', href: '#my-plan' }, ps.left >= 0 ? 0 : 3);
       else add('info', 'target', 'Know what’s really yours to spend', 'Two minutes in the planner shows what’s left after bills.', { label: 'Start planning', href: '#my-plan' }, 1);
@@ -418,6 +437,7 @@
     if (leaveApi) out.push(...leaveApi.insights());
     if (timeApi) out.push(...timeApi.insights());
     if (docsApi) out.push(...docsApi.insights());
+    if (claimsApi) out.push(...claimsApi.insights());
     return out.sort((a, b) => b.prio - a.prio);
   }
   const actionLink = (a, cls = 'btn btn-sm') => a.href ? `<a class="${cls}" href="${a.href}">${esc(a.label)}</a>` : `<button type="button" class="${cls}" data-act="${a.act}" ${a.id ? `data-id="${a.id}"` : ''} ${a.v ? `data-v="${a.v}"` : ''}>${esc(a.label)}</button>`;
@@ -494,7 +514,7 @@
       { id: 'approvals', title: 'Waiting for approval', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Waiting for you</h3><span class="hint">${pend.length + pendC.length} open</span></div>
         ${pend.length || pendC.length ? `<div class="list">${pend.slice(0, 3).map((l) => { const e = emp(l.empId); return `<div class="list-item">${avatar(fullName(e), 'sm')}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">${esc(leaveApi.typeName(l.type))} leave · ${l.days} day${l.days > 1 ? 's' : ''} · ${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}</div></div>
             <button class="btn btn-sm btn-icon btn-ok" data-act="approve-leave" data-id="${l.id}" aria-label="Approve ${esc(fullName(e))}’s leave">${icon('check')}</button><button class="btn btn-sm btn-icon btn-danger" data-act="reject-leave" data-id="${l.id}" aria-label="Decline ${esc(fullName(e))}’s leave">${icon('x')}</button></div>`; }).join('')}
-          ${pendC.slice(0, 3).map((c) => { const e = emp(c.empId); return e ? `<div class="list-item">${avatar(fullName(e), 'sm')}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">Medical claim · ${money(c.amount, 2)}</div></div><button class="btn btn-sm" data-act="cl-review" data-id="${c.id}">Review</button></div>` : ''; }).join('')}</div>`
+          ${pendC.slice(0, 3).map((c) => { const e = emp(c.empId); return e ? `<div class="list-item">${avatar(fullName(e), 'sm')}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">${esc(c.title)} · ${money(AllurusClaimRules.claimTotal(c), 2)}</div></div><button class="btn btn-sm" data-act="cl-review" data-id="${c.id}">Review</button></div>` : ''; }).join('')}</div>`
           : '<div class="empty"><strong>All caught up</strong>New requests will show up here.</div>'}</div>` },
       { id: 'insights', title: 'Insights', span: 4, render: () => insightsCard(ins) },
       { id: 'payroll', title: 'Payroll trend', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Net payroll</h3><span class="hint">${lastPaid ? 'Last paid ' + U.fmtMonth(lastPaid, { month: 'short' }) : ''}</span></div>${payrollChart()}</div>` },
@@ -782,18 +802,20 @@
 
   // ----- Payroll -----
   const isMY = () => state.settings.currency === 'MYR' && U.statutory(state.settings).on;
-  // One employee's line in a pay run: salary, statutory deductions and approved medical claims.
+  // One employee's line in a pay run: salary, overtime and allowances, statutory deductions and approved claims.
   function payItem(e, bonus, mk) {
     // Approved unpaid leave in the month comes off basic pay before statutory deductions.
     const up = leaveApi ? leaveApi.unpaidFor(e.id, mk, U.round2(e.salary / 12)) : { days: 0, amount: 0, divisor: 0 };
-    // Approved overtime and daily allowances from attendance, each flagged for EPF, SOCSO/EIS and PCB.
-    const extra = timeApi ? timeApi.forPayroll(e, mk) : [];
+    // Approved overtime and daily allowances from attendance, each flagged for EPF, SOCSO/EIS and PCB, and approved
+    // claims: taxable categories go into gross pay (PCB), the rest are reimbursed on top of net pay.
+    const cl = claimsApi?.enabled() ? claimsApi.forPayroll(e.id, mk) : null;
+    const extra = [...(timeApi ? timeApi.forPayroll(e, mk) : []), ...(cl?.taxable ? [{ key: 'claims-taxable', label: `Taxable claims (${cl.taxableCats.join(', ')})`, amount: cl.taxable, epf: false, socso: false, tax: true, detail: 'Benefit reimbursed through payroll' }] : [])];
     const it = { empId: e.id, ...U.payCalc(e.salary, bonus, state.settings, e, U.monthEnd(mk), { unpaid: up.amount, unpaidDays: up.days, extra }) };
     if (it.unpaid) it.unpaidDivisor = up.divisor;
     it.extraLines = extra;
-    const cl = claimsApi?.enabled() ? claimsApi.forPayroll(e.id, mk) : [];
-    it.claimIds = cl.map((c) => c.id);
-    it.claims = U.round2(cl.reduce((s, c) => s + c.approved, 0));
+    it.claimIds = cl ? cl.ids : [];
+    it.claims = cl ? cl.nonTaxable : 0;
+    it.claimGL = cl ? cl.byGL : {};
     it.net = U.round2(it.net + it.claims);
     return it;
   }
@@ -839,7 +861,7 @@
       <div class="grid g-4 keep-2">
         <div class="card kpi"><div class="kpi-label">Gross pay</div><div class="kpi-value">${compactMoney(t.gross)}</div><div class="kpi-foot num">${money(t.gross)}</div></div>
         <div class="card kpi"><div class="kpi-label">Deducted from staff</div><div class="kpi-value">${compactMoney(t.tax + t.benefits + t.zakat)}</div><div class="kpi-foot">${my ? `EPF ${money(t.epf)} · PCB ${money(t.tax)}` : `Tax ${money(t.tax)} · benefits ${money(t.benefits)}`}</div></div>
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Net pay to staff</div><div class="kpi-value">${compactMoney(t.net)}</div><div class="kpi-foot">${t.claims ? `Includes ${money(t.claims)} medical claims` : money(t.net)}</div></div>
+        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Net pay to staff</div><div class="kpi-value">${compactMoney(t.net)}</div><div class="kpi-foot">${t.claims ? `Includes ${money(t.claims)} reimbursed claims` : money(t.net)}</div></div>
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>Total cost to company</div><div class="kpi-value">${compactMoney(t.gross + t.erCost + t.claims)}</div><div class="kpi-foot">${my ? `Employer contributions ${money(t.erCost)}` : 'Gross pay'}</div></div>
       </div>
       ${my ? `<div class="card"><div class="card-head"><h3>Statutory payments</h3><span class="hint">Due by ${due}</span></div>
@@ -852,12 +874,12 @@
         <tbody>${run.items.map((it) => { const e = emp(it.empId); if (!e) return ''; return `<tr>
           <td><button class="cell-btn" data-act="payslip" data-id="${it.empId}" title="Open payslip">${person(e)}</button></td>
           <td class="r num">${run.status === 'Draft' ? `<input class="input num" style="width:84px;text-align:right" type="number" min="0" step="100" data-bonus="${it.empId}" value="${it.bonus}" aria-label="Bonus for ${esc(fullName(e))}">` : money(it.bonus)}</td>
-          <td class="r num">${money(it.gross, 2)}${it.unpaid ? `<div class="person-sub">−${money(it.unpaid, 2)} unpaid leave</div>` : ''}${it.extras ? `<div class="person-sub">+${money(it.extras, 2)} OT and allowances</div>` : ''}</td>
+          <td class="r num">${money(it.gross, 2)}${it.unpaid ? `<div class="person-sub">−${money(it.unpaid, 2)} unpaid leave</div>` : ''}${it.extras ? `<div class="person-sub">+${money(it.extras, 2)} added earnings</div>` : ''}</td>
           ${my ? `<td class="r num muted hide-sm">${money(it.epf ?? it.benefits, 2)}</td><td class="r num muted hide-sm">${money((it.socso || 0) + (it.eis || 0), 2)}</td><td class="r num muted hide-sm">${money(it.tax + (it.zakat || 0), 2)}</td>` : `<td class="r num muted hide-sm">${money(it.tax, 2)}</td><td class="r num muted hide-sm">${money(it.benefits, 2)}</td>`}
           ${t.claims ? `<td class="r num hide-sm">${it.claims ? money(it.claims, 2) : '<span class="faint">—</span>'}</td>` : ''}
           <td class="r num" style="font-weight:600">${money(it.net, 2)}</td></tr>`; }).join('')}</tbody>
       </table></div></div>` : `
-      <div class="card"><div class="empty" style="padding:48px 12px"><strong>No payroll for ${U.fmtMonth(mk)} yet</strong>Running payroll creates a draft from current salaries, adds approved overtime and daily allowances, works out ${my ? 'EPF, SOCSO, EIS and PCB' : 'deductions'}, and adds approved medical claims. You can add bonuses before approving it.<div style="margin-top:16px"><button class="btn btn-primary" data-act="pay-run">${icon('wallet')}Run payroll</button></div></div></div>`}`;
+      <div class="card"><div class="empty" style="padding:48px 12px"><strong>No payroll for ${U.fmtMonth(mk)} yet</strong>Running payroll creates a draft from current salaries, adds approved overtime and daily allowances, works out ${my ? 'EPF, SOCSO, EIS and PCB' : 'deductions'}, and adds approved claims. You can add bonuses before approving it.<div style="margin-top:16px"><button class="btn btn-primary" data-act="pay-run">${icon('wallet')}Run payroll</button></div></div></div>`}`;
   };
   AFTER.payroll = () => {
     docsApi.bindTabs();
@@ -879,10 +901,10 @@
     const lines = statutory
       ? `${head('Earnings')}${row('Basic salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'} (basic ÷ ${it.unpaidDivisor})`, neg(it.unpaid)) : ''}${extras}${it.bonus ? row('Bonus', money(it.bonus, 2)) : ''}${row('Gross pay', money(it.gross, 2))}
          ${head('Deductions')}${row('EPF (KWSP), employee', neg(it.epf))}${row('SOCSO (PERKESO), employee', neg(it.socso))}${row('EIS, employee', neg(it.eis))}${row('Income tax (PCB)', neg(it.tax))}${it.zakat ? row('Zakat', neg(it.zakat)) : ''}
-         ${it.claims ? `${head('Reimbursements')}${row('Medical claims (not taxed)', money(it.claims, 2))}` : ''}
+         ${it.claims ? `${head('Reimbursements')}${row('Claims reimbursed (not taxed)', money(it.claims, 2))}` : ''}
          ${row('Net pay', money(it.net, 2), true)}
          ${head('Paid by the company on top of your pay')}${row('EPF, employer', money(it.erEpf, 2))}${row('SOCSO, employer', money(it.erSocso, 2))}${row('EIS, employer', money(it.erEis, 2))}`
-      : `${row('Base salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'}`, neg(it.unpaid)) : ''}${extras}${row('Bonus', money(it.bonus, 2))}${row('Gross pay', money(it.gross, 2))}${row(`Income tax (${state.settings.taxRate}%)`, neg(it.tax))}${row(`Benefits (${state.settings.benefitsRate}%)`, neg(it.benefits))}${it.claims ? row('Medical claims', money(it.claims, 2)) : ''}${row('Net pay', money(it.net, 2), true)}`;
+      : `${row('Base salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'}`, neg(it.unpaid)) : ''}${extras}${row('Bonus', money(it.bonus, 2))}${row('Gross pay', money(it.gross, 2))}${row(`Income tax (${state.settings.taxRate}%)`, neg(it.tax))}${row(`Benefits (${state.settings.benefitsRate}%)`, neg(it.benefits))}${it.claims ? row('Claims reimbursed', money(it.claims, 2)) : ''}${row('Net pay', money(it.net, 2), true)}`;
     openModal({
       title: 'Payslip', size: 'sm', submit: null,
       body: `<div style="display:flex;flex-direction:column;gap:18px">
@@ -1156,6 +1178,7 @@
       ${s.currency === 'MYR' ? statutoryCard(s) + docsApi.settingsCard() : ''}
       ${leaveApi.settingsCards()}
       ${timeApi.settingsCards()}
+      ${claimsApi.settingsCards()}
       ${checkinCard(s)}
         <div class="settings-row"><div><div class="label">Remote check-in</div><div class="desc">Lets employees check in from anywhere with a selfie. Marked as Remote.</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="zone-remote" data-v="${v}" class="${(s.checkin.remote ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
         ${[['deviceLock', 'One phone per person', 'Each person checks in only from their approved phone, and a phone checks in for one person. New phones need your approval.'],
@@ -1179,6 +1202,7 @@
     leaveApi.bindSettings();
     timeApi.bindSettings();
     docsApi.bindSettings();
+    claimsApi.bindSettings();
     bind('#s-company', 'company'); bind('#s-currency', 'currency'); bind('#s-office', 'office'); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
     $$('[data-stat]').forEach((el) => el.addEventListener('change', () => { state.settings.statutory = { ...U.statutory(state.settings), [el.dataset.stat]: Math.min(20, Math.max(0, Number(el.value) || 0)) }; commit('Statutory rates saved'); }));
   };
@@ -2233,7 +2257,7 @@
     },
     'pay-export': () => {
       const run = state.payroll[ui.payMonth];
-      downloadCSV(`payroll-${ui.payMonth}.csv`, [['Employee', 'Email', 'Base', 'Unpaid leave days', 'Unpaid leave deduction', 'Overtime', 'Allowances', 'Bonus', 'Gross', 'EPF (employee)', 'SOCSO (employee)', 'EIS (employee)', 'PCB', 'Zakat', 'Medical claims', 'Net pay', 'EPF (employer)', 'SOCSO (employer)', 'EIS (employer)', 'HRD levy', 'Employer cost'],
+      downloadCSV(`payroll-${ui.payMonth}.csv`, [['Employee', 'Email', 'Base', 'Unpaid leave days', 'Unpaid leave deduction', 'Overtime', 'Allowances', 'Bonus', 'Gross', 'EPF (employee)', 'SOCSO (employee)', 'EIS (employee)', 'PCB', 'Zakat', 'Claims reimbursed', 'Net pay', 'EPF (employer)', 'SOCSO (employer)', 'EIS (employer)', 'HRD levy', 'Employer cost'],
         ...run.items.map((i) => { const e = emp(i.empId); return [fullName(e), e?.email, i.base, i.unpaidDays || 0, i.unpaid || 0, U.round2((i.extraLines || []).filter((l) => l.key === 'ot').reduce((s, l) => s + l.amount, 0)), U.round2((i.extraLines || []).filter((l) => l.key !== 'ot').reduce((s, l) => s + l.amount, 0)), i.bonus, i.gross, i.epf ?? i.benefits, i.socso || 0, i.eis || 0, i.tax, i.zakat || 0, i.claims || 0, i.net, i.erEpf || 0, i.erSocso || 0, i.erEis || 0, i.hrdf || 0, U.round2(i.gross + (i.erCost || 0))]; })]);
     },
     'payslip': (id) => openPayslip(id),
@@ -2305,6 +2329,9 @@
   leaveApi = AllurusLeave.install(moduleCtx);
   timeApi = AllurusTime.install(moduleCtx);
   docsApi = AllurusPayDocs.install(moduleCtx);
+  // Approvers see their team's claims under Approvals, after leave and attendance requests.
+  const approvalsBase = VIEWS['my-approvals'];
+  VIEWS['my-approvals'] = () => approvalsBase() + claimsApi.approvalsCard(me().id);
 
   // ---------- Boot ----------
   $('#today').textContent = U.fmtDate(U.today(), { weekday: 'short', month: 'short', day: 'numeric' });

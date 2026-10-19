@@ -304,11 +304,16 @@ window.AllurusSeed = {
     ];
     const finance = AllurusFinance.seed({ employees, payroll, today: T, customers: platform.tenants.filter((t) => t.id !== 't1').map((t) => ({ name: t.name, email: t.admin })) });
     const reliefs = AllurusTax.seedReliefs(T);
-    // Medical claims already reimbursed through payroll show on those payslips.
-    const claims = AllurusClaims.seed(employees, T);
+    // Claims: the standard categories plus a taxable wellness benefit. Claims already reimbursed through payroll
+    // show on those payslips and in the books under their GL category.
+    settings.claims.categories.push({ id: 'wellness', name: 'Wellness (gym)', note: 'Gym or fitness membership. A taxable benefit in this company’s policy.', perClaim: 0, perMonth: 150, perYear: 1200, receipt: true, taxable: true, gl: 'Staff benefits', fields: [], on: true, builtin: false });
+    const claims = AllurusClaims.seed(employees, T, settings);
     claims.filter((c) => c.status === 'Paid' && payroll[c.paidIn]).forEach((c) => {
       const it = payroll[c.paidIn].items.find((i) => i.empId === c.empId);
-      if (it) { it.claims = U.round2((it.claims || 0) + c.approved); it.claimIds = [...(it.claimIds || []), c.id]; it.net = U.round2(it.net + c.approved); }
+      if (it) {
+        it.claims = U.round2((it.claims || 0) + c.approved); it.claimIds = [...(it.claimIds || []), c.id]; it.net = U.round2(it.net + c.approved);
+        AllurusClaimRules.glRows(c, settings.claims.categories).forEach((g) => { it.claimGL = { ...(it.claimGL || {}), [g.gl]: U.round2((it.claimGL?.[g.gl] || 0) + g.amount) }; });
+      }
     });
     const plans = { e2: AllurusPlanner.sample() };
     return { version: 3, session, accounts, workspaces: {}, finance, reliefs, taxProfiles: {}, claims, plans, leaveCarry, leaveCredits, rosters, timeRequests, attAudit, statutory, settings, departments, employees, leaves, attendance, payroll, jobs, candidates, reviews, activity, platform };

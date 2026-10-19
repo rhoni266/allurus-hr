@@ -82,7 +82,7 @@ window.AllurusStatutory = (function () {
     const deductions = statutory
       ? [['EPF (KWSP), employee', it.epf], ['SOCSO (PERKESO), employee', it.socso], ['EIS, employee', it.eis], ['Income tax (PCB)', it.tax], ['Zakat', it.zakat]].filter(([, v]) => v).map(([label, amount]) => ({ label, amount: r2(amount) }))
       : [['Income tax', it.tax], ['Benefits', it.benefits]].filter(([, v]) => v).map(([label, amount]) => ({ label, amount: r2(amount) }));
-    const reimbursements = it.claims ? [{ label: 'Medical claims (not taxed)', amount: r2(it.claims) }] : [];
+    const reimbursements = it.claims ? [{ label: 'Claims reimbursed (not taxed)', amount: r2(it.claims) }] : [];
     const employer = statutory ? [['EPF, employer', it.erEpf], ['SOCSO, employer', it.erSocso], ['EIS, employer', it.erEis]].filter(([, v]) => v).map(([label, amount]) => ({ label, amount: r2(amount) })) : [];
     return {
       company, month, name: fullName(e), id: idOf(e), role: e?.role || '', epfNo: e?.epfNo || '', taxNo: e?.taxNo || '', bank: e?.bank || '', account: e?.accountNo || '',

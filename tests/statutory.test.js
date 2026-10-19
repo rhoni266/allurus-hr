@@ -11,7 +11,7 @@ const vm = require('node:vm');
 const sandbox = { window: {}, console };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-for (const f of ['utils', 'leave-rules', 'attendance-rules', 'statutory', 'finance', 'tax', 'claims', 'planner', 'seed']) {
+for (const f of ['utils', 'leave-rules', 'attendance-rules', 'statutory', 'claims-rules', 'finance', 'tax', 'claims', 'planner', 'seed']) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f + '.js'), 'utf8'), sandbox, { filename: f + '.js' });
 }
 const S = sandbox.AllurusStatutory;
@@ -202,4 +202,25 @@ test('reminders: statutory payments by the 15th, EA by end of February, Form E b
 
 test('CSV escapes commas and quotes', () => {
   assert.equal(S.toCSV([['A, B', 'say "hi"', 1.5]]), '"A, B","say ""hi""",1.50\r\n');
+});
+
+test('seeded claims: all in the new format, payroll reimbursements reconcile with the books by GL', () => {
+  const CR = sandbox.AllurusClaimRules;
+  assert.ok(seed.claims.every((c) => Array.isArray(c.lines) && c.lines.length && c.type === undefined));
+  assert.ok(seed.claims.some((c) => c.lines.length > 1));
+  const cats = settings.claims.categories;
+  paidMonths.forEach((m) => {
+    const items = payroll[m].items;
+    const paid = seed.claims.filter((c) => c.status === 'Paid' && c.paidIn === m);
+    assert.equal(r2(items.reduce((s, i) => s + (i.claims || 0), 0)), r2(paid.reduce((s, c) => s + c.approved, 0)), m);
+    const gl = {}; items.forEach((i) => Object.entries(i.claimGL || {}).forEach(([k, v]) => { gl[k] = r2((gl[k] || 0) + v); }));
+    const want = CR.payrollSplit(paid, cats).byGL;
+    assert.equal(JSON.stringify(Object.keys(gl).sort().map((k) => [k, gl[k]])), JSON.stringify(Object.keys(want).sort().map((k) => [k, want[k]])), m);
+  });
+  // The approved gym claim is taxable; the approved roadshow claim is not.
+  const ok = seed.claims.filter((c) => c.status === 'Approved');
+  const split = CR.payrollSplit(ok, cats);
+  assert.equal(split.taxable, 150);
+  assert.ok(split.byGL.Travel > 0);
+  assert.equal(r2(split.taxable + split.nonTaxable), r2(ok.reduce((s, c) => s + c.approved, 0)));
 });

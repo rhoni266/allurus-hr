@@ -110,7 +110,7 @@ window.AllurusUX = (function () {
       ['visit:dashboard', 'Look around your dashboard', '#dashboard'],
       ['visit:settings', 'Check your office check-in location', '#settings'],
       ['visit:employees', 'Review your team', '#employees'],
-      ['visit:claims', 'Set your medical claim policy', '#claims'],
+      ['visit:claims', 'Set up claim categories', '#claims'],
       ['visit:payroll', 'Preview this month’s payroll', '#payroll'],
       ['act:ux-palette', 'Jump anywhere with ⌘K', 'ux-palette'],
       ['act:ux-customize', 'Arrange your dashboard', 'ux-customize'],
@@ -246,7 +246,9 @@ window.AllurusUX = (function () {
     { roles: ['employee'], label: 'Download my payslip', icon: 'download', keywords: 'pdf payslip salary slip print', run: () => go('my-pay') },
     { roles: ['employee'], label: 'My EA form', icon: 'doc', keywords: 'borang ea tax form year end mytax', run: () => go('my-pay') },
     { roles: ['employee'], label: 'My leave balance', icon: 'calendar', keywords: 'annual sick days left time off', run: () => go('my-leave') },
-    { roles: ['employee'], label: 'New medical claim', icon: 'heart', keywords: 'clinic doctor receipt reimburse', when: () => ctx.claimsOn(), run: () => goThen('my-claims', 'cl-new') },
+    { roles: ['employee'], label: 'New claim', icon: 'receipt', keywords: 'expense travel meals parking toll hotel phone training receipt reimburse medical clinic', when: () => ctx.claimsOn(), run: () => goThen('my-claims', 'cl-new') },
+    { roles: ['employee'], label: 'Mileage claim', icon: 'pin', keywords: 'km distance car motorcycle petrol mileage', when: () => ctx.claimsOn(), run: () => goThen('my-claims', 'cl-new', undefined, 'mileage') },
+    { roles: ['employee'], label: 'New medical claim', icon: 'heart', keywords: 'clinic doctor receipt reimburse dental optical', when: () => ctx.claimsOn(), run: () => goThen('my-claims', 'cl-new', undefined, 'medical') },
     { roles: ['employee'], label: 'Scan a tax relief receipt', icon: 'receipt', keywords: 'lhdn relief be form', run: () => goThen('my-tax', 'rel-scan') },
     { roles: ['employee'], label: 'Plan my month', icon: 'target', keywords: 'budget planner disposable spend', run: () => go('my-plan') },
     { roles: ['admin'], label: 'Add an employee', icon: 'userplus', keywords: 'hire new staff onboard', run: () => act('add-emp') },
@@ -271,7 +273,10 @@ window.AllurusUX = (function () {
     { roles: ['admin'], label: 'Overtime rules', icon: 'sliders', keywords: 'ot rate 1.5 rest day public holiday rounding 104 hours employment act', run: () => goSection('time-ot') },
     { roles: ['admin'], label: 'Daily allowances', icon: 'coins', keywords: 'meal transport attendance shift allowance forfeit late', run: () => goSection('time-allowances') },
     { roles: ['admin'], label: 'Rotating rosters', icon: 'grip', keywords: 'rotation template shift cycle', run: () => goSection('time-rosters') },
-    { roles: ['admin'], label: 'Review medical claims', icon: 'heart', keywords: 'claims approve', run: () => go('claims') },
+    { roles: ['admin'], label: 'Review claims', icon: 'receipt', keywords: 'claims approve expense medical travel mileage reimburse', run: () => go('claims') },
+    { roles: ['admin'], label: 'Claims report', icon: 'download', keywords: 'claims by employee category department month csv export', run: () => goThen('claims', 'cl-tab', undefined, 'reports') },
+    { roles: ['admin'], label: 'Claim categories and limits', icon: 'sliders', keywords: 'travel mileage meals parking toll accommodation phone training entertainment limit gl rate per km', run: () => goSection('claim-categories') },
+    { roles: ['admin'], label: 'Medical benefits policy', icon: 'heart', keywords: 'outpatient dental optical specialist medical limit', run: () => goSection('claim-policy') },
     { roles: ['admin'], label: 'Scan a receipt into the books', icon: 'receipt', keywords: 'expense bookkeeping ocr', run: () => goThen('finance', 'fin-scan') },
     { roles: ['admin'], label: 'Request time off', icon: 'calendar', keywords: 'leave', run: () => act('new-leave') },
     { roles: ['admin', 'employee'], label: 'Customize this dashboard', icon: 'dashboard', keywords: 'layout widgets arrange drag', run: () => { go(ctx.routes()[0].id); setTimeout(() => act('ux-customize'), 60); } },
@@ -321,7 +326,7 @@ window.AllurusUX = (function () {
   function suggestions(items) {
     const r = ctx.role(), h = new Date().getHours(), pick = (label) => items.find((x) => x.label === label);
     const list = r === 'employee' ? [h < 12 ? 'Check in with a selfie' : null, 'Apply for leave', 'New medical claim', 'Plan my month']
-      : r === 'admin' ? ['Approve time off', 'Review medical claims', new Date().getDate() >= 20 ? 'Run payroll' : 'Add an employee']
+      : r === 'admin' ? ['Approve time off', 'Review claims', new Date().getDate() >= 20 ? 'Run payroll' : 'Add an employee']
         : ['Take the tour'];
     return list.filter(Boolean).map(pick).filter(Boolean);
   }
@@ -381,13 +386,13 @@ window.AllurusUX = (function () {
     'my-leave': ['Your balances and requests.', ['Half days (AM or PM) are allowed for annual, emergency, replacement and unpaid leave.', 'Sick leave needs a photo or PDF of your MC.', 'Carried days must be used by their expiry date.']],
     'my-approvals': ['Leave and attendance requests waiting for you.', ['You see requests when you’re the next approver, or the backup while your manager is on leave.', 'Overtime, lateness waivers and corrections are below the leave requests.', 'The team calendar shows who is already off.']],
     payroll: ['Monthly payroll with EPF, SOCSO, EIS, PCB and HRD Corp.', ['Run payroll to create a draft, add bonuses, then approve and pay.', 'Approved overtime and daily allowances from Attendance are added, flagged for EPF, SOCSO and tax as set in Settings.', 'Once paid, Statutory files has the KWSP, PERKESO, LHDN CP39 and HRD Corp files, each checked against the run; Bank file has the salary payment CSV.', 'Year-end and forms has Borang EA, Form E, CP8D, and CP22 / CP22A for joiners and leavers.', 'Statutory payments are due by the 15th of the next month.', 'Click a name to see the payslip.']],
-    claims: ['Medical claims and your claim policy.', ['Approvals are capped by the per-claim limit and the yearly balance.', 'Approved claims go out with the next payroll, or pay them now.']],
+    claims: ['Business expense and medical claims.', ['Review shows every receipt side by side, what each item is allowed under the limits, and what the person has left.', 'Use the pencil to correct an amount or receipt number; the reason is kept on the claim.', 'Claims go L1 → L2 → HR like leave. Approved claims go out with the next payroll, or pay them now.', 'Reports group claims by employee, category, department or month.']],
     finance: ['Cash, profit and what is owed.', ['Scan a receipt to add expenses item by item.', 'Close a month and send it to your auditor from Reports.']],
     settings: ['Company rules and your own preferences.', ['Appearance is personal: theme, accent colour, density, text size and motion.']],
     home: ['Your day at work.', ['Check in with a selfie inside the office zone.', 'Customize to arrange your home page.']],
     'my-pay': ['Your payslips and tax forms.', ['PDF opens a print view: choose Save as PDF (on a phone, Share → Save as PDF).', 'Your Borang EA appears here once HR issues it, by the end of February.']],
     'my-plan': ['Your monthly money plan.', ['Tick bills as you pay them.', 'Loans count towards your debt service ratio.']],
-    'my-claims': ['Claim medical costs.', ['Snap the receipt and the clinic, date and amount are filled in.']],
+    'my-claims': ['Claim work costs and medical bills.', ['Add several items to one claim, for example a trip with mileage, toll and a meal.', 'Snap each receipt and the shop, date and amount are filled in.', 'Mileage works out distance × the company rate.', 'What you can claim shows how much of each limit is left.']],
     'my-tax': ['Personal tax reliefs and the BE form helper.', ['Every suggestion should be checked before you file with LHDN.']],
     platform: ['Every company subscribed to Allurus.', ['The map shows active company locations.']],
     reports: ['Monthly reports waiting for your verification.', ['Verified months are locked for changes.']],

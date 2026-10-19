@@ -143,17 +143,35 @@ Try it: sign in as admin and go to Payroll. Go back to September, then open **St
 
 The builders are in `js/statutory.js` (no DOM), with tests in `tests/statutory.test.js` run against the seeded payroll. **None of the files claim to be the official upload layouts.** Each builder carries a `FORMAT: verify against …` comment. Check the KWSP, PERKESO, LHDN (CP39, EA, Form E, CP8D, CP22, CP22A, CP21) and HRD Corp specifications and your bank's bulk payment template before submitting anything real.
 
-## Medical claims
+## Claims
 
-Employees claim medical costs under **Finance → Medical claims**. They choose the type and who it was for, then snap or upload the receipt; the clinic, date and total are read from it. They can see how much they have left of each limit.
+Employees claim work costs and medical bills under **Finance → Claims**; admins review them under **Finance & Accounting → Claims**.
 
-HR reviews each claim next to its receipt. The suggested approval amount is capped at the per-claim limit and the yearly balance, and a rejection needs a reason. Approved claims are added to the **next payroll** as a tax-free reimbursement and shown on the payslip, or HR can **pay now**. Either way the cost goes into the books as *Staff benefits*.
+- **Categories** (Settings → Claim categories): Travel, Mileage, Meals, Parking & toll, Accommodation, Phone, Training, Entertainment, Medical and Other, plus your own. Each has:
+  - limits per claim, per month and per year (0 = no limit);
+  - whether a receipt is required;
+  - whether it is **taxable**;
+  - the **GL category** it posts to in the books;
+  - optional fields (purpose, from/to, city, nights, attendees).
+- **Mileage**: distance × the company rate per km, seeded at RM0.60 for a car and RM0.30 for a motorcycle (editable), with from/to fields.
+- **Multi-item claims**: one claim can hold several items, for example a trip with mileage, toll and a client lunch. Each item has its own category, date, merchant, receipt number, amount and receipt photo; the photo is read by the receipt scanner to fill the shop, date and amount. Limits are worked out across the items and shown as you type.
+- **Medical** is one category. Its medical types keep their own yearly and per-claim limits and family cover (Settings → Medical benefits).
+- **Approvals** use the same chain as leave: department L1 → L2 → HR, with backups while someone is on leave and an admin override. The approver sees every receipt side by side, what each item is allowed under the limits, and what the person has left this month and year.
+- **HR corrections**: HR can correct an amount, approved amount, receipt number or merchant. A reason is required, and who, when, and the old and new values are kept on the claim.
+- **Payment**:
+  - Approved claims go to the **next payroll**. Non-taxable claims are reimbursed on top of net pay; taxable categories are added to gross pay, so PCB and Borang EA include them.
+  - HR can also **Pay now**.
+  - Either way the cost posts to the books under each category's GL account.
+- **Reports** (Claims → Reports): claimed and approved amounts by employee, category, department or month for a year, with CSV export.
+- **Old data**: medical claims saved by earlier versions are migrated into one-item Medical claims when the app loads.
 
-The claim policy is set per company: switch medical claims on or off, switch each claim type on or off, and set its yearly and per-claim limits, family cover, the receipt requirement and an eligibility period. The default types are typical for a Malaysian SME: outpatient GP, specialist, dental, optical, health screening, hospitalisation, maternity, vaccination, physiotherapy, traditional and complementary medicine, mental health, pre-employment check-up and other. HR can add their own.
+Try it: sign in as admin and open **Claims**. Review Lucas's client visit (three items with receipts), correct the lunch amount with a reason, then approve twice (for Noah, then as HR). Pay Noah's KL roadshow now and check Bookkeeping. Run October payroll to see Leila's taxable gym claim in gross pay. Sign in as Daniel and make a claim with mileage and a meal.
+
+The rules are in `js/claims-rules.js` (no DOM), with tests in `tests/claims.test.js`; the seeded claims are also checked against payroll and the books in `tests/statutory.test.js`. **Check which reimbursements are taxable perquisites** with LHDN or your tax agent; the mileage rates are a company policy, not statutory rates.
 
 ## Employee finance
 
-An employee's **Finance** menu holds **Payslips** (with every deduction itemised, and what the company pays on top), **Medical claims**, **Tax reliefs** and the **Financial planner**.
+An employee's **Finance** menu holds **Payslips** (with every deduction itemised, and what the company pays on top), **Claims**, **Tax reliefs** and the **Financial planner**.
 
 The planner starts from a regular month's take-home pay and adds any other income. The employee lists:
 
@@ -228,7 +246,7 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 index.html          App shell: sign-in screen, sidebar, top bar
 brand.html          Brand kit: logo, palette, type, usage rules
 design-system.html  Live tokens and components
-tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files
+tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims
 css/styles.css      Design tokens (light and dark) and all components
 js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
 js/seed.js          Demo data: the Lumen & Co. workspace and 14 subscribed companies
@@ -240,7 +258,8 @@ js/attendance-rules.js  Time rules (no DOM): patterns, auto-shift, lateness, ove
 js/roster.js        Schedule page, time settings, overtime/waiver/correction requests, audit trail, batch edit, payroll lines
 js/statutory.js     Statutory builders (no DOM): payslip data, KWSP/PERKESO/CP39/HRD files, bank file, EA, Form E, CP8D, CP22/CP22A/CP21, reminders, ID checks
 js/payroll-docs.js  Payroll tabs for statutory files, bank file and year-end; printable payslips and forms
-js/claims.js        Medical claims: policy, employee claims, HR review
+js/claims-rules.js  Claims rules (no DOM): categories, mileage, limits, edits, payroll split, GL rows, reports, migration
+js/claims.js        Claims screens: multi-item claims with receipt scanning, approvals, corrections, reports, settings
 js/planner.js       Employee financial planner
 js/app.js           Views, routing per role, actions, registration, shared-link sync
 js/vendor/          jsVectorMap (MIT) for the Super Admin world map; Leaflet 1.9.4 (BSD-2) for the check-in map

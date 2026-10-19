@@ -120,7 +120,7 @@ window.AllurusPlanner = (function () {
               ${reg.erCost ? `<dt>Company also pays</dt><dd class="num">${m2(reg.erEpf + reg.erSocso + reg.erEis)} <span class="faint">EPF, SOCSO, EIS</span></dd>
               <dt>Into your EPF a month</dt><dd class="num">${m2(reg.epf + reg.erEpf)}</dd>` : ''}
             </dl>
-            ${comingClaims ? `<div class="lock-banner info">${icon('heart')}<span>${m2(comingClaims)} in approved medical claims will be added to your next salary. It’s a refund of what you spent, so it isn’t counted as income here.</span></div>` : ''}
+            ${comingClaims ? `<div class="lock-banner info">${icon('heart')}<span>${m2(comingClaims)} in approved claims will be added to your next salary. It’s a refund of what you spent, so it isn’t counted as income here.</span></div>` : ''}
             ${it && it.bonus ? `<p class="faint" style="font-size:12.5px">Your latest payslip included a ${m2(it.bonus)} bonus. The plan uses a regular month.</p>` : ''}
             <p class="faint" style="font-size:12.5px;margin-top:8px">Paying too much tax? <a href="#my-tax">Claim your tax reliefs</a> and ask HR to update your PCB.</p></div>
         </div>

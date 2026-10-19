@@ -142,7 +142,7 @@ window.AllurusPayDocs = (function () {
       <h4>B. Employment income</h4>${table([['Salary and wages, including overtime', rm(ea.income.salary)], ['Bonus, commission and fees', rm(ea.income.bonus)], ['Taxable allowances', rm(ea.income.allowances)]], ['Total gross remuneration', rm(ea.income.total)])}
       <h4>C. Tax deductions</h4>${table([['Monthly tax deductions (PCB)', rm(ea.deductions.pcb)], ['CP38 instalments', rm(ea.deductions.cp38)], ['Zakat paid through salary', rm(ea.deductions.zakat)]])}
       <h4>D. Contributions by the employee</h4>${table([['EPF (KWSP)', rm(ea.contributions.epf)], ['SOCSO (PERKESO)', rm(ea.contributions.socso)], ['EIS', rm(ea.contributions.eis)]])}
-      <h4>E. Not taxed</h4>${table([['Tax-exempt allowances', rm(ea.exempt.allowances)], ['Medical claims reimbursed', rm(ea.exempt.medical)]])}
+      <h4>E. Not taxed</h4>${table([['Tax-exempt allowances', rm(ea.exempt.allowances)], ['Expense and medical claims reimbursed', rm(ea.exempt.medical)]])}
       <div class="doc-sign"><div>${esc(ea.employer.signatory || '')}<br><span class="faint">${esc(ea.employer.signatoryTitle || 'Authorised officer')}</span></div><div>Date: ${fmt(T())}</div></div></section>`;
   }
   const printEA = (empId, y) => preview(`Borang EA ${y}`, eaHtml(ctx.emp(empId), y), `EA ${y} ${ctx.fullName(ctx.emp(empId))}`);

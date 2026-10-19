@@ -4,7 +4,7 @@ window.AllurusFinance = (function () {
   'use strict';
 
   const INCOME_CATS = ['Subscriptions', 'Services', 'Other income'];
-  const EXPENSE_CATS = ['Payroll', 'Rent', 'Utilities', 'Software', 'Marketing', 'Travel', 'Professional fees', 'Repairs and maintenance', 'Office supplies', 'Bank charges', 'Staff benefits', 'Other expenses'];
+  const EXPENSE_CATS = ['Payroll', 'Rent', 'Utilities', 'Software', 'Marketing', 'Travel', 'Entertainment', 'Training', 'Professional fees', 'Repairs and maintenance', 'Office supplies', 'Bank charges', 'Staff benefits', 'Other expenses'];
   const r2 = (n) => Math.round(n * 100) / 100;
   const sum = (rows, f) => r2(rows.reduce((s, x) => s + f(x), 0));
 
@@ -30,11 +30,19 @@ window.AllurusFinance = (function () {
   function payrollRows(payroll) {
     return Object.entries(payroll || {}).filter(([, run]) => run.status === 'Paid').flatMap(([mk, run]) => {
       const row = (key, desc, category, amount) => ({ id: `pay-${key}-${mk}`, date: run.paidOn, desc, type: 'out', category, amount, tax: 0, ref: `PAY-${mk.replace('-', '')}`, source: 'payroll', reconciled: true });
-      const er = sum(run.items, (i) => i.erCost || 0), cl = sum(run.items, (i) => i.claims || 0);
+      const er = sum(run.items, (i) => i.erCost || 0);
+      // Claims post under each category's GL account: reimbursed ones, and taxable ones paid inside gross pay.
+      // Runs saved before claim categories post everything to Staff benefits.
+      const taxed = sum(run.items, (i) => sum((i.extraLines || []).filter((l) => l.key === 'claims-taxable'), (l) => l.amount));
+      const byGL = {};
+      run.items.forEach((i) => {
+        if (i.claimGL && Object.keys(i.claimGL).length) Object.entries(i.claimGL).forEach(([gl, v]) => { byGL[gl] = r2((byGL[gl] || 0) + v); });
+        else if (i.claims) byGL['Staff benefits'] = r2((byGL['Staff benefits'] || 0) + i.claims);
+      });
       return [
-        row('wages', `Payroll · ${U.fmtMonth(mk)} (${run.items.length} people)`, 'Payroll', sum(run.items, (i) => i.gross)),
+        row('wages', `Payroll · ${U.fmtMonth(mk)} (${run.items.length} people)`, 'Payroll', r2(sum(run.items, (i) => i.gross) - taxed)),
         er ? row('er', `Employer EPF, SOCSO, EIS and HRD levy · ${U.fmtMonth(mk)}`, 'Payroll', er) : null,
-        cl ? row('claims', `Medical claims reimbursed with ${U.fmtMonth(mk)} payroll`, 'Staff benefits', cl) : null,
+        ...Object.entries(byGL).filter(([, v]) => v).map(([gl, v]) => row(`claims-${gl.toLowerCase().replace(/[^a-z]+/g, '-')}`, `Claims reimbursed with ${U.fmtMonth(mk)} payroll · ${gl}`, gl, v)),
       ].filter(Boolean);
     });
   }
@@ -172,7 +180,7 @@ window.AllurusFinance = (function () {
     const fui = { month: cur(), type: 'all', cat: 'all', q: '', inv: 'all', bill: 'all', budgetMonth: cur() };
     const m2 = (n) => money(n, 2);
     const signed = (t) => `<span class="num ${t.type === 'in' ? 'amt-in' : 'amt-out'}">${t.type === 'in' ? '+' : '−'}${m2(t.amount + t.tax)}</span>`;
-    const SOURCE = { invoice: 'Invoice', bill: 'Bill', payroll: 'Payroll', manual: 'Manual', receipt: 'Receipt', claim: 'Medical claim' };
+    const SOURCE = { invoice: 'Invoice', bill: 'Bill', payroll: 'Payroll', manual: 'Manual', receipt: 'Receipt', claim: 'Claim' };
     const invPill = (s) => `<span class="pill ${({ Draft: '', Sent: 'info', Overdue: 'bad', Paid: 'ok' })[s]}">${s}</span>`;
     const billPill = (s) => `<span class="pill ${({ Unpaid: 'warn', Overdue: 'bad', Paid: 'ok' })[s]}">${s}</span>`;
     const repStatus = (mk) => {
