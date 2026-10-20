@@ -404,7 +404,11 @@ js/appraisal.js     Templates and bands, review cycles, self/manager/HR scoring,
 js/claims-rules.js  Claims rules (no DOM): categories, mileage, limits, edits, payroll split, GL rows, reports, migration
 js/claims.js        Claims screens: multi-item claims with receipt scanning, approvals, corrections, reports, settings
 js/planner.js       Employee financial planner
-js/app.js           Views, routing per role, actions, registration, shared-link sync
+js/app.js           Views, routing per role, actions, registration, shared-link sync, Team access
+js/cloud.js         Cloud mode: Firebase sign-in, invites, live sync (loaded only when configured)
+js/cloud-map.js     How a workspace is split into Firestore documents, and the record-by-record merge
+js/firebase-config.js  Firebase web config (null = demo mode)
+firestore.rules     Who may read and write what in the cloud
 js/vendor/          jsVectorMap (MIT) for the Super Admin world map; Leaflet 1.9.4 (BSD-2) for the check-in map
 assets/             logo.svg, logo-mark.svg
 docs/backend-plan.md  Plan for replacing localStorage with a backend (not built yet)
@@ -423,14 +427,16 @@ docs/backend-plan.md  Plan for replacing localStorage with a backend (not built 
 
 ## How data is stored (read this before going live)
 
-The plan for moving to a real backend (stack, schema with row-level security, auth, API layer, files and PDPA, server jobs, security, Stripe billing and a phased timeline) is in [`docs/backend-plan.md`](docs/backend-plan.md). Nothing in it is built yet.
+Allurus runs in one of two modes:
 
-This is a working **front-end prototype**. Each browser keeps its own data in `localStorage`. When the app runs as a claude.ai artifact, company sign-ups and check-ins are also written to the artifact's shared database, so the owner sees them in the Super Admin console.
+- **Demo mode** (the default, while `js/firebase-config.js` is `null`): each browser keeps its own copy in `localStorage`. A leave request made on one phone never reaches another device. When the app runs as a claude.ai artifact, company sign-ups and check-ins are also written to the artifact's shared database, so the owner sees them in the Super Admin console.
+- **Cloud mode** (a Firebase config in `js/firebase-config.js`, which is set for the `allurus-hr` project; add `?demo` to the address to get demo mode instead): real sign-in with Firebase Authentication, and one shared, live copy of each company in Cloud Firestore. Changes reach every signed-in device within about a second, and Firestore keeps a copy on the device so offline check-ins and requests are sent when back online.
 
-A production version needs:
-1. **A backend and database** (for example Supabase, Firebase, or Node/NestJS with Postgres). Each company's data gets a `tenant_id`.
-2. **Real authentication** (email and password, magic links or SSO) with role-based access, replacing the demo role picker.
-3. **Billing** (Stripe) for plans and invoices.
-4. **Server-side payroll rules** for each country, plus audit logs.
+Setup takes about ten minutes on Firebase's free plan: see [`docs/firebase-setup.md`](docs/firebase-setup.md). In cloud mode:
 
-The code is organized so each view reads from a single `state` object, which makes swapping `localStorage` for API calls straightforward.
+- A company admin **registers the company**; HR invites staff under **Settings → Team access**; each person chooses **First time here? Set up your account**, confirms their email and signs in. Forgotten passwords are reset by email.
+- **Who sees what is enforced on Google's servers** by [`firestore.rules`](firestore.rules): companies never see each other; payroll, finance, loans and pay changes are for Company Admins only; each employee gets their own full record and payslips, and only a directory card (name, role, team, contact) for colleagues; financial plans and tax reliefs are private to their owner. Employees can change only their registered phones and face reference on their own record.
+- Records are merged one by one, so two people changing different records at the same time both keep their change. Photos and files are stored once and fetched only when shown.
+- `js/cloud-map.js` lays out the documents and merges them (unit-tested in `tests/cloud.test.js`); `js/cloud.js` does sign-in and syncing.
+
+Still to do before a full production launch (see [`docs/backend-plan.md`](docs/backend-plan.md)): manager-only visibility for team leave and claims, server-side payroll and statutory filing, the cloud list of companies in the Super Admin console, and Stripe billing.

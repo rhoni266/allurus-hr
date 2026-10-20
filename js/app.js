@@ -4,7 +4,10 @@
 
   const APP_VERSION = '3.2';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
-  const STORE_KEY = 'allurus-hr-v7';
+  // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
+  // company and a real workspace never mix in one browser.
+  const CLOUD_ON = !!(window.ALLURUS_FIREBASE && window.ALLURUS_FIREBASE.apiKey) && !/[?&]demo(\b|=)/.test(location.search);
+  const STORE_KEY = CLOUD_ON ? 'allurus-hr-cloud-v1' : 'allurus-hr-v7';
   const esc = U.esc;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
@@ -164,8 +167,19 @@
       return;
     }
   }
+  // Cloud mode: js/firebase-config.js holds a Firebase web config. Sign-in and data then go through js/cloud.js.
+  // Adding ?demo to the address keeps the sample company in this browser, for presentations and trials.
+  const CLOUD = CLOUD_ON;
+  const CAN_CLOUD = !!(window.ALLURUS_FIREBASE && window.ALLURUS_FIREBASE.apiKey);
+  const fire = () => (CLOUD ? window.AllurusCloud : null);
+  // A signed-in cloud user reopening the app waits for the workspace to load before seeing it.
+  let cloudWaiting = CLOUD && !!state.session.cloud && !!state.session.account;
   let warnedFull = false;
   function save() {
+    saveLocal();
+    fire()?.changed();
+  }
+  function saveLocal() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {
       // Receipt photos and selfies can fill the browser's storage; say so rather than lose changes silently.
       if (e && /quota/i.test(e.name + e.message) && !warnedFull) { warnedFull = true; setTimeout(() => toast('This browser’s storage is full, so your latest change wasn’t saved. Delete old receipts or selfies, or move to the server version.', 'error'), 0); }
@@ -457,6 +471,7 @@
     const careers = /^#careers\/([^/]+)(?:\/(.+))?/.exec(location.hash);
     $('#login').classList.toggle('is-careers', !!careers);
     if (careers) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = recruitApi.careersPage(careers[1], careers[2] || ''); recruitApi.bindCareers(careers[1], careers[2] || ''); document.title = `Careers · ${recruitApi.tenantName(careers[1]) || 'Allurus'}`; return; }
+    if (cloudWaiting) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = `<div class="login-inner"><div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div><h1>Loading your workspace…</h1><p class="sub">Getting the latest from the cloud.</p></div>`; return; }
     const signedIn = !!role();
     $('#login').hidden = signedIn;
     $('.app').hidden = !signedIn;
@@ -1250,16 +1265,18 @@
       <div class="card"><div class="card-head"><h3>Brand</h3><a class="hint" href="brand.html">Open brand kit</a></div>
         <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">${LOGO_FULL}<div class="chips">${[['Allurus Teal', '#0F766E'], ['Champagne', '#D9B66F'], ['Obsidian', '#16181D'], ['Mist', '#F5F5F7']].map(([n, c]) => `<span class="chip" style="cursor:default"><i style="width:14px;height:14px;border-radius:50%;background:${c};border:1px solid var(--line-strong)"></i>${n}<span class="n">${c}</span></span>`).join('')}</div></div>
       </div>
+      ${CLOUD ? '<div class="card" id="team-access"><div class="card-head"><h3>Team access</h3><span class="hint">Loading…</span></div></div>' : ''}
       ${accountCard()}
-      <div class="card"><div class="card-head"><h3>Data</h3></div>
+      ${CLOUD ? '' : `<div class="card"><div class="card-head"><h3>Data</h3></div>
         <div class="settings-row"><div><div class="label">Reset demo workspace</div><div class="desc">Data is stored in this browser only. Resetting replaces everything with the sample company.</div></div><button class="btn btn-danger" data-act="ask-reset">Reset data</button></div>
         <div id="reset-confirm"></div>
-      </div>`;
+      </div>`}`;
   };
   AFTER.settings = () => {
     bindAccountCard();
     notifyApi.bindSettings();
     if (role() !== 'admin') return;
+    if (CLOUD) teamAccess.mount();
     const bind = (id, key, num) => $(id).addEventListener('change', (ev) => { state.settings[key] = num ? Math.max(0, Number(ev.target.value) || 0) : ev.target.value.trim() || state.settings[key]; commit('Settings saved'); });
     bindCheckinCard();
     leaveApi.bindSettings();
@@ -1288,9 +1305,10 @@
           <div class="pw-wrap"><input class="input" id="login-password" name="password" type="password" autocomplete="current-password" required><button type="button" class="pw-toggle" data-act="toggle-pw" aria-label="Show password">Show</button></div></div>
         <p class="login-error" id="login-error" role="alert" hidden></p>
         <button class="btn btn-primary login-submit" type="submit">Sign in</button>
+        ${CLOUD ? '<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px"><button type="button" class="link-btn" data-act="cloud-reset">Forgot password?</button><button type="button" class="link-btn" data-act="cloud-activate">First time here? Set up your account</button></div>' : ''}
       </form>
       <div class="register-cta"><div><strong>New to Allurus?</strong><span class="muted"> Register your company and start a free trial.</span></div><button class="btn btn-primary" data-act="register">${icon('plus')}Register company</button></div>
-      <p class="faint" style="font-size:12.5px">Demo mode. Your workspace is saved in this browser${cloud.db ? '; company sign-ups and check-ins are also shared with the Allurus team' : ''}. Version ${APP_VERSION}</p>
+      <p class="faint" style="font-size:12.5px">${CLOUD ? 'Your company’s data is kept securely in the cloud and shared live with your team. <a href="?demo">Try the demo company instead</a>.' : CAN_CLOUD ? `Demo company, saved in this browser only. <a href="${location.pathname}">Sign in to your real workspace</a>.` : `Demo mode. Your workspace is saved in this browser${cloud.db ? '; company sign-ups and check-ins are also shared with the Allurus team' : ''}.`} Version ${APP_VERSION}</p>
     </div>`;
   }
   function bindLogin() {
@@ -1301,6 +1319,13 @@
       const email = form.email.value.trim().toLowerCase(), pw = form.password.value;
       if (!email || !pw) { err.textContent = 'Enter your email and password.'; err.hidden = false; return; }
       const btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Signing in…';
+      if (CLOUD) {
+        if (!fire()) { btn.disabled = false; btn.textContent = 'Sign in'; err.textContent = 'Still connecting to the server. Try again in a moment.'; err.hidden = false; return; }
+        const res = await fire().signIn(email, pw);
+        if (!res.ok) { btn.disabled = false; btn.textContent = 'Sign in'; err.textContent = res.error; err.hidden = false; form.password.value = ''; form.password.focus(); return; }
+        startSession(state.accounts[0]);
+        return;
+      }
       const acct = state.accounts.find((a) => a.email === email);
       const ok = acct && acct.hash === await U.hashPassword(email, pw);
       if (!ok) {
@@ -1337,6 +1362,12 @@
     $('#pw-form')?.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       const a = account(), f = ev.target;
+      if (CLOUD) {
+        if (f.next.value.length < 8) { toast('Use at least 8 characters for the new password', 'error'); f.next.focus(); return; }
+        const res = await fire().changePassword(f.current.value, f.next.value);
+        if (!res.ok) { toast(res.error, 'error'); f.current.focus(); return; }
+        f.reset(); toast('Password changed'); return;
+      }
       if (a.hash !== await U.hashPassword(a.email, f.current.value)) { toast('Your current password is not right', 'error'); f.current.focus(); return; }
       if (f.next.value.length < 8) { toast('Use at least 8 characters for the new password', 'error'); f.next.focus(); return; }
       a.hash = await U.hashPassword(a.email, f.next.value);
@@ -1749,6 +1780,16 @@
         const p = plan(d.plan), seats = Math.max(1, Number(d.seats) || 1);
         if (p.maxSeats && seats > p.maxSeats) { toast(`${p.name} covers up to ${p.maxSeats} people. Pick a bigger plan.`); return false; }
         const c = U.city(d.city);
+        if (CLOUD) {
+          if (!fire()) { toast('Still connecting to the server. Try again in a moment.'); return false; }
+          const ws = newWorkspace({ ...d, email }, !!d.samples);
+          toast('Creating your workspace…');
+          fire().register({ ...d, email, city: c.name, country: c.country, seats }, ws).then((res) => {
+            if (!res.ok) { toast(res.error, 'error'); return; }
+            startSession(state.accounts[0]); toast(`Welcome to Allurus, ${d.name}. We’ve sent a link to confirm your email.`);
+          });
+          return;
+        }
         const tid = U.uid('t');
         state.platform.tenants.push({ id: tid, name: d.name, city: c.name, lat: c.lat, lng: c.lng, industry: d.industry, country: c.country, plan: d.plan, seats, status: 'Trial', joined: U.today(), admin: d.email, lastActive: U.today(), hasWorkspace: true });
         state.workspaces[tid] = newWorkspace({ ...d, email }, !!d.samples);
@@ -2114,8 +2155,39 @@
   // Role-specific actions
   Object.assign(ACTIONS_EXTRA, {
     'register': () => openRegister(),
+    'cloud-reset': () => {
+      openModal({
+        title: 'Reset your password', submit: 'Send reset link', size: 'sm',
+        body: `<p class="muted" style="margin-bottom:12px">We’ll email you a link to choose a new password.</p><div class="field"><label for="rs-email">Work email</label><input class="input" id="rs-email" name="email" type="email" required value="${esc($('#login-email')?.value || '')}"></div>`,
+        onSubmit(d) {
+          if (!fire()) { toast('Still connecting to the server. Try again in a moment.'); return false; }
+          fire().resetPassword(d.email).then((r) => toast(r.ok ? `If ${d.email.trim()} has an Allurus account, a reset link is on its way.` : r.error, r.ok ? '' : 'error'));
+        },
+      });
+    },
+    'cloud-activate': () => {
+      openModal({
+        title: 'Set up your account', submit: 'Create my password', size: 'sm',
+        body: `<p class="muted" style="margin-bottom:12px">Use the work email HR invited. We’ll send a link to confirm it’s yours, then you can sign in.</p>
+          <div class="form-grid">
+          <div class="field full"><label for="ac-email">Work email</label><input class="input" id="ac-email" name="email" type="email" autocomplete="username" required></div>
+          <div class="field full"><label for="ac-pw">Choose a password</label><input class="input" id="ac-pw" name="password" type="password" autocomplete="new-password" minlength="8" required><span class="field-hint">At least 8 characters.</span></div>
+          <div class="field full"><label for="ac-pw2">Confirm password</label><input class="input" id="ac-pw2" name="password2" type="password" autocomplete="new-password" required></div></div>`,
+        onSubmit(d) {
+          if (!fire()) { toast('Still connecting to the server. Try again in a moment.'); return false; }
+          if (d.password.length < 8) { toast('Use at least 8 characters for your password'); return false; }
+          if (d.password !== d.password2) { toast('The two passwords don’t match'); return false; }
+          fire().activate(d.email, d.password).then((r) => toast(r.ok ? `Check ${d.email.trim()} for a link to confirm your email, then sign in here.` : r.error, r.ok ? '' : 'error'));
+        },
+      });
+    },
+    'acc-invite': (empId) => teamAccess.invite(empId),
+    'acc-invite-all': () => teamAccess.inviteAll(),
+    'acc-revoke': (email) => teamAccess.revoke(email),
     'toggle-pw': () => { const i = $('#login-password'), b = $('[data-act="toggle-pw"]'); const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.textContent = show ? 'Hide' : 'Show'; b.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); },
-    'logout': () => { Object.assign(state.session, { account: null, roles: [], role: null }); closeOverlay(); save(); history.replaceState(null, '', location.pathname + location.search); render(); toast('Signed out'); },
+    'logout': () => {
+      if (CLOUD) { closeOverlay(); fire()?.signOut().finally(() => { try { localStorage.removeItem(STORE_KEY); } catch (e) { /* storage unavailable */ } location.hash = ''; location.reload(); }); return; }
+      Object.assign(state.session, { account: null, roles: [], role: null }); closeOverlay(); save(); history.replaceState(null, '', location.pathname + location.search); render(); toast('Signed out'); },
     'check-in': (_, v) => checkIn(v),
     'ci-retry': () => ciLocate(),
     'ci-capture': () => {
@@ -2426,6 +2498,104 @@
   const approvalsBase = VIEWS['my-approvals'];
   VIEWS['my-approvals'] = () => (leaveApi.isApprover(me().id) ? approvalsBase() + claimsApi.approvalsCard(me().id) : '<div class="page-head"><div><h1>Approvals</h1><p class="sub">Tasks waiting for you.</p></div></div>') + hrApi.myTasksCard(me().id) + recruitApi.approvalsCard(me().id) + lmsApi.approvalsCard(me().id);
 
+  // ---------- Team access (cloud mode): who can sign in, and as what ----------
+  const teamAccess = {
+    data: null,
+    async mount() {
+      const el = $('#team-access'); if (!el || !fire()?.live) return;
+      try { this.data = await fire().access(); } catch (e) { this.data = { invites: [], users: [] }; }
+      this.draw();
+    },
+    status(e) {
+      const email = (e.email || '').toLowerCase(), d = this.data || { invites: [], users: [] };
+      const user = d.users.find((u) => u.empId === e.id), inv = d.invites.find((i) => i.email === email);
+      if (user) return { key: 'joined', label: 'Signed in', pill: 'ok', admin: (user.roles || []).includes('admin'), uid: user.uid, email: user.email };
+      if (inv) return { key: 'invited', label: 'Invited', pill: 'info', admin: (inv.roles || []).includes('admin'), email: inv.email };
+      return { key: 'none', label: 'No access', pill: '', admin: false };
+    },
+    draw() {
+      const el = $('#team-access'); if (!el) return;
+      const people = activeEmployees(), self = fire().profile;
+      const rows = people.map((e) => {
+        const st = this.status(e), isMe = e.id === self.empId;
+        return `<tr><td>${person(e)}</td><td class="muted">${esc(e.email || 'No email')}</td>
+          <td><span class="pill ${st.pill}">${st.label}</span></td>
+          <td>${isMe ? '<span class="muted">You · Admin</span>' : `<select class="select" data-acc-role="${e.id}" aria-label="Access for ${esc(fullName(e))}"><option value="employee" ${st.admin ? '' : 'selected'}>Employee</option><option value="admin" ${st.admin ? 'selected' : ''}>Company Admin</option></select>`}</td>
+          <td class="r">${isMe ? '' : st.key === 'none' ? `<button class="btn btn-sm btn-primary" data-act="acc-invite" data-id="${e.id}" ${e.email ? '' : 'disabled'}>Invite</button>` : `<button class="btn btn-sm" data-act="acc-revoke" data-id="${esc(st.email || e.email)}">Remove access</button>`}</td></tr>`;
+      }).join('');
+      const waiting = people.filter((e) => e.email && this.status(e).key === 'none').length;
+      el.innerHTML = `<div class="card-head"><h3>Team access</h3>${waiting ? `<button class="btn btn-sm" data-act="acc-invite-all">Invite all ${waiting}</button>` : ''}</div>
+        <p class="muted" style="margin-bottom:12px">Invite people by their work email. They open Allurus, choose <b>First time here? Set up your account</b>, confirm their email and sign in. Employees see their own pay and records, and colleagues’ names and contact details only.</p>
+        <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value === 'admin')));
+    },
+    async invite(empId, quiet) {
+      const e = emp(empId); if (!e) return;
+      const st = this.status(e);
+      const r = await fire().invite(e, st.admin);
+      if (!quiet) toast(r.ok ? `${e.first} is invited. Ask them to choose “First time here?” on the sign-in screen with ${e.email}.` : r.error, r.ok ? '' : 'error');
+      if (!quiet) await this.mount();
+      return r.ok;
+    },
+    async inviteAll() {
+      const list = activeEmployees().filter((e) => e.email && this.status(e).key === 'none');
+      let n = 0; for (const e of list) if (await this.invite(e.id, true)) n++;
+      toast(`${n} ${n === 1 ? 'person' : 'people'} invited`); await this.mount();
+    },
+    async setRole(empId, admin) {
+      const e = emp(empId), st = this.status(e);
+      const r = st.key === 'joined' ? await fire().setRole(st.uid, admin) : await fire().invite(e, admin);
+      toast(r.ok ? `${e.first} is now ${admin ? 'a Company Admin' : 'an Employee'}${st.key === 'joined' ? '. It applies the next time they sign in.' : ''}` : r.error, r.ok ? '' : 'error');
+      await this.mount();
+    },
+    async revoke(email) {
+      const d = this.data || { users: [] }, u = d.users.find((x) => x.email === email);
+      const r = await fire().revoke(email, u?.uid);
+      toast(r.ok ? 'Access removed. They can’t sign in to this company any more.' : r.error, r.ok ? '' : 'error');
+      await this.mount();
+    },
+  };
+
+  // ---------- Bridge for js/cloud.js ----------
+  window.AllurusApp = {
+    get state() { return state; },
+    WS_KEYS, STORE_KEY,
+    toast: (m, k) => toast(m, k),
+    // A company with nothing in it, for the cloud copy to be laid onto.
+    blankWorkspace() {
+      const ws = newWorkspace({ name: '', email: 'blank@example.com', adminName: 'Admin', city: state.settings.office || 'Kuala Lumpur', currency: 'MYR', plan: 'growth' }, false);
+      ws.employees = []; ws.activity = [];
+      return ws;
+    },
+    // Make the cloud copy this browser's workspace, signed in as the given person.
+    adoptCloud(ws, p) {
+      const s = AllurusSeed.create(), theme = state.settings?.theme;
+      WS_KEYS.forEach((k) => { if (ws[k] !== undefined) s[k] = ws[k]; });
+      s.plans = ws.plans || {}; s.reliefs = ws.reliefs || {}; s.taxProfiles = ws.taxProfiles || {};
+      s.workspaces = {};
+      if (theme) s.settings.theme = theme;
+      s.accounts = [{ email: p.email, name: p.name, hash: '', roles: p.roles.slice(), tenantId: p.tenantId, empId: p.empId, cloud: true }];
+      const keep = state.session.account === p.email && p.roles.includes(state.session.role) ? state.session.role : p.roles[0];
+      s.session = { account: state.session.account === p.email ? p.email : null, roles: p.roles.slice(), role: keep, empId: p.empId, tenantId: p.tenantId, cloud: { uid: p.uid } };
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) { /* storage full or unavailable */ }
+      state = load();
+      if (!state.session.cloud) state.session.cloud = { uid: p.uid };
+    },
+    // Show changes that arrived from elsewhere, unless someone is mid-way through a form.
+    refresh(force) {
+      saveLocal();
+      if (cloudWaiting) return;
+      if (force || (!$('#overlay-root').children.length && !AllurusUX.isEditing() && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName))) render();
+      if (!force) AllurusUX.pulseLive();
+    },
+    // The cloud finished reconnecting (or the sign-in had expired).
+    cloudReady(reason) {
+      cloudWaiting = false;
+      if (reason === 'signed-out') { Object.assign(state.session, { account: null, roles: [], role: null }); saveLocal(); toast('Please sign in again.'); }
+      render();
+    },
+  };
+
   // ---------- Boot ----------
   $('#today').textContent = U.fmtDate(U.today(), { weekday: 'short', month: 'short', day: 'numeric' });
   $('#brand-mark').innerHTML = LOGO_MARK;
@@ -2441,5 +2611,11 @@
     AllurusUX.pulseLive();
   });
   render();
-  connectCloud();
+  if (CLOUD) {
+    import('./cloud.js?v=' + APP_VERSION).catch((e) => {
+      console.error('[Allurus cloud]', e);
+      cloudWaiting = false; render();
+      toast('Couldn’t reach the Allurus server. Check your connection and reload.', 'error');
+    });
+  } else connectCloud();
 })();
