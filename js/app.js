@@ -4,7 +4,10 @@
 
   const APP_VERSION = '3.2';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
-  const STORE_KEY = 'allurus-hr-v7';
+  // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
+  // company and a real workspace never mix in one browser.
+  const CLOUD_ON = !!(window.ALLURUS_FIREBASE && window.ALLURUS_FIREBASE.apiKey) && !/[?&]demo(\b|=)/.test(location.search);
+  const STORE_KEY = CLOUD_ON ? 'allurus-hr-cloud-v1' : 'allurus-hr-v7';
   const esc = U.esc;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
@@ -165,7 +168,9 @@
     }
   }
   // Cloud mode: js/firebase-config.js holds a Firebase web config. Sign-in and data then go through js/cloud.js.
-  const CLOUD = !!(window.ALLURUS_FIREBASE && window.ALLURUS_FIREBASE.apiKey);
+  // Adding ?demo to the address keeps the sample company in this browser, for presentations and trials.
+  const CLOUD = CLOUD_ON;
+  const CAN_CLOUD = !!(window.ALLURUS_FIREBASE && window.ALLURUS_FIREBASE.apiKey);
   const fire = () => (CLOUD ? window.AllurusCloud : null);
   // A signed-in cloud user reopening the app waits for the workspace to load before seeing it.
   let cloudWaiting = CLOUD && !!state.session.cloud && !!state.session.account;
@@ -1303,7 +1308,7 @@
         ${CLOUD ? '<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px"><button type="button" class="link-btn" data-act="cloud-reset">Forgot password?</button><button type="button" class="link-btn" data-act="cloud-activate">First time here? Set up your account</button></div>' : ''}
       </form>
       <div class="register-cta"><div><strong>New to Allurus?</strong><span class="muted"> Register your company and start a free trial.</span></div><button class="btn btn-primary" data-act="register">${icon('plus')}Register company</button></div>
-      <p class="faint" style="font-size:12.5px">${CLOUD ? 'Your company’s data is kept securely in the cloud and shared live with your team.' : `Demo mode. Your workspace is saved in this browser${cloud.db ? '; company sign-ups and check-ins are also shared with the Allurus team' : ''}.`} Version ${APP_VERSION}</p>
+      <p class="faint" style="font-size:12.5px">${CLOUD ? 'Your company’s data is kept securely in the cloud and shared live with your team. <a href="?demo">Try the demo company instead</a>.' : CAN_CLOUD ? `Demo company, saved in this browser only. <a href="${location.pathname}">Sign in to your real workspace</a>.` : `Demo mode. Your workspace is saved in this browser${cloud.db ? '; company sign-ups and check-ins are also shared with the Allurus team' : ''}.`} Version ${APP_VERSION}</p>
     </div>`;
   }
   function bindLogin() {

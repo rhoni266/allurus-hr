@@ -430,7 +430,7 @@ docs/backend-plan.md  Plan for replacing localStorage with a backend (not built 
 Allurus runs in one of two modes:
 
 - **Demo mode** (the default, while `js/firebase-config.js` is `null`): each browser keeps its own copy in `localStorage`. A leave request made on one phone never reaches another device. When the app runs as a claude.ai artifact, company sign-ups and check-ins are also written to the artifact's shared database, so the owner sees them in the Super Admin console.
-- **Cloud mode** (a Firebase config in `js/firebase-config.js`): real sign-in with Firebase Authentication, and one shared, live copy of each company in Cloud Firestore. Changes reach every signed-in device within about a second, and Firestore keeps a copy on the device so offline check-ins and requests are sent when back online.
+- **Cloud mode** (a Firebase config in `js/firebase-config.js`, which is set for the `allurus-hr` project; add `?demo` to the address to get demo mode instead): real sign-in with Firebase Authentication, and one shared, live copy of each company in Cloud Firestore. Changes reach every signed-in device within about a second, and Firestore keeps a copy on the device so offline check-ins and requests are sent when back online.
 
 Setup takes about ten minutes on Firebase's free plan: see [`docs/firebase-setup.md`](docs/firebase-setup.md). In cloud mode:
 

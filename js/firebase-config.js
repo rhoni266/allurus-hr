@@ -1,14 +1,12 @@
-// Firebase web config for the cloud version of Allurus. While this is null the app runs in demo mode, with all
-// data kept in this browser. To switch on shared data and real sign-in, follow docs/firebase-setup.md and paste the
-// config from Firebase console → Project settings → Your apps → Web app. These values identify the project; they
-// are not secrets. Access is controlled by firestore.rules.
-window.ALLURUS_FIREBASE = null;
-// Example:
-// window.ALLURUS_FIREBASE = {
-//   apiKey: 'AIza…',
-//   authDomain: 'allurus-hr.firebaseapp.com',
-//   projectId: 'allurus-hr',
-//   storageBucket: 'allurus-hr.appspot.com',
-//   messagingSenderId: '1234567890',
-//   appId: '1:1234567890:web:abc123',
-// };
+// Firebase web config for the cloud version of Allurus (project allurus-hr, owned by rhoni.ent@gmail.com).
+// These values identify the project; they are not secrets. Who may read and write what is enforced on Google's
+// servers by firestore.rules. Set this to null to run the whole app in demo mode, with data kept in each browser.
+// Adding ?demo to the address also opens the demo company, without touching the cloud.
+window.ALLURUS_FIREBASE = {
+  apiKey: 'AIzaSyCfMGQRT4zjtjJk4oyU3olxlfq-iU8_7EQ',
+  authDomain: 'allurus-hr.firebaseapp.com',
+  projectId: 'allurus-hr',
+  storageBucket: 'allurus-hr.firebasestorage.app',
+  messagingSenderId: '578723730936',
+  appId: '1:578723730936:web:6bfaf0492861f07a26320d',
+};

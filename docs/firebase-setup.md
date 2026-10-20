@@ -2,6 +2,10 @@
 
 Out of the box Allurus runs in **demo mode**: every browser keeps its own copy of the data. Connecting a Firebase project gives real sign-in and one shared, live copy of each company's data, so a leave request made on Daniel's phone appears on HR's laptop within a second.
 
+**Allurus's own project is already set up**: `allurus-hr`, owned by rhoni.ent@gmail.com, with email sign-in on, Firestore in `asia-southeast1` (Singapore), these rules published and `rhoni266.github.io` allowed. Its config is in `js/firebase-config.js`. The steps below are for setting up another project.
+
+**The demo company is still there**: add `?demo` to the address (for example `https://rhoni266.github.io/allurus-hr/?demo`) to open the sample company with the demo accounts, kept in that browser only. Use it for presentations.
+
 Firebase's free **Spark** plan covers a pilot: 50,000 document reads and 20,000 writes a day, and email sign-in at no cost. No card is needed.
 
 ## 1. Create the project (about 10 minutes)
