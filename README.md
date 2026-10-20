@@ -23,7 +23,7 @@ Everyone signs in with email and password. The sidebar's view picker shows only 
 | `emp@allurus.com` | Employee |
 | `auditor@allurus.com` | Auditor (external accounting firm, read-only books, verifies reports) |
 
-The demo password for all three is in your private notes. Change it under **Settings → Your account**. Companies that register create their own admin account, and that account gets the Company Admin and Employee views.
+The demo password and a walkthrough for each role are in [`docs/demo-accounts.md`](docs/demo-accounts.md). Change it under **Settings → Your account**. Companies that register create their own admin account, and that account gets the Company Admin and Employee views.
 
 > Passwords are stored as SHA-256 hashes, but this is still a front-end demo: the hashes ship inside `js/seed.js`, so anyone can download them and try to guess the password offline, and short passwords fall quickly. Use real server-side authentication before handling real employee data.
 

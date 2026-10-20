@@ -542,12 +542,12 @@ window.AllurusSeed = {
     const session = { account: null, roles: [], role: null, empId: 'e2', tenantId: 't1' };
     // Sign-in accounts. Passwords are stored as SHA-256 of "email:password", never in plain text.
     const accounts = [
-      { email: 'superadmin@allurus.com', name: 'Allurus HQ', hash: 'f1cf377d5d77bcc3a12af1c4516fb4b6d20797dc369593edf0668aee2926cef9', roles: ['super', 'admin', 'employee', 'auditor'], tenantId: 't1', empId: 'e2' },
-      { email: 'admin@allurus.com', name: 'Aisyah Rahman', hash: '02333a94bab39ec8b56cd57a87830ed79f29237de26eccaf9e724305ede5cbd9', roles: ['admin', 'employee'], tenantId: 't1', empId: 'e1' },
-      { email: 'auditor@allurus.com', name: 'Tan Mei Ling', hash: 'de063c5c0e703dfca0ea223f81021f74d9f4abaf13918d647134e4fd064cf3ba', roles: ['auditor'], tenantId: 't1', empId: '' },
-      // No password: the demo's one-click "Explore as manager" uses it, to approve Daniel's requests.
-      { email: 'manager@allurus.com', name: 'Arjun Pillai', hash: '', roles: ['employee'], tenantId: 't1', empId: 'e4' },
-      { email: 'emp@allurus.com', name: 'Daniel Lim', hash: '3d18388e7dd6f616a46254f4c8eb14b0aaeca178e246cd9832d4785daa11b7c9', roles: ['employee'], tenantId: 't1', empId: 'e2' },
+      { email: 'superadmin@allurus.com', name: 'Allurus HQ', hash: '9ba7ad31f33beee93d53e6b5e6406e45779bbb11c955c6e10dd78c16569c9e40', roles: ['super', 'admin', 'employee', 'auditor'], tenantId: 't1', empId: 'e2' },
+      { email: 'admin@allurus.com', name: 'Aisyah Rahman', hash: '0924b217a20ccca3818ca0a6c768445f869cfbe2d40343c9af693fdc945b9be9', roles: ['admin', 'employee'], tenantId: 't1', empId: 'e1' },
+      { email: 'auditor@allurus.com', name: 'Tan Mei Ling', hash: 'a4abcb8c3b6a761ae31ba7c4c4ae62b4f9e60d05349d5fafcddaceeb4f1c34a8', roles: ['auditor'], tenantId: 't1', empId: '' },
+      // The manager who approves Daniel's requests, for showing approvals.
+      { email: 'manager@allurus.com', name: 'Arjun Pillai', hash: 'd301d58d3f34698039bfff021aee0185db6a3c6b1df32af0ce98a059615f7aba', roles: ['employee'], tenantId: 't1', empId: 'e4' },
+      { email: 'emp@allurus.com', name: 'Daniel Lim', hash: '77e0cec488b8862842418cc2f56e93996aaa60c33dafa80c1429694a75781c8a', roles: ['employee'], tenantId: 't1', empId: 'e2' },
     ];
     const finance = AllurusFinance.seed({ employees, payroll, today: T, customers: AllurusSeed.clients });
     // e-Invoice: the company's details, customers and suppliers with TIN, ID and address, and invoices at every
