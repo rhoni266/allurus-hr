@@ -1,0 +1,88 @@
+rules_version = '2';
+// Who may read and write what in the Allurus cloud database. Publish in Firebase console → Firestore → Rules,
+// or with `firebase deploy --only firestore:rules`. The bucket classes must match js/cloud-map.js.
+//
+//   users/{uid}            Each person's link to their company: tenantId, roles, empId.
+//   invites/{email}        HR's invitation for a work email. Joining needs that email, confirmed.
+//   tenants/{t}            The company. Members read; admins update.
+//     buckets/{id}         Shared records. Field r: 'm' = every member reads, 'a' = admins only.
+//     people/{empId}       Full employee record: admins, and the person (who may change only their phones and face).
+//     payslips/{empId}     Admins write; admins and the person read.
+//     personal/{empId}     The person's own financial plan and tax reliefs. Only them.
+//     blobs/{id}           Photos and files. Members read and add; nobody overwrites.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function userDoc() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function hasProfile() { return signedIn() && exists(userDoc()); }
+    function me() { return get(userDoc()).data; }
+    function member(t) { return hasProfile() && me().tenantId == t; }
+    function admin(t) { return member(t) && ('admin' in me().roles); }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function verified() { return request.auth.token.email_verified == true; }
+    function inviteFor(email) { return get(/databases/$(database)/documents/invites/$(email)).data; }
+
+    function adminReadBucket(b) { return b in ['payroll', 'payChanges', 'loans', 'insurance', 'savedReports'] || b == 'finance' || b.matches('finance[.].*'); }
+    function adminWriteBucket(b) { return adminReadBucket(b) || b in ['settings', 'departments', 'statutory', 'directory', 'cycles']; }
+    function bucketClass(b) { return adminReadBucket(b) ? 'a' : 'm'; }
+
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || admin(resource.data.tenantId));
+      allow list: if hasProfile() && resource.data.tenantId == me().tenantId && ('admin' in me().roles);
+      // Joining from an invite (email confirmed), or the founder of a company they just created.
+      allow create: if signedIn() && request.auth.uid == uid && !hasProfile()
+        && request.resource.data.email == myEmail()
+        && (
+          (verified() && exists(/databases/$(database)/documents/invites/$(myEmail()))
+            && inviteFor(myEmail()).tenantId == request.resource.data.tenantId
+            && inviteFor(myEmail()).roles == request.resource.data.roles
+            && inviteFor(myEmail()).empId == request.resource.data.empId)
+          || (get(/databases/$(database)/documents/tenants/$(request.resource.data.tenantId)).data.owner == uid
+            && request.resource.data.roles == ['admin', 'employee'] && request.resource.data.empId == 'e1')
+        );
+      // Admins change someone else's access in their company; nobody changes their own.
+      allow update: if signedIn() && request.auth.uid != uid && admin(resource.data.tenantId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles'])
+        && request.resource.data.roles in [['employee'], ['admin', 'employee']];
+      allow delete: if signedIn() && request.auth.uid != uid && admin(resource.data.tenantId);
+    }
+
+    match /invites/{email} {
+      allow get: if signedIn() && (myEmail() == email || admin(resource.data.tenantId));
+      allow list: if hasProfile() && resource.data.tenantId == me().tenantId && ('admin' in me().roles);
+      allow create, update: if email == email.lower() && admin(request.resource.data.tenantId)
+        && request.resource.data.roles in [['employee'], ['admin', 'employee']];
+      allow delete: if admin(resource.data.tenantId);
+    }
+
+    match /tenants/{t} {
+      allow read: if member(t);
+      allow create: if signedIn() && !hasProfile() && request.resource.data.owner == request.auth.uid;
+      allow update: if admin(t) && request.resource.data.owner == resource.data.owner;
+
+      match /buckets/{b} {
+        allow read: if member(t) && (resource.data.r == 'm' || admin(t));
+        allow create, update: if member(t) && (admin(t) || !adminWriteBucket(b)) && request.resource.data.r == bucketClass(b);
+        allow delete: if admin(t);
+      }
+      match /people/{e} {
+        allow read: if admin(t) || (member(t) && me().empId == e);
+        allow create, delete: if admin(t);
+        allow update: if admin(t) || (member(t) && me().empId == e
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['devices', 'face']));
+      }
+      match /payslips/{e} {
+        allow read: if admin(t) || (member(t) && me().empId == e);
+        allow write: if admin(t);
+      }
+      match /personal/{e} {
+        allow read, write: if member(t) && me().empId == e;
+      }
+      match /blobs/{id} {
+        allow read: if member(t);
+        allow create: if member(t) && request.resource.data.d is string && request.resource.data.d.size() < 1048000;
+        allow delete: if admin(t);
+      }
+    }
+  }
+}
