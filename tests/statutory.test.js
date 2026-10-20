@@ -82,8 +82,8 @@ test('LHDN PCB (CP39) file reconciles and flags missing tax numbers', () => {
   const f = S.pcbFile(run, ctx);
   assert.equal(f.meta.sums.pcb, total('tax'));
   assert.equal(f.meta.sums.zakat, total('zakat'));
-  // Samuel has no income tax number in the seed.
-  const samuel = employees.find((e) => e.first === 'Samuel');
+  // Hilmi has no income tax number in the seed.
+  const samuel = employees.find((e) => e.first === 'Hilmi');
   const it = run.items.find((i) => i.empId === samuel.id);
   if (it.tax > 0) assert.ok(f.issues.some((x) => x.empId === samuel.id));
 });
@@ -96,7 +96,7 @@ test('HRD Corp levy summary reconciles', () => {
 
 test('bank file: paid plus held equals the run’s net pay', () => {
   const f = S.bankFile(run, { ...ctx, company: settings.company });
-  const samuel = employees.find((e) => e.first === 'Samuel');
+  const samuel = employees.find((e) => e.first === 'Hilmi');
   assert.ok(f.issues.some((x) => x.empId === samuel.id && /No bank account/.test(x.msg)));
   assert.equal(f.rows.length, run.items.length - 1);
   assert.equal(f.meta.sums.all, total('net'));
@@ -158,7 +158,7 @@ test('CP8D and Form E totals equal the sum of everyone’s EA', () => {
 test('CP22 for the new joiner and CP22A for the leaver', () => {
   const today = U.today();
   const ev = S.eventForms(employees, today);
-  const nurul = employees.find((e) => e.first === 'Nurul'), julian = employees.find((e) => e.first === 'Julian');
+  const nurul = employees.find((e) => e.first === 'Nurul'), julian = employees.find((e) => e.first === 'Iman');
   const c22 = ev.find((x) => x.empId === nurul.id);
   assert.equal(c22.form, 'CP22');
   assert.equal(c22.due, U.addDays(nurul.start, 30));

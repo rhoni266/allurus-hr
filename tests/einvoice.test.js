@@ -24,9 +24,11 @@ test('the seeded company and complete customers pass validation; the incomplete 
   deq(E.partyProblems(company, 'supplier'), []);
   const ready = fin.invoices.filter((i) => i.type === 'invoice' && contactOf(i)?.tin);
   assert.ok(ready.length > 20);
-  ready.forEach((inv) => deq(E.validate(inputFor(inv), '2026-10-19'), [], inv.no));
-  const vela = fin.invoices.find((i) => i.customer.startsWith('Vela Fintech'));
-  const p = E.validate(inputFor(vela), '2026-10-19').map((x) => x.field);
+  // Validate as of today: the seed always issues one invoice today.
+  const today = sb.U.today();
+  ready.forEach((inv) => deq(E.validate(inputFor(inv), today), [], inv.no));
+  const incomplete = fin.invoices.find((i) => i.customer.startsWith('Sinar Fresh Mart'));
+  const p = E.validate(inputFor(incomplete), today).map((x) => x.field);
   deq(p, ['buyer.tin', 'buyer.idNo', 'buyer.address.postcode', 'buyer.address.state']);
 });
 

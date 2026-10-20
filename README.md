@@ -8,6 +8,10 @@ People operations SaaS for growing companies: a minimal, Apple-style HRMS with t
 | **Company Admin** | HR at a customer company | Dashboard, employees, departments, onboarding and offboarding, assets and loans, an org chart, letters, attendance, time-off approvals, payroll with payslips and CSV export, a recruitment pipeline with drag and drop, appraisals with goals and 360° feedback, and company settings. |
 | **Employee** | Staff at a customer company | Time clock with location-stamped check-in and check-out, attendance history, time-off requests and balances, payslips, profile, goals, and the company directory. |
 
+## The demo company
+
+Open the app with `?demo` (for example `https://rhoni266.github.io/allurus-hr/?demo`) to show **Seri Maju Digital Sdn Bhd**, a sample Kuantan software and digital agency with 19 staff, Malaysian payroll, a Terengganu leave calendar, clients, bills and an external auditor. The sign-in screen has one-click buttons to explore it as the HR admin (Aisyah Rahman), a manager (Arjun Pillai), an employee (Daniel Lim) or the auditor, with no password. Everything stays in that browser; nothing touches the cloud. To start the sample over, use **Settings → Reset demo workspace** as the HR admin.
+
 ## Signing in
 
 Everyone signs in with email and password. The sidebar's view picker shows only the views an account is allowed to use.
@@ -96,7 +100,7 @@ The leave rules (day counting, holidays, entitlements, balances, carry forward, 
 - **Payroll**: approved overtime (hourly rate = monthly basic ÷ 26 ÷ normal hours, both editable) and the month's allowances are added to the pay run and payslip. Each line is flagged for EPF, SOCSO/EIS and tax as set in Settings; by default overtime is not EPF wages.
 - **Audit trail**: every manual change to an attendance record (the pencil on Attendance, status buttons, clear, mark present, approved corrections) keeps who, when, and the old and new values. **Batch edit** changes a date range for everyone, a team or one person in one go, with a reason.
 
-Try it: sign in as admin and open **Schedule**, then pick Engineering. Mon–Thu are below the minimum because Omar is on leave. On **Attendance**, approve Mateo's overtime (go to the previous day to see it tagged), then run October payroll and open his payslip. Sign in as employee (Daniel) to see My shifts and to make a request. As backup for Omar, Daniel can approve Ethan's overtime under Approvals.
+Try it: sign in as admin and open **Schedule**, then pick Engineering. Mon–Thu are below the minimum because Arjun is on leave. On **Attendance**, approve Amirul's overtime (go to the previous day to see it tagged), then run October payroll and open his payslip. Sign in as employee (Daniel) to see My shifts and to make a request. As backup for Arjun, Daniel can approve Jason's overtime under Approvals.
 
 The rules are in `js/attendance-rules.js` (no DOM), with tests in `tests/attendance.test.js`. **Check the overtime rates, the 26-day divisor, the 104-hour limit and the EPF/SOCSO/PCB treatment of overtime and allowances** against the Employment Act 1955, KWSP, PERKESO and LHDN guidance before paying real wages.
 
@@ -124,7 +128,7 @@ The rules are in `js/attendance-rules.js` (no DOM), with tests in `tests/attenda
   - Employees see them on Home and under Announcements.
   - Policies must be acknowledged with a tick box. Admins see how many have, who has, and can remind the rest.
 
-Try it: sign in as admin and open the bell (statutory deadlines, CP22/CP22A, appraisals, Nurul's probation, Samuel's contract, permit and passport, Hana's birthday). Post a policy to Engineering, then sign in as Daniel: he has a 6-year work anniversary, the new policy to acknowledge, and his payslip notifications.
+Try it: sign in as admin and open the bell (statutory deadlines, CP22/CP22A, appraisals, Nurul's probation, Hilmi's contract, permit and passport, Nadia's birthday). Post a policy to Engineering, then sign in as Daniel: he has a 6-year work anniversary, the new policy to acknowledge, and his payslip notifications.
 
 The rules (messages, preferences, delivery and reminders) are in `js/notify-rules.js` (no DOM), with tests in `tests/notify.test.js`.
 
@@ -239,7 +243,7 @@ The payroll page shows what goes to **KWSP, PERKESO, LHDN and HRD Corp**, due by
   - Form E and CP8D by 31 March;
   - each CP22, CP22A or CP21 due.
 
-Try it: sign in as admin and go to Payroll. Go back to September, then open **Statutory files**: September's PCB is overdue in the demo. Then open **Bank file** (Samuel is held back for missing bank details) and **Year-end and forms**: issue the EA forms, and open Nurul's CP22 and Julian's CP22A. Sign in as Daniel to save a payslip as PDF and view the EA under Payslips.
+Try it: sign in as admin and go to Payroll. Go back to September, then open **Statutory files**: September's PCB is overdue in the demo. Then open **Bank file** (Hilmi is held back for missing bank details) and **Year-end and forms**: issue the EA forms, and open Nurul's CP22 and Iman's CP22A. Sign in as Daniel to save a payslip as PDF and view the EA under Payslips.
 
 The builders are in `js/statutory.js` (no DOM), with tests in `tests/statutory.test.js` run against the seeded payroll. **None of the files claim to be the official upload layouts.** Each builder carries a `FORMAT: verify against …` comment. Check the KWSP, PERKESO, LHDN (CP39, EA, Form E, CP8D, CP22, CP22A, CP21) and HRD Corp specifications and your bank's bulk payment template before submitting anything real.
 
@@ -265,7 +269,7 @@ Employees claim work costs and medical bills under **Finance → Claims**; admin
 - **Reports** (Claims → Reports): claimed and approved amounts by employee, category, department or month for a year, with CSV export.
 - **Old data**: medical claims saved by earlier versions are migrated into one-item Medical claims when the app loads.
 
-Try it: sign in as admin and open **Claims**. Review Lucas's client visit (three items with receipts), correct the lunch amount with a reason, then approve twice (for Noah, then as HR). Pay Noah's KL roadshow now and check Bookkeeping. Run October payroll to see Leila's taxable gym claim in gross pay. Sign in as Daniel and make a claim with mileage and a meal.
+Try it: sign in as admin and open **Claims**. Review Kevin's client visit (three items with receipts), correct the lunch amount with a reason, then approve twice (for Ravi, then as HR). Pay Ravi's KL roadshow now and check Bookkeeping. Run October payroll to see Michelle's taxable gym claim in gross pay. Sign in as Daniel and make a claim with mileage and a meal.
 
 The rules are in `js/claims-rules.js` (no DOM), with tests in `tests/claims.test.js`; the seeded claims are also checked against payroll and the books in `tests/statutory.test.js`. **Check which reimbursements are taxable perquisites** with LHDN or your tax agent; the mileage rates are a company policy, not statutory rates.
 
@@ -342,7 +346,7 @@ Clients can **Register company** from the sign-in screen. That creates a new wor
 - **Supervisor check-in**: department heads and approvers can **Check in a team member** from Home or My attendance. They take a photo of that person, which is compared with that person's reference photo; the supervisor's GPS and phone are recorded. Only people who already agreed to the face check, on their own phone, can be checked in this way.
 - **Projects and jobs**: an optional or required project picker at check-in (also on the kiosk and supervisor check-in), with projects managed in Settings, for project costing later.
 
-Try it: sign in as admin. On Attendance, Yusuf's check-in is flagged (1 m accuracy and coordinates repeated from an earlier day); Mateo was checked in by Noah, and Mei's was captured offline. In Settings, make this browser a kiosk (exit with `admin@allurus.com` / `1234abcd`). Sign in as Daniel with the network off to see an offline check-in sync when you reconnect.
+Try it: sign in as admin. On Attendance, Faizal's check-in is flagged (1 m accuracy and coordinates repeated from an earlier day); Amirul was checked in by Ravi, and Mei's was captured offline. In Settings, make this browser a kiosk (exit with `admin@allurus.com` / `1234abcd`). Sign in as Daniel with the network off to see an offline check-in sync when you reconnect.
 
 The rules are in `js/checkin-rules.js` (no DOM), with tests in `tests/checkin.test.js`. The heuristics catch common mock-location apps, not a determined attacker; there is no server yet to send check-ins to, so in the demo "synced" means sent to the shared check-in log (on the published link) or accepted locally.
 
@@ -371,7 +375,7 @@ design-system.html  Live tokens and components
 tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules, notifications, appraisals, HR admin, reports, project costing, e-Invoice, talent
 css/styles.css      Design tokens (light and dark) and all components
 js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
-js/seed.js          Demo data: the Lumen & Co. workspace and 14 subscribed companies
+js/seed.js          Demo data: the Seri Maju Digital Sdn Bhd workspace and 14 subscribed companies
 js/geo-map.js       Check-in map picker, preview and place search (Leaflet, OpenStreetMap, Nominatim)
 js/experience.js    Preferences, ⌘K palette, dashboards, setup, tour, help, live updates
 js/leave-rules.js   Leave rules (no DOM): types, states, holidays, day counts, balances, carry forward, approval chains, unpaid pay

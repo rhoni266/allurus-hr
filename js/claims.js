@@ -61,7 +61,7 @@ window.AllurusClaims = (function () {
       claim('cl6', 'e13', 'Health screening', [med('screening', U.addDays(T, -15), 'Pathlab Kuantan', 250)], 'Approved'),
       claim('cl7', 'e10', 'Clinic visit', [med('outpatient', `${prev}-03`, 'Klinik Mediviron Kuantan', 120)], 'Rejected', { reason: 'Above the RM80 per-visit limit and no receipt for medicine. Please resubmit with the itemised receipt.' }),
       claim('cl8', 'e3', 'Maternity', [med('maternity', `${prev}-20`, 'Pantai Hospital Kuantan', 1650, { patient: 'Spouse' })], 'Paid', { paidIn: prev }),
-      // A sales trip: mileage, toll and a client lunch, waiting for Noah (L1) then HR.
+      // A sales trip: mileage, toll and a client lunch, waiting for Ravi (L1) then HR.
       claim('cl9', 'e6', 'Client visit to Kuala Terengganu', [
         ln('mileage', U.addDays(T, -4), 'Own car', 87, { noImg: true, receiptNo: '', fields: { purpose: 'Demo for Kenyir Resorts', from: 'Kemaman office', to: 'Kuala Terengganu', km: 145, vehicle: 'car' } }),
         ln('parking', U.addDays(T, -4), 'PLUS / Touch ’n Go', 12.4, { item: 'Toll Kemaman – Kuala Terengganu', fields: { purpose: 'Client visit', location: 'LPT2' } }),
@@ -74,7 +74,7 @@ window.AllurusClaims = (function () {
         ln('travel', U.addDays(T, -17), 'Grab', 45, { item: 'MITEC – hotel', fields: { purpose: 'Roadshow venue' } }),
       ], 'Approved'),
       claim('cl11', 'e10', 'Mobile plan, September', [ln('phone', `${prev}-28`, 'Maxis', 80, { item: 'Postpaid 98' })], 'Paid', { paidIn: prev }),
-      // A training course: Daniel's manager (Omar) is on leave, so it waits until he's back or HR steps in.
+      // A training course: Daniel's manager (Arjun) is on leave, so it waits until he's back or HR steps in.
       claim('cl12', 'e2', 'AWS Solutions Architect exam', [ln('training', U.addDays(T, -2), 'Pearson VUE', 650, { item: 'AWS SAA-C03 exam voucher', fields: { purpose: 'Certification agreed in my review' } })], 'Pending'),
       // Gym membership is a taxable benefit in this demo company's policy, so it goes into gross pay.
       claim('cl13', 'e9', 'Gym membership, October', [ln('wellness', U.addDays(T, -12), 'Anytime Fitness Kuantan', 150, { item: 'Monthly membership', fields: {} })], 'Approved'),
