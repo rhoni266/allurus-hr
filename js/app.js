@@ -7,7 +7,7 @@
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
   const CLOUD_ON = !!(window.ALLURUS_FIREBASE && window.ALLURUS_FIREBASE.apiKey) && !/[?&]demo(\b|=)/.test(location.search);
-  const STORE_KEY = CLOUD_ON ? 'allurus-hr-cloud-v1' : 'allurus-hr-v7';
+  const STORE_KEY = CLOUD_ON ? 'allurus-hr-cloud-v1' : 'allurus-hr-v8';
   const esc = U.esc;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
@@ -156,7 +156,7 @@
   }
   // When the storage key changes, keep each company's saved check-in point from the previous version.
   function carryOverZones(s) {
-    for (let v = 6; v >= 1; v--) {
+    for (let v = 7; v >= 1; v--) {
       let old = null;
       try { old = JSON.parse(localStorage.getItem(`allurus-hr-v${v}`) || 'null'); } catch (e) { /* unreadable */ }
       if (!old) continue;
@@ -1307,6 +1307,8 @@
         <button class="btn btn-primary login-submit" type="submit">Sign in</button>
         ${CLOUD ? '<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px"><button type="button" class="link-btn" data-act="cloud-reset">Forgot password?</button><button type="button" class="link-btn" data-act="cloud-activate">First time here? Set up your account</button></div>' : ''}
       </form>
+      ${CLOUD ? '' : `<div class="card demo-pick" style="width:100%;max-width:440px;margin:0 auto 16px;padding:18px 20px"><div style="font-weight:600;margin-bottom:4px">Explore the demo company</div><p class="muted" style="font-size:13.5px;margin-bottom:12px">${esc(state.settings.company)}, a sample business. Changes stay in this browser.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${[['admin@allurus.com', 'HR admin', 'Payroll, leave, hiring'], ['manager@allurus.com', 'Manager', 'Approves the team'], ['emp@allurus.com', 'Employee', 'Check in, leave, payslips'], ['auditor@allurus.com', 'Auditor', 'Verifies the books']].filter(([e]) => state.accounts.some((a) => a.email === e)).map(([e, label, sub]) => `<button type="button" class="btn" style="flex-direction:column;align-items:flex-start;height:auto;padding:10px 12px;text-align:left" data-act="demo-as" data-v="${e}"><span style="font-weight:600">${label}</span><span class="muted" style="font-size:12px;font-weight:400">${sub}</span></button>`).join('')}</div></div>`}
       <div class="register-cta"><div><strong>New to Allurus?</strong><span class="muted"> Register your company and start a free trial.</span></div><button class="btn btn-primary" data-act="register">${icon('plus')}Register company</button></div>
       <p class="faint" style="font-size:12.5px">${CLOUD ? 'Your company’s data is kept securely in the cloud and shared live with your team. <a href="?demo">Try the demo company instead</a>.' : CAN_CLOUD ? `Demo company, saved in this browser only. <a href="${location.pathname}">Sign in to your real workspace</a>.` : `Demo mode. Your workspace is saved in this browser${cloud.db ? '; company sign-ups and check-ins are also shared with the Allurus team' : ''}.`} Version ${APP_VERSION}</p>
     </div>`;
@@ -2155,6 +2157,8 @@
   // Role-specific actions
   Object.assign(ACTIONS_EXTRA, {
     'register': () => openRegister(),
+    // Demo mode only: sign in as one of the sample people without a password.
+    'demo-as': (_, email) => { if (CLOUD) return; const a = state.accounts.find((x) => x.email === email); if (a) startSession(a); },
     'cloud-reset': () => {
       openModal({
         title: 'Reset your password', submit: 'Send reset link', size: 'sm',

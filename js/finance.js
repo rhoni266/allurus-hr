@@ -89,7 +89,7 @@ window.AllurusFinance = (function () {
     const fin = blank({ auditorFirm: 'Tan & Partners Chartered Accountants', auditorName: 'Tan Mei Ling', auditorEmail: 'auditor@allurus.com' });
     const cur = U.monthKey(T), first = U.addMonths(cur, -6);
     fin.openingCash = 180000; fin.openingDate = first + '-01';
-    fin.budgets = { Payroll: 190000, 'Staff benefits': 1500, Rent: 4500, Utilities: 700, Software: 2000, Marketing: 5000, Travel: 1500, 'Professional fees': 1500, 'Office supplies': 400, 'Bank charges': 60 };
+    fin.budgets = { Payroll: 140000, 'Staff benefits': 1500, Rent: 4500, Utilities: 700, Software: 2000, Marketing: 5000, Travel: 1500, 'Professional fees': 1500, 'Office supplies': 400, 'Bank charges': 60 };
     const day = (mk, d) => `${mk}-${U.pad(Math.min(d, +U.monthEnd(mk).slice(8)))}`;
     // Entries before the books start are not recorded; their invoices still show as paid.
     const tx = (o) => { if (o.date <= T && o.date >= fin.openingDate) fin.txns.push({ id: U.uid('x'), tax: 0, ref: '', source: 'manual', reconciled: o.date < cur + '-01', ...o }); };
@@ -107,7 +107,7 @@ window.AllurusFinance = (function () {
         const service = i % 3 === 2;
         const inv = {
           id: U.uid('i'), no: `INV-${mk.replace('-', '')}-${U.pad(i + 1)}`, customer: cust.name, email: cust.email, issue, due: U.addDays(issue, 30),
-          items: [{ desc: service ? 'Implementation and onboarding services' : 'Allurus HR subscription', qty: 1, price: Math.round((target * w) / wsum / 50) * 50 }],
+          items: [{ desc: service ? 'Mobile app development, milestone payment' : 'Website and app support retainer', qty: 1, price: Math.round((target * w) / wsum / 50) * 50 }],
           taxRate: 8, status: 'Sent', paidOn: '',
         };
         const payDay = U.addDays(issue, 8 + Math.floor(r() * 18));
@@ -120,10 +120,10 @@ window.AllurusFinance = (function () {
         fin.invoices.push(inv);
       });
       // An annual prepayment in the first month of the books, so the opening month isn't a loss.
-      if (mk === first && customers[0]) tx({ date: day(mk, 5), desc: `Annual plan prepayment from ${customers[0].name}`, type: 'in', category: 'Subscriptions', amount: 36000, tax: 2880, ref: `PRE-${mk.replace('-', '')}`, source: 'manual' });
+      if (mk === first && customers[0]) tx({ date: day(mk, 5), desc: `Annual support retainer prepaid by ${customers[0].name}`, type: 'in', category: 'Subscriptions', amount: 36000, tax: 2880, ref: `PRE-${mk.replace('-', '')}`, source: 'manual' });
       if (k === 0) {
         const cust = customers[Math.floor(r() * customers.length)];
-        fin.invoices.push({ id: U.uid('i'), no: `INV-${mk.replace('-', '')}-${U.pad(9)}`, customer: cust.name, email: cust.email, issue: T, due: U.addDays(T, 30), items: [{ desc: 'Allurus HR subscription, annual seats top-up', qty: 12, price: 950 }], taxRate: 8, status: 'Draft', paidOn: '' });
+        fin.invoices.push({ id: U.uid('i'), no: `INV-${mk.replace('-', '')}-${U.pad(9)}`, customer: cust.name, email: cust.email, issue: T, due: U.addDays(T, 30), items: [{ desc: 'Annual website and app support retainer', qty: 12, price: 950 }], taxRate: 8, status: 'Draft', paidOn: '' });
       }
 
       const bill = (supplier, category, d, amount, taxRate, dueDays) => {
@@ -145,7 +145,7 @@ window.AllurusFinance = (function () {
       if (k % 3 === 0) bill('Tan & Partners Chartered Accountants', 'Professional fees', 20, 1500, 8, 30);
 
       const trips = ['Flight and hotel, client meetings in Kuala Lumpur', 'Petrol, tolls and parking for client visits', 'Grab rides to customer onboarding sessions'];
-      tx({ date: day(mk, 6 + Math.floor(r() * 18)), desc: trips[k % 3], type: 'out', category: 'Travel', amount: r2(300 + r() * 1300), purpose: k % 2 === 0 ? 'Client meetings and onboarding for Allurus customers' : '' });
+      tx({ date: day(mk, 6 + Math.floor(r() * 18)), desc: trips[k % 3], type: 'out', category: 'Travel', amount: r2(300 + r() * 1300), purpose: k % 2 === 0 ? 'Client meetings and project handovers for Seri Maju customers' : '' });
       if (k === 1) tx({ date: day(mk, 22), desc: 'Legal fee for office unit purchase, S&P agreement', type: 'out', category: 'Professional fees', amount: 3800, tax: 304, capital: true });
       if (k === 0) {
         tx({ date: day(mk, 3), desc: 'Meta ads and Google Ads campaign', type: 'out', category: 'Marketing', amount: 1850, tax: 148 });
@@ -162,7 +162,7 @@ window.AllurusFinance = (function () {
       const submitted = U.addDays(end, 6), verified = U.addDays(end, 12);
       if (submitted > T) continue;
       const c = compute(fin, payroll, mk);
-      const rep = { status: 'Submitted', snapshot: c, fp: fingerprint(c), trail: [{ t: submitted, who: 'Amara Okafor', action: 'Submitted to auditor', note: '' }] };
+      const rep = { status: 'Submitted', snapshot: c, fp: fingerprint(c), trail: [{ t: submitted, who: 'Aisyah Rahman', action: 'Submitted to auditor', note: '' }] };
       if (k >= 2 && verified <= T) {
         rep.status = 'Verified';
         rep.trail.push({ t: verified, who: 'Tan Mei Ling, Tan & Partners', action: 'Verified', note: 'Bank balance agreed to statement. Payroll, invoices and bills traced to supporting documents. No exceptions.' });

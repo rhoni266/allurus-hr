@@ -1,20 +1,26 @@
 // Demo workspace. Dates are generated relative to today so the data always looks current.
 window.AllurusSeed = {
+  // The demo company's own clients (a Kuantan software and digital agency), billed in its books.
+  clients: [
+    ['Pantai Timur Logistics', 'accounts@pantaitimur.com.my'], ['Kenyir Eco Resorts', 'finance@kenyireco.my'], ['Klinik Desa Sejahtera', 'admin@klinikdesa.my'],
+    ['Mutiara Retail Group', 'ap@mutiararetail.com.my'], ['Teratai Properties', 'accounts@terataiprop.my'], ['Gemilang Education Centre', 'bursar@gemilang.edu.my'],
+    ['Sinar Fresh Mart', 'finance@sinarfresh.my'], ['Borneo Agro Ventures', 'ap@borneoagro.com.my'],
+  ].map(([name, email]) => ({ name, email })),
   // The company's check-in point as published with the app. Every browser keeps its own copy of the
   // settings (localStorage), so this is the only value an employee's phone sees until HR sends a setup
   // link. When HR moves the check-in point, update these numbers and bump `at` so phones pick it up.
-  published: { company: 'Allurus', label: 'Allurus HQ', lat: 4.238203, lng: 103.419428, radius: 50, field: [], at: Date.UTC(2026, 9, 19, 1, 0) },
+  published: { company: 'Seri Maju Digital Sdn Bhd', label: 'Seri Maju HQ, Kuantan', lat: 4.238203, lng: 103.419428, radius: 50, field: [], at: Date.UTC(2026, 9, 19, 1, 0) },
   create() {
     const r = U.rng(42);
     const T = U.today();
     // Check-in zone: employees must be inside this circle (radius in meters) and take a selfie.
     const P = AllurusSeed.published;
     const checkin = { label: P.label, lat: P.lat, lng: P.lng, radius: P.radius, remote: false, field: [...P.field], setAt: P.at };
-    const settings = { company: 'Allurus', domain: 'allurus.com', currency: 'MYR', office: 'Kuantan', checkin, taxRate: 8, benefitsRate: 11.7, theme: 'system', statutory: { ...U.STATUTORY }, claims: AllurusClaims.policyDefaults() };
+    const settings = { company: 'Seri Maju Digital Sdn Bhd', domain: 'serimaju.com.my', currency: 'MYR', office: 'Kuantan', checkin, taxRate: 8, benefitsRate: 11.7, theme: 'system', statutory: { ...U.STATUTORY }, claims: AllurusClaims.policyDefaults() };
 
     const departments = [
       { id: 'd-people', name: 'People', lead: 'e1', color: '#14958A', about: 'Hires, develops and looks after staff, and keeps employment practices compliant.', duties: 'Recruitment, Onboarding, Leave and attendance, Performance reviews, Employee relations' },
-      { id: 'd-eng', name: 'Engineering', lead: 'e4', color: '#4A6FD1', about: 'Builds and runs the Allurus product.', duties: 'Product development, Infrastructure, Security, Quality assurance' },
+      { id: 'd-eng', name: 'Engineering', lead: 'e4', color: '#4A6FD1', about: 'Builds and runs the apps, websites and systems Seri Maju delivers to clients.', duties: 'Product development, Infrastructure, Security, Quality assurance' },
       { id: 'd-design', name: 'Design', lead: 'e3', color: '#B8914A', about: 'Shapes how the product and brand look and work.', duties: 'Product design, User research, Brand' },
       { id: 'd-sales', name: 'Sales', lead: 'e14', color: '#C2577A', about: 'Wins new customers and grows existing accounts.', duties: 'Prospecting, Demos, Proposals, Renewals' },
       { id: 'd-mkt', name: 'Marketing', lead: 'e9', color: '#7A62C9', about: 'Builds awareness and brings in leads.', duties: 'Campaigns, Content, Digital ads, Events' },
@@ -40,27 +46,27 @@ window.AllurusSeed = {
     U.setWeekend(L.weekendDays(settings.leave));
 
     const people = [
-      ['Amara', 'Okafor', 'Head of People', 'd-people', 128000, '2019-03-11', 'London'],
-      ['Daniel', 'Reyes', 'Senior Software Engineer', 'd-eng', 142000, '2020-10-19', 'Remote'],
-      ['Sofia', 'Lindqvist', 'Lead Product Designer', 'd-design', 124000, '2020-01-20', 'Stockholm'],
-      ['Omar', 'Haddad', 'Engineering Manager', 'd-eng', 158000, '2018-09-03', 'Dubai'],
-      ['Priya', 'Nair', 'Frontend Engineer', 'd-eng', 112000, '2022-02-14', 'Remote'],
-      ['Lucas', 'Moreau', 'Account Executive', 'd-sales', 96000, '2021-05-17', 'Paris'],
-      ['Hana', 'Sato', 'Data Analyst', 'd-fin', 98000, '2023-04-03', 'Remote'],
-      ['Ethan', 'Brooks', 'Backend Engineer', 'd-eng', 118000, '2021-11-08', 'New York'],
-      ['Leila', 'Rahimi', 'Marketing Lead', 'd-mkt', 121000, '2019-10-21', 'London'],
-      ['Mateo', 'Silva', 'Sales Development Rep', 'd-sales', 68000, '2024-01-15', 'New York'],
-      ['Grace', 'Kim', 'Finance Manager', 'd-fin', 132000, '2018-06-25', 'New York'],
-      ['Yusuf', 'Demir', 'DevOps Engineer', 'd-eng', 126000, '2022-08-29', 'Remote'],
-      ['Chloe', 'Martin', 'Content Strategist', 'd-mkt', 84000, '2023-09-11', 'Paris'],
-      ['Noah', 'Fischer', 'Head of Sales', 'd-sales', 150000, '2019-02-04', 'Berlin'],
-      ['Aisha', 'Bello', 'HR Generalist', 'd-people', 76000, '2024-06-03', 'London'],
-      ['Julian', 'Rossi', 'Brand Designer', 'd-design', 92000, '2023-01-09', 'Milan'],
-      ['Mei', 'Chen', 'Accountant', 'd-fin', 82000, '2022-10-17', 'Singapore'],
-      ['Samuel', 'Adeyemi', 'QA Engineer', 'd-eng', 94000, '2024-03-18', 'Remote'],
-      ['Nurul', 'Aina', 'Payroll Executive', 'd-fin', 54000, U.addDays(T, -12), 'Kuantan'],
+      ['Aisyah', 'Rahman', 'Head of People', 'd-people', 96000, '2019-03-11', 'Kuantan'],
+      ['Daniel', 'Lim', 'Senior Software Engineer', 'd-eng', 102000, '2020-10-19', 'Remote'],
+      ['Farah', 'Idris', 'Lead Product Designer', 'd-design', 90000, '2020-01-20', 'Kuala Lumpur'],
+      ['Arjun', 'Pillai', 'Engineering Manager', 'd-eng', 132000, '2018-09-03', 'Kuantan'],
+      ['Priya', 'Nair', 'Frontend Engineer', 'd-eng', 66000, '2022-02-14', 'Remote'],
+      ['Kevin', 'Tan', 'Account Executive', 'd-sales', 54000, '2021-05-17', 'Kuala Lumpur'],
+      ['Nadia', 'Yusof', 'Data Analyst', 'd-fin', 60000, '2023-04-03', 'Remote'],
+      ['Jason', 'Wong', 'Backend Engineer', 'd-eng', 72000, '2021-11-08', 'Kuantan'],
+      ['Michelle', 'Teoh', 'Marketing Lead', 'd-mkt', 84000, '2019-10-21', 'Kuala Lumpur'],
+      ['Amirul', 'Hakim', 'Sales Development Rep', 'd-sales', 39000, '2024-01-15', 'Kuantan'],
+      ['Grace', 'Ng', 'Finance Manager', 'd-fin', 108000, '2018-06-25', 'Kuantan'],
+      ['Faizal', 'Osman', 'DevOps Engineer', 'd-eng', 84000, '2022-08-29', 'Remote'],
+      ['Syafiqah', 'Roslan', 'Content Strategist', 'd-mkt', 48000, '2023-09-11', 'Kuala Terengganu'],
+      ['Ravi', 'Shankar', 'Head of Sales', 'd-sales', 120000, '2019-02-04', 'Kuala Lumpur'],
+      ['Hidayah', 'Zulkifli', 'HR Generalist', 'd-people', 45000, '2024-06-03', 'Kuantan'],
+      ['Iman', 'Hashim', 'Brand Designer', 'd-design', 54000, '2023-01-09', 'Kuala Lumpur'],
+      ['Mei', 'Chen', 'Accountant', 'd-fin', 57000, '2022-10-17', 'George Town'],
+      ['Hilmi', 'Zainal', 'QA Engineer', 'd-eng', 51000, '2024-03-18', 'Remote'],
+      ['Nurul', 'Aina', 'Payroll Executive', 'd-fin', 36000, U.addDays(T, -12), 'Kuantan'],
     ];
-    const upcoming = { 2: 5, 6: 0, 11: 23, 15: 29 }; // index -> birthday in N days (Hana's is today)
+    const upcoming = { 2: 5, 6: 0, 11: 23, 15: 29 }; // index -> birthday in N days (Nadia's is today)
     const employees = people.map((p, i) => {
       const [first, last, role, dept, salary, start, location] = p;
       let birthday;
@@ -73,7 +79,7 @@ window.AllurusSeed = {
       return {
         id: 'e' + (i + 1), first, last, role, dept, salary, start, location, birthday,
         email: `${first}.${last}`.toLowerCase() + '@' + settings.domain,
-        phone: `+1 555 01${U.pad(i + 10)}`,
+        phone: `+60 1${(i % 8) + 2}-${310 + i * 7} ${4000 + i * 137}`,
         type: i === 17 ? 'Contract' : 'Full-time',
         status: 'Active',
         manager: dept === 'd-eng' && i !== 3 ? 'e4' : (departments.find((d) => d.id === dept).lead === 'e' + (i + 1) ? 'e1' : departments.find((d) => d.id === dept).lead),
@@ -88,7 +94,7 @@ window.AllurusSeed = {
     employees[1].email = 'emp@allurus.com';
     employees.forEach((e) => { if (e.location !== 'Remote') e.location = 'Kuantan'; });
     // Statutory IDs and bank accounts (all fictional). IC numbers start with the birth date; 11 is Terengganu.
-    // Samuel has no tax number or bank account yet, so the statutory and bank files show what is missing.
+    // Hilmi has no tax number or bank account yet, so the statutory and bank files show what is missing.
     const S = AllurusStatutory;
     employees.forEach((e, i) => {
       const b = e.birthday.replace(/-/g, '').slice(2);
@@ -100,9 +106,9 @@ window.AllurusSeed = {
       });
     });
     Object.assign(employees[17], { taxNo: '', bank: '', accountNo: '' });
-    // Julian is leaving at the end of next month: CP22A is due 30 days before his last day.
+    // Iman is leaving at the end of next month: CP22A is due 30 days before his last day.
     Object.assign(employees[15], { endDate: U.addDays(T, 40), leaveReason: 'resign' });
-    settings.employer = { ssm: '202101023456 (1418823-K)', epfNo: '021784593', socsoNo: 'E1104002873X', lhdnNo: 'E 9182736401', hrdNo: 'HRDC-AL-2021-0451', address: 'Lot 7, Jalan Kampung Tengah, 24000 Kemaman, Terengganu', phone: '+60 9-859 2210', signatory: 'Amara Okafor', signatoryTitle: 'Head of People' };
+    settings.employer = { ssm: '202101023456 (1418823-K)', epfNo: '021784593', socsoNo: 'E1104002873X', lhdnNo: 'E 9182736401', hrdNo: 'HRDC-AL-2021-0451', address: 'Lot 7, Jalan Kampung Tengah, 24000 Kemaman, Terengganu', phone: '+60 9-859 2210', signatory: 'Aisyah Rahman', signatoryTitle: 'Head of People' };
 
     // Leave requests, dated around today on working days of the Terengganu calendar.
     const yr = +T.slice(0, 4);
@@ -133,11 +139,11 @@ window.AllurusSeed = {
     const all = [true, true, true];
     const omarFrom = wd(-1);
     leave('l1', 'e4', 'annual', omarFrom, span(omarFrom, 5), 'Family trip to Langkawi', all);
-    leave('l2', 'e8', 'sick', wd(-1), wd(-1), 'Fever and cough. MC from Klinik Kesihatan Kemaman.', [], { attachment: doc('Medical Certificate', ['Klinik Kesihatan Kemaman', 'Patient: Ethan Brooks', `Unfit for duty: ${U.fmtDate(wd(-1))}`, '1 day', 'Dr. Nurul Huda binti Ahmad', 'MMC 54321']) });
+    leave('l2', 'e8', 'sick', wd(-1), wd(-1), 'Fever and cough. MC from Klinik Kesihatan Kemaman.', [], { attachment: doc('Medical Certificate', ['Klinik Kesihatan Kemaman', 'Patient: Jason Wong', `Unfit for duty: ${U.fmtDate(wd(-1))}`, '1 day', 'Dr. Nurul Huda binti Ahmad', 'MMC 54321']) });
     leave('l3', 'e5', 'annual', wd(3), span(wd(3), 3), 'Balik kampung to Ipoh');
     leave('l4', 'e13', 'annual', wd(10), span(wd(10), 3), 'Cousin’s wedding in Melaka', [true]);
-    leave('l5', 'e7', 'maternity', wd(14), U.addDays(wd(14), 97), 'Expected delivery in early November', [true], { attachment: doc('Antenatal Record', ['Hospital Sultanah Nur Zahirah', 'Patient: Hana Sato', 'Expected date of delivery:', U.fmtDate(U.addDays(wd(14), 10)), 'Obstetrics clinic']) });
-    leave('l6', 'e10', 'paternity', wd(-30), U.addDays(wd(-30), 6), 'Birth of our son', all, { attachment: doc('Birth Certificate', ['Jabatan Pendaftaran Negara', 'Child: Adam Silva', `Born: ${U.fmtDate(wd(-31))}`, 'Father: Mateo Silva']) });
+    leave('l5', 'e7', 'maternity', wd(14), U.addDays(wd(14), 97), 'Expected delivery in early November', [true], { attachment: doc('Antenatal Record', ['Hospital Sultanah Nur Zahirah', 'Patient: Nadia Yusof', 'Expected date of delivery:', U.fmtDate(U.addDays(wd(14), 10)), 'Obstetrics clinic']) });
+    leave('l6', 'e10', 'paternity', wd(-30), U.addDays(wd(-30), 6), 'Birth of our son', all, { attachment: doc('Birth Certificate', ['Jabatan Pendaftaran Negara', 'Child: Adam Silva', `Born: ${U.fmtDate(wd(-31))}`, 'Father: Amirul Hakim']) });
     leave('l7', 'e12', 'unpaid', wd(-6), span(wd(-6), 2), 'Family matter in Johor Bahru', all);
     leave('l8', 'e6', 'emergency', wd(-3), wd(-3), 'Car broke down on the way to work', all, { half: 'AM' });
     leave('l9', 'e17', 'compassionate', wd(-12), span(wd(-12), 3), 'Passing of my grandmother', all);
@@ -146,7 +152,7 @@ window.AllurusSeed = {
     leave('l12', 'e10', 'annual', wd(-40), span(wd(-40), 2), 'Long weekend in Cameron Highlands', ['Quarter-end demos that week. Can you move it a week later?']);
     leave('l13', 'e2', 'annual', work(`${yr}-03-10`), span(work(`${yr}-03-10`), 2), 'Hari Raya preparations', all);
     leave('l14', 'e2', 'annual', wd(-50), span(wd(-50), 2), 'School holidays with the kids', all);
-    leave('l15', 'e15', 'sick', wd(-9), wd(-9), 'Migraine. MC attached.', all, { attachment: doc('Medical Certificate', ['Klinik Mediviron Kemaman', 'Patient: Aisha Bello', `Unfit for duty: ${U.fmtDate(wd(-9))}`, '1 day']) });
+    leave('l15', 'e15', 'sick', wd(-9), wd(-9), 'Migraine. MC attached.', all, { attachment: doc('Medical Certificate', ['Klinik Mediviron Kemaman', 'Patient: Hidayah Zulkifli', `Unfit for duty: ${U.fmtDate(wd(-9))}`, '1 day']) });
     leave('l16', 'e14', 'annual', wd(20), span(wd(20), 5), 'Umrah with my parents');
     leaves.forEach((l) => { if (l.half) l.days = 0.5; });
     // Replacement days earned and annual leave carried in from last year (expired at the end of June).
@@ -154,7 +160,7 @@ window.AllurusSeed = {
     const leaveCarry = { [yr]: { e2: { annual: { days: 4, expires: `${yr}-06-30`, from: yr - 1 } }, e3: { annual: { days: 5, expires: `${yr}-06-30`, from: yr - 1 } }, e11: { annual: { days: 3, expires: `${yr}-06-30`, from: yr - 1 } } } };
 
     // Time attendance: the Terengganu week runs Sunday to Thursday. Most teams work office hours, Engineering is
-    // flexible around core hours, and a support desk (Priya, Ethan and Samuel) rotates morning and evening shifts.
+    // flexible around core hours, and a support desk (Priya, Jason and Hilmi) rotates morning and evening shifts.
     const TR = AllurusTimeRules, wk = TR.workDays(L.weekendDays(settings.leave));
     settings.time = TR.defaultSettings({ restDays: L.weekendDays(settings.leave) });
     Object.assign(settings.time, {
@@ -184,7 +190,7 @@ window.AllurusSeed = {
       attendance[day] = {};
       employees.forEach((e) => {
         if (e.start > day) return;
-        // Leave today empty for people who can sign in (Amara and Daniel), so they can try checking in themselves.
+        // Leave today empty for people who can sign in (Aisyah and Daniel), so they can try checking in themselves.
         if (k === 0 && (e.id === 'e1' || e.id === 'e2')) return;
         const x = r(), j = r(), o = rt();
         const s = x < 0.8 ? 'present' : x < 0.93 ? 'remote' : x < 0.98 ? 'absent' : 'present';
@@ -219,7 +225,7 @@ window.AllurusSeed = {
       { code: 'accuracy-round', reason: 'The phone reported a suspiciously precise accuracy of exactly 1 m.' },
       { code: 'repeat', reason: `Exactly the same coordinates as the check-in on ${backDay(3)}. Real GPS readings always differ slightly.` }] });
     if (attendance[T]?.e17?.in) Object.assign(attendance[T].e17, { loc: zoneLoc(fixAt(-0.000214, 0.000331), 16), offline: true, syncedAt: new Date(`${T}T09:41:00`).toISOString(), project: 'pj4', via: 'self' });
-    if (attendance[T]?.e10?.in) Object.assign(attendance[T].e10, { loc: zoneLoc(fixAt(0.000301, -0.000122), 9), via: 'supervisor', by: 'e14', project: 'pj2', face: { result: 'match', sim: 58 }, device: { id: 'dev-noah', name: 'iPhone, Safari (Noah’s phone)' } });
+    if (attendance[T]?.e10?.in) Object.assign(attendance[T].e10, { loc: zoneLoc(fixAt(0.000301, -0.000122), 9), via: 'supervisor', by: 'e14', project: 'pj2', face: { result: 'match', sim: 58 }, device: { id: 'dev-noah', name: 'iPhone, Safari (Ravi’s phone)' } });
     [['e5', 'pj2'], ['e8', 'pj1'], ['e2', 'pj3']].forEach(([id, pj]) => { if (attendance[T]?.[id]?.in) attendance[T][id].project = pj; });
     // Project costing: job groups and jobs with target hours and budgets, check-ins this month tagged with a job,
     // and weekly timesheets for July to September from before the check-in app was used for projects.
@@ -307,8 +313,8 @@ window.AllurusSeed = {
     const stamp = (day, h) => new Date(`${day}T${h}:00`).toISOString();
     setRec(back(6), 'e12', { s: 'present', in: '09:00', out: '18:00' });
     const attAudit = [
-      { id: 'au1', day: back(3), empId: 'e2', by: 'e1', byName: 'Amara Okafor', at: stamp(U.addDays(back(3), 1), '10:14'), changes: [{ field: 'out', from: '', to: '18:20' }], note: 'Correction approved: Forgot to check out after the client call.', batch: '' },
-      { id: 'au2', day: back(6), empId: 'e12', by: 'e1', byName: 'Amara Okafor', at: stamp(U.addDays(back(6), 1), '09:02'), changes: [{ field: 's', from: 'absent', to: 'present' }, { field: 'in', from: '', to: '09:00' }, { field: 'out', from: '', to: '18:00' }], note: 'Phone battery died. Omar confirmed he was in.', batch: '' },
+      { id: 'au1', day: back(3), empId: 'e2', by: 'e1', byName: 'Aisyah Rahman', at: stamp(U.addDays(back(3), 1), '10:14'), changes: [{ field: 'out', from: '', to: '18:20' }], note: 'Correction approved: Forgot to check out after the client call.', batch: '' },
+      { id: 'au2', day: back(6), empId: 'e12', by: 'e1', byName: 'Aisyah Rahman', at: stamp(U.addDays(back(6), 1), '09:02'), changes: [{ field: 's', from: 'absent', to: 'present' }, { field: 'in', from: '', to: '09:00' }, { field: 'out', from: '', to: '18:00' }], note: 'Phone battery died. Arjun confirmed he was in.', batch: '' },
     ];
 
     const payroll = {};
@@ -380,7 +386,7 @@ window.AllurusSeed = {
       a.final = { score: total, grade: g.code, pct: Math.round((total / 5) * 100) };
       payChanges.push(...AR.changesFrom({ review: a, emp: e, cycle, rec: a.hr.rec, by: hrOf, at: a.hr.at }));
     });
-    // 360°: Daniel asked three colleagues (two answered); Ethan's feedback is complete; Samuel asked Daniel.
+    // 360°: Daniel asked three colleagues (two answered); Jason's feedback is complete; Hilmi asked Daniel.
     const peer = (empId, answers, comment, d) => (answers ? { empId, status: 'done', asked: U.addDays(T, -14), answers, comment, at: U.addDays(T, d) } : { empId, status: 'requested', asked: U.addDays(T, -5) });
     const pa = (lv) => ({ c1: lv, c2: lv, c3: Math.max(1, lv - 1), v1: 5, v2: lv, v3: lv });
     const R = (id) => reviews.find((x) => x.empId === id);
@@ -415,7 +421,7 @@ window.AllurusSeed = {
       a.progress = AR.goalProgress(goals.filter((g) => g.empId === a.empId));
     });
 
-    // Dates the reminders watch: Samuel is on a fixed-term contract with a work permit; Nurul is on probation.
+    // Dates the reminders watch: Hilmi is on a fixed-term contract with a work permit; Nurul is on probation.
     Object.assign(employees[17], { nationality: 'Nigeria', contractEnd: U.addDays(T, 25), passportNo: 'A09817263', passportExpiry: U.addDays(T, 150), permitNo: 'EP 2024-118273', permitExpiry: U.addDays(T, 60) });
     Object.assign(employees[18], { nationality: 'Malaysia', probationEnd: U.addDays(T, 26) });
     employees.forEach((e) => ['probationEnd', 'confirmedOn', 'contractEnd', 'nationality', 'passportNo', 'passportExpiry', 'permitNo', 'permitExpiry'].forEach((k) => { if (e[k] === undefined) e[k] = k === 'nationality' ? 'Malaysia' : ''; }));
@@ -425,10 +431,10 @@ window.AllurusSeed = {
     const ackBy = (ids, d) => Object.fromEntries(ids.map((id, i) => [id, iso(U.addDays(d, i % 3), `${10 + (i % 6)}:${10 + i}`)]));
     const announcements = [
       { id: 'an1', kind: 'policy', title: 'Work from home policy 2026', at: iso(U.addDays(T, -9), '09:30'), by: 'e1', depts: [], pinned: false, attachment: null,
-        html: '<p>From 1 November, everyone can work from home up to <strong>two days a week</strong>, agreed with your manager.</p><ul><li>Check in with <em>Work remotely</em> on the days you’re at home.</li><li>Be reachable on Slack between 10am and 4pm (core hours).</li><li>Customer-facing roles keep their office roster.</li></ul><p>Questions? Ask Amara or Aisha in People.</p>',
+        html: '<p>From 1 November, everyone can work from home up to <strong>two days a week</strong>, agreed with your manager.</p><ul><li>Check in with <em>Work remotely</em> on the days you’re at home.</li><li>Be reachable on Slack between 10am and 4pm (core hours).</li><li>Customer-facing roles keep their office roster.</li></ul><p>Questions? Ask Aisyah or Hidayah in People.</p>',
         acks: ackBy(['e1', 'e3', 'e4', 'e6', 'e7', 'e9', 'e11', 'e13', 'e14', 'e15', 'e17'], U.addDays(T, -9)) },
       { id: 'an2', kind: 'announcement', title: 'Deepavali open house, 6 November', at: iso(U.addDays(T, -2), '15:10'), by: 'e15', depts: [], pinned: true, attachment: null,
-        html: '<p>Join us for <strong>Deepavali open house</strong> on Friday 6 November from 12pm at the Kemaman office. Murukku, kuih and teh tarik on us.</p><p>Families are welcome. Tell Aisha by 30 October if you’re coming.</p>', acks: {} },
+        html: '<p>Join us for <strong>Deepavali open house</strong> on Friday 6 November from 12pm at the Kemaman office. Murukku, kuih and teh tarik on us.</p><p>Families are welcome. Tell Hidayah by 30 October if you’re coming.</p>', acks: {} },
       { id: 'an3', kind: 'policy', title: 'Overtime needs pre-approval', at: iso(U.addDays(T, -5), '11:00'), by: 'e1', depts: ['d-eng', 'd-sales'], pinned: false, attachment: null,
         html: '<p>From this month, overtime is paid only when it was <strong>approved before</strong> you work it. Ask from <em>My attendance → New request</em>.</p><p>Emergencies: ask within the same day.</p>',
         acks: ackBy(['e4', 'e14', 'e8'], U.addDays(T, -5)) },
@@ -441,20 +447,20 @@ window.AllurusSeed = {
       return NR.deliver(type, { company: settings.company, ...data }, [{ id: to, email: e.email, first: e.first, prefs: {} }], { at, ids: () => `s${++nid}` });
     };
     const seeded = [
-      note('request.submitted', { who: 'Ethan Brooks', kind: 'ot', summary: 'covering for Omar', href: '#my-approvals' }, 'e2', iso(U.addDays(T, -1), '09:12')),
+      note('request.submitted', { who: 'Jason Wong', kind: 'ot', summary: 'covering for Arjun', href: '#my-approvals' }, 'e2', iso(U.addDays(T, -1), '09:12')),
       note('announcement.new', { title: 'Deepavali open house, 6 November', excerpt: 'Join us for Deepavali open house on Friday 6 November.', href: '#news' }, 'e2', iso(U.addDays(T, -2), '15:10')),
-      note('request.approved', { kind: 'correction', summary: 'forgot to check out', by: 'Amara Okafor', href: '#my-time' }, 'e2', iso(U.addDays(T, -3), '10:14'), true),
+      note('request.approved', { kind: 'correction', summary: 'forgot to check out', by: 'Aisyah Rahman', href: '#my-time' }, 'e2', iso(U.addDays(T, -3), '10:14'), true),
       note('payslip.ready', { month: U.addMonths(thisMonth, -1), net: 'RM 8,421.50', href: '#my-pay' }, 'e2', iso(U.addDays(T, -21), '17:30'), true),
-      note('appraisal.peer', { who: 'Samuel Adeyemi', cycle: `H2 ${y}`, href: '#my-appraisal' }, 'e2', iso(U.addDays(T, -5), '11:02')),
-      note('checkin.flagged', { who: 'Yusuf Demir', reason: 'The phone reported a suspiciously precise accuracy of exactly 1 m.', href: '#attendance' }, 'e1', iso(T, '08:28')),
-      note('request.submitted', { who: 'Lucas Moreau', kind: 'claim', summary: 'Client visit to Kuala Terengganu, RM 185.90', href: '#claims' }, 'e1', iso(U.addDays(T, -4), '17:40')),
+      note('appraisal.peer', { who: 'Hilmi Zainal', cycle: `H2 ${y}`, href: '#my-appraisal' }, 'e2', iso(U.addDays(T, -5), '11:02')),
+      note('checkin.flagged', { who: 'Faizal Osman', reason: 'The phone reported a suspiciously precise accuracy of exactly 1 m.', href: '#attendance' }, 'e1', iso(T, '08:28')),
+      note('request.submitted', { who: 'Kevin Tan', kind: 'claim', summary: 'Client visit to Kuala Terengganu, RM 185.90', href: '#claims' }, 'e1', iso(U.addDays(T, -4), '17:40')),
       note('payroll.paid', { month: U.addMonths(thisMonth, -1), count: 18, net: 'RM 134,842.24', href: '#payroll' }, 'e1', iso(U.addDays(T, -21), '17:28'), true),
     ];
     seeded.forEach((x, i) => { if ([2, 3, 7].includes(i)) x.notifications.forEach((n) => { n.read = true; }); });
     const outbox = seeded.flatMap((x) => x.emails);
 
     // HR admin: the employee file (addresses, emergency contacts, education, past jobs, career history), assets,
-    // staff loans, insurance, documents and letters, Nurul's onboarding, Julian's offboarding and a pending change.
+    // staff loans, insurance, documents and letters, Nurul's onboarding, Iman's offboarding and a pending change.
     const HR = AllurusHRRules;
     settings.hr = { onboarding: HR.defaultOnboarding(), offboarding: HR.defaultOffboarding(), letters: HR.defaultLetters(), it: 'e12', payroll: 'e19' };
     const deptOf = (id) => departments.find((d) => d.id === id)?.name || '';
@@ -514,7 +520,7 @@ window.AllurusSeed = {
     ];
     const letter = (empId, tplId, date, extra) => { const e = employees.find((x) => x.id === empId), t = settings.hr.letters.find((l) => l.id === tplId), data = { 'employee.name': `${e.first} ${e.last}`, 'employee.first': e.first, 'employee.role': e.role, 'employee.department': deptOf(e.dept), 'company.name': settings.company, ...extra }; return { id: `doc${++dn}`, empId, title: t.name, category: 'Letter', expiry: '', letter: { templateId: tplId, subject: HR.fill(t.subject, data), body: HR.fill(t.body, data), date, ack: false }, uploaded: date, by: 'e1' }; };
     documents.push(letter('e15', 'confirmation', '2024-12-02', { effective_date: '2 December 2024' }), letter('e16', 'resignation', U.addDays(T, -3), { last_day: `${+employees[15].endDate.slice(8, 10)} ${['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][+employees[15].endDate.slice(5, 7) - 1]} ${employees[15].endDate.slice(0, 4)}` }));
-    // Checklists: Nurul started on the 7th; Julian leaves at the end of next month.
+    // Checklists: Nurul started on the 7th; Iman leaves at the end of next month.
     const owners = (e) => ({ hr: 'e1', it: 'e12', payroll: 'e19', manager: e.manager || 'e1', employee: e.id });
     const nurul = employees[18], julian = employees[15];
     const onb = HR.buildChecklist(settings.hr.onboarding, { empId: nurul.id, anchor: nurul.start, owners: owners(nurul), id: 'onb-e19', created: U.addDays(nurul.start, -14) });
@@ -526,25 +532,27 @@ window.AllurusSeed = {
 
     const now = Date.now();
     const activity = [
-      { t: now - 1000 * 60 * 42, text: 'Leila Rahimi requested 5 days of annual leave' },
+      { t: now - 1000 * 60 * 42, text: 'Michelle Teoh requested 5 days of annual leave' },
       { t: now - 1000 * 60 * 60 * 3, text: 'David Okoye accepted the Account Executive offer' },
       { t: now - 1000 * 60 * 60 * 26, text: `Payroll for ${U.fmtMonth(U.addMonths(thisMonth, -1))} was paid` },
-      { t: now - 1000 * 60 * 60 * 50, text: 'Samuel Adeyemi completed onboarding' },
+      { t: now - 1000 * 60 * 60 * 50, text: 'Hilmi Zainal completed onboarding' },
     ];
 
     const platform = this.platform(employees.length);
     const session = { account: null, roles: [], role: null, empId: 'e2', tenantId: 't1' };
     // Sign-in accounts. Passwords are stored as SHA-256 of "email:password", never in plain text.
     const accounts = [
-      { email: 'superadmin@allurus.com', name: 'Allurus HQ', hash: 'f1cf377d5d77bcc3a12af1c4516fb4b6d20797dc369593edf0668aee2926cef9', roles: ['super', 'admin', 'employee', 'auditor'], tenantId: 't1', empId: 'e2' },
-      { email: 'admin@allurus.com', name: 'Amara Okafor', hash: '02333a94bab39ec8b56cd57a87830ed79f29237de26eccaf9e724305ede5cbd9', roles: ['admin', 'employee'], tenantId: 't1', empId: 'e1' },
-      { email: 'auditor@allurus.com', name: 'Tan Mei Ling', hash: 'de063c5c0e703dfca0ea223f81021f74d9f4abaf13918d647134e4fd064cf3ba', roles: ['auditor'], tenantId: 't1', empId: '' },
-      { email: 'emp@allurus.com', name: 'Daniel Reyes', hash: '3d18388e7dd6f616a46254f4c8eb14b0aaeca178e246cd9832d4785daa11b7c9', roles: ['employee'], tenantId: 't1', empId: 'e2' },
+      { email: 'superadmin@allurus.com', name: 'Allurus HQ', hash: '9ba7ad31f33beee93d53e6b5e6406e45779bbb11c955c6e10dd78c16569c9e40', roles: ['super', 'admin', 'employee', 'auditor'], tenantId: 't1', empId: 'e2' },
+      { email: 'admin@allurus.com', name: 'Aisyah Rahman', hash: '0924b217a20ccca3818ca0a6c768445f869cfbe2d40343c9af693fdc945b9be9', roles: ['admin', 'employee'], tenantId: 't1', empId: 'e1' },
+      { email: 'auditor@allurus.com', name: 'Tan Mei Ling', hash: 'a4abcb8c3b6a761ae31ba7c4c4ae62b4f9e60d05349d5fafcddaceeb4f1c34a8', roles: ['auditor'], tenantId: 't1', empId: '' },
+      // The manager who approves Daniel's requests, for showing approvals.
+      { email: 'manager@allurus.com', name: 'Arjun Pillai', hash: 'd301d58d3f34698039bfff021aee0185db6a3c6b1df32af0ce98a059615f7aba', roles: ['employee'], tenantId: 't1', empId: 'e4' },
+      { email: 'emp@allurus.com', name: 'Daniel Lim', hash: '77e0cec488b8862842418cc2f56e93996aaa60c33dafa80c1429694a75781c8a', roles: ['employee'], tenantId: 't1', empId: 'e2' },
     ];
-    const finance = AllurusFinance.seed({ employees, payroll, today: T, customers: platform.tenants.filter((t) => t.id !== 't1').map((t) => ({ name: t.name, email: t.admin })) });
+    const finance = AllurusFinance.seed({ employees, payroll, today: T, customers: AllurusSeed.clients });
     // e-Invoice: the company's details, customers and suppliers with TIN, ID and address, and invoices at every
     // stage (validated, one still cancellable, one rejected, drafts), a credit note and a self-billed bill.
-    settings.einvoice = { tin: 'C25845632000', brn: '202101023456', sst: 'W10-2108-32000187', ttx: 'NA', msic: '62010', activity: 'Computer programming activities (HR software as a service)', phone: '+60 9-859 2210', email: 'finance@allurus.com', env: 'sandbox',
+    settings.einvoice = { tin: 'C25845632000', brn: '202101023456', sst: 'W10-2108-32000187', ttx: 'NA', msic: '62010', activity: 'Computer programming activities (custom software, apps and websites)', phone: '+60 9-859 2210', email: 'finance@allurus.com', env: 'sandbox',
       address: { line1: 'Lot 7, Jalan Kampung Tengah', line2: 'Kawasan Perindustrian Chukai', line3: '', city: 'Kemaman', postcode: '24000', state: '13', country: 'MYS' } };
     const PLACES = [['Jalan Tun Ismail', 'Kuantan', '25000', '06'], ['Jalan Ampang', 'Kuala Lumpur', '50450', '14'], ['Persiaran Kayangan', 'Shah Alam', '40000', '10'], ['Jalan Sultan Ismail', 'Kuala Terengganu', '20200', '13'], ['Lebuh Farquhar', 'George Town', '10200', '07'], ['Jalan Wong Ah Fook', 'Johor Bahru', '80000', '01'], ['Jalan Tun Razak', 'Kuala Lumpur', '50400', '14']];
     const custNames = [...new Set(finance.invoices.map((i) => i.customer))];
@@ -552,7 +560,7 @@ window.AllurusSeed = {
       const [street, city, postcode, state] = PLACES[i % PLACES.length], email = finance.invoices.find((x) => x.customer === name)?.email || '';
       const c = { id: `ct-c${i + 1}`, kind: 'customer', name: `${name} Sdn Bhd`, tin: `C${String(2190000000 + i * 7340117).slice(0, 10)}0`, idType: 'BRN', idNo: `20${15 + (i % 9)}01${String(100000 + i * 37211).slice(0, 6)}`, sst: i % 3 === 0 ? `W10-${1800 + i}-3200${String(i).padStart(4, '0')}` : 'NA', email, phone: `+60 ${3 + (i % 7)}-${String(2000 + i * 131).slice(-4)} ${String(5000 + i * 271).slice(-4)}`, contactName: ['Siti Rahman', 'Lim Wei Jie', 'Arjun Pillai', 'Nur Aisyah', 'Tan Chee Keong', 'Farid Hakim'][i % 6], address: { line1: `${12 + i * 3}, ${street}`, line2: '', line3: '', city, postcode, state, country: 'MYS' } };
       // One customer still missing details, to show the e-Invoice check.
-      if (name === 'Vela Fintech') Object.assign(c, { tin: '', idNo: '', address: { ...c.address, postcode: '', state: '' } });
+      if (name === 'Sinar Fresh Mart') Object.assign(c, { tin: '', idNo: '', address: { ...c.address, postcode: '', state: '' } });
       return c;
     });
     contacts.push(
@@ -631,8 +639,8 @@ window.AllurusSeed = {
         { id: 'co-pdpa', title: 'Personal data protection (PDPA 2010)', category: 'Compliance', provider: 'In-house', hours: 1.5, desc: 'How to collect, use, store and share personal data about staff, candidates and customers under the Personal Data Protection Act 2010.', validMonths: 24, active: true, mandatory: { all: true, depts: [], roles: [] }, hrdc: { claimable: false, fee: 0 },
           modules: [
             { id: 'm1', kind: 'text', title: 'Why it matters', body: 'Malaysia’s Personal Data Protection Act 2010 (PDPA) sets out how businesses may handle personal data used in commercial transactions, including employment.\n\nAt work, personal data includes IC numbers, addresses, salaries, bank details, medical certificates and candidates’ CVs.\n\nCollect only what you need, use it only for the purpose you told the person, keep it secure, and keep it only as long as needed.' },
-            { id: 'm2', kind: 'video', title: 'Handling data day to day', url: 'https://videos.allurus.com/training/pdpa-day-to-day.mp4' },
-            { id: 'm3', kind: 'pdf', title: 'Our data protection policy', url: 'https://docs.allurus.com/policies/data-protection-policy.pdf' },
+            { id: 'm2', kind: 'video', title: 'Handling data day to day', url: 'https://intranet.serimaju.com.my/training/pdpa-day-to-day.mp4' },
+            { id: 'm3', kind: 'pdf', title: 'Our data protection policy', url: 'https://intranet.serimaju.com.my/policies/data-protection-policy.pdf' },
           ],
           quiz: { passMark: 75, questions: [
             { id: 'q1', q: 'A candidate’s CV is personal data.', options: ['True', 'False'], answer: 0 },
@@ -643,7 +651,7 @@ window.AllurusSeed = {
         { id: 'co-welcome', title: 'Welcome to the company', category: 'Onboarding', provider: 'In-house', hours: 1, desc: 'Our values, how we work, and where to find help.', validMonths: 0, active: true, mandatory: { all: true, depts: [], roles: [] }, hrdc: { claimable: false, fee: 0 },
           modules: [
             { id: 'm1', kind: 'text', title: 'How we work', body: 'Welcome aboard. This short course covers working hours, leave, claims, and who to ask for help.\n\nUse Allurus to check in, apply for leave and submit claims. Your manager and HR are always happy to help.' },
-            { id: 'm2', kind: 'pdf', title: 'Employee handbook', url: 'https://docs.allurus.com/policies/employee-handbook.pdf' },
+            { id: 'm2', kind: 'pdf', title: 'Employee handbook', url: 'https://intranet.serimaju.com.my/policies/employee-handbook.pdf' },
           ], quiz: { passMark: 0, questions: [] } },
       ],
     };
@@ -666,8 +674,8 @@ window.AllurusSeed = {
     const requisitions = [
       { id: 'rq1', title: 'Senior Backend Engineer', dept: 'd-eng', type: 'Full-time', location: 'Kuantan · Hybrid', headcount: 1, salaryMin: 9000, salaryMax: 12000, reason: 'Growth in workload', templateId: 'tp-eng', justification: 'Payroll and e-Invoice work has doubled the backlog. We need a senior engineer to own the integrations.', by: 'e4', at: ago(26), status: 'Approved', jobId: 'j1' },
       { id: 'rq2', title: 'Digital Marketing Executive', dept: 'd-mkt', type: 'Full-time', location: 'Kuantan', headcount: 1, salaryMin: 3800, salaryMax: 5000, reason: 'New role', templateId: 'tp-sales', justification: 'Paid search and social are run by agencies today. Bringing it in-house saves about RM 4,000 a month.', by: 'e9', at: ago(16), status: 'Approved', jobId: 'j2' },
-      { id: 'rq3', title: 'Account Executive', dept: 'd-sales', type: 'Full-time', location: 'Kuala Lumpur', headcount: 2, salaryMin: 4000, salaryMax: 5500, reason: 'Growth in workload', templateId: 'tp-sales', justification: 'Klang Valley leads are growing and Lucas covers the whole region alone.', by: 'e14', at: ago(50), status: 'Approved', jobId: 'j3' },
-      { id: 'rq4', title: 'QA Engineer (Automation)', dept: 'd-eng', type: 'Full-time', location: 'Kuantan · Hybrid', headcount: 1, salaryMin: 5500, salaryMax: 7500, reason: 'Growth in workload', templateId: 'tp-eng', justification: 'Releases wait on manual testing. Automation would let Samuel focus on exploratory testing.', by: 'e4', at: ago(3), status: 'Pending', jobId: '' },
+      { id: 'rq3', title: 'Account Executive', dept: 'd-sales', type: 'Full-time', location: 'Kuala Lumpur', headcount: 2, salaryMin: 4000, salaryMax: 5500, reason: 'Growth in workload', templateId: 'tp-sales', justification: 'Klang Valley leads are growing and Kevin covers the whole region alone.', by: 'e14', at: ago(50), status: 'Approved', jobId: 'j3' },
+      { id: 'rq4', title: 'QA Engineer (Automation)', dept: 'd-eng', type: 'Full-time', location: 'Kuantan · Hybrid', headcount: 1, salaryMin: 5500, salaryMax: 7500, reason: 'Growth in workload', templateId: 'tp-eng', justification: 'Releases wait on manual testing. Automation would let Hilmi focus on exploratory testing.', by: 'e4', at: ago(3), status: 'Pending', jobId: '' },
       { id: 'rq5', title: 'Customer Success Executive', dept: 'd-sales', type: 'Full-time', location: 'Kuantan', headcount: 1, salaryMin: 3500, salaryMax: 4500, reason: 'New role', templateId: 'tp-sales', justification: 'Renewals and onboarding calls take a third of the sales team’s week.', by: 'e14', at: ago(1), status: 'Pending', jobId: '' },
       { id: 'rq6', title: 'Office Administrator', dept: 'd-people', type: 'Contract', location: 'Kuantan', headcount: 1, salaryMin: 2500, salaryMax: 3000, reason: 'New role', templateId: 'tp-general', justification: 'Front desk and courier handling.', by: 'e15', at: ago(40), status: 'Rejected', jobId: '' },
     ];
@@ -686,7 +694,7 @@ window.AllurusSeed = {
     const people = [
       ['Ahmad Faiz bin Rahman', 'j1', 'Applied', 'Careers page', 1],
       ['Tan Wei Ming', 'j1', 'Screening', 'LinkedIn', 9],
-      ['Siti Nurhaliza binti Omar', 'j1', 'Interview', 'Referral', 15],
+      ['Siti Nurhaliza binti Arjun', 'j1', 'Interview', 'Referral', 15],
       ['Rajesh Kumar a/l Subramaniam', 'j1', 'Offer', 'JobStreet', 30],
       ['Lim Jia Hui', 'j1', 'Applied', 'Careers page', 0],
       ['Muhammad Hafiz bin Ismail', 'j1', 'Screening', 'Indeed', 20, { rejected: true, rejectedOn: ago(16) }],
@@ -729,7 +737,7 @@ window.AllurusSeed = {
     iv(raj, 'iv4', 'Technical interview', ago(12), '14:00', '15:30', 'In person', ['e4', 'e12'], { e4: card([5, 5, 4, 4], 'Strong yes', '', ago(12)), e12: card([4, 4, 4, 5], 'Yes', 'Comfortable with our deployment setup.', ago(12)) }, 'rm3');
     iv(chong, 'iv5', 'First interview', ahead(2), '10:00', '11:00', 'In person', ['e9', 'e13'], {}, 'rm2');
     iv(amir, 'iv6', 'First interview', ago(4), '15:00', '16:00', 'Video call', ['e14', 'e6'], { e14: card([4, 3, 4, 4], 'Yes', 'Good hunter mentality; light on SaaS experience.', ago(4)) });
-    iv(kelvin, 'iv7', 'First interview', ago(32), '10:00', '11:00', 'In person', ['e14', 'e6'], { e14: card([5, 4, 5, 5], 'Strong yes', 'Referred by Lucas. Ex-JobStreet sales.', ago(32)), e6: card([4, 4, 5, 5], 'Strong yes', '', ago(32)) }, 'rm1');
+    iv(kelvin, 'iv7', 'First interview', ago(32), '10:00', '11:00', 'In person', ['e14', 'e6'], { e14: card([5, 4, 5, 5], 'Strong yes', 'Referred by Kevin. Ex-JobStreet sales.', ago(32)), e6: card([4, 4, 5, 5], 'Strong yes', '', ago(32)) }, 'rm1');
     const offerBody = (c, salary, start) => AllurusHRRules.fill(d.recruit.offerTemplates[0].body, { 'candidate.name': c.name, 'job.title': jobs.find((j) => j.id === c.jobId).title, 'job.department': departments.find((x) => x.id === jobs.find((j) => j.id === c.jobId).dept).name, 'job.location': jobs.find((j) => j.id === c.jobId).location, 'offer.salary_monthly': `RM ${salary.toLocaleString('en-MY', { minimumFractionDigits: 2 })}`, 'offer.start_date': U.fmtDate(start, { day: 'numeric', month: 'long', year: 'numeric' }), 'offer.probation_months': 3, 'offer.expires': U.fmtDate(ahead(5), { day: 'numeric', month: 'long', year: 'numeric' }), 'company.name': settings.company });
     raj.offers.push({ id: 'of1', templateId: 'of-perm', subject: 'Offer of employment: Senior Backend Engineer', body: offerBody(raj, 11000, ahead(30)), salary: 11000, start: ahead(30), probation: 3, expires: ahead(5), at: ago(2), status: 'Sent', by: 'e1' });
     kelvin.offers.push({ id: 'of2', templateId: 'of-perm', subject: 'Offer of employment: Account Executive', body: offerBody(kelvin, 5000, ahead(14)), salary: 5000, start: ahead(14), probation: 3, expires: ago(5), at: ago(12), status: 'Accepted', repliedAt: ago(9), by: 'e1' });
@@ -753,7 +761,7 @@ window.AllurusSeed = {
     const at = (k) => work[Math.max(0, todayIdx + k)];
     [['rm3', 0, '09:00', '10:00', 'Monday all-hands', 'e1', 15], ['rm1', 0, '11:00', '12:00', 'Sprint planning', 'e4', 7], ['rm2', 0, '14:30', '15:30', 'Design review', 'e3', 4], ['rm1', 0, '15:00', '16:00', 'Client call: Kemaman Logistics', 'e2', 3],
       ['rm4', 0, '16:00', '17:00', 'Call with accountant', 'e11', 1], ['rm1', 1, '09:30', '10:30', 'Pipeline review', 'e14', 6], ['rm2', 1, '11:00', '12:00', 'Payroll cut-off check', 'e19', 3], ['rm1', 1, '15:00', '16:00', 'Architecture chat', 'e2', 5],
-      ['rm3', 2, '14:00', '16:00', 'Q4 marketing workshop', 'e9', 10], ['rm1', 3, '10:00', '11:00', 'One-to-one with Omar', 'e2', 2], ['rm2', -1, '10:00', '11:00', 'Content planning', 'e13', 3], ['rm1', -2, '14:00', '15:00', 'Retro', 'e4', 7]]
+      ['rm3', 2, '14:00', '16:00', 'Q4 marketing workshop', 'e9', 10], ['rm1', 3, '10:00', '11:00', 'One-to-one with Arjun', 'e2', 2], ['rm2', -1, '10:00', '11:00', 'Content planning', 'e13', 3], ['rm1', -2, '14:00', '15:00', 'Retro', 'e4', 7]]
       .forEach(([roomId, k, start, end, title, by, n], i) => bookings.push({ id: 'bk' + (i + 1), roomId, date: at(k), start, end, title, by, people: n, status: 'Booked', ref: '' }));
     bookings.push({ id: 'bk-x1', roomId: 'rm3', date: at(1), start: '16:00', end: '17:00', title: 'Town hall rehearsal', by: 'e15', people: 6, status: 'Cancelled', ref: '' });
 
@@ -761,15 +769,15 @@ window.AllurusSeed = {
     const courses = [
       ...d.courses,
       { id: 'co-osh', title: 'Workplace safety and health', category: 'Safety', provider: 'In-house with the safety committee', hours: 2, desc: 'Your duties and the company’s under the Occupational Safety and Health Act 1994: hazards, reporting, fire drills and first aid points in our office.', validMonths: 12, active: true, mandatory: { all: true, depts: [], roles: [] }, hrdc: { claimable: false, fee: 0 },
-        modules: [{ id: 'm1', kind: 'text', title: 'Everyone’s duty', body: 'Under the Occupational Safety and Health Act 1994, employers must provide a safe workplace, and employees must take reasonable care of themselves and others and follow safety instructions.\n\nReport hazards, near misses and injuries to your supervisor or the safety committee the same day.' }, { id: 'm2', kind: 'video', title: 'Fire drill and assembly point', url: 'https://videos.allurus.com/training/fire-drill-kuantan.mp4' }, { id: 'm3', kind: 'pdf', title: 'Office emergency plan', url: 'https://docs.allurus.com/safety/emergency-plan.pdf' }],
+        modules: [{ id: 'm1', kind: 'text', title: 'Everyone’s duty', body: 'Under the Occupational Safety and Health Act 1994, employers must provide a safe workplace, and employees must take reasonable care of themselves and others and follow safety instructions.\n\nReport hazards, near misses and injuries to your supervisor or the safety committee the same day.' }, { id: 'm2', kind: 'video', title: 'Fire drill and assembly point', url: 'https://intranet.serimaju.com.my/training/fire-drill-kuantan.mp4' }, { id: 'm3', kind: 'pdf', title: 'Office emergency plan', url: 'https://intranet.serimaju.com.my/safety/emergency-plan.pdf' }],
         quiz: { passMark: 80, questions: [{ id: 'q1', q: 'You see a trailing cable across a walkway. What do you do?', options: ['Step over it', 'Make it safe if you can and report it', 'Wait for someone else'], answer: 1 }, { id: 'q2', q: 'Where do we gather when the fire alarm goes off?', options: ['In the lift lobby', 'At the assembly point in the car park', 'At your desk'], answer: 1 }, { id: 'q3', q: 'A near miss with no injury still needs reporting.', options: ['True', 'False'], answer: 0 }] } },
       { id: 'co-harass', title: 'Preventing sexual harassment at work', category: 'Compliance', provider: 'In-house', hours: 1.5, desc: 'What sexual harassment is, how to raise a complaint, and how the company must handle it under the Employment Act 1955 and the Anti-Sexual Harassment Act 2022.', validMonths: 24, active: true, mandatory: { all: true, depts: [], roles: [] }, hrdc: { claimable: false, fee: 0 },
-        modules: [{ id: 'm1', kind: 'text', title: 'What it is', body: 'Sexual harassment is any unwanted conduct of a sexual nature, whether verbal, non-verbal, visual, gestural or physical, that a reasonable person would find offensive, humiliating or threatening.\n\nIt can happen in the office, at events, on business trips and online.' }, { id: 'm2', kind: 'text', title: 'Raising a concern', body: 'Raise a concern with HR or through “Raise a concern” in Allurus. You can keep your name from your department. The company must look into every complaint, and retaliation is not allowed.' }, { id: 'm3', kind: 'pdf', title: 'Anti-harassment policy', url: 'https://docs.allurus.com/policies/anti-harassment-policy.pdf' }],
+        modules: [{ id: 'm1', kind: 'text', title: 'What it is', body: 'Sexual harassment is any unwanted conduct of a sexual nature, whether verbal, non-verbal, visual, gestural or physical, that a reasonable person would find offensive, humiliating or threatening.\n\nIt can happen in the office, at events, on business trips and online.' }, { id: 'm2', kind: 'text', title: 'Raising a concern', body: 'Raise a concern with HR or through “Raise a concern” in Allurus. You can keep your name from your department. The company must look into every complaint, and retaliation is not allowed.' }, { id: 'm3', kind: 'pdf', title: 'Anti-harassment policy', url: 'https://intranet.serimaju.com.my/policies/anti-harassment-policy.pdf' }],
         quiz: { passMark: 75, questions: [{ id: 'q1', q: 'Harassment only counts if it happens in the office.', options: ['True', 'False'], answer: 1 }, { id: 'q2', q: 'Who can you raise a concern with?', options: ['Only your manager', 'HR, or anonymously to your department through Allurus', 'No one'], answer: 1 }] } },
       { id: 'co-lead', title: 'Leading people fairly', category: 'Leadership', provider: 'In-house', hours: 3, desc: 'Fair hiring, setting goals, handling leave and misconduct, and having difficult conversations.', validMonths: 0, active: true, mandatory: { all: false, depts: [], roles: ['Manager', 'Head of', 'Lead'] }, hrdc: { claimable: false, fee: 0 },
-        modules: [{ id: 'm1', kind: 'text', title: 'Fair decisions', body: 'Base decisions about people on the job and the evidence. Write down why, and be consistent.' }, { id: 'm2', kind: 'video', title: 'Difficult conversations', url: 'https://videos.allurus.com/training/difficult-conversations.mp4' }], quiz: { passMark: 0, questions: [] } },
+        modules: [{ id: 'm1', kind: 'text', title: 'Fair decisions', body: 'Base decisions about people on the job and the evidence. Write down why, and be consistent.' }, { id: 'm2', kind: 'video', title: 'Difficult conversations', url: 'https://intranet.serimaju.com.my/training/difficult-conversations.mp4' }], quiz: { passMark: 0, questions: [] } },
       { id: 'co-secure', title: 'Secure coding basics', category: 'Skills', provider: 'In-house (Engineering)', hours: 2, desc: 'The common web vulnerabilities and how our code avoids them.', validMonths: 12, active: true, mandatory: { all: false, depts: ['d-eng'], roles: [] }, hrdc: { claimable: false, fee: 0 },
-        modules: [{ id: 'm1', kind: 'text', title: 'Input is untrusted', body: 'Escape output, validate input on the server, and use parameterised queries.' }, { id: 'm2', kind: 'pdf', title: 'Our secure coding checklist', url: 'https://docs.allurus.com/engineering/secure-coding-checklist.pdf' }],
+        modules: [{ id: 'm1', kind: 'text', title: 'Input is untrusted', body: 'Escape output, validate input on the server, and use parameterised queries.' }, { id: 'm2', kind: 'pdf', title: 'Our secure coding checklist', url: 'https://intranet.serimaju.com.my/engineering/secure-coding-checklist.pdf' }],
         quiz: { passMark: 100, questions: [{ id: 'q1', q: 'Where must input be validated?', options: ['Only in the browser', 'On the server'], answer: 1 }] } },
       { id: 'co-excel', title: 'Advanced Excel for finance and HR', category: 'Skills', provider: 'Kursus Pintar Sdn Bhd', hours: 14, desc: 'Two-day classroom course: PivotTables, lookups, Power Query and dashboards.', validMonths: 0, active: true, mandatory: null, hrdc: { claimable: true, fee: 850 },
         modules: [{ id: 'm1', kind: 'text', title: 'Course details', body: 'Classroom course in Kuantan, two days, 9am to 5pm. Bring a laptop with Excel 365. HR applies for the HRD Corp grant before the course starts.' }], quiz: { passMark: 0, questions: [] } },
@@ -790,7 +798,7 @@ window.AllurusSeed = {
       // Safety every year: completed between last November and March, so some expire within 60 days.
       if (e.id === 'e18') open(e.id, 'co-osh', ago(30), ago(3));
       else done(e.id, 'co-osh', U.addDays('2025-11-02', (i * 11) % 140), 100);
-      // Harassment course: most done; Daniel and Mateo still to finish.
+      // Harassment course: most done; Daniel and Amirul still to finish.
       if (e.id === 'e2') open(e.id, 'co-harass', ago(6), ahead(14));
       else if (e.id === 'e10') open(e.id, 'co-harass', ago(6), ahead(14), ['m1']);
       else done(e.id, 'co-harass', U.addDays('2025-06-15', i * 5), 100);
@@ -812,7 +820,7 @@ window.AllurusSeed = {
     // Grievances: one past its response time, anonymous ones, and resolved cases in and outside the SLA.
     const g = (id, n, x) => ({ id, ref: `GR-${T.slice(0, 4)}-${String(n).padStart(3, '0')}`, ackAt: '', resolvedAt: '', outcome: '', ...x });
     const grievances = [
-      g('gr1', 1, { empId: 'e16', anonymous: false, category: 'Pay and benefits', subject: 'Overtime for the August launch not paid', details: 'I worked 12 hours of overtime in the last week of August for the brand launch. It was approved by Sofia but is not on my September payslip.', priority: 'High', assignee: 'e15', status: 'Closed', created: '2026-09-08', ackAt: '2026-09-09', resolvedAt: '2026-09-15', outcome: 'The overtime claim was missed at cut-off. Paid with the September supplementary run; payroll now checks approved overtime before closing.' }),
+      g('gr1', 1, { empId: 'e16', anonymous: false, category: 'Pay and benefits', subject: 'Overtime for the August launch not paid', details: 'I worked 12 hours of overtime in the last week of August for the brand launch. It was approved by Farah but is not on my September payslip.', priority: 'High', assignee: 'e15', status: 'Closed', created: '2026-09-08', ackAt: '2026-09-09', resolvedAt: '2026-09-15', outcome: 'The overtime claim was missed at cut-off. Paid with the September supplementary run; payroll now checks approved overtime before closing.' }),
       g('gr2', 2, { empId: 'e8', anonymous: true, category: 'Workload', subject: 'On-call rota is uneven', details: 'The same two people have been on call most weekends since July. It is affecting our health and family time.', priority: 'Normal', assignee: 'e15', status: 'Investigating', created: ago(12), ackAt: ago(11) }),
       g('gr3', 3, { empId: 'e13', anonymous: true, category: 'Harassment or bullying', subject: 'Comments at the team dinner', details: 'At the team dinner a colleague made repeated comments about my appearance after I asked them to stop. Others saw it.', priority: 'Urgent', assignee: 'e1', status: 'Acknowledged', created: ago(10), ackAt: ago(10) }),
       g('gr4', 4, { empId: 'e10', anonymous: false, category: 'Working conditions', subject: 'Air-conditioning in the sales area', details: 'The air-conditioning near the sales desks has not worked properly for two weeks. It gets very hot after lunch.', priority: 'Low', assignee: 'e15', status: 'New', created: ago(1) }),
@@ -823,7 +831,7 @@ window.AllurusSeed = {
       x.timeline = [{ at: x.created, by: x.empId, kind: 'raised', note: 'Concern raised' }];
       if (x.ackAt) x.timeline.push({ at: x.ackAt, by: x.assignee, status: 'Acknowledged', note: 'Thank you for raising this. I am looking into it.' });
       if (['Investigating', 'Resolved', 'Closed'].includes(x.status)) x.timeline.push({ at: U.addDays(x.ackAt, 1), by: x.assignee, status: 'Investigating', note: '' });
-      if (x.id === 'gr2') x.timeline.push({ at: ago(6), by: 'e15', note: 'Pulled the on-call log from July to October. Two engineers covered 70% of weekends. Meeting Omar on Thursday.', internal: true });
+      if (x.id === 'gr2') x.timeline.push({ at: ago(6), by: 'e15', note: 'Pulled the on-call log from July to October. Two engineers covered 70% of weekends. Meeting Arjun on Thursday.', internal: true });
       if (x.resolvedAt) x.timeline.push({ at: x.resolvedAt, by: x.assignee, status: 'Resolved', note: x.outcome });
       if (x.status === 'Closed') x.timeline.push({ at: U.addDays(x.resolvedAt, 3), by: x.assignee, status: 'Closed', note: '' });
     });
@@ -840,7 +848,7 @@ window.AllurusSeed = {
       { id: 'enterprise', name: 'Enterprise', price: 12, maxSeats: 0, features: 'Everything in Growth, plus performance, SSO and priority support' },
     ];
     const rows = [
-      ['Allurus', 'Kuantan', 'HR technology', 'Malaysia', 'growth', demoSeats, 'Active', 420],
+      ['Seri Maju Digital Sdn Bhd', 'Kuantan', 'Software and digital services', 'Malaysia', 'growth', demoSeats, 'Active', 420],
       ['Northwind Logistics', 'Chicago', 'Logistics', 'United States', 'enterprise', 412, 'Active', 610],
       ['Cedar Health Clinics', 'Toronto', 'Healthcare', 'Canada', 'enterprise', 268, 'Active', 540],
       ['Sahara Retail Group', 'Dubai', 'Retail', 'United Arab Emirates', 'growth', 186, 'Active', 380],
