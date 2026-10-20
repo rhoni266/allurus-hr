@@ -40,6 +40,7 @@ const authMsg = (e) => AUTH_MSG[e?.code] || 'Something went wrong. Please try ag
 const S = {
   profile: null,      // { uid, email, name, tenantId, roles, empId }
   admin: false,
+  perms: null,        // the person's areas (role template); null = every area, like an Owner
   base: new Map(),    // doc path → fields as the server last had them
   meta: new Map(),    // bucket path → { t, r }
   unsubs: [],
@@ -51,6 +52,10 @@ const S = {
   warned: new Set(),
 };
 const T = () => `tenants/${S.profile.tenantId}`;
+// What this person may see and change, from their role template (see js/cloud-map.js and firestore.rules).
+const can = (area) => M.has(S.admin, S.perms, area);
+const seePeople = () => M.seesPeople(S.admin, S.perms);
+const seePay = () => M.seesPayroll(S.admin, S.perms);
 const fam = (path) => path.split('/')[2]; // buckets | people | payslips | personal
 const tail = (path) => path.split('/').slice(3).join('/');
 
@@ -59,15 +64,15 @@ function localDocs(onBlob) {
   const st = app.state, out = new Map(), p = S.profile;
   const put = (path, fields, meta) => out.set(path, { fields, meta });
   const buckets = M.bucketsOf(st, app.WS_KEYS, onBlob);
-  Object.entries(buckets).forEach(([id, b]) => { if (M.canWrite(id, S.admin)) put(`${T()}/buckets/${id}`, b.f, { t: b.t, r: b.r }); });
-  if (S.admin) {
+  Object.entries(buckets).forEach(([id, b]) => { if (M.canWrite(id, S.admin, S.perms)) put(`${T()}/buckets/${id}`, b.f, { t: b.t, r: b.r }); });
+  if (seePay()) {
     const payFields = {}; Object.keys(st.payroll || {}).forEach((m) => { payFields[m] = M.enc(st.payroll[m], onBlob); });
-    put(`${T()}/buckets/payroll`, payFields, { t: 'o', r: 'a' });
-    put(`${T()}/buckets/directory`, M.directoryFields(st.employees || [], onBlob), { t: 'a', r: 'm' });
-    (st.employees || []).forEach((e, i) => {
-      put(`${T()}/people/${e.id}`, M.personFields(e, i, onBlob));
-      put(`${T()}/payslips/${e.id}`, M.payslipFields(st.payroll, e.id));
-    });
+    put(`${T()}/buckets/payroll`, payFields, { t: 'o', r: M.readClass('payroll') });
+    (st.employees || []).forEach((e) => put(`${T()}/payslips/${e.id}`, M.payslipFields(st.payroll, e.id)));
+  }
+  if (can('people')) put(`${T()}/buckets/directory`, M.directoryFields(st.employees || [], onBlob), { t: 'a', r: 'm' });
+  if (seePeople()) {
+    (st.employees || []).forEach((e, i) => put(`${T()}/people/${e.id}`, M.personFields(e, i, onBlob)));
   } else {
     // Only the person's own phones and face reference; everything else on their record is HR's to change.
     const path = `${T()}/people/${p.empId}`, mine = (st.employees || []).find((e) => e.id === p.empId);
@@ -88,7 +93,7 @@ const lookup = (id) => S.blobs.get(id);
 // full record in their place. `over` replaces any document's fields (a merge that isn't on the server yet).
 function employeesFrom(over = new Map()) {
   const p = S.profile, f = (path) => (over.has(path) ? over.get(path) : S.base.get(path));
-  if (S.admin) {
+  if (seePeople()) {
     const people = [...new Set([...S.base.keys(), ...over.keys()])].filter((k) => fam(k) === 'people').map(f).filter((x) => x && Object.keys(x).length);
     people.sort((a, b) => (+(a['~o'] || 0)) - (+(b['~o'] || 0)));
     return people.map((x) => M.personFrom(x, lookup));
@@ -102,23 +107,23 @@ function applyDoc(path, fields) {
   if (f === 'buckets') {
     if (id === 'directory') {
       // Colleagues' cards changed; keep this person's own record as it is here.
-      if (S.admin) return;
+      if (seePeople()) return;
       const own = (st.employees || []).find((e) => e.id === p.empId);
       st.employees = M.employeesFor(M.directoryFrom(fields, lookup), own || null);
       return;
     }
-    if (id === 'payroll') { if (S.admin) { st.payroll = {}; Object.keys(fields).forEach((m) => { st.payroll[m] = M.dec(fields[m], lookup); }); } return; }
+    if (id === 'payroll') { if (seePay()) { st.payroll = {}; Object.keys(fields).forEach((m) => { st.payroll[m] = M.dec(fields[m], lookup); }); } return; }
     const meta = S.meta.get(path); if (!meta) return;
     M.applyBucket(st, id, meta.t, fields, lookup);
   } else if (f === 'people') {
     const list = st.employees || (st.employees = []);
     const i = list.findIndex((e) => e.id === id);
-    if (!Object.keys(fields).length) { if (i >= 0 && S.admin) list.splice(i, 1); return; }
+    if (!Object.keys(fields).length) { if (i >= 0 && seePeople()) list.splice(i, 1); return; }
     const e = M.personFrom(fields, lookup);
-    if (i >= 0) list[i] = S.admin ? e : { ...list[i], ...e };
+    if (i >= 0) list[i] = seePeople() ? e : { ...list[i], ...e };
     else { const at = Math.min(list.length, +(fields['~o'] || list.length)); list.splice(at, 0, e); }
   }
-  else if (f === 'payslips') { if (!S.admin && id === p.empId) st.payroll = M.payrollFrom(fields); }
+  else if (f === 'payslips') { if (!seePay() && id === p.empId) st.payroll = M.payrollFrom(fields); }
   else if (f === 'personal') M.applyPersonal(st, fields, p.empId, p.email);
 }
 // Bucket documents keep their fields under "f"; the others are flat.
@@ -128,9 +133,13 @@ function stringify(fields) { const o = {}; Object.keys(fields).forEach((k) => { 
 // ---------- Reading: listeners ----------
 function listen(ready) {
   const p = S.profile, t = T();
-  const sources = S.admin
-    ? [collection(db, `${t}/buckets`), collection(db, `${t}/people`), collection(db, `${t}/payslips`), doc(db, `${t}/personal/${p.empId}`)]
-    : [query(collection(db, `${t}/buckets`), where('r', '==', 'm')), doc(db, `${t}/people/${p.empId}`), doc(db, `${t}/payslips/${p.empId}`), doc(db, `${t}/personal/${p.empId}`)];
+  // Only what this person may read: the rules refuse a query that could return anything else.
+  const sources = [
+    query(collection(db, `${t}/buckets`), where('r', 'in', M.readable(S.admin, S.perms))),
+    seePeople() ? collection(db, `${t}/people`) : doc(db, `${t}/people/${p.empId}`),
+    seePay() ? collection(db, `${t}/payslips`) : doc(db, `${t}/payslips/${p.empId}`),
+    doc(db, `${t}/personal/${p.empId}`),
+  ];
   let pending = sources.length;
   const first = new Set();
   sources.forEach((src, i) => {
@@ -193,7 +202,7 @@ async function push() {
       writes.push({ path, fields, meta, d });
     });
     // Admins also remove people who were deleted.
-    if (S.admin) S.base.forEach((f, path) => { if ((fam(path) === 'people' || fam(path) === 'payslips') && !local.has(path) && Object.keys(f).length) writes.push({ path, fields: {}, meta: null, d: M.diff(f, {}), remove: true }); });
+    S.base.forEach((f, path) => { if (((fam(path) === 'people' && seePeople()) || (fam(path) === 'payslips' && seePay())) && !local.has(path) && Object.keys(f).length) writes.push({ path, fields: {}, meta: null, d: M.diff(f, {}), remove: true }); });
     if (!writes.length) return;
     // Files first, so a record never points at a photo that isn't there yet.
     const need = new Set();
@@ -261,7 +270,7 @@ new MutationObserver((list) => {
 // ---------- Starting and stopping ----------
 async function start(profile) {
   stop();
-  S.profile = profile; S.admin = profile.roles.includes('admin');
+  S.profile = profile; S.admin = profile.roles.includes('admin'); S.perms = Array.isArray(profile.perms) ? profile.perms : null;
   await new Promise((ready) => listen(ready));
   // Build the workspace from what the server has, on a blank company.
   const ws = app.blankWorkspace();
@@ -269,10 +278,10 @@ async function start(profile) {
   const apply = (path) => {
     const f = S.base.get(path), fm = fam(path), id = tail(path);
     if (fm === 'buckets') {
-      if (id === 'payroll') { ws.payroll = {}; Object.keys(f).forEach((m) => { ws.payroll[m] = M.dec(f[m], lookup); }); return; }
+      if (id === 'payroll') { if (seePay()) { ws.payroll = {}; Object.keys(f).forEach((m) => { ws.payroll[m] = M.dec(f[m], lookup); }); } return; }
       if (id === 'directory') return;
       const meta = S.meta.get(path); if (meta) M.applyBucket(ws, id, meta.t, f, lookup);
-    } else if (fm === 'payslips' && !S.admin && id === profile.empId) ws.payroll = M.payrollFrom(f);
+    } else if (fm === 'payslips' && !seePay() && id === profile.empId) ws.payroll = M.payrollFrom(f);
     else if (fm === 'personal') M.applyPersonal(ws, f, profile.empId, profile.email);
   };
   [...S.base.keys()].forEach(apply);
@@ -306,6 +315,7 @@ async function profileFor(user) {
   }
   const i = inv.data();
   const prof = { email, name: i.name || email, tenantId: i.tenantId, roles: i.roles, empId: i.empId, joinedAt: serverTimestamp() };
+  if (Array.isArray(i.perms)) prof.perms = i.perms;
   await setDoc(uref, prof);
   return { uid: user.uid, ...prof };
 }
@@ -352,7 +362,7 @@ const api = {
       await setDoc(doc(db, `users/${cred.user.uid}`), prof);
       try { await Auth.sendEmailVerification(cred.user); } catch (e) { /* optional for founders */ }
       // Send the new workspace as it is, then sign in to it like any other time.
-      S.profile = { uid: cred.user.uid, ...prof }; S.admin = true; S.live = true;
+      S.profile = { uid: cred.user.uid, ...prof }; S.admin = true; S.perms = null; S.live = true;
       app.adoptCloud(ws, S.profile);
       await push();
       S.live = false;
@@ -378,17 +388,18 @@ const api = {
     ]);
     return { invites: inv.docs.map((d) => ({ email: d.id, ...d.data() })), users: users.docs.map((d) => ({ uid: d.id, ...d.data() })) };
   },
-  async invite(emp, admin) {
+  // template: 'employee', or a role template from app.js ('owner', 'hr', 'payroll', 'finance').
+  async invite(emp, template = 'employee') {
     const email = lower(emp.email);
     if (!email) return { error: `${emp.first} has no work email. Add one on their profile first.` };
     try {
-      await setDoc(doc(db, `invites/${email}`), { tenantId: S.profile.tenantId, empId: emp.id, name: `${emp.first} ${emp.last}`.trim(), roles: admin ? ['admin', 'employee'] : ['employee'], invitedBy: S.profile.email, invitedAt: serverTimestamp() });
+      await setDoc(doc(db, `invites/${email}`), { tenantId: S.profile.tenantId, empId: emp.id, name: `${emp.first} ${emp.last}`.trim(), ...access(template), invitedBy: S.profile.email, invitedAt: serverTimestamp() });
       return { ok: true };
-    } catch (e) { return { error: 'Couldn’t save the invite. Check your connection.' }; }
+    } catch (e) { return { error: e.code === 'permission-denied' ? 'You can only give access you have yourself.' : 'Couldn’t save the invite. Check your connection.' }; }
   },
-  async setRole(uid, admin) {
-    try { await setDoc(doc(db, `users/${uid}`), { roles: admin ? ['admin', 'employee'] : ['employee'] }, { merge: true }); return { ok: true }; }
-    catch (e) { return { error: 'Couldn’t change access. You can’t change your own.' }; }
+  async setRole(uid, template) {
+    try { await setDoc(doc(db, `users/${uid}`), access(template, true), { merge: true }); return { ok: true }; }
+    catch (e) { return { error: 'Couldn’t change access. You can only give access you have yourself, and not change your own.' }; }
   },
   async revoke(email, uid) {
     try { await FS.deleteDoc(doc(db, `invites/${lower(email)}`)); if (uid) await FS.deleteDoc(doc(db, `users/${uid}`)); return { ok: true }; }
@@ -396,6 +407,13 @@ const api = {
   },
 };
 window.AllurusCloud = api;
+// Roles and areas for a template, as stored on an invite or a profile. An Owner has no list (every area).
+function access(template, update) {
+  const t = window.AllurusAccess?.TEMPLATES?.[template];
+  const roles = template === 'employee' ? ['employee'] : ['admin', 'employee'];
+  if (template !== 'employee' && t && template !== 'owner') return { roles, perms: t.perms.slice() };
+  return update ? { roles, perms: deleteField() } : { roles }; // no list: every area (Owner), or none (Employee)
+}
 
 // A returning visitor whose sign-in is still valid: reconnect to their workspace.
 let firstAuth = true;

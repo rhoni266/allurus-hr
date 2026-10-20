@@ -86,7 +86,7 @@ window.AllurusFinance = (function () {
   // ---------- Sample books for the demo company ----------
   function seed({ employees, payroll, customers, today: T }) {
     const r = U.rng(99);
-    const fin = blank({ auditorFirm: 'Tan & Partners Chartered Accountants', auditorName: 'Tan Mei Ling', auditorEmail: 'auditor@allurus.com' });
+    const fin = blank({ auditorFirm: 'Tan & Partners Chartered Accountants', auditorName: 'Tan Mei Ling', auditorEmail: 'meiling@tanpartners.com.my' });
     const cur = U.monthKey(T), first = U.addMonths(cur, -6);
     fin.openingCash = 180000; fin.openingDate = first + '-01';
     fin.budgets = { Payroll: 140000, 'Staff benefits': 1500, Rent: 4500, Utilities: 700, Software: 2000, Marketing: 5000, Travel: 1500, 'Professional fees': 1500, 'Office supplies': 400, 'Bank charges': 60 };

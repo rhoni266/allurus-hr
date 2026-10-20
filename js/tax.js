@@ -129,7 +129,7 @@ window.AllurusTax = (function () {
     const y = T.slice(0, 4), d = (md) => `${y}-${md}`;
     const mk = (date, desc, amount, cat, confirmed = false) => ({ id: U.uid('rl'), date, desc, amount, cat, confirmed });
     return {
-      'emp@allurus.com': [
+      'daniel.lim@serimaju.com.my': [
         mk(d('02-11'), 'Books from MPH and Kinokuniya', 186.5, 'REL_LIFESTYLE'),
         mk(d('03-04'), 'Smartphone, Samsung Galaxy', 2199, 'REL_LIFESTYLE'),
         mk(d('04-20'), 'Gym membership, 12 months', 720, 'REL_SPORTS'),
@@ -137,7 +137,7 @@ window.AllurusTax = (function () {
         mk(d('06-15'), 'AWS professional certification course fee', 1850, 'REL_EDUCATION_SKILLS'),
         mk(d('07-02'), 'Weekly groceries at Lotus', 214.3, ''),
       ].filter((x) => x.date <= T),
-      'admin@allurus.com': [
+      'aisyah.rahman@serimaju.com.my': [
         mk(d('01-18'), 'Laptop for personal use', 3299, 'REL_LIFESTYLE'),
         mk(d('03-09'), 'Medical check-up at KPJ', 650, 'REL_HEALTH_WELLBEING', true),
         mk(d('05-27'), 'Parents medical treatment, cataract surgery', 4200, 'REL_PARENTS_MEDICAL'),

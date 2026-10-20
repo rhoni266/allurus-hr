@@ -15,13 +15,30 @@
 (function (root) {
   'use strict';
 
-  // ---------- Access classes (kept in step with firestore.rules) ----------
-  const ADMIN_READ = ['payroll', 'payChanges', 'loans', 'insurance', 'savedReports'];
-  const ADMIN_WRITE = ['settings', 'departments', 'statutory', 'directory', 'cycles'];
-  const isAdminRead = (b) => ADMIN_READ.includes(b) || b === 'finance' || b.startsWith('finance.');
-  const isAdminWrite = (b) => isAdminRead(b) || ADMIN_WRITE.includes(b);
-  const readClass = (b) => (isAdminRead(b) ? 'a' : 'm');
-  const canWrite = (b, admin) => admin || !isAdminWrite(b);
+  // ---------- Access (kept in step with firestore.rules) ----------
+  // Who may read a bucket, in its field `r`: 'm' every member, 'a' any Company Admin, 'p' admins with the payroll
+  // area, 'f' admins with the finance area. Writing needs an admin with the bucket's area; other buckets are for
+  // every member (leave, claims, attendance…). `perms` is a person's list of areas; null means every area (Owner).
+  const PAYROLL = ['payroll', 'payChanges', 'loans', 'insurance'];
+  const ADMIN_ONLY = ['savedReports'];
+  const WRITE_AREA = { settings: 'settings', departments: 'people', directory: 'people', statutory: 'payroll', cycles: 'talent' };
+  const isFinance = (b) => b === 'finance' || b.startsWith('finance.');
+  const readClass = (b) => (PAYROLL.includes(b) ? 'p' : isFinance(b) ? 'f' : ADMIN_ONLY.includes(b) ? 'a' : 'm');
+  const has = (admin, perms, area) => !!admin && (!perms || perms.includes(area));
+  const writeArea = (b) => (PAYROLL.includes(b) ? 'payroll' : isFinance(b) ? 'finance' : WRITE_AREA[b] || (ADMIN_ONLY.includes(b) ? 'admin' : ''));
+  function canWrite(b, admin, perms) {
+    const a = writeArea(b);
+    if (!a) return true;
+    return a === 'admin' ? !!admin : has(admin, perms, a);
+  }
+  // The read classes a person may query.
+  const readable = (admin, perms) => ['m', ...(admin ? ['a'] : []), ...(has(admin, perms, 'payroll') ? ['p'] : []), ...(has(admin, perms, 'finance') ? ['f'] : [])];
+  // Full staff records (pay, bank, IC) are for admins with the people or payroll area; payslips for payroll.
+  const seesPeople = (admin, perms) => has(admin, perms, 'people') || has(admin, perms, 'payroll');
+  const seesPayroll = (admin, perms) => has(admin, perms, 'payroll');
+  // Kept for older callers: admin-only buckets are every class other than 'm'.
+  const isAdminRead = (b) => readClass(b) !== 'm';
+  const isAdminWrite = (b) => !!writeArea(b);
 
   // Keys stored outside the buckets, and keys whose children each get their own bucket.
   const SPECIAL = new Set(['employees', 'payroll', 'plans']);
@@ -237,7 +254,7 @@
   const docBytes = (f) => Object.keys(f).reduce((s, k) => s + k.length + (f[k] || '').length + 2, 0);
 
   root.AllurusCloudMap = {
-    ADMIN_READ, ADMIN_WRITE, isAdminRead, isAdminWrite, readClass, canWrite, DIRECTORY_FIELDS, SELF_FIELDS, MARK, BLOB_MAX,
+    PAYROLL, WRITE_AREA, isAdminRead, isAdminWrite, readClass, canWrite, writeArea, readable, seesPeople, seesPayroll, has, DIRECTORY_FIELDS, SELF_FIELDS, MARK, BLOB_MAX,
     stable, blobId, extract, restore, enc, dec, bucketsOf, applyBucket, arrayFrom, personFields, personFrom, directoryEntry, directoryFields, directoryFrom,
     employeesFor, payslipFields, payrollFrom, personalFields, applyPersonal, merge3, diff, sameFields, docBytes,
   };

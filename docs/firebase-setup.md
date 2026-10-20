@@ -38,21 +38,26 @@ These values only identify the project; they are not passwords. Who can read wha
 ## 3. First use
 
 1. Open the app and choose **Register company**. That makes you the Company Admin of a new workspace in the cloud, with the sample team if you tick it.
-2. **Settings → Team access**: invite people by their work email, one by one or **Invite all**. Pick **Company Admin** for anyone else in HR.
+2. **Settings → Team access**: invite people by their work email, one by one or **Invite all**. Pick a role for anyone else with HR, payroll or finance duties.
 3. Each person opens the app, chooses **First time here? Set up your account**, uses the invited email, opens the confirmation link Firebase emails them, and signs in.
 
-The demo accounts (`admin@allurus.com` and the others) do not exist in the cloud. To try the sample team, give a sample employee your own second email address on their profile, invite them, and sign in as them in another browser.
+The demo accounts (`aisyah.rahman@serimaju.com.my` and the others) do not exist in the cloud. To try the sample team, give a sample employee your own second email address on their profile, invite them, and sign in as them in another browser.
 
 ## Who sees what
 
-| Data | Company Admins | The employee | Colleagues |
-|---|---|---|---|
-| Their full record (salary, IC, bank, EPF, face reference) | Yes | Yes | No: name, role, team, contact details and phone registrations only |
-| Their payslips and EA form | Yes | Yes | No |
-| Payroll runs, finance, loans, insurance, pay changes | Yes | No | No |
-| Financial planner and tax reliefs | No | Yes | No |
-| Leave, attendance, claims, notifications, training, rooms | Yes | Yes | Yes |
-| Settings, departments, appraisal cycles | Change | Read | Read |
+Company Admins get a role template under **Settings → Team access**: Owner, HR admin, Payroll or Finance. The rules enforce it on Google's servers, not just in the app.
+
+| Data | Owner | HR admin | Payroll | Finance | The employee | Colleagues |
+|---|---|---|---|---|---|---|
+| Full staff records (salary, IC, bank, EPF, face) | Yes | Yes | Yes | No | Their own | No: directory card only |
+| Payslips and EA forms | Yes | Yes | Yes | Their own | Their own | No |
+| Payroll runs, pay changes, loans, insurance | Yes | Yes | Yes | No | No | No |
+| Books, invoices, bills, budget, tax | Yes | No | No | Yes | No | No |
+| Company settings and Team access | Yes | Yes | No | No | No | No |
+| Financial planner and tax reliefs | Their own | Their own | Their own | Their own | Their own | No |
+| Leave, attendance, claims, notifications, training, rooms | Yes | Yes | Yes | Yes | Yes | Yes |
+
+Nobody can give access they don't have: an HR admin can't make someone an Owner or give them Finance. Nobody changes their own access.
 
 Employees can change their own registered phones and face reference from their phone; HR changes everything else. Everyone in one company is invisible to every other company.
 

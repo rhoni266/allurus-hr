@@ -272,11 +272,12 @@ window.AllurusTime = (function () {
 
   // ---------- Requests: overtime, lateness waiver, correction ----------
   const isAway = (id) => onLeave(id, T());
+  // Nobody decides their own request, in any view; HR's override needs access to time and leave.
   function canActOn(q) {
-    if (q.status !== 'Pending') return '';
+    if (q.status !== 'Pending' || q.empId === actor()) return '';
     const step = LR.nextStep(q.chain);
     const as = step ? LR.canAct(step, actor(), isAway) : '';
-    return as || (ctx.role() === 'admin' ? 'override' : '');
+    return as || (ctx.role() === 'admin' && (window.AllurusAccess ? window.AllurusAccess.can('time') : true) ? 'override' : '');
   }
   const forMe = (empId) => reqs().filter((q) => q.status === 'Pending' && LR.canAct(LR.nextStep(q.chain), empId, isAway));
   const detailOf = (q) => (q.kind === 'ot' ? `${q.from}–${q.to} · ${hrs(q.minutes)}` : q.kind === 'correction' ? `${STATUS[q.s] || 'In office'}${q.in ? ` · in ${q.in}` : ''}${q.out ? ` · out ${q.out}` : ''}` : (() => { const e = ctx.emp(q.empId); const x = e ? dayInfo(e, q.date) : null; return x?.ev.lateRaw ? `${R.fmtDur(x.ev.lateRaw)} late` : 'Late'; })());
@@ -403,7 +404,7 @@ window.AllurusTime = (function () {
   function decide(id, approve) {
     const q = reqs().find((x) => x.id === id); if (!q) return;
     const as = canActOn(q);
-    if (!as) { ctx.toast('This request is waiting for someone else.', 'error'); return; }
+    if (!as) { ctx.toast(q.empId === actor() ? 'You can’t decide your own request. It goes to your approver.' : 'This request is waiting for someone else.', 'error'); return; }
     const note = ctx.$('#tm-note')?.value.trim() || '';
     if (!approve && ctx.$('#tm-note') && !note) { ctx.toast('Add a short note so they know why.', 'error'); ctx.$('#tm-note').focus(); return; }
     const chain = q.chain?.length ? q.chain : [{ level: 'Final', label: 'HR', approver: actor(), backup: '', status: 'pending' }];

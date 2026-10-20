@@ -36,13 +36,15 @@ window.AllurusLeave = (function () {
   const offOn = (day, filter = () => true, statuses = ['Approved']) => st().leaves.filter((l) => statuses.includes(l.status) && covers(l, day) && filter(l));
   const actor = () => (ctx.role() === 'admin' ? ctx.account()?.empId || 'e1' : ctx.me()?.id);
   const isAway = (empId) => onLeave(empId, T());
+  // Nobody decides their own request, in any view; HR's override needs access to time and leave.
+  const mayOverride = () => ctx.role() === 'admin' && (window.AllurusAccess ? window.AllurusAccess.can('time') : true);
   function canActOn(l) {
-    if (l.status !== 'Pending') return '';
+    if (l.status !== 'Pending' || l.empId === actor()) return '';
     const step = R.nextStep(l.chain);
-    if (!step) return ctx.role() === 'admin' ? 'override' : '';
+    if (!step) return mayOverride() ? 'override' : '';
     const as = R.canAct(step, actor(), isAway);
     if (as) return as;
-    return ctx.role() === 'admin' ? 'override' : '';
+    return mayOverride() ? 'override' : '';
   }
   function isApprover(empId) {
     if (!empId) return false;
@@ -253,7 +255,7 @@ window.AllurusLeave = (function () {
   function decide(id, approve) {
     const l = st().leaves.find((x) => x.id === id); if (!l) return;
     const as = canActOn(l);
-    if (!as) { ctx.toast('This request is waiting for someone else.', 'error'); return; }
+    if (!as) { ctx.toast(l.empId === actor() ? 'You can’t decide your own request. It goes to your approver.' : 'This request is waiting for someone else.', 'error'); return; }
     const note = ctx.$('#lv-note')?.value.trim() || '';
     if (!approve && ctx.$('#lv-note') && !note) { ctx.toast('Add a short note so they know why.', 'error'); ctx.$('#lv-note').focus(); return; }
     const chain = l.chain?.length ? l.chain : [{ level: 'Final', label: 'HR', approver: actor(), backup: '', status: 'pending' }];
