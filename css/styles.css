@@ -1554,3 +1554,7 @@ kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; 
 }
 @media (prefers-reduced-motion: reduce) { .careers-job, .lms-progress i { transition: none; } }
 @media print { .cert-frame { border-color: #B8914A; } }
+
+/* Statutory & Claim Guide: on small screens the notes move under the item name instead of a clipped column. */
+.guide-note-sm { display: none; margin-top: 6px; font-size: 12.5px; white-space: normal; }
+@media (max-width: 720px) { .guide-note-sm { display: block; } }

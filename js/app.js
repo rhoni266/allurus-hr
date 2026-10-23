@@ -419,6 +419,7 @@
     { id: 'claims', label: 'Claims', icon: 'receipt', group: 'Finance & Accounting' },
     { id: 'budget', label: 'Budget', icon: 'target', group: 'Finance & Accounting' },
     { id: 'tax', label: 'Tax (LHDN)', icon: 'percent', group: 'Finance & Accounting' },
+    { id: 'guide', label: 'Statutory & Claim Guide', icon: 'shield', group: 'Finance & Accounting' },
     { id: 'reports', label: 'Reports & audit', icon: 'shield', group: 'Finance & Accounting' },
     { id: 'recruitment', label: 'Recruitment', icon: 'briefcase', group: 'Talent' },
     { id: 'performance', label: 'Performance', icon: 'trend', group: 'Talent' },
@@ -2482,6 +2483,7 @@
   AllurusUX.install(moduleCtx);
   finApi = AllurusFinance.install(moduleCtx);
   AllurusTax.install(moduleCtx);
+  AllurusGuide.install(moduleCtx);
   claimsApi = AllurusClaims.install(moduleCtx);
   AllurusPlanner.install(moduleCtx);
   leaveApi = AllurusLeave.install(moduleCtx);
