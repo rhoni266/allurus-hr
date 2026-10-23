@@ -348,7 +348,7 @@
       return n;
     });
   }
-  const PAY_KEYS = ['gross', 'tax', 'benefits', 'net', 'epf', 'socso', 'eis', 'zakat', 'erEpf', 'erSocso', 'erEis', 'hrdf', 'erCost', 'claims', 'extras'];
+  const PAY_KEYS = ['gross', 'tax', 'cp38', 'benefits', 'net', 'epf', 'socso', 'eis', 'zakat', 'erEpf', 'erSocso', 'erEis', 'hrdf', 'erCost', 'claims', 'extras'];
   const payTotal = (run) => run.items.reduce((a, i) => { PAY_KEYS.forEach((k) => { a[k] = U.round2(a[k] + (i[k] || 0)); }); return a; }, Object.fromEntries(PAY_KEYS.map((k) => [k, 0])));
 
   // ---------- Routing ----------
@@ -785,6 +785,14 @@
       <div class="field"><label for="f-married">Marital status</label><select class="select" id="f-married" name="married">${opt([['no', 'Single'], ['yes', 'Married']], e.married ? 'yes' : 'no')}</select></div>
       <div class="field"><label for="f-birthday">Date of birth</label><input class="input" id="f-birthday" name="birthday" type="date" value="${esc(e.birthday)}"><span class="field-hint">Sets EPF, SOCSO and EIS rules from age 60.</span></div>
       ${state.settings.currency === 'MYR' ? `<div class="field"><label for="f-zakat">Zakat through payroll (RM a month)</label><input class="input num" id="f-zakat" name="zakat" type="number" min="0" step="1" value="${esc(e.zakat || 0)}"><span class="field-hint">Deducted from pay and offsets the PCB.</span></div>` : ''}
+      ${state.settings.currency === 'MYR' ? `
+      <div class="field"><label for="f-spouse">Spouse works?</label><select class="select" id="f-spouse" name="spouseWorking">${opt([['yes', 'Yes, or not applicable'], ['no', 'No, spouse has no income']], e.spouseWorking === false ? 'no' : 'yes')}</select><span class="field-hint">For married staff. Sets the PCB category.</span></div>
+      <div class="field"><label for="f-children">Qualifying children</label><input class="input num" id="f-children" name="children" type="number" min="0" step="1" value="${esc(e.children || 0)}"><span class="field-hint">RM2,000 PCB relief each. A disabled child or one in higher education counts as more than one (see LHDN's MTD specification).</span></div>
+      <div class="field"><label for="f-pr">Permanent resident?</label><select class="select" id="f-pr" name="pr">${opt([['no', 'No'], ['yes', 'Yes']], e.pr ? 'yes' : 'no')}</select><span class="field-hint">Non-Malaysian permanent residents follow the Malaysian EPF, SOCSO and EIS rules.</span></div>
+      <div class="field"><label for="f-taxres">Tax resident?</label><select class="select" id="f-taxres" name="taxResident">${opt([['yes', 'Yes'], ['no', 'No, flat 30% PCB']], e.taxResident === false ? 'no' : 'yes')}</select><span class="field-hint">Residents stay in Malaysia 182 days or more in the year.</span></div>
+      <div class="field"><label for="f-cp38">CP38 deduction (RM a month)</label><input class="input num" id="f-cp38" name="cp38Amount" type="number" min="0" step="1" value="${esc(e.cp38Amount || 0)}"><span class="field-hint">Extra amount LHDN orders you to deduct, on top of PCB.</span></div>
+      <div class="field"><label for="f-cp38-from">CP38 from</label><input class="input" id="f-cp38-from" name="cp38From" type="month" value="${esc(e.cp38From || '')}"></div>
+      <div class="field"><label for="f-cp38-to">CP38 until</label><input class="input" id="f-cp38-to" name="cp38To" type="month" value="${esc(e.cp38To || '')}"></div>` : ''}
       ${docsApi.employeeFields(e)}
       ${notifyApi.employeeFields(e)}
       <div class="field"><label for="f-status">Status</label><select class="select" id="f-status" name="status">${opt(['Active', 'Inactive'], e.status || 'Active')}</select></div>
@@ -798,6 +806,11 @@
         d.salary = Number(d.salary) || 0;
         d.married = d.married === 'yes';
         if ('zakat' in d) d.zakat = Math.max(0, Number(d.zakat) || 0);
+        if ('children' in d) {
+          d.children = Math.max(0, Math.floor(Number(d.children) || 0));
+          d.spouseWorking = d.spouseWorking !== 'no'; d.pr = d.pr === 'yes'; d.taxResident = d.taxResident !== 'no';
+          d.cp38Amount = Math.max(0, Number(d.cp38Amount) || 0);
+        }
         if (!docsApi.validateEmployee(d, $('#overlay-root form'))) return false;
         if (id) {
           const before = { ...emp(id) };
@@ -948,6 +961,29 @@
 
   // ----- Payroll -----
   const isMY = () => state.settings.currency === 'MYR' && U.statutory(state.settings).on;
+  // The year's pay so far for PCB (LHDN's Y, K, X and Z): taxable pay, EPF, PCB and zakat from earlier months of the
+  // same year, plus anything from a previous employer entered on the employee. Months of the year before this one
+  // that have no run (a company that started using Allurus part-way through the year) are filled in at the average
+  // of the months that exist; with no earlier run at all, returns undefined so earlier months are assumed paid the
+  // same. Enter opening figures on the employee (prevIncome, prevEpf, prevPcb) to be exact.
+  function payYtd(e, mk) {
+    const year = mk.slice(0, 4), month = +mk.slice(5, 7);
+    const acc = { y: 0, k: 0, x: 0, z: 0 };
+    let seen = 0;
+    Object.keys(state.payroll).filter((k) => k.startsWith(`${year}-`) && k < mk).forEach((k) => {
+      const i = (state.payroll[k].items || []).find((x) => x.empId === e.id);
+      if (!i) return;
+      seen += 1;
+      const taxableExtras = (i.extraLines || []).filter((l) => l.tax).reduce((s, l) => s + (Number(l.amount) || 0), 0);
+      acc.y += (i.base || 0) - (i.unpaid || 0) + (i.bonus || 0) + taxableExtras;
+      acc.k += i.epf || 0; acc.x += i.tax || 0; acc.z += i.zakat || 0;
+    });
+    const startMonth = e.start && e.start.startsWith(`${year}-`) ? +e.start.slice(5, 7) : 1;
+    const expected = Math.max(0, month - startMonth);
+    if (!seen) return expected > 0 && !(e.prevIncome || e.prevEpf || e.prevPcb) ? undefined : { ...acc, y: acc.y + (Number(e.prevIncome) || 0), k: acc.k + (Number(e.prevEpf) || 0), x: acc.x + (Number(e.prevPcb) || 0) };
+    if (seen < expected) { const f = (expected - seen) / seen; acc.y += acc.y * f; acc.k += acc.k * f; acc.x += acc.x * f; }
+    return { y: acc.y + (Number(e.prevIncome) || 0), k: acc.k + (Number(e.prevEpf) || 0), x: acc.x + (Number(e.prevPcb) || 0), z: acc.z };
+  }
   // One employee's line in a pay run: salary, overtime and allowances, statutory deductions and approved claims.
   function payItem(e0, bonus, mk) {
     // The salary in effect that month: an appraisal increment counts from its effective month.
@@ -958,7 +994,7 @@
     // claims: taxable categories go into gross pay (PCB), the rest are reimbursed on top of net pay.
     const cl = claimsApi?.enabled() ? claimsApi.forPayroll(e.id, mk) : null;
     const extra = [...(timeApi ? timeApi.forPayroll(e, mk) : []), ...(cl?.taxable ? [{ key: 'claims-taxable', label: `Taxable claims (${cl.taxableCats.join(', ')})`, amount: cl.taxable, epf: false, socso: false, tax: true, detail: 'Benefit reimbursed through payroll' }] : [])];
-    const it = { empId: e.id, ...U.payCalc(e.salary, bonus, state.settings, e, U.monthEnd(mk), { unpaid: up.amount, unpaidDays: up.days, extra }) };
+    const it = { empId: e.id, ...U.payCalc(e.salary, bonus, state.settings, e, U.monthEnd(mk), { unpaid: up.amount, unpaidDays: up.days, extra, ytd: payYtd(e, mk) }) };
     if (it.unpaid) it.unpaidDivisor = up.divisor;
     it.extraLines = extra;
     it.claimIds = cl ? cl.ids : [];
@@ -982,6 +1018,7 @@
       ['KWSP (EPF)', 'Employee and employer EPF', t.epf + t.erEpf, 'i-Akaun (Majikan)'],
       ['PERKESO (SOCSO and EIS)', 'Employee and employer SOCSO and EIS', t.socso + t.erSocso + t.eis + t.erEis, 'PERKESO ASSIST'],
       ['LHDN (PCB)', 'Monthly tax deductions', t.tax, 'e-PCB Plus'],
+      ...(t.cp38 ? [['LHDN (CP38)', 'Extra deductions LHDN ordered on top of PCB', t.cp38, 'e-PCB Plus']] : []),
       ...(t.zakat ? [['Zakat', 'Zakat deducted for your state zakat body', t.zakat, 'State zakat portal']] : []),
       ...(t.hrdf ? [['HRD Corp levy', 'Employer levy for training', t.hrdf, 'eTRiS']] : []),
     ] : [];

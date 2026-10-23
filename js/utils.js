@@ -39,7 +39,15 @@ window.U = (function () {
     return round2(Math.max(0, tax));
   }
   // Company defaults, editable in Settings. Rates follow KWSP, PERKESO and HRD Corp rules for Malaysian employees.
-  const STATUTORY = { on: true, epfEe: 11, epfEr: 13, epfErHigh: 12, socso: true, eis: true, pcb: 'lhdn', hrdf: 1 };
+  // Foreign workers (not citizens or permanent residents) pay EPF at 2% each from wages paid in October 2025; their
+  // SOCSO is employer-paid employment injury only (1.25%), and EIS does not cover them.
+  const STATUTORY = { on: true, epfEe: 11, epfEr: 13, epfErHigh: 12, epfForeignEe: 2, epfForeignEr: 2, socso: true, eis: true, pcb: 'lhdn', hrdf: 1 };
+  const isForeignWorker = (e) => !!(e && e.nationality && !/^malaysia/i.test(String(e.nationality).trim()) && !e.pr);
+  // CP38: a notice from LHDN to deduct an extra amount each month, on top of PCB, for a set period.
+  const cp38For = (e, day) => {
+    const amt = Math.max(0, Number(e?.cp38Amount) || 0), mk = String(day).slice(0, 7);
+    return amt && (!e.cp38From || mk >= e.cp38From) && (!e.cp38To || mk <= e.cp38To) ? round2(amt) : 0;
+  };
   const statutory = (settings) => ({ ...STATUTORY, ...(settings.statutory || {}) });
   const ageOn = (birthday, day) => {
     if (!birthday || !/^\d{4}-/.test(birthday)) return 30;
@@ -49,14 +57,69 @@ window.U = (function () {
   // SOCSO and EIS use RM100 wage bands up to the RM6,000 ceiling; contributions are worked out on the band's midpoint.
   const bandWage = (w) => (w <= 0 ? 0 : w > 5900 ? 5950 : Math.floor((w - 0.01) / 100) * 100 + 50);
   const sen5 = (n) => Math.ceil(round2(n) * 20) / 20;
-  // PCB estimate: yearly tax on the annualised salary (self relief RM9,000, EPF relief up to RM4,000),
-  // plus the extra tax caused by any bonus, rounded up to 5 sen. Below RM10 nothing is deducted.
-  function mtd(base, bonus, epfMonth, epfBonus) {
-    const yearly = (inc, epf) => residentTax(Math.max(0, inc - Math.min(epf, 4000) - 9000));
-    const normal = yearly(base * 12, epfMonth * 12) / 12;
-    const extra = bonus ? yearly(base * 12 + bonus, epfMonth * 12 + epfBonus) - yearly(base * 12, epfMonth * 12) : 0;
-    const t = Math.ceil((normal + extra) * 20) / 20;
-    return t < 10 ? 0 : round2(t);
+  // ---------- PCB / MTD: LHDN computerised calculation method ----------
+  // Follows LHDN's "Specification for Monthly Tax Deduction (MTD) Computerised Calculation" for 2026 (hasil.gov.my),
+  // normal remuneration formula (unchanged from 2025) and the additional remuneration (bonus) method:
+  //   MTD = [(P - M) x R + B - (Z + X)] / (n + 1),  P = chargeable income for the year.
+  // Table 1: [upper limit of P, M, R %, B for category 1 and 3, B for category 2].
+  // Not covered yet: disabled person/spouse reliefs, benefits in kind and living accommodation, and
+  // multiple-employer or arrears cases. Check these cases with LHDN's own MTD calculator before relying on them.
+  const MTD_TABLE = [
+    [20000, 5000, 1, -400, -800], [35000, 20000, 3, -250, -650], [50000, 35000, 6, 600, 600], [70000, 50000, 11, 1500, 1500],
+    [100000, 70000, 19, 3700, 3700], [400000, 100000, 25, 9400, 9400], [600000, 400000, 26, 84400, 84400],
+    [2000000, 600000, 28, 136400, 136400], [Infinity, 2000000, 30, 528400, 528400],
+  ];
+  const EPF_RELIEF_CAP = 4000; // yearly cap on EPF and approved-scheme relief
+  const mtdTax = (P, cat) => {
+    if (!(P > 5000)) return 0;
+    const r = MTD_TABLE.find((x) => P <= x[0]);
+    return Math.max(0, ((P - r[1]) * r[2]) / 100 + (cat === 2 ? r[4] : r[3]));
+  };
+  const trunc2 = (v) => Math.floor(v * 100 + 1e-7) / 100; // LHDN truncates to 2 decimals
+  const up5 = (v) => Math.ceil(v * 20 - 1e-9) / 20; // then rounds up to the next 5 sen
+  // Tax category: 1 single, 2 married with a spouse who does not work, 3 married with a working spouse or
+  // divorced / widowed / single with children.
+  function mtdCategory(e) {
+    const kids = Math.max(0, Math.floor(Number(e?.children) || 0));
+    if (e?.married) return e.spouseWorking === false ? 2 : 3;
+    return kids > 0 ? 3 : 1;
+  }
+  // P for the year as seen from `month` (1 to 12): accumulated pay so far, this month's pay repeated for the
+  // remaining n months, and any additional remuneration (yt - kt). Returns the pieces so bonus can reuse them.
+  function mtdBase({ month, acc, y1, k1, cat, reliefs, yt = 0, kt = 0 }) {
+    const n = 12 - month, kAcc = Math.min(acc.k, EPF_RELIEF_CAP);
+    const k1c = Math.min(k1, Math.max(0, EPF_RELIEF_CAP - kAcc));
+    const ktc = Math.min(kt, Math.max(0, EPF_RELIEF_CAP - kAcc - k1c));
+    const k2 = n ? Math.max(0, Math.min((EPF_RELIEF_CAP - (kAcc + k1c + ktc)) / n, k1)) : 0;
+    const P = (acc.y - kAcc) + (y1 - k1c) + (n ? (y1 - k2) * n : 0) + (yt - ktc) - reliefs;
+    return { P, n, tax: mtdTax(P, cat), k1c, ktc };
+  }
+  // opts: month, y1 (normal pay this month), k1 (EPF on it), bonus, kBonus (EPF on the bonus), cat, children,
+  // relief (yearly TP1 reliefs), ytd { y, k, x, z } (accumulated pay, EPF, MTD paid and zakat paid before this
+  // month, including any earlier employer). Without ytd the earlier months are assumed to be paid the same.
+  // Returns the MTD before zakat, rounded up to 5 sen, with the RM10 minimum applied.
+  function mtdOfficial(o) {
+    const { month, y1, k1, bonus = 0, kBonus = 0, cat = 1, children = 0, relief = 0 } = o;
+    const reliefs = 9000 + (cat === 2 ? 4000 : 0) + 2000 * Math.max(0, Math.floor(children)) + Math.max(0, relief);
+    let acc = o.ytd ? { y: 0, k: 0, x: 0, z: 0, ...o.ytd } : { y: 0, k: 0, x: 0, z: 0 };
+    if (!o.ytd) {
+      for (let m = 1; m < month; m++) {
+        const c = mtdBase({ month: m, acc, y1, k1, cat, reliefs });
+        const raw = (c.tax - (acc.z + acc.x)) / (c.n + 1);
+        const paid = raw < 10 ? 0 : up5(trunc2(raw));
+        acc = { y: acc.y + y1, k: acc.k + c.k1c, x: acc.x + paid, z: acc.z };
+      }
+    }
+    const c = mtdBase({ month, acc, y1, k1, cat, reliefs });
+    const raw = (c.tax - (acc.z + acc.x)) / (c.n + 1);
+    const normal = raw < 10 ? 0 : trunc2(raw);
+    let extra = 0;
+    if (bonus > 0) {
+      const w = mtdBase({ month, acc, y1, k1, cat, reliefs, yt: bonus, kt: kBonus });
+      extra = Math.max(0, trunc2(w.tax - c.tax));
+    }
+    const total = normal + extra;
+    return total < 10 && !extra ? 0 : up5(total);
   }
   // Monthly payslip from an annual salary. `e` (the employee) gives the age and zakat; `day` is the pay date.
   // opts.unpaid is the unpaid-leave deduction for the month (from the leave rules); it comes off basic pay
@@ -81,28 +144,38 @@ window.U = (function () {
       const benefits = round2(gross * settings.benefitsRate / 100);
       return { base: fullBase, unpaid, unpaidDays, bonus, extras, gross, tax, benefits, epf: 0, socso: 0, eis: 0, zakat: 0, erEpf: 0, erSocso: 0, erEis: 0, hrdf: 0, erCost: 0, net: round2(gross - tax - benefits) };
     }
+    const foreign = isForeignWorker(e);
     const senior = ageOn(e?.birthday, day) >= 60;
-    // EPF is rounded up to the next ringgit. From 60, employees stop contributing and employers pay 4%.
-    const epfOf = (w) => (senior ? 0 : Math.ceil((w * st.epfEe) / 100));
+    // EPF is rounded up to the next ringgit. Citizens and permanent residents: from 60, employees stop contributing
+    // and employers pay 4%. Foreign workers pay 2% each at any age (domestic workers are exempt).
+    const noEpf = foreign && !!e.domesticWorker;
+    const epfOf = (w) => (noEpf || (senior && !foreign) ? 0 : Math.ceil((w * (foreign ? st.epfForeignEe : st.epfEe)) / 100));
     const epfWage = round2(base + bonus + exEpf);
     const epf = epfOf(epfWage);
-    const erEpf = Math.ceil((epfWage * (senior ? 4 : epfWage <= 5000 ? st.epfEr : st.epfErHigh)) / 100);
+    const erEpf = noEpf ? 0 : foreign ? Math.ceil((epfWage * st.epfForeignEr) / 100) : Math.ceil((epfWage * (senior ? 4 : epfWage <= 5000 ? st.epfEr : st.epfErHigh)) / 100);
     const bw = bandWage(round2(base + bonus + exSocso));
     // SOCSO: employment injury plus invalidity (1.75% employer, 0.5% employee); from 60 only injury, paid by the employer (1.25%).
-    const socso = st.socso && !senior ? sen5(bw * 0.005) : 0;
-    const erSocso = st.socso ? sen5(bw * (senior ? 0.0125 : 0.0175)) : 0;
-    // EIS: 0.2% each, for employees aged 18 to 60.
-    const eis = st.eis && !senior ? sen5(bw * 0.002) : 0;
+    // Foreign workers: injury only, 1.25% paid by the employer.
+    const socso = st.socso && !senior && !foreign ? sen5(bw * 0.005) : 0;
+    const erSocso = st.socso ? sen5(bw * (senior || foreign ? 0.0125 : 0.0175)) : 0;
+    // EIS: 0.2% each, for Malaysian and permanent resident employees aged 18 to 60.
+    const eis = st.eis && !senior && !foreign ? sen5(bw * 0.002) : 0;
     const erEis = eis;
     const zakat = round2(Number(e?.zakat) || 0);
     const taxBase = round2(base + exTax), epfMonth = epfOf(round2(base + exEpf));
-    const pcbRaw = st.pcb === 'flat' ? round2(((taxBase + bonus) * settings.taxRate) / 100) : mtd(taxBase, bonus, epfMonth, epf - epfMonth);
+    // PCB: LHDN's computerised method with this employee's category, children and the year's pay so far (opts.ytd).
+    // A non-resident (e.taxResident === false) pays a flat 30%. 'flat' in Settings keeps the simple percentage.
+    const month = +String(day).slice(5, 7) || 1;
+    const pcbRaw = st.pcb === 'flat' ? round2(((taxBase + bonus) * settings.taxRate) / 100)
+      : e?.taxResident === false ? up5(trunc2((taxBase + bonus) * 0.3))
+      : mtdOfficial({ month, y1: taxBase, k1: epfMonth, bonus, kBonus: epf - epfMonth, cat: mtdCategory(e), children: e?.children, relief: e?.optionalRelief, ytd: opts.ytd });
     // Zakat paid through payroll reduces the tax deduction ringgit for ringgit.
     const tax = round2(Math.max(0, pcbRaw - zakat));
+    const cp38 = cp38For(e, day);
     // HRD Corp levy is on basic pay, paid by the employer only.
     const hrdf = round2((base * (Number(st.hrdf) || 0)) / 100);
     const benefits = round2(epf + socso + eis);
-    return { base: fullBase, unpaid, unpaidDays, bonus, extras, gross, epfWage, socsoWage: round2(base + bonus + exSocso), tax, benefits, epf, socso, eis, zakat, erEpf, erSocso, erEis, hrdf, erCost: round2(erEpf + erSocso + erEis + hrdf), net: round2(gross - tax - benefits - zakat) };
+    return { base: fullBase, unpaid, unpaidDays, bonus, extras, gross, epfWage, socsoWage: round2(base + bonus + exSocso), tax, cp38, benefits, epf, socso, eis, zakat, erEpf, erSocso, erEis, hrdf, erCost: round2(erEpf + erSocso + erEis + hrdf), net: round2(gross - tax - benefits - zakat - cp38) };
   };
   // City table for office locations, the platform map and the time-zone fallback for check-in.
   const CITIES = [
@@ -268,5 +341,5 @@ window.U = (function () {
     } catch (e) { return sha256js(msg); }
   }
 
-  return { parseCoords, parseCoordsDetailed, hasCoords, distanceM, resolveZone, applyPublishedZone, checkZone, GPS_SLACK_M, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, pad, iso, parse, today, addDays, isWeekend, setWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
+  return { parseCoords, parseCoordsDetailed, hasCoords, distanceM, resolveZone, applyPublishedZone, checkZone, GPS_SLACK_M, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, pad, iso, parse, today, addDays, isWeekend, setWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, mtdOfficial, mtdTax, mtdCategory, isForeignWorker, cp38For, statutory, STATUTORY, ageOn };
 })();

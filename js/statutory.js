@@ -80,7 +80,7 @@ window.AllurusStatutory = (function () {
     if (it.bonus) earnings.push({ label: it.bonusNote ? `Bonus (${it.bonusNote})` : 'Bonus', amount: r2(it.bonus) });
     const statutory = it.epf != null && (it.epf || it.socso || it.eis || it.erEpf);
     const deductions = statutory
-      ? [['EPF (KWSP), employee', it.epf], ['SOCSO (PERKESO), employee', it.socso], ['EIS, employee', it.eis], ['Income tax (PCB)', it.tax], ['Zakat', it.zakat]].filter(([, v]) => v).map(([label, amount]) => ({ label, amount: r2(amount) }))
+      ? [['EPF (KWSP), employee', it.epf], ['SOCSO (PERKESO), employee', it.socso], ['EIS, employee', it.eis], ['Income tax (PCB)', it.tax], ['CP38 (LHDN instalment)', it.cp38], ['Zakat', it.zakat]].filter(([, v]) => v).map(([label, amount]) => ({ label, amount: r2(amount) }))
       : [['Income tax', it.tax], ['Benefits', it.benefits]].filter(([, v]) => v).map(([label, amount]) => ({ label, amount: r2(amount) }));
     const reimbursements = it.claims ? [{ label: 'Claims reimbursed (not taxed)', amount: r2(it.claims) }] : [];
     const employer = statutory ? [['EPF, employer', it.erEpf], ['SOCSO, employer', it.erSocso], ['EIS, employer', it.erEis]].filter(([, v]) => v).map(([label, amount]) => ({ label, amount: r2(amount) })) : [];
@@ -127,17 +127,17 @@ window.AllurusStatutory = (function () {
     });
   }
   // FORMAT: verify against the LHDN e-PCB Plus / CP39 data specification (hasil.gov.my) before production.
-  // CP38 (instalments LHDN orders on top of PCB) is not tracked yet and is always 0 here.
+  // CP38 (extra amounts LHDN orders on top of PCB) comes from the employee's CP38 notice set up on their profile.
   function pcbFile(run, { month, employees, employer = {} }) {
     const list = people(run, employees);
-    const rows = list.map(({ it, e }) => ({ empId: e.id, pcb: r2(it.tax), cp38: 0, zakat: r2(it.zakat || 0),
-      cells: [e.taxNo || '', idOf(e), fullName(e).toUpperCase(), r2(it.tax), 0, r2(it.zakat || 0)] }));
-    const totals = { pcb: sum(rows, (r) => r.pcb), cp38: 0, zakat: sum(rows, (r) => r.zakat) };
+    const rows = list.map(({ it, e }) => ({ empId: e.id, pcb: r2(it.tax), cp38: r2(it.cp38 || 0), zakat: r2(it.zakat || 0),
+      cells: [e.taxNo || '', idOf(e), fullName(e).toUpperCase(), r2(it.tax), r2(it.cp38 || 0), r2(it.zakat || 0)] }));
+    const totals = { pcb: sum(rows, (r) => r.pcb), cp38: sum(rows, (r) => r.cp38), zakat: sum(rows, (r) => r.zakat) };
     return file({
       filename: `lhdn-pcb-cp39-${month}.csv`,
       header: ['Income tax no', 'IC / passport no', 'Name', 'PCB (RM)', 'CP38 (RM)', 'Zakat deducted (RM)'],
       rows, totals: ['TOTAL', '', `${rows.length} employees`, totals.pcb, totals.cp38, totals.zakat],
-      issues: [...missing(list.filter(({ it }) => it.tax > 0), 'taxNo', 'income tax number'), ...missing(list, 'ic', 'IC or passport number')],
+      issues: [...missing(list.filter(({ it }) => it.tax > 0 || it.cp38 > 0), 'taxNo', 'income tax number'), ...missing(list, 'ic', 'IC or passport number')],
       meta: { authority: 'LHDN', employerNo: employer.lhdnNo || '', month, sums: totals },
     });
   }
@@ -202,7 +202,7 @@ window.AllurusStatutory = (function () {
       employee: { name: fullName(emp), id: idOf(emp), taxNo: emp.taxNo || '', epfNo: emp.epfNo || '', socsoNo: emp.socsoNo || idOf(emp), role: emp.role || '', start: emp.start || '', end: emp.endDate || '', married: !!emp.married },
       income: { salary, bonus, allowances, total },
       exempt: { allowances: exemptAllowances, medical },
-      deductions: { pcb: sum(items, (it) => it.tax), zakat: sum(items, (it) => it.zakat || 0), cp38: 0 },
+      deductions: { pcb: sum(items, (it) => it.tax), zakat: sum(items, (it) => it.zakat || 0), cp38: sum(items, (it) => it.cp38 || 0) },
       contributions: { epf: sum(items, (it) => it.epf || 0), socso: sum(items, (it) => it.socso || 0), eis: sum(items, (it) => it.eis || 0) },
       gross: sum(items, (it) => it.gross),
     };
@@ -221,7 +221,7 @@ window.AllurusStatutory = (function () {
     return file({
       filename: `lhdn-cp8d-${year}.csv`,
       header: ['Name', 'Income tax no', 'IC / passport no', 'Gross remuneration (RM)', 'Benefits in kind (RM)', 'Living accommodation (RM)', 'Exempt allowances and perquisites (RM)', 'EPF employee (RM)', 'Zakat (RM)', 'PCB (RM)', 'CP38 (RM)'],
-      rows, totals: ['TOTAL', '', `${rows.length} employees`, totals.income, 0, 0, sum(list, (x) => x.ea.exempt.allowances + x.ea.exempt.medical), sum(list, (x) => x.ea.contributions.epf), sum(list, (x) => x.ea.deductions.zakat), totals.pcb, 0],
+      rows, totals: ['TOTAL', '', `${rows.length} employees`, totals.income, 0, 0, sum(list, (x) => x.ea.exempt.allowances + x.ea.exempt.medical), sum(list, (x) => x.ea.contributions.epf), sum(list, (x) => x.ea.deductions.zakat), totals.pcb, sum(list, (x) => x.ea.deductions.cp38)],
       issues: [...list.filter(({ e }) => !e.taxNo).map(({ e }) => ({ empId: e.id, name: fullName(e), msg: 'No income tax number' }))],
       meta: { year, employerNo: employer.lhdnNo || '', sums: totals },
     });
