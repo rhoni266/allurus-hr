@@ -41,17 +41,36 @@ test('every workspace key except the private ones survives the round trip', () =
   });
 });
 
-test('payroll, finance and loans are admin-only; leave and attendance are for every member', () => {
+test('payroll and loans need the payroll area, the books the finance area; leave and attendance are for every member', () => {
   const { docs } = roundTrip(seed());
   assert.equal(docs.leaves.r, 'm');
-  assert.equal(docs['finance.invoices'].r, 'a');
-  assert.equal(docs.finance.r, 'a');
-  assert.equal(docs.loans.r, 'a');
+  assert.equal(docs['finance.invoices'].r, 'f');
+  assert.equal(docs.finance.r, 'f');
+  assert.equal(docs.loans.r, 'p');
+  assert.equal(docs.payChanges.r, 'p');
   assert.ok(Object.keys(docs).some((id) => id.startsWith('attendance~') && docs[id].r === 'm'));
-  assert.equal(docs.payroll, undefined, 'raw payroll goes to its own bucket only via the admin path');
-  assert.equal(M.canWrite('settings', false), false);
-  assert.equal(M.canWrite('leaves', false), true);
-  assert.equal(M.canWrite('settings', true), true);
+  assert.equal(docs.payroll, undefined, 'raw payroll goes to its own bucket only via the payroll path');
+  assert.equal(M.canWrite('settings', false, null), false);
+  assert.equal(M.canWrite('leaves', false, null), true);
+  assert.equal(M.canWrite('settings', true, null), true, 'an Owner (no perms list) may change settings');
+});
+
+test('role templates: each admin reads and writes only their areas', () => {
+  const HR = ['people', 'time', 'payroll', 'claims', 'talent', 'settings'], FIN = ['finance', 'claims'], PAY = ['people', 'time', 'payroll', 'claims'];
+  const r = (admin, perms) => plain(M.readable(admin, perms)).sort().join(',');
+  assert.equal(r(true, null), 'a,f,m,p', 'Owner');
+  assert.equal(r(true, HR), 'a,m,p', 'HR admin: no books');
+  assert.equal(r(true, FIN), 'a,f,m', 'Finance: no payroll');
+  assert.equal(r(false, null), 'm', 'Employee');
+  assert.equal(M.canWrite('finance.invoices', true, HR), false);
+  assert.equal(M.canWrite('finance.invoices', true, FIN), true);
+  assert.equal(M.canWrite('payChanges', true, FIN), false);
+  assert.equal(M.canWrite('settings', true, PAY), false, 'payroll staff can’t change company settings');
+  assert.equal(M.canWrite('statutory', true, PAY), true);
+  assert.equal(M.seesPeople(true, FIN), false, 'Finance sees directory cards, not salaries');
+  assert.equal(M.seesPeople(true, PAY), true);
+  assert.equal(M.seesPayroll(true, HR), true);
+  assert.equal(M.seesPayroll(true, FIN), false);
 });
 
 test('no document comes near the 1 MiB limit', () => {
@@ -167,9 +186,9 @@ test('a payslip document holds only that person’s lines', () => {
 
 test('personal plans and reliefs round-trip for their owner only', () => {
   const ws = seed();
-  const f = M.personalFields(ws, 'e2', 'emp@allurus.com');
-  const out = {}; M.applyPersonal(out, f, 'e2', 'emp@allurus.com');
+  const f = M.personalFields(ws, 'e2', 'daniel.lim@serimaju.com.my');
+  const out = {}; M.applyPersonal(out, f, 'e2', 'daniel.lim@serimaju.com.my');
   assert.deepEqual(out.plans.e2, ws.plans.e2);
-  assert.deepEqual(out.reliefs['emp@allurus.com'], ws.reliefs['emp@allurus.com']);
-  assert.equal(out.reliefs['admin@allurus.com'], undefined);
+  assert.deepEqual(out.reliefs['daniel.lim@serimaju.com.my'], ws.reliefs['daniel.lim@serimaju.com.my']);
+  assert.equal(out.reliefs['aisyah.rahman@serimaju.com.my'], undefined);
 });

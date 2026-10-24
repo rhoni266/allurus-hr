@@ -6,13 +6,19 @@ Open **https://rhoni266.github.io/allurus-hr/?demo** (the `?demo` matters). Eith
 
 These accounts exist only in the demo. Everything stays in the browser you use, so clients can't see each other's changes, and the password does not work in the real cloud sign-in. To start fresh, sign in as HR admin and use **Settings → Reset demo workspace**.
 
-| Role | Email | Person | Show |
+Everyone signs in with their **work email**. One login per person: people with an HR role also have the employee app, and switch between the two from the menu under their name. On a computer they start in their console; on a phone, in the employee app.
+
+| Login | Person | Role | Show |
 |---|---|---|---|
-| HR admin | `admin@allurus.com` | Aisyah Rahman, Head of People | Dashboard, employees, schedule, leave, claims, payroll, finance, hiring, appraisals, reports, settings |
-| Manager | `manager@allurus.com` | Arjun Pillai, Engineering Manager | Approvals for his team, team leave calendar, his own payslips |
-| Employee | `emp@allurus.com` | Daniel Lim, Senior Software Engineer | Selfie check-in, leave request, payslips and EA form, claims with receipt scan, tax reliefs, financial planner |
-| Auditor | `auditor@allurus.com` | Tan Mei Ling, Tan & Partners | Monthly reports to verify, tax deductions, books |
-| Platform owner | `superadmin@allurus.com` | You, the Allurus owner | Every subscribed company on a map, MRR and ARR, plans and billing; also opens any role through the view switcher |
+| `aisyah.rahman@serimaju.com.my` | Aisyah Rahman, Head of People | HR admin + employee | Dashboard, staff, schedule, leave, claims, payroll, hiring, appraisals, settings and Team access. No books. |
+| `grace.ng@serimaju.com.my` | Grace Ng, Finance Manager | Finance + employee | Books, invoices, bills, budget, tax, audit and claims. No staff records or payroll detail. |
+| `nurul.aina@serimaju.com.my` | Nurul Aina, Payroll Executive | Payroll + employee | Staff records, attendance, payroll, statutory files, project costing. No books, hiring or settings. |
+| `arjun.pillai@serimaju.com.my` | Arjun Pillai, Engineering Manager | Employee (approver) | Approvals for his team, team leave calendar. A manager needs no role: being an approver is enough. |
+| `daniel.lim@serimaju.com.my` | Daniel Lim, Senior Software Engineer | Employee | Selfie check-in, leave request, payslips and EA form, claims with receipt scan, tax reliefs, financial planner |
+| `meiling@tanpartners.com.my` | Tan Mei Ling, Tan & Partners | External auditor | Monthly reports to verify, tax deductions, books |
+| `superadmin@allurus.com` | You, the Allurus owner | Platform owner | Every subscribed company on a map, MRR and ARR, plans and billing; also opens any view |
+
+Nobody approves their own request: when Aisyah applies for leave, her step is skipped and it goes to her backup, Hidayah.
 
 ## A 10-minute walkthrough
 

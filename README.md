@@ -16,12 +16,19 @@ Open the app with `?demo` (for example `https://rhoni266.github.io/allurus-hr/?d
 
 Everyone signs in with email and password. The sidebar's view picker shows only the views an account is allowed to use.
 
-| Account | Views |
+| Account | Role |
 |---|---|
-| `superadmin@allurus.com` | Super Admin, Company Admin, Employee, Auditor |
-| `admin@allurus.com` | Company Admin, Employee |
-| `emp@allurus.com` | Employee |
-| `auditor@allurus.com` | Auditor (external accounting firm, read-only books, verifies reports) |
+| `superadmin@allurus.com` | Platform owner: Super Admin, plus every company view |
+| `aisyah.rahman@serimaju.com.my` | HR admin and employee |
+| `grace.ng@serimaju.com.my` | Finance and employee |
+| `nurul.aina@serimaju.com.my` | Payroll and employee |
+| `arjun.pillai@serimaju.com.my` | Employee who approves his team (manager) |
+| `daniel.lim@serimaju.com.my` | Employee |
+| `meiling@tanpartners.com.my` | Auditor (external accounting firm, read-only books, verifies reports) |
+
+### Roles
+
+One login per person, by work email. Everyone has the employee app. A **role template** adds parts of the company console: **Owner** (everything, including the books and who has access), **HR admin** (people, time, payroll, claims, hiring, settings; sees salaries), **Payroll** (staff records, time, payroll, claims) or **Finance** (the books and claims; no staff records or payroll detail). Managers need no role: being an approver in the leave settings gives them Approvals. People with a role start in their console on a computer and in the employee app on a phone, and switch from the menu under their name. Nobody can approve their own request, and in the cloud nobody can give access they don't have themselves. The founder who registers a company is its Owner.
 
 The demo password and a walkthrough for each role are in [`docs/demo-accounts.md`](docs/demo-accounts.md). Change it under **Settings → Your account**. Companies that register create their own admin account, and that account gets the Company Admin and Employee views.
 
