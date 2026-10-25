@@ -622,6 +622,9 @@ window.AllurusOps = (function () {
     return bits.length ? `<div class="card ops-home"><div class="ci-actions" style="justify-content:flex-start;flex-wrap:wrap">${bits.join('')}</div></div>` : '';
   }
 
+  // On the factory floor, reporting a breakdown sits next to Request time off.
+  const heroAction = () => (has() && ctx.role() === 'employee' && isFloor(ctx.me()) ? `<button class="btn" data-act="ops-bd-new">${icon('sliders')}Report a breakdown</button>` : '');
+
   // ---------- Insights, reminders, badges ----------
   function insights() {
     if (!has()) return [];
@@ -724,7 +727,7 @@ window.AllurusOps = (function () {
         ctx.commit('Expiry date updated');
       },
     });
-    return { has, insights, expiringItems, badge, routeAllowed, landing, homeCard, levels, openInvoices, sold30, myDOs, technicians, ui };
+    return { has, insights, expiringItems, badge, routeAllowed, landing, homeCard, heroAction, levels, openInvoices, sold30, myDOs, technicians, ui };
   }
   return { install };
 })();

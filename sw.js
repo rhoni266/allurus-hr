@@ -2,7 +2,7 @@
 // Pages are fetched from the network first (falling back to the saved copy offline); scripts, styles, images and
 // the face-check models are served from the saved copy and refreshed in the background. Check-ins taken offline
 // wait in the app's outbox (js/kiosk.js) and sync when the phone is back online.
-const CACHE = 'allurus-v3.2';
+const CACHE = 'allurus-v3.3';
 const SHELL = ['./', 'index.html', 'assets/logo-mark.svg'];
 
 self.addEventListener('install', (ev) => {

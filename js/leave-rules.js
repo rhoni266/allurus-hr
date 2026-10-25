@@ -28,7 +28,7 @@
     ['Sarawak', 'sat-sun'], ['Selangor', 'sat-sun'], ['Terengganu', 'fri-sat'], ['Kuala Lumpur', 'sat-sun'], ['Labuan', 'sat-sun'], ['Putrajaya', 'sat-sun'],
   ].map(([name, weekend]) => ({ name, weekend }));
   const stateWeekend = (state) => STATES.find((s) => s.name === state)?.weekend || 'sat-sun';
-  const CITY_STATE = { Kuantan: 'Pahang', 'Kuala Lumpur': 'Kuala Lumpur' };
+  const CITY_STATE = { Kuantan: 'Pahang', 'Kuala Lumpur': 'Kuala Lumpur', Muar: 'Johor' };
   const weekendDays = (cfg) => WEEKENDS[cfg?.weekend] || WEEKENDS['sat-sun'];
 
   // ---------- Public holidays ----------

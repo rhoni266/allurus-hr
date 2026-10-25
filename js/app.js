@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.2';
+  const APP_VERSION = '3.3';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -1622,7 +1622,7 @@
       { id: 'today', title: 'Today', span: 12, fixed: true, render: () => hero({
         title: birthday ? `Happy birthday, ${esc(e.first)}!` : greeting(e.first),
         sub: `${esc(e.role)} · ${esc(dept(e.dept)?.name || '')}. ${birthday ? 'Everyone at ' + esc(state.settings.company) + ' wishes you a great day.' : dayNote()}`,
-        actions: `<button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button>`,
+        actions: `<button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button>${opsApi?.heroAction() || ''}`,
         side: `<div class="clock-box"><div class="kpi-label">${icon('clock')}Time clock</div><div class="kpi-value clock-time" id="live-clock">${nowHM()}</div>${clock}<div class="kpi-foot">${U.isWeekend(T) ? 'It’s the weekend. Check-ins still count. ' : ''}${isField(me()) ? 'Field staff: check in from anywhere, with a selfie.' : `Within ${zone().radius} m of ${esc(zone().label)}, with a selfie.`}${phoneStatus(me()) ? ` ${phoneStatus(me())}` : ''}${timeApi.todayShift(e) ? `<div class="clock-shift">${esc(timeApi.todayShift(e))}</div>` : ''}${kioskApi.syncBanner(e.id)}${kioskApi.isSupervisor(e) ? `<button class="btn btn-sm" data-act="sv-open" style="margin-top:10px">${icon('people')}Check in a team member</button>` : ''}</div></div>`,
         focus: focus.filter((f) => f.action.act !== 'check-in'), calm: 'Nothing needs you right now. Have a good day.' }) },
       { id: 'setup', title: 'Getting started', span: 12, fixed: true, render: () => AllurusUX.setupCard() },
