@@ -577,7 +577,7 @@ window.AllurusLeave = (function () {
       },
     });
     return {
-      typeOf, typeName, balance, onLeave, offOn, isApprover, forMe, pendingCount: () => st().leaves.filter((l) => l.status === 'Pending').length,
+      readAttachment, typeOf, typeName, balance, onLeave, offOn, isApprover, forMe, pendingCount: () => st().leaves.filter((l) => l.status === 'Pending').length,
       myCount: (empId) => forMe(empId).length, whoOffCard, insights, settingsCards, bindSettings, myDepts,
       // Approved unpaid leave in a pay month, and what it costs: basic ÷ divisor × days.
       unpaidFor(empId, mk, base) {
