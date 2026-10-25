@@ -7,7 +7,12 @@
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
   const CLOUD_ON = !!(window.ALLURUS_FIREBASE && window.ALLURUS_FIREBASE.apiKey) && !/[?&]demo(\b|=)/.test(location.search);
-  const STORE_KEY = CLOUD_ON ? 'allurus-hr-cloud-v1' : 'allurus-hr-v9';
+  // Demo mode can show more than one sample company: ?demo or ?demo=serimaju opens Seri Maju, ?demo=suria opens
+  // Suria Enterprise. Each has its own storage key (js/seed.js, AllurusSeed.companies).
+  const DEMO = AllurusSeed.company((/[?&]demo=([a-z0-9-]+)/i.exec(location.search)?.[1] || 'serimaju').toLowerCase());
+  const STORE_KEY = CLOUD_ON ? 'allurus-hr-cloud-v1' : DEMO.storeKey;
+  // A fresh copy of the sample data: the chosen demo company, or Seri Maju as the base for the cloud workspace.
+  const seedNew = () => (CLOUD_ON ? AllurusSeed.create() : DEMO.create());
   const esc = U.esc;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
@@ -17,7 +22,7 @@
   function load() {
     let s = null;
     try { const raw = localStorage.getItem(STORE_KEY); if (raw) s = JSON.parse(raw); } catch (e) { /* storage unavailable */ }
-    if (!s) { s = AllurusSeed.create(); carryOverZones(s); }
+    if (!s) { s = seedNew(); if (CLOUD_ON || DEMO.id === 'serimaju') carryOverZones(s); }
     [s.settings, ...Object.values(s.workspaces || {}).map((w) => w.settings)].forEach((st) => {
       if (!st.checkin) st.checkin = defaultZone(st.company);
       const c = st.checkin, city = U.city(st.office);
@@ -27,7 +32,7 @@
       if (U.hasCoords(c)) { c.lat = +c.lat; c.lng = +c.lng; }
       // Old builds seeded every browser with a placeholder point in Kuantan (3.769833, 103.224556) and no setAt,
       // so employees' phones measured check-ins from there. Replace it with the published point.
-      U.applyPublishedZone(st, AllurusSeed.published);
+      U.applyPublishedZone(st, CLOUD_ON ? AllurusSeed.published : DEMO.published);
     });
     [s, ...Object.values(s.workspaces || {})].forEach(migrateLeave);
     [s, ...Object.values(s.workspaces || {})].forEach(migrateTime);
@@ -1305,7 +1310,7 @@
       ${CLOUD ? '<div class="card" id="team-access"><div class="card-head"><h3>Team access</h3><span class="hint">Loading…</span></div></div>' : ''}
       ${accountCard()}
       ${CLOUD ? '' : `<div class="card"><div class="card-head"><h3>Data</h3></div>
-        <div class="settings-row"><div><div class="label">Reset demo workspace</div><div class="desc">Data is stored in this browser only. Resetting replaces everything with the sample company.</div></div><button class="btn btn-danger" data-act="ask-reset">Reset data</button></div>
+        <div class="settings-row"><div><div class="label">Reset demo workspace</div><div class="desc">Data is stored in this browser only. Resetting puts ${esc(state.settings.company)} back to its sample data; other demo companies are not touched.</div></div><button class="btn btn-danger" data-act="ask-reset">Reset data</button></div>
         <div id="reset-confirm"></div>
       </div>`}`;
   };
@@ -1344,8 +1349,8 @@
         <button class="btn btn-primary login-submit" type="submit">Sign in</button>
         ${CLOUD ? '<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px"><button type="button" class="link-btn" data-act="cloud-reset">Forgot password?</button><button type="button" class="link-btn" data-act="cloud-activate">First time here? Set up your account</button></div>' : ''}
       </form>
-      ${CLOUD ? '' : `<div class="card demo-pick" style="width:100%;max-width:440px;margin:0 auto 16px;padding:18px 20px"><div style="font-weight:600;margin-bottom:4px">Explore the demo company</div><p class="muted" style="font-size:13.5px;margin-bottom:12px">${esc(state.settings.company)}, a sample business. Changes stay in this browser.</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${[['aisyah.rahman@serimaju.com.my', 'HR admin', 'Aisyah · people, payroll, leave'], ['grace.ng@serimaju.com.my', 'Finance', 'Grace · books and claims'], ['nurul.aina@serimaju.com.my', 'Payroll', 'Nurul · payroll and records'], ['arjun.pillai@serimaju.com.my', 'Manager', 'Arjun · approves his team'], ['daniel.lim@serimaju.com.my', 'Employee', 'Daniel · check in, leave, pay'], ['meiling@tanpartners.com.my', 'Auditor', 'Mei Ling · verifies the books']].filter(([e]) => state.accounts.some((a) => a.email === e)).map(([e, label, sub]) => `<button type="button" class="btn" style="flex-direction:column;align-items:flex-start;height:auto;padding:10px 12px;text-align:left" data-act="demo-as" data-v="${e}"><span style="font-weight:600">${label}</span><span class="muted" style="font-size:12px;font-weight:400">${sub}</span></button>`).join('')}</div></div>`}
+      ${CLOUD ? '' : `<div class="card demo-pick" style="width:100%;max-width:440px;margin:0 auto 16px;padding:18px 20px"><div style="font-weight:600;margin-bottom:4px">Explore the demo company</div>${Object.keys(AllurusSeed.companies).length > 1 ? `<div class="seg demo-co" role="group" aria-label="Demo company" style="margin:4px 0 8px;width:100%">${Object.values(AllurusSeed.companies).map((c) => `<button type="button" data-act="demo-company" data-v="${c.id}" class="${c.id === DEMO.id ? 'on' : ''}" aria-pressed="${c.id === DEMO.id}" style="flex:1">${esc(c.short)}</button>`).join('')}</div>` : ''}<p class="muted" style="font-size:13.5px;margin-bottom:12px">${esc(state.settings.company)}${DEMO.blurb ? ` · ${esc(DEMO.blurb)}` : ''}. A sample business; changes stay in this browser.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${DEMO.logins.filter(([e]) => state.accounts.some((a) => a.email === e)).map(([e, label, sub]) => `<button type="button" class="btn" style="flex-direction:column;align-items:flex-start;height:auto;padding:10px 12px;text-align:left" data-act="demo-as" data-v="${e}"><span style="font-weight:600">${label}</span><span class="muted" style="font-size:12px;font-weight:400">${sub}</span></button>`).join('')}</div></div>`}
       <div class="register-cta"><div><strong>New to Allurus?</strong><span class="muted"> Register your company and start a free trial.</span></div><button class="btn btn-primary" data-act="register">${icon('plus')}Register company</button></div>
       <p class="faint" style="font-size:12.5px">${CLOUD ? 'Your company’s data is kept securely in the cloud and shared live with your team. <a href="?demo">Try the demo company instead</a>.' : CAN_CLOUD ? `Demo company, saved in this browser only. <a href="${location.pathname}">Sign in to your real workspace</a>.` : `Demo mode. Your workspace is saved in this browser${cloud.db ? '; company sign-ups and check-ins are also shared with the Allurus team' : ''}.`} Version ${APP_VERSION}</p>
     </div>`;
@@ -2487,9 +2492,11 @@
       openEmployeeModal(null, { first, last: rest.join(' '), email: `${first}.${rest.join('')}`.toLowerCase().replace(/[^a-z.]/g, '') + '@' + state.settings.domain, role: j?.title || '', dept: j?.dept, location: j?.location || '', start: U.addDays(U.today(), 14) }, () => { c.converted = true; });
     },
     'theme': (_, v) => ACTIONS['ux-pref']('theme', v),
-    'ask-reset': () => { $('#reset-confirm').innerHTML = `<div class="confirm-bar"><span style="flex:1">Replace all data with the sample company?</span><button class="btn btn-sm" data-act="cancel-reset">Cancel</button><button class="btn btn-sm btn-danger" data-act="do-reset">Reset</button></div>`; },
+    'ask-reset': () => { $('#reset-confirm').innerHTML = `<div class="confirm-bar"><span style="flex:1">Put ${esc(state.settings.company)} back to its sample data?</span><button class="btn btn-sm" data-act="cancel-reset">Cancel</button><button class="btn btn-sm btn-danger" data-act="do-reset">Reset</button></div>`; },
     'cancel-reset': () => { $('#reset-confirm').innerHTML = ''; },
-    'do-reset': () => { state = AllurusSeed.create(); commit('Workspace reset'); },
+    'do-reset': () => { state = seedNew(); commit('Workspace reset'); },
+    // Switch demo company: each one lives under its own address and storage key.
+    'demo-company': (_, id) => { if (CLOUD || id === DEMO.id) return; location.href = `${location.pathname}?demo${id === 'serimaju' ? '' : `=${id}`}`; },
     'menu': () => $('#sidebar').classList.toggle('open'),
     ...ACTIONS_EXTRA,
   };
