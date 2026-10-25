@@ -478,6 +478,102 @@ window.AllurusOps = (function () {
     box.addEventListener('click', (ev) => { const x = ev.target.closest('[data-ops-del]'); if (x && box.children.length > 1) x.closest('.ops-line').remove(); });
   }
 
+  // ---------- Operations today: the admin manager's one page; the owner also gets the month so far ----------
+  const card = (title, link, body, tone = '') => `<div class="card ops-card ${tone}"><div class="card-head"><h3>${title}</h3>${link ? `<a class="hint" href="#${link}">Open</a>` : ''}</div>${body}</div>`;
+  const big = (v, label) => `<div class="ops-big"><span class="kpi-value">${v}</span><span class="faint">${label}</span></div>`;
+  const rows = (list, none = 'Nothing') => `<ul class="hr-list">${list.join('') || `<li class="faint">${none}</li>`}</ul>`;
+  function manpower() {
+    const t = T(), att = st().attendance[t] || {}, staff = ctx.activeEmployees().filter((e) => e.type !== 'Owner');
+    const L = window.AllurusLeaveRules, cal = L ? L.calendarCtx(st().settings.leave, t, t) : null;
+    const working = !cal || L.isWorkingDay(t, cal);
+    const by = { in: [], leave: [], absent: [], late: [] };
+    staff.forEach((e) => {
+      const r = att[e.id];
+      if (ctx.leave?.onLeave(e.id, t) || r?.s === 'leave') by.leave.push(e);
+      else if (r?.in) { by.in.push(e); if (ctx.time?.dayInfo(e, t).ev.late) by.late.push(e); }
+      else if (working) by.absent.push(e);
+    });
+    const depts = st().departments.map((d) => ({ d, n: staff.filter((e) => e.dept === d.id).length, inN: by.in.filter((e) => e.dept === d.id).length })).filter((x) => x.n);
+    // Overtime worked this month, after the monthly limits, from the time rules.
+    const ot = ctx.time ? staff.reduce((s, e) => s + (ctx.time.monthFor(e, t.slice(0, 7)).paidMin || 0), 0) : 0;
+    return card('Manpower', 'attendance', `${big(`${by.in.length}<span class="faint" style="font-size:18px"> / ${staff.length}</span>`, working ? 'in today' : 'Rest day')}
+      <div class="chips" style="margin:8px 0">${by.leave.length ? `<span class="tag">On leave: ${by.leave.map((e) => esc(e.first)).join(', ')}</span>` : ''}${by.absent.length ? `<span class="tag warn">Not in yet: ${by.absent.map((e) => esc(e.first)).join(', ')}</span>` : ''}${by.late.length ? `<span class="tag">Late: ${by.late.map((e) => esc(e.first)).join(', ')}</span>` : ''}</div>
+      ${rows(depts.map((x) => `<li><span>${esc(x.d.name)}</span><span class="num">${x.inN} / ${x.n}</span></li>`))}${ot ? `<p class="faint">${Math.round(ot / 60)} h overtime worked this month</p>` : ''}`, by.absent.length > 2 ? 'warn' : '');
+  }
+  // Average daily use of a raw material over the last 30 days, from production moves.
+  const used30 = (itemId) => -ops().moves.filter((m) => m.itemId === itemId && m.qty < 0 && m.date > U.addDays(T(), -30)).reduce((s, m) => s + m.qty, 0);
+  function stockCard() {
+    const lv = levels().map((x) => ({ ...x, cover: O.daysCover(x.onHand, used30(x.id)) })).sort((a, b) => (a.cover ?? 1e9) - (b.cover ?? 1e9));
+    const low = lv.filter((x) => x.low);
+    return card('Stock', 'ops-stock', `${big(low.length, `item${low.length === 1 ? '' : 's'} below reorder level`)}
+      ${rows(lv.slice(0, 6).map((x) => `<li><div><strong>${esc(x.name)}</strong><div class="person-sub">${qty(x.onHand, x.unit)}${x.onOrder ? ` · ${qty(x.onOrder)} on order` : ''}</div></div>${x.cover != null ? `<span class="pill ${x.cover < 5 ? 'bad' : x.cover < 10 ? 'warn' : 'ok'}">${x.cover} days</span>` : ''}</li>`))}
+      ${low.some((x) => !x.onOrder) && can() ? `<button class="btn btn-sm btn-primary" data-act="ops-po-new" data-id="${low.find((x) => !x.onOrder).id}">Make PO for ${esc(low.find((x) => !x.onOrder).name.toLowerCase())}</button>` : ''}`, low.some((x) => !x.onOrder) ? 'warn' : '');
+  }
+  const units = (bs) => bs.filter((b) => b.status === 'Done').reduce((s, b) => s + b.actual, 0);
+  function productionCard() {
+    const t = T(), today = ops().batches.filter((b) => b.date === t), hold = ops().batches.filter((b) => b.qc === 'Hold');
+    const wk = units(ops().batches.filter((b) => b.date > U.addDays(t, -7) && b.date <= t)), prev = units(ops().batches.filter((b) => b.date > U.addDays(t, -14) && b.date <= U.addDays(t, -7)));
+    return card('Production', 'ops-production', `${big(units(today).toLocaleString('en-MY'), `made today · ${today.length} batch${today.length === 1 ? '' : 'es'}`)}
+      <p class="faint">${wk.toLocaleString('en-MY')} units in the last 7 days${prev ? ` (${wk >= prev ? '+' : ''}${Math.round(((wk - prev) / prev) * 100)}% on the week before)` : ''}</p>
+      ${rows(today.map((b) => `<li><span>${esc(b.no)} · ${esc(prod(b.productId)?.name || '')}</span>${b.status === 'Done' ? pill(b.qc, b.qc === 'Pass' ? `${b.actual} made` : 'On hold') : pill(b.status)}</li>`), 'No batches today')}
+      ${hold.length ? `<p style="margin-top:8px">${pill('Hold', 'QC hold')} ${hold.map((b) => `${esc(b.no)}: ${esc(b.qcNote || '')}`).join('; ')}</p>` : ''}`, hold.length ? 'warn' : '');
+  }
+  function deliveriesCard() {
+    const list = ops().dos.filter((d) => d.date === T()), cash = list.reduce((s, d) => s + (d.cash || 0), 0);
+    const toCollect = list.filter((d) => ['Planned', 'Out'].includes(d.status)).reduce((s, d) => { const so = ops().orders.find((x) => x.id === d.soId); return s + (so?.terms === 'COD' ? soTotal(so) : 0); }, 0);
+    const count = (s) => list.filter((d) => d.status === s).length;
+    return card('Deliveries and cash', 'ops-sales', `${big(`${count('Delivered')}<span class="faint" style="font-size:18px"> / ${list.length}</span>`, 'delivered today')}
+      <div class="chips" style="margin:8px 0">${count('Out') ? `<span class="tag">${count('Out')} out now</span>` : ''}${count('Planned') ? `<span class="tag">${count('Planned')} not left yet</span>` : ''}${count('Failed') ? `<span class="tag warn">${count('Failed')} not delivered</span>` : ''}</div>
+      <dl class="kv"><dt>Cash collected</dt><dd class="num">${money(cash)}</dd><dt>Cash still to collect</dt><dd class="num">${money(toCollect)}</dd></dl>`, count('Failed') ? 'warn' : '');
+  }
+  function moneyInCard() {
+    const open = openInvoices(), a = O.aging(open, T()), top = O.topDebtors(open, 5);
+    const bar = (v, c) => (a.total ? `<i style="width:${(v / a.total) * 100}%;background:${c}"></i>` : '');
+    return card('Money in', 'invoices', `${big(money(a.total), `owed by clients · ${money(a.overdue)} overdue`)}
+      <div class="ops-aging" aria-hidden="true">${bar(a.current, 'var(--ok)')}${bar(a.d30, 'var(--gold)')}${bar(a.d60, 'var(--warn, var(--gold))')}${bar(a.d60p, 'var(--bad)')}</div>
+      <dl class="kv"><dt>Not yet due</dt><dd class="num">${money(a.current)}</dd><dt>1–30 days late</dt><dd class="num">${money(a.d30)}</dd><dt>31–60 days late</dt><dd class="num">${money(a.d60)}</dd><dt>Over 60 days</dt><dd class="num" style="color:${a.d60p ? 'var(--bad)' : ''}">${money(a.d60p)}</dd></dl>
+      <h4 class="lv-h">Owe the most</h4>${rows(top.map((x) => `<li><span>${esc(x.client)}</span><span class="num">${money(x.owed)}</span></li>`))}`, a.d60p ? 'warn' : '');
+  }
+  function moneyOutCard() {
+    const d = O.billsDue(fin().bills, T()), tot = (xs) => xs.reduce((s, b) => s + (Number(b.amount) || 0) + (Number(b.tax) || 0), 0);
+    const line = (b) => `<li><div><strong>${esc(b.supplier)}</strong><div class="person-sub">${esc(b.ref || '')} · due ${fmt(b.due)}</div></div><span class="num">${money(b.amount)}</span></li>`;
+    return card('Money out', 'bills', `${big(money(tot(d.overdue) + tot(d.week)), 'to pay vendors this week')}
+      ${d.overdue.length ? `<h4 class="lv-h" style="color:var(--bad)">Overdue · ${money(tot(d.overdue))}</h4>${rows(d.overdue.map(line))}` : ''}
+      <h4 class="lv-h">Due in 7 days · ${money(tot(d.week))}</h4>${rows(d.week.sort((a, b) => a.due.localeCompare(b.due)).slice(0, 6).map(line), 'Nothing due this week')}`, d.overdue.length ? 'warn' : '');
+  }
+  function machinesCard() {
+    const ms = ops().machines, down = ms.filter((m) => m.status === 'Down'), pm = ms.map((m) => ({ m, s: O.pmStatus(m, T()) })).filter((x) => x.s.status !== 'OK');
+    const hrs = O.downtime(ops().breakdowns, T().slice(0, 7), new Date().toISOString());
+    return card('Machines', 'ops-machines', `${big(`${ms.length - down.length}<span class="faint" style="font-size:18px"> / ${ms.length}</span>`, 'running')}
+      ${down.map((m) => { const b = ops().breakdowns.find((x) => x.machineId === m.id && x.status !== 'Fixed'); return `<p>${pill('Down')} <strong>${esc(m.name)}</strong>${b ? `<span class="faint"> · ${esc(b.status.toLowerCase())}, ${esc(first(b.assignee))}</span>` : ''}</p>`; }).join('')}
+      ${rows(pm.map((x) => `<li><span>${esc(x.m.name)}</span>${pill(x.s.status, x.s.status === 'Due' ? `Service due ${x.s.nextDate ? fmt(x.s.nextDate) : ''}` : 'Service overdue')}</li>`), 'All services on schedule')}
+      <p class="faint">${hrs} h downtime this month</p>`, down.length ? 'bad' : '');
+  }
+  function expiringCard() {
+    const t = T(), end = U.addDays(t, 30);
+    const staff = (ctx.hr?.expiringItems() || []).filter((x) => x.expiry && x.expiry <= end).map((x) => ({ ...x, who: x.empId ? ctx.fullName(emp(x.empId)) : '' }));
+    const list = [...staff, ...expiringItems().filter((x) => x.expiry <= end)].sort((a, b) => a.expiry.localeCompare(b.expiry));
+    return card('Expiring soon', '', `${big(list.length, 'in the next 30 days')}
+      ${rows(list.map((x) => `<li><div><strong>${esc(x.title)}</strong>${x.who ? `<div class="person-sub">${esc(x.who)}</div>` : ''}</div>${pill(x.expiry < t ? 'Overdue' : 'Due', x.expiry < t ? 'Expired' : fmt(x.expiry))}</li>`))}`, list.some((x) => x.expiry < t) ? 'bad' : list.length ? 'warn' : '');
+  }
+  // The owner's month so far: what was sold, made and bought, and what the people cost.
+  function monthCard() {
+    const mk = T().slice(0, 7), name = U.fmtMonth(mk, { month: 'long' });
+    const sales = fin().invoices.filter((i) => i.type === 'invoice' && i.issue?.startsWith(mk)).reduce((s, i) => s + AllurusFinance.invoiceTotals(i).total, 0);
+    const made = units(ops().batches.filter((b) => b.date.startsWith(mk)));
+    const bought = fin().bills.filter((b) => b.issue?.startsWith(mk) && ['Raw materials', 'Packaging'].includes(b.category)).reduce((s, b) => s + (Number(b.amount) || 0), 0);
+    const paid = Object.keys(st().payroll).filter((k) => st().payroll[k].status === 'Paid').sort().pop(), pt = paid ? ctx.payTotal(st().payroll[paid]) : null;
+    const pay = pt ? pt.gross + pt.erCost : 0;
+    const k = (label, v, foot) => `<div class="card kpi"><div class="kpi-label">${label}</div><div class="kpi-value">${v}</div><div class="kpi-foot">${foot}</div></div>`;
+    return `<h3 class="lv-h">${esc(name)} so far</h3><div class="grid g-4 keep-2" style="margin-bottom:16px">${k('Sales', money(sales), 'invoiced to clients')}${k('Output', made.toLocaleString('en-MY'), 'units made')}${k('Raw materials bought', money(bought), 'ingredients and packaging')}${k('Payroll cost', money(pay), paid ? `${U.fmtMonth(paid, { month: 'long' })}, with employer contributions` : 'No payroll paid yet')}</div>`;
+  }
+  function todayView() {
+    const owner = !Array.isArray(ctx.account()?.perms);
+    return `${head('Operations today', `${fmt(T(), { weekday: 'long', day: 'numeric', month: 'long' })} at ${esc(st().settings.company)}. Everything that needs a look, on one page.`)}
+      ${owner ? monthCard() : ''}
+      <div class="ops-grid ops-today">${[manpower(), stockCard(), productionCard(), deliveriesCard(), moneyInCard(), moneyOutCard(), machinesCard(), expiringCard()].join('')}</div>`;
+  }
+
   // ---------- Employee views: the driver's deliveries and machine breakdowns ----------
   const myDOs = (id, day = T()) => ops().dos.filter((d) => d.date === day && (d.driverId === id || d.helperId === id)).sort((a, b) => a.seq - b.seq);
   function myDeliveries() {
@@ -551,13 +647,14 @@ window.AllurusOps = (function () {
     if (!has()) return false;
     if (id === 'my-deliveries') return ops().dos.some((d) => d.driverId === ctx.me()?.id || d.helperId === ctx.me()?.id);
     if (id === 'my-machines') return true;
+    if (id === 'ops-today') return !scope();
     return !ROUTE_TAB[id] || inScope(ROUTE_TAB[id]);
   };
   const landing = (role) => (has() && role === 'employee' && myDOs(ctx.me()?.id).length ? 'my-deliveries' : '');
 
   function install(c) {
     ctx = c;
-    Object.assign(ctx.VIEWS, { 'ops-stock': stockView, 'ops-production': prodView, 'ops-sales': salesView, 'ops-machines': machView, 'my-deliveries': myDeliveries, 'my-machines': myMachines });
+    Object.assign(ctx.VIEWS, { 'ops-today': todayView, 'ops-stock': stockView, 'ops-production': prodView, 'ops-sales': salesView, 'ops-machines': machView, 'my-deliveries': myDeliveries, 'my-machines': myMachines });
     ctx.AFTER['ops-sales'] = () => ctx.$('#ops-day')?.addEventListener('change', (ev) => { if (ev.target.value) { ui.day = ev.target.value; ctx.render(); } });
     const tab = (k) => (_, v) => { ui[k] = v; ctx.render(); };
     const po = (id) => ops().pos.find((x) => x.id === id);

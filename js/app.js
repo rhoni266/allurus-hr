@@ -433,7 +433,7 @@
     payroll: 'payroll', claims: 'claims',
     finance: 'finance', books: 'finance', invoices: 'finance', bills: 'finance', contacts: 'finance', budget: 'finance', tax: 'finance', reports: 'finance', projects: 'payroll',
     recruitment: 'talent', performance: 'talent', training: 'talent', grievances: 'talent',
-    'ops-stock': 'operations', 'ops-production': 'operations', 'ops-sales': 'operations', 'ops-machines': 'operations',
+    'ops-today': 'operations', 'ops-stock': 'operations', 'ops-production': 'operations', 'ops-sales': 'operations', 'ops-machines': 'operations',
   };
   const myPerms = () => { const a = account(); return a && Array.isArray(a.perms) ? a.perms : null; };
   // Whether the person may work in an area of the company console (only ever in Company Admin view).
@@ -442,6 +442,7 @@
   // "HR admin", "Finance", "Owner"… for the company console; the role's own name otherwise.
   const roleLabel = (r) => (r === 'admin' && myPerms() ? TEMPLATES[templateOf(myPerms())]?.label || 'Company Admin' : ROLES[r]?.label || r);
   ROLE_ROUTES.admin = [
+    { id: 'ops-today', label: 'Operations today', icon: 'chart', group: 'Overview' },
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', group: 'Overview' },
     { id: 'ops-stock', label: 'Stock & purchasing', icon: 'box', group: 'Operations' },
     { id: 'ops-production', label: 'Production', icon: 'layers', group: 'Operations' },
