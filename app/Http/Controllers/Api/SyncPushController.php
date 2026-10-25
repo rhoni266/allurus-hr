@@ -3,7 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Models\OfflineSyncQueue;
-use App\Sync\{DbErrors, MutationHandlerRegistry, MutationRejected};
+use App\Sync\{DbErrors, DependencyMissing, MutationHandlerRegistry, MutationRejected};
+use Carbon\CarbonImmutable;
 use App\Tenancy\TenantContext;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
@@ -14,7 +15,9 @@ use Illuminate\Validation\ValidationException;
  * Per-mutation statuses returned to the terminal:
  *   applied | conflict  -> stored; terminal marks acked
  *   rejected            -> stored; terminal holds it for manager review, carries on
- *   retry               -> NOT stored; terminal resends later with backoff
+ *   retry               -> NOT stored; terminal resends later with backoff. Transient DB
+ *                          errors, server bugs, and mutations waiting for an order that
+ *                          hasn't synced yet (result.waiting_for)
  */
 class SyncPushController
 {
@@ -87,6 +90,13 @@ class SyncPushController
             }
             // Any other unique violation (e.g. duplicate item id) is a bad payload.
             return $this->reject($terminal, $m, 'duplicate_key', ['message' => $this->short($e)]);
+        } catch (DependencyMissing $e) {
+            // e.g. a void for an order another, still-offline terminal rang up: wait for it,
+            // but not forever (device clock, so skew only shifts the deadline)
+            if (CarbonImmutable::parse($m['client_created_at'])->lt(now()->subHours(DependencyMissing::WAIT_HOURS))) {
+                return $this->reject($terminal, $m, 'dependency_missing', ['entity' => $e->entity, 'id' => $e->id]);
+            }
+            return $this->ack($m, 'retry', ['waiting_for' => ['entity' => $e->entity, 'id' => $e->id]]);
         } catch (MutationRejected $e) {
             return $this->reject($terminal, $m, $e->reason, $e->detail);
         } catch (ValidationException $e) {

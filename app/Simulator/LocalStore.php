@@ -39,7 +39,8 @@ final class LocalStore
     {
         $this->db->exec(<<<'SQL'
             CREATE TABLE IF NOT EXISTS products (
-                id TEXT PRIMARY KEY, name TEXT, tax_code TEXT, track_stock INTEGER, row_version INTEGER, deleted INTEGER DEFAULT 0
+                id TEXT PRIMARY KEY, name TEXT, type TEXT, tax_code TEXT, track_stock INTEGER, time_billing TEXT,
+                row_version INTEGER, deleted INTEGER DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS variants (
                 id TEXT PRIMARY KEY, product_id TEXT, sku TEXT, base_price_sen INTEGER,
@@ -51,11 +52,20 @@ final class LocalStore
             CREATE TABLE IF NOT EXISTS modifiers (id TEXT PRIMARY KEY, data TEXT);
 
             CREATE TABLE IF NOT EXISTS orders (
-                id TEXT PRIMARY KEY, receipt_no TEXT UNIQUE, total_sen INTEGER, occurred_at TEXT
+                id TEXT PRIMARY KEY, receipt_no TEXT UNIQUE, total_sen INTEGER, status TEXT NOT NULL, occurred_at TEXT
             );
             CREATE TABLE IF NOT EXISTS order_items (
                 id TEXT PRIMARY KEY, order_id TEXT, variant_id TEXT,
                 qty_milli INTEGER NOT NULL, unit_price_sen INTEGER, net_sen INTEGER   -- integers only, never REAL
+            );
+            CREATE TABLE IF NOT EXISTS payments (id TEXT PRIMARY KEY, order_id TEXT, method TEXT, amount_sen INTEGER NOT NULL);
+            -- order_id may be another terminal's order (voided here, rung up there)
+            CREATE TABLE IF NOT EXISTS voids (id TEXT PRIMARY KEY, order_id TEXT NOT NULL, staff_role TEXT);
+            CREATE TABLE IF NOT EXISTS adjustments (
+                id TEXT PRIMARY KEY, variant_id TEXT, delta_milli INTEGER NOT NULL, reason TEXT, staff_role TEXT
+            );
+            CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY, order_id TEXT, amount_sen INTEGER NOT NULL, billed_minutes INTEGER, tampered INTEGER DEFAULT 0
             );
 
             -- AUTOINCREMENT (not plain rowid) so a client_seq is never reused after pruning:
@@ -67,6 +77,7 @@ final class LocalStore
                 payload TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',   -- pending | sent | acked | rejected
                 attempts INTEGER NOT NULL DEFAULT 0,
+                not_before INTEGER,                         -- epoch ms; set when the server says retry
                 result TEXT,
                 created_at TEXT NOT NULL
             );

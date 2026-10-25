@@ -88,7 +88,7 @@ function orderMutation(object $w, int $clientSeq = 1, array $item = [], array $o
                 'id'           => $orderId,
                 'receipt_no'   => 'OUT1-T1-'.str_pad((string) $clientSeq, 6, '0', STR_PAD_LEFT),
                 'status'       => 'paid',
-                'staff_id'     => (string) Str::uuid7(),
+                'staff_id'     => ($w->cashier ??= staffMember($w, 'cashier', '2222'))->id,
                 'subtotal_sen' => $subtotal,
                 'discount_sen' => 0,
                 'tax_sen'      => 0,

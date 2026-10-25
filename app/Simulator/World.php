@@ -21,8 +21,10 @@ final class World
         public readonly array $taxRules,
         /** PricingEngine `service_charge` input, or null for none. */
         public readonly ?array $serviceCharge = null,
-        /** The cashier who signs in and rings up sales: ['id' => ..., 'pin' => ...] */
+        /** ['cashier' => ['id', 'pin'], 'manager' => ['id', 'pin']]; the cashier signs in and sells */
         public readonly ?array $staff = null,
+        /** the timed (snooker) product, charged through session.end */
+        public readonly ?string $timedVariantId = null,
     ) {}
 
     /** @param list<array{name:string,id:string,token:string}> $terminals */

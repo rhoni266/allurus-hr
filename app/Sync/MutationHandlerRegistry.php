@@ -2,17 +2,17 @@
 
 namespace App\Sync;
 
-use App\Sync\Handlers\OrderCreateHandler;
+use App\Sync\Handlers\{OrderCreateHandler, OrderVoidHandler, PaymentAddHandler, SessionEndHandler, StockAdjustHandler};
 use Illuminate\Contracts\Container\Container;
 
 class MutationHandlerRegistry
 {
     private const HANDLERS = [
         'order.create' => OrderCreateHandler::class,
-        // 'order.void' => OrderVoidHandler::class,
-        // 'payment.add' => PaymentAddHandler::class,
-        // 'stock.adjust' => StockAdjustHandler::class,
-        // 'session.end' => SessionEndHandler::class,
+        'order.void'   => OrderVoidHandler::class,
+        'payment.add'  => PaymentAddHandler::class,
+        'stock.adjust' => StockAdjustHandler::class,
+        'session.end'  => SessionEndHandler::class,
     ];
 
     public function __construct(private Container $container) {}

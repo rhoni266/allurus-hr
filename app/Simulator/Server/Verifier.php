@@ -35,27 +35,48 @@ final class Verifier
         return $this;
     }
 
-    /** The full ledger check: every local sale on the server exactly once, money and stock exact. */
+    /**
+     * The full ledger check across every terminal's SQLite file: every sale, void, payment,
+     * adjustment and session on the server exactly once; money, stock and statuses exact.
+     */
     public function salesLedger(int $expectedRejected = 0): self
     {
         $localOrders = [];
+        $localStatus = [];
         $localTotal = 0;
-        $soldQty = [];
+        $lines = [];          // order_id => [variant_id => qty_milli], across all terminals
         $localQtyMilli = 0;
-        $movementLines = 0;
+        $localPayments = [];  // order_id => cash taken, across all terminals
+        $voided = [];         // distinct orders voided anywhere (a second void is a no-op)
+        $adjusted = [];
+        $adjustments = 0;
+        $sessions = 0;
+        $sessionSen = 0;
         $outboxTotal = 0;
         $stuck = 0;
         $rejected = 0;
 
         foreach ($this->stores as $store) {
-            foreach ($store->all('SELECT id, total_sen FROM orders') as $o) {
+            foreach ($store->all('SELECT id, total_sen, status FROM orders') as $o) {
                 $localOrders[$o['id']] = true;
+                $localStatus[$o['id']] = $o['status'];
                 $localTotal += (int) $o['total_sen'];
             }
             foreach ($store->all('SELECT order_id, variant_id, SUM(qty_milli) q FROM order_items GROUP BY order_id, variant_id') as $l) {
-                $soldQty[$l['variant_id']] = ($soldQty[$l['variant_id']] ?? 0) + (int) $l['q'];
-                $movementLines++;
+                $lines[$l['order_id']][$l['variant_id']] = (int) $l['q'];
             }
+            foreach ($store->all('SELECT order_id, SUM(amount_sen) s FROM payments GROUP BY order_id') as $p) {
+                $localPayments[$p['order_id']] = ($localPayments[$p['order_id']] ?? 0) + (int) $p['s'];
+            }
+            foreach ($store->all('SELECT DISTINCT order_id FROM voids') as $v) {
+                $voided[$v['order_id']] = true;
+            }
+            foreach ($store->all('SELECT variant_id, delta_milli FROM adjustments') as $a) {
+                $adjusted[$a['variant_id']] = ($adjusted[$a['variant_id']] ?? 0) + (int) $a['delta_milli'];
+                $adjustments++;
+            }
+            $sessions += (int) $store->scalar('SELECT COUNT(*) FROM sessions');
+            $sessionSen += (int) $store->scalar('SELECT COALESCE(SUM(amount_sen), 0) FROM sessions');
             $localQtyMilli += (int) $store->scalar('SELECT COALESCE(SUM(qty_milli), 0) FROM order_items');
             $outboxTotal += (int) $store->scalar('SELECT COUNT(*) FROM outbox');
             $stuck += (int) $store->scalar("SELECT COUNT(*) FROM outbox WHERE status IN ('pending','sent')");
@@ -83,8 +104,32 @@ final class Verifier
         $serverTotal = (int) DB::table('orders')->whereIn('terminal_id', $terminalIds)->sum('total_sen');
         $this->check('revenue matches to the sen', $serverTotal === $localTotal, "server={$serverTotal} local={$localTotal}");
 
-        $movements = DB::table('stock_movements')->where('reason', 'sale')->where('tenant_id', $this->world->tenantId)->count();
-        $this->check('one stock movement per order line', $movements === $movementLines, "server={$movements} expected={$movementLines}");
+        // ledger rows: one per stocked (order, variant) sold, again per voided order, one per
+        // adjustment. Timed products (snooker tables) aren't stocked, so they write none.
+        $stocked = array_flip($this->world->variantIds);
+        $stockedLines = fn (?array $byVariant) => count(array_intersect_key($byVariant ?? [], $stocked));
+        $saleLines = array_sum(array_map($stockedLines, $lines));
+        $voidLines = array_sum(array_map(fn ($o) => $stockedLines($lines[$o] ?? null), array_keys($voided)));
+        $movements = DB::table('stock_movements')->where('tenant_id', $this->world->tenantId)->count();
+        $this->check('one ledger row per line, void and adjustment', $movements === $saleLines + $voidLines + $adjustments,
+            "server={$movements} expected={$saleLines}+{$voidLines}+{$adjustments}");
+
+        // payments: everything taken, minus what voids gave back (each voided order once)
+        $expectedPaid = array_sum($localPayments) - array_sum(array_map(fn ($o) => $localPayments[$o] ?? 0, array_keys($voided)));
+        $serverPaid = (int) DB::table('payments')->whereIn('order_id', array_keys($localOrders))->sum('amount_sen');
+        $this->check('payments net to the sen', $serverPaid === $expectedPaid, "server={$serverPaid} expected={$expectedPaid}");
+
+        // status: void if voided anywhere, else what the terminal that rang it up says
+        $serverStatus = DB::table('orders')->whereIn('terminal_id', $terminalIds)->pluck('status', 'id');
+        $wrong = collect($localStatus)->filter(fn ($s, $id) => ($serverStatus[$id] ?? null) !== (isset($voided[$id]) ? 'void' : $s));
+        $this->check('order statuses (paid / open / void)', $wrong->isEmpty(),
+            $wrong->isEmpty() ? count($voided).' void, '.$serverStatus->filter(fn ($s) => $s === 'open')->count().' open'
+                : $wrong->count().' wrong, e.g. '.$wrong->keys()->first());
+        $this->check('one void fact per voided order', ($v = DB::table('order_voids')->count()) === count($voided), "server={$v} local=".count($voided));
+
+        $serverSessions = DB::table('time_sessions')->whereIn('terminal_id', $terminalIds);
+        $this->check('sessions and their charges', (clone $serverSessions)->count() === $sessions && (int) $serverSessions->sum('amount_sen') === $sessionSen,
+            "{$sessions} sessions, {$sessionSen} sen");
 
         $serverQty = (int) DB::table('order_items')->whereIn('order_id', array_keys($localOrders))->sum('qty_milli');
         $this->check('quantities match to the milli-unit', $serverQty === $localQtyMilli, "server={$serverQty} local={$localQtyMilli}");
@@ -97,8 +142,14 @@ final class Verifier
         // integers on both sides: exact equality, no tolerance
         $bad = [];
         $levels = DB::table('stock_levels')->where('outlet_id', $this->world->outletId)->pluck('on_hand_milli', 'variant_id');
+        $net = $adjusted;
+        foreach ($lines as $orderId => $byVariant) {
+            foreach ($byVariant as $vid => $q) {
+                $net[$vid] = ($net[$vid] ?? 0) - $q + (isset($voided[$orderId]) ? $q : 0);
+            }
+        }
         foreach ($this->world->variantIds as $vid) {
-            $expected = $this->world->initialStockMilli - ($soldQty[$vid] ?? 0);
+            $expected = $this->world->initialStockMilli + ($net[$vid] ?? 0);
             if ((int) ($levels[$vid] ?? 0) !== $expected) {
                 $bad[] = substr($vid, -6).': '.($levels[$vid] ?? 'missing')." != {$expected}";
             }
@@ -131,5 +182,12 @@ final class Verifier
     public function conflictCount(string $kind): int
     {
         return DB::table('sync_conflicts')->where('kind', $kind)->count();
+    }
+
+    public function expectConflicts(string $kind, int $expected): self
+    {
+        $n = $this->conflictCount($kind);
+
+        return $this->check("{$kind} flagged", $n === $expected, "{$n} of {$expected}");
     }
 }

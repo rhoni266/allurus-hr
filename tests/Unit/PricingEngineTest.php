@@ -77,6 +77,17 @@ it('holds the spec invariants for 2,000 random baskets', function () {
     }
 });
 
+it('passes time-billing golden vector', function (array $case) {
+    $in = $case['input'];
+    if (isset($case['expected_error'])) {
+        expect(fn () => App\Billing\TimeBilling::charge($in['rate'], $in['elapsed_seconds'], $in['paused_seconds']))
+            ->toThrow(fn (PricingException $e) => expect($e->reason)->toBe($case['expected_error']));
+        return;
+    }
+    expect(App\Billing\TimeBilling::charge($in['rate'], $in['elapsed_seconds'], $in['paused_seconds']))->toMatchArray($case['expected']);
+})->with(fn () => collect(json_decode(file_get_contents(__DIR__.'/../../spec/time-billing/vectors.json'), true)['cases'])
+    ->mapWithKeys(fn ($c) => [$c['name'] => [$c]])->all());
+
 it('rejects floats anywhere money or quantity is expected', function () {
     expect(fn () => PricingEngine::price([
         'tender' => 'card', 'tax_rules' => ['EXEMPT' => ['rate_bps' => 0, 'version' => 1]],

@@ -21,6 +21,7 @@ class SimTerminal extends Command
         {--fresh-store : wipe the local database first}
         {--pull : pull the catalogue before selling}
         {--sell=0 : number of sales to ring up (offline)}
+        {--adjust=0 : number of random stock adjustments (offline)}
         {--sync : drain the outbox and pull to head}
         {--clock-offset=0 : device clock skew in seconds}
         {--drop-req=0 : probability a request is lost}
@@ -53,6 +54,9 @@ class SimTerminal extends Command
         }
         if ($ok && ($n = (int) $this->option('sell')) > 0) {
             $terminal->sell($n, (bool) $this->option('crash-mid-sale'));
+        }
+        if ($ok && ($n = (int) $this->option('adjust')) > 0) {
+            $terminal->adjustRandomly($n, $world->variantIds);
         }
         if ($ok && $this->option('sync')) {
             $ok = $terminal->sync();

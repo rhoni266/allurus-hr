@@ -5,7 +5,7 @@ namespace App\Sync\Handlers;
 use App\Models\{OfflineSyncQueue, Order, OrderItem, Payment, ProductVariant, StockMovement, SyncConflict};
 use App\Database\Timestamps;
 use App\Pricing\PriceResolver;
-use App\Sync\{MutationHandler, MutationRejected, Outcome};
+use App\Sync\{Facts, MutationHandler, MutationRejected, Outcome, StockLedger};
 use App\Tenancy\TenantContext;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\{DB, Validator};
@@ -91,6 +91,8 @@ class OrderCreateHandler implements MutationHandler
 
             if (! $variant || $variant->trashed()) {
                 $conflicts[] = ['kind' => 'product_deleted', 'detail' => ['variant_id' => $item['variant_id'], 'item_id' => $item['id']]];
+            } elseif ($variant->product?->type === 'service_timed') {
+                // charged by elapsed time, not the catalogue price; session.end audits the amount
             } elseif ($catalogPrice !== null && $catalogPrice !== (int) $item['unit_price_sen'] && ! ($item['price_manual'] ?? false)) {
                 // Compare prices, not row_versions: versions bump on any edit (e.g. a rename)
                 // and an override's version is unrelated to the variant's.
@@ -109,14 +111,11 @@ class OrderCreateHandler implements MutationHandler
             }
         }
 
-        foreach ($stockDeltas as $variantId => $delta) {
-            StockMovement::create([
-                'outlet_id' => $terminal->outlet_id, 'variant_id' => $variantId,
-                'reason' => 'sale', 'qty_delta_milli' => $delta,
-                'ref_id' => $order->id, 'occurred_at' => $occurredAt,
-            ]);
-        }
-        $conflicts = array_merge($conflicts, $this->applyStock($tenantId, $terminal->outlet_id, $stockDeltas));
+        $conflicts = array_merge(
+            $conflicts,
+            StockLedger::move($tenantId, $terminal->outlet_id, $stockDeltas, 'sale', $order->id, $occurredAt),
+            Facts::staffConflicts($o['staff_id'], [], 'sale'),   // any active staff may sell
+        );
 
         foreach ($p['payments'] as $pay) {
             Payment::create([
@@ -145,39 +144,6 @@ class OrderCreateHandler implements MutationHandler
         return $conflicts ? Outcome::conflict($result) : Outcome::applied($result);
     }
 
-    /**
-     * Upsert the stock projection: decrement() on a missing row silently does nothing.
-     * Locks rows in variant_id order so concurrent orders can't deadlock on each other.
-     *
-     * @return list<array{kind:string,detail:array}>
-     */
-    private function applyStock(string $tenantId, string $outletId, array $deltas): array
-    {
-        if (! $deltas) {
-            return [];
-        }
-        ksort($deltas);
-
-        $rows = [];
-        foreach ($deltas as $variantId => $delta) {
-            $rows[] = ['tenant_id' => $tenantId, 'outlet_id' => $outletId, 'variant_id' => $variantId, 'on_hand_milli' => $delta];
-        }
-
-        DB::table('stock_levels')->upsert(
-            $rows,
-            ['outlet_id', 'variant_id'],
-            ['on_hand_milli' => DB::raw('stock_levels.on_hand_milli + excluded.on_hand_milli')],
-        );
-
-        // Never block revenue on inventory drift; just raise it.
-        return DB::table('stock_levels')
-            ->where('outlet_id', $outletId)
-            ->whereIn('variant_id', array_keys($deltas))
-            ->where('on_hand_milli', '<', 0)
-            ->get(['variant_id', 'on_hand_milli'])
-            ->map(fn ($r) => ['kind' => 'negative_stock', 'detail' => ['variant_id' => $r->variant_id, 'on_hand_milli' => (int) $r->on_hand_milli]])
-            ->all();
-    }
 
     private function validate(array $p): array
     {

@@ -15,6 +15,7 @@ final class Scenarios
     public const NAMES = [
         'offline-day', 'flaky-network', 'crash-mid-sync', 'clock-skew',
         'stale-price', 'concurrent-terminals', 'duplicate-race', 'cursor-race',
+        'void-storm', 'open-tabs', 'stock-adjust', 'snooker-sessions',
     ];
 
     public function __construct(
@@ -244,6 +245,153 @@ final class Scenarios
             ->catalogueConverged($t->store);
     }
 
+    /**
+     * order.void. T1 sells offline all along. T2 sells and syncs, then voids: 10 of its own
+     * orders as manager, 3 as cashier (flagged), and 5 of T1's orders that the server hasn't
+     * seen yet, which must wait (retry) without blocking anything. T1 then voids 2 of
+     * those same 5 itself and syncs first, so T2's 2 overlapping voids become duplicates.
+     */
+    private function voidStorm(string $name): Verifier
+    {
+        $world = $this->world($name, terminals: 2);
+        $t1 = $this->terminal($world, 'T1', server: 0);
+        $t2 = $this->terminal($world, 'T2', server: 1);
+        $t1->pull();
+        $t2->pull();
+
+        $t1Orders = $t1->sell(80);
+        $t2Orders = $t2->sell(60);
+        $t2->sync();
+
+        foreach (array_slice($t2Orders, 0, 10) as $id) {
+            $t2->voidOrder($id, 'manager');
+        }
+        foreach (array_slice($t2Orders, 10, 3) as $id) {
+            $t2->voidOrder($id, 'cashier');
+        }
+        $crossTerminal = array_slice($t1Orders, 0, 5);
+        foreach ($crossTerminal as $id) {
+            $t2->voidOrder($id, 'manager');
+        }
+        $t2->sell(5);   // must still sync past the waiting voids
+
+        $drained = $t2->drain(maxRounds: 6);
+        $waiting = $t2->pendingCount();
+        $sold = (int) $t2->store->scalar("SELECT COUNT(*) FROM outbox WHERE type = 'order.create' AND status = 'acked'");
+        $this->say("while T1 is offline, T2 has {$waiting} voids waiting and {$sold}/65 sales through");
+
+        foreach (array_slice($crossTerminal, 0, 2) as $id) {
+            $t1->voidOrder($id, 'manager');
+        }
+        $t1->sync();
+        $t2->sync();
+
+        return (new Verifier($world, ['T1' => $t1->store, 'T2' => $t2->store]))
+            ->check('cross-terminal voids waited, sales did not', ! $drained && $waiting === 5 && $sold === 65, "waiting={$waiting} sales={$sold}/65")
+            ->expectConflicts('unauthorized_void', 3)
+            ->expectConflicts('duplicate_void', 2)
+            ->salesLedger();
+    }
+
+    /** payment.add. Open tabs settled later in one or two payments, over a flaky network. */
+    private function openTabs(string $name): Verifier
+    {
+        [$world, $t] = $this->setup($name, chaos: new Chaos(dropRequest: 0.15, dropResponse: 0.15, seed: $this->seed));
+        $t->pull();
+
+        $tabs = [];
+        foreach (range(1, 60) as $i) {
+            [$lines, $discount] = $t->randomBasket();
+            $id = $t->ringUp($lines, $discount, paidSen: 0);
+            $total = (int) $t->store->scalar('SELECT total_sen FROM orders WHERE id = ?', [$id]);
+            if ($i % 2 === 0 && $total > 1) {   // half the tabs paid a deposit up front
+                $t->addPayment($id, intdiv($total, 2));
+            }
+            $tabs[$id] = $total;
+        }
+        $t->sync();
+        $open = DB::table('orders')->whereIn('id', array_keys($tabs))->where('status', 'open')->count();
+
+        $overpaid = 0;
+        foreach ($tabs as $id => $total) {
+            $due = $total - (int) $t->store->scalar('SELECT COALESCE(SUM(amount_sen), 0) FROM payments WHERE order_id = ?', [$id]);
+            $extra = $overpaid < 5 && $due > 0 ? 100 : 0;   // five customers leave a tip in the drawer
+            $overpaid += $extra ? 1 : 0;
+            if ($due > 3) {
+                $t->addPayment($id, intdiv($due, 3));
+                $due -= intdiv($due, 3);
+            }
+            if ($due + $extra > 0) {
+                $t->addPayment($id, $due + $extra);
+            }
+        }
+        $t->sync();
+        $this->say("{$open} tabs open after the first sync, settled with ".$t->store->scalar('SELECT COUNT(*) FROM payments').' payments');
+
+        return (new Verifier($world, ['T1' => $t->store]))
+            ->check('tabs were open before settling', $open === 60, "{$open} of 60")
+            ->expectConflicts('overpaid', 5)
+            ->salesLedger();
+    }
+
+    /** stock.adjust. Three terminals sell and adjust the same items, then push at once. */
+    private function stockAdjust(string $name): Verifier
+    {
+        $world = $this->world($name, terminals: 3);
+        $worldPath = $this->worldPath($name);
+
+        $procs = [];
+        foreach ($world->terminals as $i => $term) {
+            $p = $this->terminalProc($worldPath, ['--fresh-store', '--pull', '--sell=100', '--adjust=60', '--sync', '--drop-resp=0.1', '--seed='.($this->seed + 10 + $i)],
+                $this->pool->url($i), $term['name']);
+            $p->start();
+            $procs[$term['name']] = $p;
+        }
+        foreach ($procs as $p) {
+            $p->wait();
+        }
+
+        $stores = collect($world->terminals)->mapWithKeys(fn ($t) => [$t['name'] => new LocalStore(dirname($worldPath)."/{$t['name']}.sqlite")])->all();
+        $unauthorized = collect($stores)->sum(fn (LocalStore $s) => (int) $s->scalar("SELECT COUNT(*) FROM adjustments WHERE staff_role = 'cashier' AND reason <> 'waste'"));
+        $this->say('180 adjustments across 3 terminals, '.$unauthorized.' corrections by a cashier');
+
+        return (new Verifier($world, $stores))
+            ->check('all terminal processes succeeded', collect($procs)->every(fn (Process $p) => $p->getExitCode() === 0),
+                collect($procs)->map(fn (Process $p) => $p->getExitCode() ?: mb_substr($p->getErrorOutput(), 0, 200))->implode(','))
+            ->expectConflicts('unauthorized_adjustment', $unauthorized)
+            ->salesLedger();
+    }
+
+    /**
+     * session.end. Snooker tables billed offline on a device whose clock is an hour slow,
+     * mixed with bar sales. Three sessions are charged wrongly on purpose: the server keeps
+     * the charged amount, recomputes with TimeBilling, and flags exactly those three.
+     */
+    private function snookerSessions(string $name): Verifier
+    {
+        $world = $this->world($name);
+        $t = $this->terminal($world, 'T1', clockOffset: -3600);
+        $t->pull();
+
+        $chaos = Chaos::none($this->seed + 7);
+        foreach (range(1, 50) as $i) {
+            $elapsed = $chaos->int(0, 4 * 3600);
+            $t->endSession($world->timedVariantId, $elapsed, $chaos->int(0, intdiv($elapsed, 3)), tamperSen: $i % 16 === 0 ? 50 : 0);   // 16, 32, 48
+            if ($i % 2 === 0) {
+                $t->sell(1);
+            }
+        }
+        $t->sync();
+
+        $diverged = DB::table('time_sessions')->whereColumn('amount_sen', '<>', 'server_amount_sen')->count();
+        $this->say('50 sessions, '.$t->store->scalar('SELECT SUM(amount_sen) FROM sessions').' sen charged');
+
+        return (new Verifier($world, ['T1' => $t->store]))
+            ->check('server recomputed every session', $diverged === 3, "{$diverged} differ from TimeBilling (3 tampered)")
+            ->expectConflicts('session_amount_mismatch', 3)
+            ->salesLedger();
+    }
+
     // ------------------------------------------------------------------ helpers
 
     /** @return array{0: World, 1: ?Terminal, 2: string} */
@@ -279,7 +427,7 @@ final class Scenarios
             $paired[] = ['name' => $t['name'], 'id' => $res->json('terminal.id'), 'token' => $res->json('token')];
 
             $login = Http::baseUrl($this->pool->url($i))->withToken($res->json('token'))->acceptJson()
-                ->post('/api/v1/auth/login', ['staff_id' => $world->staff['id'], 'pin' => $world->staff['pin']]);
+                ->post('/api/v1/auth/login', ['staff_id' => $world->staff['cashier']['id'], 'pin' => $world->staff['cashier']['pin']]);
             if ($login->status() !== 201) {
                 throw new \RuntimeException("staff login on {$t['name']} failed: HTTP {$login->status()} ".$login->body());
             }
