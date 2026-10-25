@@ -1,6 +1,6 @@
 # Allurus POS
 
-Multi-tenant, offline-first, omnichannel POS for the Malaysian market (F&B, retail, time-based services). Full design: `allurus-pos-architecture.md` (schema, sync strategy, API, roadmap). Read it before changing architecture. **Not yet in the repo** — add it before relying on this pointer.
+Multi-tenant, offline-first, omnichannel POS for the Malaysian market (F&B, retail, time-based services). Full design: `allurus-pos-architecture.md` (schema, sync strategy, API, roadmap). Read it before changing architecture. Where it differs from the code (it predates the fixes below), the code and this file win.
 
 ## Stack
 
@@ -30,13 +30,15 @@ Multi-tenant, offline-first, omnichannel POS for the Malaysian market (F&B, reta
 ## Commands
 
 ```bash
+php spec/pricing/run.php              # pricing vectors, no framework needed
 php artisan test                      # Pest suite (needs Postgres, see below)
+php artisan migrate:fresh --seed --seeder=DemoSeeder   # demo data (never in production)
 php artisan sim:run                   # 8 chaos scenarios against real API server processes
 php artisan sim:run crash-mid-sync --orders=5000
 ./vendor/bin/pint                     # code style
 ```
 
-Not yet available: `php spec/pricing/run.php` and `php artisan migrate:fresh --seed --seeder=DemoSeeder` (files not in the repo).
+Pricing algorithm in words: `spec/pricing/SPEC.md`. Porting the engine means passing `vectors.json`, nothing else.
 
 ### Local databases
 
@@ -49,7 +51,10 @@ Postgres role `allurus_app` (non-superuser, `NOBYPASSRLS`, so RLS is really exer
 ## Layout
 
 ```
-app/Billing/                    (planned) PricingEngine, TimeBilling, MyTax
+app/Billing/                    PricingEngine (framework-free), PricingException; TimeBilling planned
+app/Models/TaxRule.php          national, versioned tax rules (no tenant_id); forPricing($date) feeds PricingEngine
+database/seeders/DemoSeeder.php two demo tenants (cafe + snooker hall), fixed UUIDv5 IDs (DemoSeeder::id())
+spec/pricing/                   SPEC.md, vectors.json (golden, hand-calculated), run.php
 app/Database/                   Rls, Timestamps
 app/Tenancy/                    TenantContext, TenantScope, BelongsToTenant
 app/Pricing/PriceResolver.php   server-side price lookup (outlet override > region > base)
@@ -81,23 +86,24 @@ Done (branch `allurus-pos` on rhoni266/allurus-hr):
 * Tenant isolation tests (scope + RLS, reads and writes, fail-closed)
 * Sync engine: pull (cursor, prune watermark, tombstones), push (idempotent, retry vs reject), `order.create`
 * CLI terminal simulator + 8 chaos scenarios, all passing
-* 36 Pest tests, all passing
-
-Missing — the previous status listed these as done, but they are not in this repo:
-
-* `app/Billing/PricingEngine.php`, `spec/pricing/vectors.json` (10 cases), `spec/pricing/run.php`
-* `database/seeders/DemoSeeder.php`
-* `allurus-pos-architecture.md`
+* `PricingEngine` (spec v1) + 20 golden vectors (15 priced, 5 errors) + 2,000-basket invariant test, all passing
+* `staff` (RLS, hashed PINs) and `tax_rules` (versioned, date-effective) tables
+* `DemoSeeder`, run against the dev database; 69 Pest tests, all passing
+* `allurus-pos-architecture.md` committed
 
 Known gaps:
 
-* The simulator terminal prices orders itself (`Terminal::ringUp`) instead of using `PricingEngine`. Switch it over once the engine is in.
-* `OrderCreateHandler` aggregates stock deltas as floats — this breaks rule 1. Move to `qty_milli`.
+* The simulator terminal prices orders itself (`Terminal::ringUp`) instead of using `PricingEngine`, which breaks rule 7. Switch it over.
+* `OrderCreateHandler` aggregates stock deltas as floats, which breaks rule 1. Move to `qty_milli`.
+* `order_items.qty` and the sync payload still carry decimal `qty`; the pricing engine takes `qty_milli`. Decide where the conversion lives (ideally the payload carries `qty_milli`).
+* The server doesn't recompute or check terminal pricing against `PricingEngine` yet (it should flag, never rewrite — rule 4).
+* `tax_rules` aren't in the sync feed yet (the trigger needs a tenant; national rules need their own pull path).
 * The server doesn't yet flag terminals with skewed clocks (the simulator only reports the skew).
+* Demo tax rates are illustrative. Confirm with RMCD before go-live.
 
 Next, in order:
 
-1. Add PricingEngine + vectors + DemoSeeder; run the vectors, `php artisan test` and the seeder; fix failures. Switch the simulator to PricingEngine and stock deltas to `qty_milli`.
-2. Device pairing (one-time code, `pos:terminal` token) and staff PIN login. Adds the `staff` table the seeder expects.
+1. Switch the simulator to `PricingEngine` and move stock deltas and the sync payload to `qty_milli`.
+2. Device pairing (one-time code, `pos:terminal` token) and staff PIN login (the `staff` table exists).
 3. Remaining mutations: `order.void`, `payment.add`, `stock.adjust`, then `session.end` — each with a simulator scenario.
 4. Dart port of `PricingEngine`, run against `spec/pricing/vectors.json` in CI.
