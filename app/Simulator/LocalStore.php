@@ -52,8 +52,14 @@ final class LocalStore
             CREATE TABLE IF NOT EXISTS modifiers (id TEXT PRIMARY KEY, data TEXT);
 
             CREATE TABLE IF NOT EXISTS orders (
-                id TEXT PRIMARY KEY, receipt_no TEXT UNIQUE, total_sen INTEGER, status TEXT NOT NULL, occurred_at TEXT
+                id TEXT PRIMARY KEY, receipt_no TEXT UNIQUE, total_sen INTEGER, status TEXT NOT NULL, occurred_at TEXT,
+                priced TEXT                                 -- what PricingEngine::refund needs later
             );
+            CREATE TABLE IF NOT EXISTS refunds (id TEXT PRIMARY KEY, order_id TEXT, refund_sen INTEGER NOT NULL, staff_role TEXT);
+            CREATE TABLE IF NOT EXISTS refund_lines (
+                refund_id TEXT, order_id TEXT, item_id TEXT, variant_id TEXT, qty_milli INTEGER NOT NULL, restock INTEGER
+            );
+            CREATE TABLE IF NOT EXISTS counts (id TEXT PRIMARY KEY, counted_at TEXT, lines TEXT);
             CREATE TABLE IF NOT EXISTS order_items (
                 id TEXT PRIMARY KEY, order_id TEXT, variant_id TEXT,
                 qty_milli INTEGER NOT NULL, unit_price_sen INTEGER, net_sen INTEGER   -- integers only, never REAL

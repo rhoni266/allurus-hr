@@ -39,8 +39,12 @@ final class Verifier
      * The full ledger check across every terminal's SQLite file: every sale, void, payment,
      * adjustment and session on the server exactly once; money, stock and statuses exact.
      */
-    public function salesLedger(int $expectedRejected = 0): self
+    public function salesLedger(int $expectedRejected = 0, bool $stock = true): self
     {
+        $refundedQty = [];   // order_id => item_id => qty_milli, across all terminals
+        $itemQty = [];       // order_id => item_id => qty_milli sold
+        $restocked = [];     // order_id => variant_id => qty_milli returned to stock
+        $refundMovements = 0;
         $localOrders = [];
         $localStatus = [];
         $localTotal = 0;
@@ -80,6 +84,19 @@ final class Verifier
                     $localPayments[$p['order_id']] = ($localPayments[$p['order_id']] ?? 0) + (int) $p['s'];
                 }
             }
+            foreach ($store->all('SELECT order_id, id, qty_milli FROM order_items') as $i) {
+                if (! isset($refused[$i['order_id']])) {
+                    $itemQty[$i['order_id']][$i['id']] = (int) $i['qty_milli'];
+                }
+            }
+            foreach ($store->all('SELECT refund_id, order_id, item_id, variant_id, qty_milli, restock FROM refund_lines') as $r) {
+                $refundedQty[$r['order_id']][$r['item_id']] = ($refundedQty[$r['order_id']][$r['item_id']] ?? 0) + (int) $r['qty_milli'];
+                if ($r['restock'] && in_array($r['variant_id'], $this->world->variantIds, true)) {
+                    $restocked[$r['order_id']][$r['variant_id']] = ($restocked[$r['order_id']][$r['variant_id']] ?? 0) + (int) $r['qty_milli'];
+                }
+            }
+            $refundMovements += (int) $store->scalar('SELECT COUNT(*) FROM (SELECT DISTINCT refund_id, variant_id FROM refund_lines WHERE restock = 1 AND variant_id IN ('
+                .implode(',', array_map(fn ($v) => "'{$v}'", $this->world->variantIds)).'))');
             foreach ($store->all('SELECT DISTINCT order_id FROM voids') as $v) {
                 $voided[$v['order_id']] = true;
             }
@@ -122,20 +139,34 @@ final class Verifier
         $stockedLines = fn (?array $byVariant) => count(array_intersect_key($byVariant ?? [], $stocked));
         $saleLines = array_sum(array_map($stockedLines, $lines));
         $voidLines = array_sum(array_map(fn ($o) => $stockedLines($lines[$o] ?? null), array_keys($voided)));
-        $movements = DB::table('stock_movements')->where('tenant_id', $this->world->tenantId)->count();
-        $this->check('one ledger row per line, void and adjustment', $movements === $saleLines + $voidLines + $adjustments,
-            "server={$movements} expected={$saleLines}+{$voidLines}+{$adjustments}");
+        if ($stock) {   // stocktakes add count and count_absorbed rows; that scenario checks them itself
+            $movements = DB::table('stock_movements')->where('tenant_id', $this->world->tenantId)->count();
+            $this->check('one ledger row per line, void, refund and adjustment', $movements === $saleLines + $voidLines + $refundMovements + $adjustments,
+                "server={$movements} expected={$saleLines}+{$voidLines}+{$refundMovements}+{$adjustments}");
+        }
 
         // payments: everything taken, minus what voids gave back (each voided order once)
         $expectedPaid = array_sum($localPayments) - array_sum(array_map(fn ($o) => $localPayments[$o] ?? 0, array_keys($voided)));
         $serverPaid = (int) DB::table('payments')->whereIn('order_id', array_keys($localOrders))->sum('amount_sen');
         $this->check('payments net to the sen', $serverPaid === $expectedPaid, "server={$serverPaid} expected={$expectedPaid}");
 
-        // status: void if voided anywhere, else what the terminal that rang it up says
+        // status: void if voided anywhere; refunded / partially refunded by what came back
+        // (across terminals); else what the terminal that rang it up says
+        $expectedStatus = function (string $id, string $local) use ($voided, $refundedQty, $itemQty) {
+            if (isset($voided[$id])) {
+                return 'void';
+            }
+            if (! isset($refundedQty[$id])) {
+                return $local;
+            }
+            $full = collect($itemQty[$id] ?? [])->every(fn ($q, $item) => ($refundedQty[$id][$item] ?? 0) >= $q);
+
+            return $full ? 'refunded' : 'partially_refunded';
+        };
         $serverStatus = DB::table('orders')->whereIn('terminal_id', $terminalIds)->pluck('status', 'id');
-        $wrong = collect($localStatus)->filter(fn ($s, $id) => ($serverStatus[$id] ?? null) !== (isset($voided[$id]) ? 'void' : $s));
-        $this->check('order statuses (paid / open / void)', $wrong->isEmpty(),
-            $wrong->isEmpty() ? count($voided).' void, '.$serverStatus->filter(fn ($s) => $s === 'open')->count().' open'
+        $wrong = collect($localStatus)->filter(fn ($s, $id) => ($serverStatus[$id] ?? null) !== $expectedStatus($id, $s));
+        $this->check('order statuses (paid / open / void / refunded)', $wrong->isEmpty(),
+            $wrong->isEmpty() ? $serverStatus->countBy()->map(fn ($n, $s) => "{$n} {$s}")->implode(', ')
                 : $wrong->count().' wrong, e.g. '.$wrong->keys()->first());
         $this->check('one void fact per voided order', ($v = DB::table('order_voids')->count()) === count($voided), "server={$v} local=".count($voided));
 
@@ -151,13 +182,18 @@ final class Verifier
             ->whereRaw('total_sen <> subtotal_sen - discount_sen + service_charge_sen + tax_sen + rounding_sen')->count();
         $this->check('stored totals satisfy the pricing identity', $broken === 0, "{$broken} orders don't add up");
 
+        if (! $stock) {
+            return $this;
+        }
+
         // integers on both sides: exact equality, no tolerance
         $bad = [];
         $levels = DB::table('stock_levels')->where('outlet_id', $this->world->outletId)->pluck('on_hand_milli', 'variant_id');
         $net = $adjusted;
         foreach ($lines as $orderId => $byVariant) {
             foreach ($byVariant as $vid => $q) {
-                $net[$vid] = ($net[$vid] ?? 0) - $q + (isset($voided[$orderId]) ? $q : 0);
+                // a void returns the whole sale (including anything refunded first); refunds return what they restocked
+                $net[$vid] = ($net[$vid] ?? 0) - $q + (isset($voided[$orderId]) ? $q : ($restocked[$orderId][$vid] ?? 0));
             }
         }
         foreach ($this->world->variantIds as $vid) {

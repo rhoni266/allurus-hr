@@ -43,7 +43,8 @@ final class OfflineAuth
             ]];
         }
 
-        $managerAction = $m['type'] === 'order.void' || ($m['type'] === 'stock.adjust' && ($p['reason'] ?? null) !== 'waste');
+        $managerAction = in_array($m['type'], ['order.void', 'order.refund', 'stock.count'], true)
+            || ($m['type'] === 'stock.adjust' && ($p['reason'] ?? null) !== 'waste');
         if ($managerAction) {
             $conflicts[] = ['kind' => 'offline_manager_action', 'detail' => ['type' => $m['type'], 'staff_id' => $actor]];
         }

@@ -51,18 +51,22 @@ class OrderVoidHandler implements MutationHandler
         ]);
         $order->forceFill(['status' => 'void'])->save();
 
-        // give back exactly what the sale took, per variant, at the order's outlet
-        $returned = StockMovement::where('ref_id', $order->id)->where('reason', 'sale')->get()
-            ->mapWithKeys(fn ($m) => [$m->variant_id => -$m->qty_delta_milli])->all();
+        // give back what the sale took and refunds haven't already returned, per variant
+        $returned = StockMovement::where('ref_id', $order->id)->whereIn('reason', ['sale', 'refund'])->get()
+            ->groupBy('variant_id')->map(fn ($g) => -(int) $g->sum('qty_delta_milli'))->all();
         StockLedger::move(TenantContext::require(), $order->outlet_id, $returned, 'void', $order->id, $at);
 
+        // payments net to zero per method, counting anything already refunded
         $reversed = 0;
-        foreach (Payment::where('order_id', $order->id)->where('status', 'succeeded')->get() as $pay) {
-            Payment::create([
-                'id' => (string) Str::uuid7(), 'order_id' => $order->id, 'method' => $pay->method,
-                'amount_sen' => -$pay->amount_sen, 'status' => 'reversed', 'occurred_at' => $at,
-            ]);
-            $reversed += $pay->amount_sen;
+        foreach (Payment::where('order_id', $order->id)->get()->groupBy('method') as $method => $pays) {
+            $net = (int) $pays->sum('amount_sen');
+            if ($net > 0) {
+                Payment::create([
+                    'id' => (string) Str::uuid7(), 'order_id' => $order->id, 'method' => $method,
+                    'amount_sen' => -$net, 'status' => 'reversed', 'occurred_at' => $at,
+                ]);
+                $reversed += $net;
+            }
         }
 
         return Facts::outcome(

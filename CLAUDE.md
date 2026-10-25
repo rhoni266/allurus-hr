@@ -51,6 +51,8 @@ Multi-tenant, offline-first, omnichannel POS for the Malaysian market (F&B, reta
 | `payment.add` | payment; order becomes `paid` once covered | `overpaid`, `payment_on_void_order`, `offline_noncash_payment` |
 | `stock.adjust` | one signed movement (`waste`, `adjust`, `transfer_in`, `transfer_out`); never an absolute count | `unauthorized_adjustment` (non-waste by non-manager), `negative_stock`, `product_deleted` |
 | `session.end` | `time_sessions` row with the terminal's charge **and** `server_amount_sen` from `TimeBilling` | `session_amount_mismatch` |
+| `order.refund` | `order_refunds` + lines, negative `refunded` payments, `refund` movements for restocked lines; amount from `PricingEngine::refund` (spec v2, cumulative so pieces sum to the sale exactly); status `partially_refunded` / `refunded`. Rejected for voided orders | `refund_amount_mismatch`, `over_refund`, `unauthorized_refund` |
+| `stock.count` | a count anchor; `stocktake` movement = counted − books at count time. Later-synced movements dated before a count are cancelled (`count_absorbed`) | `unauthorized_stocktake` |
 
 All stock changes go through `App\Sync\StockLedger::move()`; order lookups through `App\Sync\Facts::order()` (partition-pruned, locked).
 
@@ -135,8 +137,7 @@ Done (branch `allurus-pos` on rhoni266/allurus-hr):
 
 Known gaps:
 
-* Refunds (partial, by line) aren't a mutation yet; only whole-order voids. Same pattern: new rows, negative payments, `refund` movements.
-* Stocktake (an absolute count) isn't supported: it must become a delta computed on the server against the ledger at the count's time.
+* `order.refund` and `stock.count` done (221 Pest tests; `refunds` and `stocktake` scenarios pass). In one full `sim:run`, `crash-mid-sync` hung on a terminal subprocess (600 s timeout); it passes alone. Not yet investigated.
 * Sessions are only synced when they end; a running session isn't visible to HQ or other terminals yet.
 * A void or payment waiting on another terminal's order gives up after 72 h of *device* time; a badly skewed clock shifts that deadline.
 

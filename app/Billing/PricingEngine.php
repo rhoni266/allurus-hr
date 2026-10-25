@@ -11,7 +11,7 @@ namespace App\Billing;
  */
 final class PricingEngine
 {
-    public const SPEC_VERSION = 1;
+    public const SPEC_VERSION = 2;   // v2: refunds
 
     /** @return array<string, mixed> see SPEC.md "Algorithm" for every field */
     public static function price(array $in): array
@@ -119,6 +119,95 @@ final class PricingEngine
             'rounding_sen' => $total - $preRound,
             'total_sen' => $total,
         ];
+    }
+
+    /**
+     * Refund part of a priced sale (SPEC.md "Refunds"). Cumulative, so any sequence of
+     * partial refunds adds up to exactly what was paid.
+     *
+     * @param array $original the sale: tender, total_sen, service_charge_sen, service_charge_tax_code, lines, tax_breakdown
+     * @param array<string,int> $alreadyRefunded line id => qty_milli refunded before
+     * @param array<string,int> $refund line id => qty_milli to refund now
+     */
+    public static function refund(array $original, array $alreadyRefunded, array $refund): array
+    {
+        $lines = array_column($original['lines'], null, 'id');
+
+        foreach ($refund as $id => $q) {
+            if (! isset($lines[$id])) {
+                throw new PricingException('unknown_line', (string) $id);
+            }
+            if (! is_int($q) || $q <= 0) {
+                throw new PricingException('invalid_qty', (string) $id);
+            }
+        }
+        $after = $alreadyRefunded;
+        foreach ($refund as $id => $q) {
+            $after[$id] = ($after[$id] ?? 0) + $q;
+            if ($after[$id] > $lines[$id]['qty_milli']) {
+                throw new PricingException('over_refund', (string) $id);
+            }
+        }
+
+        $before = self::refundedAmount($original, $alreadyRefunded);
+        $now = self::refundedAmount($original, $after);
+
+        $tax = [];
+        foreach ($now['tax'] as $code => $t) {
+            $tax[] = ['code' => $code, 'rate_bps' => $t['rate_bps'], 'rule_version' => $t['rule_version'],
+                'amount_sen' => $t['amount_sen'] - $before['tax'][$code]['amount_sen']];
+        }
+        $out = [];
+        foreach ($refund as $id => $q) {
+            $out[] = ['id' => (string) $id, 'qty_milli' => $q, 'net_sen' => $now['lines'][$id] - ($before['lines'][$id] ?? 0)];
+        }
+
+        $refundSen = $now['total'] - $before['total'];
+        $net = $now['net'] - $before['net'];
+        $sc = $now['sc'] - $before['sc'];
+
+        return [
+            'spec_version' => self::SPEC_VERSION,
+            'refund_sen' => $refundSen,
+            'net_sen' => $net,
+            'service_charge_sen' => $sc,
+            'tax_breakdown' => $tax,
+            'rounding_sen' => $refundSen - $net - $sc - array_sum(array_column($tax, 'amount_sen')),
+            'lines' => $out,
+        ];
+    }
+
+    /** F(q) of the refund spec: the amount for having refunded quantities $q. */
+    private static function refundedAmount(array $o, array $q): array
+    {
+        $full = true;
+        foreach ($o['lines'] as $l) {
+            $full = $full && ($q[$l['id']] ?? 0) === $l['qty_milli'];
+        }
+
+        $lines = [];
+        foreach ($o['lines'] as $l) {
+            $lines[$l['id']] = $full ? $l['net_sen'] : self::divHalfUp($l['net_sen'] * ($q[$l['id']] ?? 0), $l['qty_milli']);
+        }
+        $net = array_sum($lines);
+        $netTotal = array_sum(array_column($o['lines'], 'net_sen'));
+        $sc = $full ? $o['service_charge_sen'] : ($netTotal > 0 ? self::divHalfUp($o['service_charge_sen'] * $net, $netTotal) : 0);
+
+        $tax = [];
+        foreach ($o['tax_breakdown'] as $t) {
+            $base = 0;
+            foreach ($o['lines'] as $l) {
+                $base += $l['tax_code'] === $t['code'] ? $lines[$l['id']] : 0;
+            }
+            $base += ($o['service_charge_tax_code'] ?? null) === $t['code'] ? $sc : 0;
+            $amount = $full ? $t['amount_sen'] : ($t['base_sen'] > 0 ? self::divHalfUp($t['amount_sen'] * $base, $t['base_sen']) : 0);
+            $tax[$t['code']] = ['rate_bps' => $t['rate_bps'], 'rule_version' => $t['rule_version'], 'amount_sen' => $amount];
+        }
+
+        $pre = $net + $sc + array_sum(array_column($tax, 'amount_sen'));
+        $total = $full ? $o['total_sen'] : (($o['tender'] ?? null) === 'cash' ? intdiv($pre + 2, 5) * 5 : $pre);
+
+        return ['lines' => $lines, 'net' => $net, 'sc' => $sc, 'tax' => $tax, 'total' => $total];
     }
 
     /** Round half up for n >= 0, d > 0, without floats. */

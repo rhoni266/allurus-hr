@@ -77,6 +77,26 @@ foreach ($spec['cases'] as $case) {
     }
 }
 
-$n = count($spec['cases']);
+foreach ($spec['refund_cases'] ?? [] as $case) {
+    try {
+        $r = PricingEngine::refund($spec['refund_originals'][$case['original']], $case['already_refunded'], $case['refund']);
+        $problems = isset($case['expected_error'])
+            ? ["expected error {$case['expected_error']}, got refund {$r['refund_sen']}"]
+            : diff($case['expected'], $r);
+        if (! $problems && $r['refund_sen'] !== $r['net_sen'] + $r['service_charge_sen'] + array_sum(array_column($r['tax_breakdown'], 'amount_sen')) + $r['rounding_sen']) {
+            $problems[] = 'refund != net + service + tax + rounding';
+        }
+    } catch (PricingException $e) {
+        $problems = ($case['expected_error'] ?? null) === $e->reason ? [] : ["unexpected error: {$e->getMessage()}"];
+    }
+
+    echo ($problems ? 'FAIL' : 'ok  ')." refund: {$case['name']}\n";
+    foreach ($problems as $p) {
+        echo "     {$p}\n";
+    }
+    $failed += $problems ? 1 : 0;
+}
+
+$n = count($spec['cases']) + count($spec['refund_cases'] ?? []);
 echo "\n".($n - $failed)."/{$n} vectors pass (spec v{$spec['spec_version']})\n";
 exit($failed ? 1 : 0);

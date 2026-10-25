@@ -16,7 +16,7 @@ final class Scenarios
         'offline-day', 'flaky-network', 'crash-mid-sync', 'clock-skew',
         'stale-price', 'concurrent-terminals', 'duplicate-race', 'cursor-race',
         'void-storm', 'open-tabs', 'stock-adjust', 'snooker-sessions',
-        'lost-device', 'retire-device', 'offline-signin',
+        'lost-device', 'retire-device', 'offline-signin', 'refunds', 'stocktake',
     ];
 
     public function __construct(
@@ -503,6 +503,120 @@ final class Scenarios
             ->check('device refuses the revoked credential after pulling', $refusedAfterPull && $stillManager,
                 'cashier refused: '.json_encode($refusedAfterPull).', manager still ok: '.json_encode($stillManager))
             ->salesLedger();   // nothing rejected: offline actions are flagged, never refused
+    }
+
+    /**
+     * order.refund. 60 sales (discounts, service charge, mixed tax), then partial refunds
+     * line by line over a flaky network: 15 orders refunded in three pieces until nothing
+     * is left, 10 refunded partly, 3 of those by a cashier (flagged), some lines not
+     * restocked. Every fully refunded order must have given back exactly what was paid,
+     * and the server must agree with every amount.
+     */
+    private function refunds(string $name): Verifier
+    {
+        [$world, $t] = $this->setup($name, chaos: new Chaos(dropRequest: 0.1, dropResponse: 0.15, seed: $this->seed));
+        $t->pull();
+        $orders = $t->sell(60);
+        $t->sync();
+
+        $chaos = Chaos::none($this->seed + 3);
+        $lines = fn (string $order) => array_column($t->store->all('SELECT id, qty_milli FROM order_items WHERE order_id = ?', [$order]), 'qty_milli', 'id');
+        $full = array_slice($orders, 0, 15);
+        foreach ($full as $order) {
+            $left = $lines($order);
+            foreach ([1, 2, 3] as $piece) {
+                $now = [];
+                foreach ($left as $item => $q) {
+                    $take = $piece === 3 ? $q : intdiv($q, 3 - $piece + 1);   // a third, half of the rest, the rest
+                    if ($take > 0) {
+                        $now[$item] = $take;
+                        $left[$item] -= $take;
+                    }
+                }
+                if ($now) {
+                    $t->refundOrder($order, $now, restock: $chaos->int(0, 4) > 0);
+                }
+            }
+        }
+        foreach (array_slice($orders, 15, 10) as $i => $order) {
+            $item = array_key_first($lines($order));
+            $t->refundOrder($order, [$item => 250], role: $i < 3 ? 'cashier' : 'manager');
+        }
+        $t->sync();
+
+        $short = collect($full)->filter(fn ($o) => (int) $t->store->scalar('SELECT SUM(refund_sen) FROM refunds WHERE order_id = ?', [$o])
+            !== (int) $t->store->scalar('SELECT total_sen FROM orders WHERE id = ?', [$o]))->count();
+        $disagree = DB::table('order_refunds')->whereColumn('refund_sen', '<>', 'server_refund_sen')->count();
+        $this->say($t->store->scalar('SELECT COUNT(*) FROM refunds').' refunds, '.$t->store->scalar('SELECT -SUM(amount_sen) FROM payments WHERE amount_sen < 0').' sen given back');
+
+        return (new Verifier($world, ['T1' => $t->store]))
+            ->check('fully refunded orders gave back exactly what was paid', $short === 0, "{$short} of 15 off by a sen or more")
+            ->check('server agrees with every refund amount', $disagree === 0, "{$disagree} differ")
+            ->expectConflicts('unauthorized_refund', 3)
+            ->salesLedger();
+    }
+
+    /**
+     * stock.count. T1 sells all morning with no network. T2 sells and syncs. A manager on
+     * T2 counts the shelf (which already reflects T1's sales, and 3 units that walked out).
+     * T1 sells more after the count, then reconnects. T1's pre-count sales must not come
+     * off the counted stock again; its post-count sales must. Final stock must equal what
+     * is physically on the shelf.
+     */
+    private function stocktake(string $name): Verifier
+    {
+        $world = $this->world($name, terminals: 2);
+        $t1 = $this->terminal($world, 'T1', server: 0);
+        $t2 = $this->terminal($world, 'T2', server: 1);
+        $t1->pull();
+        $t2->pull();
+
+        $sold = function (Terminal $t, array $orders): array {
+            $q = [];
+            foreach ($orders as $o) {
+                foreach ($t->store->all('SELECT variant_id, qty_milli FROM order_items WHERE order_id = ?', [$o]) as $l) {
+                    $q[$l['variant_id']] = ($q[$l['variant_id']] ?? 0) + (int) $l['qty_milli'];
+                }
+            }
+            return $q;
+        };
+
+        $t1PreOrders = $t1->sell(40);             // offline
+        $t1Before = $sold($t1, $t1PreOrders);
+        $t2Sold = $sold($t2, $t2->sell(20));
+        $t2->sync();
+
+        // the shelf: what really happened, plus shrinkage the books never saw
+        $shrink = [$world->variantIds[3] => 3000, $world->variantIds[7] => 3000];
+        $shelf = [];
+        foreach ($world->variantIds as $vid) {
+            $shelf[$vid] = $world->initialStockMilli - ($t1Before[$vid] ?? 0) - ($t2Sold[$vid] ?? 0) - ($shrink[$vid] ?? 0);
+        }
+        usleep(5_000);
+        $t2->countStock($shelf, 'manager');
+        $t2->sync();
+        usleep(5_000);
+
+        $t1After = $sold($t1, $t1->sell(15));   // still offline, after the count
+        $t1->sync();
+
+        $levels = DB::table('stock_levels')->where('outlet_id', $world->outletId)->pluck('on_hand_milli', 'variant_id');
+        $wrong = collect($world->variantIds)->filter(fn ($vid) => (int) $levels[$vid] !== $shelf[$vid] - ($t1After[$vid] ?? 0));
+        $variance = (int) DB::table('stock_count_lines')->sum('delta_milli');
+        $expectedVariance = -array_sum($shrink) - array_sum($t1Before);   // the books at count time missed both
+        $absorbed = DB::table('stock_movements')->where('reason', 'count_absorbed')->pluck('ref_id');
+        // exactly one cancelled movement per (order, item) T1 rang up before the count; none after
+        $t1PreLines = collect($t1PreOrders)->sum(fn ($o) => (int) $t1->store->scalar('SELECT COUNT(DISTINCT variant_id) FROM order_items WHERE order_id = ?', [$o]));
+        $absorbedOnlyPre = $absorbed->every(fn ($ref) => in_array($ref, $t1PreOrders, true));
+        $absorbed = $absorbed->count();
+        $this->say("count variance {$variance} milli (6,000 shrinkage + T1's unsynced sales); {$absorbed} late movements absorbed");
+
+        return (new Verifier($world, ['T1' => $t1->store, 'T2' => $t2->store]))
+            ->check('stock equals the shelf, minus sales after the count', $wrong->isEmpty(), $wrong->count().' of '.count($world->variantIds).' differ')
+            ->check('count variance = shrinkage + sales the books had not seen yet', $variance === $expectedVariance, "{$variance} vs {$expectedVariance}")
+            ->check("T1's pre-count sales were absorbed, post-count ones were not", $absorbed === $t1PreLines && $absorbedOnlyPre,
+                "{$absorbed} absorbed, {$t1PreLines} pre-count lines".($absorbedOnlyPre ? '' : ', some post-count!'))
+            ->salesLedger(stock: false);
     }
 
     /** A staff member signs in on one of the world's terminals; returns a ready HTTP client. */

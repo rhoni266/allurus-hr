@@ -164,12 +164,19 @@ final class Terminal
                 'service_charge_sen' => $priced['service_charge_sen'], 'tax_sen' => $priced['tax_sen'],
                 'rounding_sen' => $priced['rounding_sen'], 'total_sen' => $priced['total_sen'],
                 'tax_breakdown' => $priced['tax_breakdown'], 'pricing_spec_version' => $priced['spec_version'],
+                'tender' => 'cash', 'service_charge_tax_code' => $input['service_charge']['tax_code'] ?? null,
                 'created_offline' => true, 'occurred_at' => $at,
             ];
             $total = $priced['total_sen'];
+            $original = [
+                'tender' => 'cash', 'total_sen' => $total, 'service_charge_sen' => $priced['service_charge_sen'],
+                'service_charge_tax_code' => $order['service_charge_tax_code'], 'tax_breakdown' => $priced['tax_breakdown'],
+                'lines' => array_map(fn ($it) => ['id' => $it['id'], 'qty_milli' => $it['qty_milli'], 'net_sen' => $it['net_sen'],
+                    'tax_code' => $it['tax_code'], 'variant_id' => $it['variant_id']], $items),
+            ];
 
-            $db->prepare('INSERT INTO orders (id, receipt_no, total_sen, status, occurred_at) VALUES (?, ?, ?, ?, ?)')
-                ->execute([$orderId, $receipt, $total, $status, $at]);
+            $db->prepare('INSERT INTO orders (id, receipt_no, total_sen, status, occurred_at, priced) VALUES (?, ?, ?, ?, ?, ?)')
+                ->execute([$orderId, $receipt, $total, $status, $at, json_encode($original)]);
             $payments = $paid > 0 ? [['id' => (string) Str::uuid7(), 'method' => 'cash', 'amount_sen' => $paid, 'occurred_at' => $at]] : [];
             foreach ($payments as $pay) {
                 $db->prepare('INSERT INTO payments (id, order_id, method, amount_sen) VALUES (?, ?, ?, ?)')
@@ -215,6 +222,73 @@ final class Terminal
         $this->stats['voids'] = ($this->stats['voids'] ?? 0) + 1;
 
         return $voidId;
+    }
+
+    /**
+     * order.refund for some lines of one of this terminal's orders, priced with
+     * PricingEngine::refund (cumulative over this terminal's earlier refunds of it).
+     *
+     * @param array<string,int> $lines item_id => qty_milli
+     */
+    public function refundOrder(string $orderId, array $lines, string $role = 'manager', bool $restock = true): int
+    {
+        $original = json_decode((string) $this->store->scalar('SELECT priced FROM orders WHERE id = ?', [$orderId]), true)
+            ?? throw new \RuntimeException("no local order {$orderId}");
+        $already = [];
+        foreach ($this->store->all('SELECT item_id, SUM(qty_milli) q FROM refund_lines WHERE order_id = ? GROUP BY item_id', [$orderId]) as $r) {
+            $already[$r['item_id']] = (int) $r['q'];
+        }
+        $r = PricingEngine::refund($original, $already, $lines);
+        $variants = array_column($original['lines'], 'variant_id', 'id');
+        $refundId = (string) Str::uuid7();
+        $at = $this->now()->toIso8601ZuluString('microsecond');
+
+        $this->store->transaction(function (\PDO $db) use ($orderId, $lines, $role, $restock, $r, $variants, $refundId, $at, $original, $already) {
+            $db->prepare('INSERT INTO refunds (id, order_id, refund_sen, staff_role) VALUES (?, ?, ?, ?)')->execute([$refundId, $orderId, $r['refund_sen'], $role]);
+            foreach ($lines as $itemId => $q) {
+                $db->prepare('INSERT INTO refund_lines (refund_id, order_id, item_id, variant_id, qty_milli, restock) VALUES (?, ?, ?, ?, ?, ?)')
+                    ->execute([$refundId, $orderId, $itemId, $variants[$itemId], $q, $restock ? 1 : 0]);
+            }
+            $payments = $r['refund_sen'] > 0 ? [['id' => (string) Str::uuid7(), 'method' => 'cash', 'amount_sen' => $r['refund_sen']]] : [];
+            foreach ($payments as $pay) {
+                $db->prepare('INSERT INTO payments (id, order_id, method, amount_sen) VALUES (?, ?, ?, ?)')->execute([$pay['id'], $orderId, 'cash', -$pay['amount_sen']]);
+            }
+            $after = $already;
+            foreach ($lines as $id => $q) {
+                $after[$id] = ($after[$id] ?? 0) + $q;
+            }
+            $full = collect($original['lines'])->every(fn ($l) => ($after[$l['id']] ?? 0) >= $l['qty_milli']);
+            $db->prepare('UPDATE orders SET status = ? WHERE id = ?')->execute([$full ? 'refunded' : 'partially_refunded', $orderId]);
+
+            $this->enqueue($db, 'order.refund', [
+                'refund_id' => $refundId, 'order_id' => $orderId, 'staff_id' => $this->staffIdFor($role), 'reason' => 'sim',
+                'occurred_at' => $at, 'refund_sen' => $r['refund_sen'], 'spec_version' => $r['spec_version'],
+                'lines' => array_map(fn ($id, $q) => ['item_id' => $id, 'qty_milli' => $q, 'restock' => $restock], array_keys($lines), $lines),
+                'payments' => $payments,
+            ], $at);
+        });
+
+        return $r['refund_sen'];
+    }
+
+    /**
+     * stock.count: what is physically on the shelf right now (counts, never deltas: this
+     * terminal can't know what others sold). Returns the device time of the count.
+     *
+     * @param array<string,int> $counted variant_id => qty_milli
+     */
+    public function countStock(array $counted, string $role = 'manager'): string
+    {
+        $id = (string) Str::uuid7();
+        $at = $this->now()->toIso8601ZuluString('microsecond');
+
+        $this->store->transaction(function (\PDO $db) use ($counted, $role, $id, $at) {
+            $db->prepare('INSERT INTO counts (id, counted_at, lines) VALUES (?, ?, ?)')->execute([$id, $at, json_encode($counted)]);
+            $this->enqueue($db, 'stock.count', ['count_id' => $id, 'staff_id' => $this->staffIdFor($role), 'counted_at' => $at,
+                'lines' => array_map(fn ($v, $c) => ['variant_id' => $v, 'counted_milli' => $c], array_keys($counted), $counted)], $at);
+        });
+
+        return $at;
     }
 
     /** payment.add: cash towards an open tab (offline = cash only). */

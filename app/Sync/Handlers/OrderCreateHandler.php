@@ -55,6 +55,8 @@ class OrderCreateHandler implements MutationHandler
             'rounding_sen'       => $o['rounding_sen'] ?? 0,
             'total_sen'          => $o['total_sen'],
             'tax_breakdown'      => $o['tax_breakdown'] ?? [],
+            'tender'             => $o['tender'] ?? 'cash',
+            'service_charge_tax_code' => $o['service_charge_tax_code'] ?? null,
             'created_offline'    => (bool) ($o['created_offline'] ?? true),
             'occurred_at'        => $occurredAt,
             'synced_at'          => now(),
@@ -86,6 +88,8 @@ class OrderCreateHandler implements MutationHandler
                 'catalog_price_sen' => $catalogPrice ?? $item['unit_price_sen'],
                 'price_row_version' => $item['price_row_version'],
                 'modifiers'         => $item['modifiers'] ?? [],
+                'net_sen'           => $item['net_sen'] ?? null,     // priced output: what refunds are based on
+                'tax_code'          => $item['tax_code'] ?? null,
                 'occurred_at'       => $occurredAt,
             ]);
 
@@ -164,6 +168,9 @@ class OrderCreateHandler implements MutationHandler
             'items.*.qty_milli'        => ['required', 'integer', 'min:1', 'max:1000000000'],
             'items.*.unit_price_sen'   => ['required', 'integer'],
             'items.*.price_row_version'=> ['required', 'integer', 'min:0'],
+            'items.*.net_sen'          => ['nullable', 'integer', 'min:0'],
+            'items.*.tax_code'         => ['nullable', 'string', 'max:32'],
+            'order.tender'             => ['nullable', 'string', 'max:16'],
             'payments'                 => ['present', 'array'],
             'payments.*.id'            => ['required', 'uuid', 'distinct'],
             'payments.*.method'        => ['required', 'string', 'max:32'],

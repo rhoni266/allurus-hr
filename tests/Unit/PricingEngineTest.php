@@ -88,6 +88,57 @@ it('passes time-billing golden vector', function (array $case) {
 })->with(fn () => collect(json_decode(file_get_contents(__DIR__.'/../../spec/time-billing/vectors.json'), true)['cases'])
     ->mapWithKeys(fn ($c) => [$c['name'] => [$c]])->all());
 
+it('passes refund golden vector', function (array $case, array $originals) {
+    $run = fn () => PricingEngine::refund($originals[$case['original']], $case['already_refunded'], $case['refund']);
+    if (isset($case['expected_error'])) {
+        expect($run)->toThrow(fn (PricingException $e) => expect($e->reason)->toBe($case['expected_error']));
+        return;
+    }
+    expectSubset($case['expected'], $run());
+})->with(function () {
+    $spec = json_decode(file_get_contents(__DIR__.'/../../spec/pricing/vectors.json'), true);
+
+    return collect($spec['refund_cases'])->mapWithKeys(fn ($c) => [$c['name'] => [$c, $spec['refund_originals']]])->all();
+});
+
+it('refunds in random pieces always add up to exactly what was paid (1,000 sales)', function () {
+    mt_srand(424242);
+    $rules = ['EXEMPT' => ['rate_bps' => 0, 'version' => 1], 'SST_SALES' => ['rate_bps' => 1000, 'version' => 1], 'SST_SERVICE' => ['rate_bps' => 800, 'version' => 1]];
+
+    for ($n = 0; $n < 1000; $n++) {
+        $lines = [];
+        foreach (range(1, mt_rand(1, 4)) as $i) {
+            $lines[] = ['id' => "L{$i}", 'qty_milli' => mt_rand(1, 6) * 500, 'unit_price_sen' => mt_rand(0, 5000), 'tax_code' => array_rand($rules)]
+                + (mt_rand(0, 3) === 0 ? ['discount' => ['percent_bps' => mt_rand(0, 3000)]] : []);
+        }
+        $in = ['tender' => mt_rand(0, 1) ? 'cash' : 'card', 'tax_rules' => $rules, 'lines' => $lines]
+            + (mt_rand(0, 1) ? ['service_charge' => ['rate_bps' => 1000, 'tax_code' => mt_rand(0, 1) ? 'SST_SERVICE' : null]] : [])
+            + (mt_rand(0, 2) === 0 ? ['order_discount' => ['amount_sen' => mt_rand(0, 2000)]] : []);
+        $sale = PricingEngine::price($in);
+        $original = ['tender' => $in['tender'], 'total_sen' => $sale['total_sen'], 'service_charge_sen' => $sale['service_charge_sen'],
+            'service_charge_tax_code' => $in['service_charge']['tax_code'] ?? null, 'tax_breakdown' => $sale['tax_breakdown'],
+            'lines' => array_map(fn ($l, $p) => ['id' => $l['id'], 'qty_milli' => $l['qty_milli'], 'net_sen' => $p['net_sen'], 'tax_code' => $l['tax_code']], $lines, $sale['lines'])];
+
+        // refund every line back in random-sized pieces, in random order
+        $already = [];
+        $refunded = 0;
+        while (true) {
+            $left = array_filter(array_map(fn ($l) => $l['qty_milli'] - ($already[$l['id']] ?? 0), array_column($original['lines'], null, 'id')));
+            if (! $left) {
+                break;
+            }
+            $id = array_rand($left);
+            $q = min($left[$id], mt_rand(1, 3) * 250);
+            $r = PricingEngine::refund($original, $already, [$id => $q]);
+            expect($r['refund_sen'])->toBeGreaterThanOrEqual(-2);   // cash rounding can step one piece back by a few sen
+            $refunded += $r['refund_sen'];
+            $already[$id] = ($already[$id] ?? 0) + $q;
+        }
+
+        expect($refunded)->toBe($sale['total_sen']);
+    }
+});
+
 it('rejects floats anywhere money or quantity is expected', function () {
     expect(fn () => PricingEngine::price([
         'tender' => 'card', 'tax_rules' => ['EXEMPT' => ['rate_bps' => 0, 'version' => 1]],
