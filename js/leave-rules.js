@@ -18,7 +18,9 @@
   const roundHalfUp = (n) => Math.floor(n + 0.5 + 1e-9);
 
   // ---------- States and work weeks ----------
-  const WEEKENDS = { 'sat-sun': [6, 0], 'fri-sat': [5, 6] };
+  // 'sun': a six-day week (Monday to Saturday), common in factories, with Sunday as the only rest day.
+  const WEEKENDS = { 'sat-sun': [6, 0], 'fri-sat': [5, 6], sun: [0] };
+  const WEEKEND_LABELS = { 'sat-sun': 'Saturday and Sunday', 'fri-sat': 'Friday and Saturday', sun: 'Sunday only' };
   // Kedah, Kelantan and Terengganu rest on Friday and Saturday. Johor returned to Saturday–Sunday in 2025.
   const STATES = [
     ['Johor', 'sat-sun'], ['Kedah', 'fri-sat'], ['Kelantan', 'fri-sat'], ['Melaka', 'sat-sun'], ['Negeri Sembilan', 'sat-sun'],
@@ -273,7 +275,7 @@
   const unpaidDeduction = ({ base, days, divisor: div }) => (days > 0 && div > 0 ? r2(Math.min(base, (base / div) * days)) : 0);
 
   const api = {
-    WEEKENDS, STATES, CITY_STATE, HOLIDAYS, TIER_LABELS, DEFAULT_TYPES, defaultTypes, defaultSettings, stateWeekend, weekendDays, builtInYears,
+    WEEKENDS, WEEKEND_LABELS, STATES, CITY_STATE, HOLIDAYS, TIER_LABELS, DEFAULT_TYPES, defaultTypes, defaultSettings, stateWeekend, weekendDays, builtInYears,
     holidaysFor, holidaySet, calendarCtx, isWorkingDay, countDays, countDaysInMonth, workingDaysInMonth,
     serviceYears, serviceMonths, monthsInYear, eligible, entitlement, usage, balance, carryForward,
     buildChain, nextStep, canAct, decide, divisor, unpaidDeduction, roundHalfUp, addDays, monthEnd, daysBetween, dow,

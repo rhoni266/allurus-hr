@@ -819,7 +819,7 @@
       <div class="field"><label for="f-dept">Department</label><select class="select" id="f-dept" name="dept">${opt(state.departments.map((d) => [d.id, d.name]), e.dept)}</select></div>
       <div class="field"><label for="f-manager">Reports to</label><select class="select" id="f-manager" name="manager"><option value="">No manager</option>${opt(state.employees.filter((x) => x.id !== e.id).map((x) => [x.id, fullName(x)]), e.manager)}</select></div>
       <div class="field"><label for="f-pattern">Working pattern</label><select class="select" id="f-pattern" name="timePattern">${opt([['', 'Department’s pattern'], ...state.settings.time.patterns.map((p) => [p.id, `${p.name} (${AllurusTimeRules.shiftLabel(p)})`])], e.timePattern || '')}</select><span class="field-hint">The Schedule can change single days.</span></div>
-      <div class="field"><label for="f-type">Employment type</label><select class="select" id="f-type" name="type">${opt(['Full-time', 'Part-time', 'Contract', 'Intern'], e.type || 'Full-time')}</select></div>
+      <div class="field"><label for="f-type">Employment type</label><select class="select" id="f-type" name="type">${opt(['Full-time', 'Part-time', 'Contract', 'Intern', 'Owner'], e.type || 'Full-time')}</select></div>
       <div class="field"><label for="f-location">Location</label><input class="input" id="f-location" name="location" value="${esc(e.location)}"></div>
       <div class="field"><label for="f-salary">Annual salary (${esc(state.settings.currency)})</label><input class="input" id="f-salary" name="salary" type="number" min="0" step="500" required value="${esc(e.salary)}"></div>
       <div class="field"><label for="f-start">Start date</label><input class="input" id="f-start" name="start" type="date" required value="${esc(e.start || U.today())}"></div>
@@ -2449,7 +2449,8 @@
     'pay-shift': (_, v) => { ui.payMonth = U.addMonths(ui.payMonth, Number(v)); render(); },
     'pay-run': () => {
       const mk = ui.payMonth;
-      const items = activeEmployees().filter((e) => e.start <= U.monthEnd(mk)).map((e) => payItem(e, appraisalApi ? appraisalApi.bonusFor(e.id, mk) : 0, mk));
+      // The owner of a sole proprietorship or partnership draws profits, not a salary, so isn't on the pay run.
+      const items = activeEmployees().filter((e) => e.start <= U.monthEnd(mk) && e.type !== 'Owner').map((e) => payItem(e, appraisalApi ? appraisalApi.bonusFor(e.id, mk) : 0, mk));
       if (!items.length) { toast('No employees were active that month'); return; }
       state.payroll[mk] = { status: 'Draft', items };
       commit('Draft created', `Payroll draft created for ${U.fmtMonth(mk)}`);
