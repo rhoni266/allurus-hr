@@ -6,13 +6,17 @@ rules_version = '2';
 //   invites/{email}        HR's invitation for a work email. Joining needs that email, confirmed.
 //   tenants/{t}            The company. Members read; admins update.
 //     buckets/{id}         Shared records. Field r says who reads: 'm' every member, 'a' any Company Admin,
-//                          'p' admins with the payroll area, 'f' admins with the finance area.
+//                          'p' admins with the payroll area, 'f' admins with the finance area, 'o' admins with
+//                          the operations area, 'd:<empId>' that driver's deliveries (ops.dos~<empId>), read and
+//                          updated by the driver and admins with the operations area. Breakdowns
+//                          (ops.breakdowns) are read by every member; without the operations area a member may
+//                          only add a report, not change or remove one.
 //     people/{empId}       Full employee record: admins with the people or payroll area, and the person (who may
 //                          change only their phones and face).
 //     payslips/{empId}     Admins with the payroll area write and read; the person reads their own.
 //
 // Company Admins have role templates: a `perms` list of areas (people, time, payroll, claims, finance, talent,
-// settings) on their profile. No list means every area (Owner). Nobody can give access they don't have.
+// operations, settings) on their profile. No list means every area (Owner). Nobody can give access they don't have.
 //     personal/{empId}     The person's own financial plan and tax reliefs. Only them.
 //     blobs/{id}           Photos and files. Members read and add; nobody overwrites.
 service cloud.firestore {
@@ -32,14 +36,35 @@ service cloud.firestore {
     function hasArea(t, a) { return admin(t) && (owner() || a in me().perms); }
     function seesPeople(t) { return hasArea(t, 'people') || hasArea(t, 'payroll'); }
     function isFinance(b) { return b == 'finance' || b.matches('finance[.].*'); }
-    function bucketClass(b) { return b in ['payroll', 'payChanges', 'loans', 'insurance'] ? 'p' : (isFinance(b) ? 'f' : (b == 'savedReports' ? 'a' : 'm')); }
-    function readsClass(t, r) { return r == 'm' || (r == 'a' && admin(t)) || (r == 'p' && hasArea(t, 'payroll')) || (r == 'f' && hasArea(t, 'finance')); }
+    function isOps(b) { return b == 'ops' || b.matches('ops[.].*'); }
+    function isDriverBucket(b) { return b.matches('ops[.]dos~.+'); }
+    function driverOf(b) { return b.split('~')[1]; }
+    function opsShared(b) { return b in ['ops.machines', 'ops.products', 'ops.breakdowns']; }
+    function bucketClass(b) {
+      return b in ['payroll', 'payChanges', 'loans', 'insurance'] ? 'p' : (isFinance(b) ? 'f' : (b == 'savedReports' ? 'a'
+        : (isDriverBucket(b) ? 'd:' + driverOf(b) : (isOps(b) && !opsShared(b) ? 'o' : 'm'))));
+    }
+    function readsClass(t, r) {
+      return r == 'm' || (r == 'a' && admin(t)) || (r == 'p' && hasArea(t, 'payroll')) || (r == 'f' && hasArea(t, 'finance'))
+        || (r == 'o' && hasArea(t, 'operations'))
+        // A driver's deliveries. Written as a range (not a pattern) so the operations admins' query on 'd:'…'d;' passes.
+        || (r >= 'd:' && r < 'd;' && (hasArea(t, 'operations') || (member(t) && r == 'd:' + me().empId)));
+    }
     function bucketArea(b) {
       return b in ['payroll', 'payChanges', 'loans', 'insurance', 'statutory'] ? 'payroll'
         : (isFinance(b) ? 'finance' : (b == 'settings' ? 'settings' : (b in ['departments', 'directory'] ? 'people'
-        : (b == 'cycles' ? 'talent' : (b == 'savedReports' ? 'admin' : '')))));
+        : (b == 'cycles' ? 'talent' : (b == 'savedReports' ? 'admin' : (isOps(b) && b != 'ops.breakdowns' ? 'operations' : '')))))));
     }
-    function writesBucket(t, b) { return bucketArea(b) == '' ? member(t) : (bucketArea(b) == 'admin' ? admin(t) : hasArea(t, bucketArea(b))); }
+    // A breakdown report added by someone without the operations area: new records only, nothing changed or removed.
+    function onlyAdds() {
+      return resource == null || (request.resource.data.f.diff(resource.data.f).changedKeys().hasOnly(['~ord'])
+        && request.resource.data.f.diff(resource.data.f).removedKeys().size() == 0);
+    }
+    function writesBucket(t, b) {
+      return (isDriverBucket(b) && member(t) && driverOf(b) == me().empId)
+        || (b == 'ops.breakdowns' && (hasArea(t, 'operations') || (member(t) && onlyAdds())))
+        || (b != 'ops.breakdowns' && (bucketArea(b) == '' ? member(t) : (bucketArea(b) == 'admin' ? admin(t) : hasArea(t, bucketArea(b)))));
+    }
     // Access d (an invite or profile) gives no more than the giver has: an Owner may give anything; anyone else only
     // a list of their own areas, never Owner (an admin with no list).
     function grantable(d) { return !('admin' in d.roles) || owner() || ('perms' in d && d.perms.hasOnly(me().perms)); }

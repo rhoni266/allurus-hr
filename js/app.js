@@ -425,7 +425,11 @@
     hr: { label: 'HR admin', desc: 'People, time, payroll, claims, hiring and settings. Sees salaries.', perms: ['people', 'time', 'payroll', 'claims', 'talent', 'settings'] },
     payroll: { label: 'Payroll', desc: 'Staff records, attendance, payroll and claims', perms: ['people', 'time', 'payroll', 'claims'] },
     finance: { label: 'Finance', desc: 'The books and claims. No staff records or payroll detail.', perms: ['finance', 'claims'] },
+    // For a company that makes and delivers (a workspace with operations data); hidden elsewhere.
+    operations: { label: 'Operations', desc: 'Stock, purchasing, production, deliveries and machines', perms: ['operations'], ops: true },
+    manager: { label: 'Admin manager', desc: 'Runs the office and the floor: everything but hiring and appraisals', perms: ['people', 'time', 'payroll', 'claims', 'finance', 'operations', 'settings'], ops: true },
   };
+  const shownTemplates = () => Object.entries(TEMPLATES).filter(([, t]) => !t.ops || state.ops);
   const templateOf = (perms) => (!perms ? 'owner' : Object.keys(TEMPLATES).find((k) => TEMPLATES[k].perms.length === perms.length && TEMPLATES[k].perms.every((x) => perms.includes(x))) || 'custom');
   const ROUTE_AREA = {
     employees: 'people', departments: 'people', onboarding: 'people', assets: 'people', 'org-chart': 'people', rooms: 'people', announcements: 'people', 'hr-reports': 'people',
@@ -1738,7 +1742,7 @@
   };
 
   // ---------- Workspaces (one per company) ----------
-  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects', 'notifications', 'outbox', 'announcements', 'notifyKeys', 'reminderRun', 'cycles', 'goals', 'payChanges', 'editRequests', 'checklists', 'assets', 'loans', 'insurance', 'documents', 'costing', 'savedReports', 'requisitions', 'courses', 'enrolments', 'trainingRequests', 'grievances', 'rooms', 'bookings'];
+  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects', 'notifications', 'outbox', 'announcements', 'notifyKeys', 'reminderRun', 'cycles', 'goals', 'payChanges', 'editRequests', 'checklists', 'assets', 'loans', 'insurance', 'documents', 'costing', 'savedReports', 'requisitions', 'courses', 'enrolments', 'trainingRequests', 'grievances', 'rooms', 'bookings', 'ops'];
   function switchWorkspace(tid) {
     if (tid === state.session.tenantId) return;
     const cur = {}; WS_KEYS.forEach((k) => { cur[k] = state[k]; });
@@ -2596,14 +2600,14 @@
       const waiting = people.filter((e) => e.email && this.status(e).key === 'none').length;
       el.innerHTML = `<div class="card-head"><h3>Team access</h3>${waiting ? `<button class="btn btn-sm" data-act="acc-invite-all">Invite all ${waiting}</button>` : ''}</div>
         <p class="muted" style="margin-bottom:12px">Invite people by their work email. They open Allurus, choose <b>First time here? Set up your account</b>, confirm their email and sign in. Everyone gets the employee app; a role adds parts of the company console. Managers need no role: being an approver in the leave settings is enough.</p>
-        <div class="chips" style="margin-bottom:12px;flex-wrap:wrap">${Object.entries(TEMPLATES).map(([, t]) => `<span class="tag" title="${esc(t.desc)}"><b>${esc(t.label)}</b>: ${esc(t.desc)}</span>`).join('')}</div>
+        <div class="chips" style="margin-bottom:12px;flex-wrap:wrap">${shownTemplates().map(([, t]) => `<span class="tag" title="${esc(t.desc)}"><b>${esc(t.label)}</b>: ${esc(t.desc)}</span>`).join('')}</div>
         <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
       $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value)));
     },
     // The templates this person may give: only ones within their own areas; Owner only by an Owner.
     options(current) {
       const mine = myPerms(), ok = (k) => k === 'employee' || (k === 'owner' ? !mine : !mine || TEMPLATES[k].perms.every((a) => mine.includes(a)));
-      const list = [['employee', 'Employee'], ...Object.entries(TEMPLATES).map(([k, t]) => [k, t.label])];
+      const list = [['employee', 'Employee'], ...shownTemplates().map(([k, t]) => [k, t.label])];
       if (current === 'custom') list.push(['custom', 'Custom']);
       return list.map(([k, label]) => `<option value="${k}" ${k === current ? 'selected' : ''} ${ok(k) || k === current ? '' : 'disabled'}>${label}</option>`).join('');
     },

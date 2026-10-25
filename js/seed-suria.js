@@ -451,6 +451,9 @@
       });
       if (!so.lines.length) { soN--; return null; }
       so.doId = doRec.id;
+      // What the driver's phone shows, kept on the delivery order (see slipFor in js/ops.js).
+      const cl = contacts.find((x) => x.id === clientId);
+      doRec.slip = { client: cl.name, address: [cl.address.line1, cl.address.city].join(', '), phone: cl.phone, terms, total: Math.round(so.lines.reduce((t, l) => t + l.qty * l.price, 0) * 100) / 100, lines: so.lines.map((l) => ({ name: prod(l.productId).name, qty: l.qty, price: l.price })), batches: [...new Set(doRec.picks.map((p) => ops.batches.find((b) => b.id === p.batchId).no))] };
       ops.orders.push(so); ops.dos.push(doRec);
       if (status === 'Delivered') {
         doRec.deliveredAt = iso(d, `${String(9 + seq).padStart(2, '0')}:${String(10 + (seq * 17) % 45).padStart(2, '0')}`);

@@ -8,7 +8,9 @@ window.AllurusOps = (function () {
   const O = window.AllurusOpsRules;
   let ctx = null;
   const st = () => ctx.state;
-  const ops = () => st().ops;
+  // A driver or operator in the cloud holds only the lists they may read (js/cloud-map.js); the rest are empty.
+  const LISTS = ['items', 'moves', 'pos', 'products', 'batches', 'orders', 'dos', 'machines', 'maint', 'breakdowns', 'licences'];
+  const ops = () => { const o = st().ops; LISTS.forEach((k) => { if (!Array.isArray(o[k])) o[k] = []; }); return o; };
   const has = () => !!st().ops;
   const esc = (s) => ctx.esc(s);
   const icon = (n) => ctx.icon(n);
@@ -16,6 +18,7 @@ window.AllurusOps = (function () {
   const T = () => U.today();
   const fmt = (d, o = { day: 'numeric', month: 'short' }) => (d ? U.fmtDate(d.slice(0, 10), o) : '—');
   const can = () => !!window.AllurusAccess?.can('operations');
+  const canFinance = () => !!window.AllurusAccess?.can('finance');
   // A storekeeper, technician or sales executive may see only their part of Operations (account.opsScope).
   const scope = () => ctx.account()?.opsScope || null;
   const inScope = (tab) => !scope() || scope().includes(tab);
@@ -58,7 +61,29 @@ window.AllurusOps = (function () {
     fin().invoices.push(inv);
     return inv;
   }
-  const soTotal = (so) => O.r2(so.lines.reduce((s, l) => s + l.qty * l.price, 0));
+  const soTotal = (so) => O.r2((so?.lines || []).reduce((s, l) => s + l.qty * l.price, 0));
+  // What the driver needs about a delivery, kept on the delivery order itself: a driver can't read the sales
+  // orders, the client list or the batches. Older delivery orders without it are read from those lists.
+  const slipFor = (so, picks) => { const c = contact(so.clientId); return { client: c?.name || '', address: [c?.address?.line1, c?.address?.city].filter(Boolean).join(', '), phone: c?.phone || '', terms: so.terms, total: soTotal(so), lines: so.lines.map((l) => ({ name: prod(l.productId)?.name || '', qty: l.qty, price: l.price })), batches: [...new Set(picks.map((p) => ops().batches.find((b) => b.id === p.batchId)?.no).filter(Boolean))] }; };
+  const slipOf = (d) => d.slip || slipFor(ops().orders.find((x) => x.id === d.soId) || { lines: [] }, d.picks || []);
+  // A machine is down when someone says so, or while a breakdown reported as stopping it is open (an operator
+  // without the operations area can report a breakdown but not change the machine list).
+  const isDown = (m) => m.status === 'Down' || ops().breakdowns.some((b) => b.machineId === m.id && b.stopped && b.status !== 'Fixed');
+
+  // The invoice for a delivery, with the cash collected on delivery against it. Needs the finance area; a driver's
+  // delivery waits (invoicePending) until someone with it opens Operations.
+  function invoiceDelivery(d) {
+    const so = ops().orders.find((x) => x.id === d.soId);
+    if (!so) return null;
+    const inv = invoiceFromDO(d, so), total = soTotal(so), cash = d.cash || 0;
+    d.invoiceId = inv.id; d.invoicePending = false; so.status = 'Delivered';
+    if (cash > 0) {
+      if (cash >= total) { inv.status = 'Paid'; inv.paidOn = (d.deliveredAt || T()).slice(0, 10); } else { inv.adjust = -cash; inv.note = `RM ${cash.toFixed(2)} collected on delivery, balance due`; }
+      fin().txns.push({ id: U.uid('x'), date: (d.deliveredAt || T()).slice(0, 10), desc: `${cash >= total ? 'Cash' : 'Part payment'} on delivery from ${inv.customer}`, type: 'in', category: 'Product sales', amount: cash, tax: 0, ref: inv.no, source: 'invoice', reconciled: false });
+    }
+    return inv;
+  }
+  const toInvoice = () => ops().dos.filter((d) => d.status === 'Delivered' && !d.invoiceId);
 
   // ---------- Stock & purchasing ----------
   function stockView() {
@@ -264,24 +289,22 @@ window.AllurusOps = (function () {
   }
 
   // ---------- Sales & delivery ----------
-  const doTotal = (d) => { const so = ops().orders.find((s) => s.id === d.soId); return so ? soTotal(so) : 0; };
   function salesView() {
     const day = ui.day || T(), list = ops().dos.filter((d) => d.date === day);
     const cash = list.reduce((s, d) => s + (d.cash || 0), 0);
-    return `${head('Sales &amp; delivery', `${list.length} deliveries on ${fmt(day, { weekday: 'long', day: 'numeric', month: 'short' })}: ${list.filter((d) => d.status === 'Delivered').length} delivered · ${money(cash)} cash collected`, can() ? `<button class="btn btn-primary" data-act="ops-so-new">${icon('plus')}New order</button>` : '')}
+    return `${head('Sales &amp; delivery', `${list.length} deliveries on ${fmt(day, { weekday: 'long', day: 'numeric', month: 'short' })}: ${list.filter((d) => d.status === 'Delivered').length} delivered · ${money(cash)} cash collected`, `${can() && canFinance() && toInvoice().length ? `<button class="btn" data-act="ops-invoice-all">${icon('doc')}Invoice ${toInvoice().length} deliver${toInvoice().length === 1 ? 'y' : 'ies'}</button>` : ''}${can() ? `<button class="btn btn-primary" data-act="ops-so-new">${icon('plus')}New order</button>` : ''}`)}
       ${tabs('salesTab', [['deliveries', 'Deliveries'], ['orders', 'Sales orders'], ['clients', 'Clients']], 'ops-sales-tab')}
       ${ui.salesTab === 'orders' ? ordersTable() : ui.salesTab === 'clients' ? clientsTable() : deliveriesBoard(day, list)}`;
   }
   function stopCard(d, { mine = false } = {}) {
-    const so = ops().orders.find((s) => s.id === d.soId), c = contact(so?.clientId), total = soTotal(so);
-    const items = so.lines.map((l) => `${l.qty} × ${esc(prod(l.productId)?.name.replace('Cili Boh ', '') || '')}`).join(', ');
-    const batches = [...new Set(d.picks.map((p) => ops().batches.find((b) => b.id === p.batchId)?.no))].join(', ');
+    const sl = slipOf(d), total = sl.total;
+    const items = sl.lines.map((l) => `${l.qty} × ${esc(l.name.replace('Cili Boh ', ''))}`).join(', ');
     const canAct = mine || can();
     return `<div class="ops-stop ${d.status === 'Delivered' ? 'done' : ''}"><span class="ops-seq">${d.seq}</span><div class="grow">
-      <div class="ops-stop-head"><strong>${esc(c?.name || '')}</strong>${pill(d.status)}</div>
-      <div class="person-sub">${esc(c?.address?.line1 || '')}, ${esc(c?.address?.city || '')}${c?.phone ? ` · <a href="tel:${esc(c.phone.replace(/\s/g, ''))}">${esc(c.phone)}</a>` : ''}</div>
-      <div style="margin-top:4px">${items}</div><div class="faint" style="font-size:12.5px">${esc(d.no)} · batches ${esc(batches)}</div>
-      <div class="ops-stop-foot">${so.terms === 'COD' ? `<span class="tag ${d.status === 'Delivered' ? '' : 'warn'}">COD ${money(total)}${d.cash ? ' collected' : ''}</span>` : `<span class="tag">Credit · ${money(total)}</span>`}
+      <div class="ops-stop-head"><strong>${esc(sl.client)}</strong>${pill(d.status)}</div>
+      <div class="person-sub">${esc(sl.address)}${sl.phone ? ` · <a href="tel:${esc(sl.phone.replace(/\s/g, ''))}">${esc(sl.phone)}</a>` : ''}</div>
+      <div style="margin-top:4px">${items}</div><div class="faint" style="font-size:12.5px">${esc(d.no)} · batches ${esc(sl.batches.join(', '))}</div>
+      <div class="ops-stop-foot">${sl.terms === 'COD' ? `<span class="tag ${d.status === 'Delivered' ? '' : 'warn'}">COD ${money(total)}${d.cash ? ' collected' : ''}</span>` : `<span class="tag">Credit · ${money(total)}</span>`}
         ${canAct && d.status === 'Planned' ? `<button class="btn btn-sm" data-act="ops-do-out" data-id="${d.id}">Out for delivery</button>` : ''}
         ${canAct && ['Planned', 'Out'].includes(d.status) ? `<button class="btn btn-sm" data-act="ops-do-fail" data-id="${d.id}">Couldn’t deliver</button><button class="btn btn-sm btn-primary" data-act="ops-do-deliver" data-id="${d.id}">${icon('check')}Delivered</button>` : ''}
         ${d.status === 'Delivered' && d.photo ? `<button class="btn btn-sm btn-ghost" data-act="ops-do-photo" data-id="${d.id}">Proof</button>` : ''}</div></div></div>`;
@@ -326,7 +349,7 @@ window.AllurusOps = (function () {
         const c = contact(d.clientId), terms = c?.terms === 'COD' ? 'COD' : 'Credit 30';
         const so = { id: U.uid('so'), no: nextNo('SO'), clientId: d.clientId, date: T(), terms, lines, status: 'Open', doId: '' };
         const seq = ops().dos.filter((x) => x.date === d.date && x.driverId === d.driverId).length + 1;
-        const doRec = { id: U.uid('do'), no: nextNo('DO'), soId: so.id, date: d.date, driverId: d.driverId, helperId: '', vehicleId: d.vehicleId, route: d.route.trim(), seq, status: 'Planned', picks, deliveredAt: '', cash: 0, invoiceId: '' };
+        const doRec = { id: U.uid('do'), no: nextNo('DO'), soId: so.id, date: d.date, driverId: d.driverId, helperId: '', vehicleId: d.vehicleId, route: d.route.trim(), seq, status: 'Planned', picks, deliveredAt: '', cash: 0, invoiceId: '', slip: slipFor(so, picks) };
         so.doId = doRec.id;
         ops().orders.push(so); ops().dos.push(doRec);
         notify('ops.delivery', { count: 1, when: d.date === T() ? 'today' : `on ${U.fmtDate(d.date, { weekday: 'short', day: 'numeric', month: 'short' })}`, route: `${c?.name || ''}, stop ${seq}`, href: '#my-deliveries' }, d.driverId, { from: actor() });
@@ -346,27 +369,20 @@ window.AllurusOps = (function () {
     f.addEventListener('input', check);
   }
   function deliverModal(id) {
-    const d = ops().dos.find((x) => x.id === id), so = ops().orders.find((s) => s.id === d.soId), total = soTotal(so);
+    const d = ops().dos.find((x) => x.id === id), sl = slipOf(d), total = sl.total;
     let photo = null;
     ctx.openModal({
-      title: `Delivered: ${contact(so.clientId)?.name || ''}`, submit: 'Confirm delivery',
+      title: `Delivered: ${sl.client}`, submit: 'Confirm delivery',
       body: `<div class="form-grid"><div class="field full"><label for="dv-p">Photo of the goods or signed DO</label><input class="input" id="dv-p" type="file" accept="image/*" capture="environment"><span class="field-hint" id="dv-ph">Optional, but helps if there’s a question later.</span></div>
         <div class="field"><label for="dv-by">Received by</label><input class="input" id="dv-by" name="by" placeholder="Name"></div>
-        ${so.terms === 'COD' ? `<div class="field"><label for="dv-cash">Cash collected (RM)</label><input class="input num" id="dv-cash" name="cash" type="number" min="0" step="0.01" value="${total.toFixed(2)}"></div>` : `<p class="faint field full">Credit client: the invoice goes to Finance with 30-day terms.</p>`}</div>`,
+        ${sl.terms === 'COD' ? `<div class="field"><label for="dv-cash">Cash collected (RM)</label><input class="input num" id="dv-cash" name="cash" type="number" min="0" step="0.01" value="${total.toFixed(2)}"></div>` : `<p class="faint field full">Credit client: the invoice goes to Finance with 30-day terms.</p>`}</div>`,
       onSubmit(f) {
-        const cash = so.terms === 'COD' ? Math.max(0, Number(f.cash) || 0) : 0;
+        const cash = sl.terms === 'COD' ? Math.max(0, Number(f.cash) || 0) : 0;
         Object.assign(d, { status: 'Delivered', deliveredAt: new Date().toISOString(), receivedBy: f.by.trim(), cash, photo: photo || d.photo || null, deliveredBy: actor() });
-        so.status = 'Delivered';
-        const inv = invoiceFromDO(d, so);
-        d.invoiceId = inv.id;
-        if (cash >= total) {
-          inv.status = 'Paid'; inv.paidOn = T();
-          fin().txns.push({ id: U.uid('x'), date: T(), desc: `Cash on delivery from ${inv.customer}`, type: 'in', category: 'Product sales', amount: cash, tax: 0, ref: inv.no, source: 'invoice', reconciled: false });
-        } else if (cash > 0) {
-          inv.adjust = 0; inv.note = `RM ${cash.toFixed(2)} collected on delivery, balance due`;
-          fin().txns.push({ id: U.uid('x'), date: T(), desc: `Part payment on delivery from ${inv.customer}`, type: 'in', category: 'Product sales', amount: cash, tax: 0, ref: inv.no, source: 'invoice', reconciled: false });
-        }
-        ctx.commit(`${d.no} delivered${cash ? `, ${money(cash)} collected` : ''}`, `${d.no} delivered to ${inv.customer}`);
+        // With the finance area the invoice is made now; a driver's delivery is invoiced from the office.
+        const inv = canFinance() ? invoiceDelivery(d) : null;
+        if (!inv) d.invoicePending = true;
+        ctx.commit(`${d.no} delivered${cash ? `, ${money(cash)} collected` : ''}${inv ? '' : '. The office will send the invoice.'}`, `${d.no} delivered to ${sl.client}`);
       },
     });
     ctx.$('#dv-p').addEventListener('change', async (ev) => {
@@ -377,7 +393,7 @@ window.AllurusOps = (function () {
 
   // ---------- Machines & maintenance ----------
   function machView() {
-    const ms = ops().machines, down = ms.filter((m) => m.status === 'Down'), pm = ms.map((m) => O.pmStatus(m, T()));
+    const ms = ops().machines, down = ms.filter(isDown), pm = ms.map((m) => O.pmStatus(m, T()));
     return `${head('Machines &amp; maintenance', `${down.length} down now · ${pm.filter((x) => x.status === 'Due').length} services due this week · ${pm.filter((x) => x.status === 'Overdue').length} overdue`, `<button class="btn btn-primary" data-act="ops-bd-new">${icon('plus')}Report a breakdown</button>`)}
       ${tabs('machTab', [['machines', 'Machines and vehicles'], ['breakdowns', `Breakdowns${ops().breakdowns.filter((b) => b.status !== 'Fixed').length ? ` (${ops().breakdowns.filter((b) => b.status !== 'Fixed').length})` : ''}`], ['licences', 'Licences']], 'ops-mach-tab')}
       ${ui.machTab === 'breakdowns' ? bdTable() : ui.machTab === 'licences' ? licTable() : machTable()}`;
@@ -385,7 +401,7 @@ window.AllurusOps = (function () {
   const expiryPill = (d) => { if (!d) return '—'; const left = O.days(T(), d); return `${fmt(d, { day: 'numeric', month: 'short', year: 'numeric' })}${left < 0 ? ` ${pill('Overdue', 'Expired')}` : left <= 30 ? ` ${pill('Due', `${left} days`)}` : ''}`; };
   function machTable() {
     return `<div class="card card-flush"><div class="table-wrap"><table><thead><tr><th>Machine</th><th>Status</th><th>Next service</th><th class="hide-sm">Last service</th><th class="hide-sm">Hours / mileage</th><th></th></tr></thead><tbody>
-      ${ops().machines.map((m) => { const s = O.pmStatus(m, T()); return `<tr class="clickable ${m.status === 'Down' ? 'ops-low' : ''}" data-act="ops-mach-open" data-id="${m.id}"><td><strong>${esc(m.name)}</strong><div class="person-sub">${esc(m.plate ? `Road tax ${fmt(m.roadTax, { day: 'numeric', month: 'short', year: 'numeric' })}` : m.location || '')}</div></td><td>${pill(m.status)}</td>
+      ${ops().machines.map((m) => { const s = O.pmStatus(m, T()); return `<tr class="clickable ${isDown(m) ? 'ops-low' : ''}" data-act="ops-mach-open" data-id="${m.id}"><td><strong>${esc(m.name)}</strong><div class="person-sub">${esc(m.plate ? `Road tax ${fmt(m.roadTax, { day: 'numeric', month: 'short', year: 'numeric' })}` : m.location || '')}</div></td><td>${pill(isDown(m) ? 'Down' : m.status)}</td>
         <td>${pill(s.status, s.status === 'OK' ? 'On schedule' : s.status)}<div class="person-sub">${s.nextDate ? fmt(s.nextDate) : ''}${s.hoursLeft != null ? `${s.nextDate ? ' or ' : ''}${Math.max(0, Math.round(s.hoursLeft))} h left` : ''}</div></td><td class="hide-sm">${fmt(m.lastPm)}</td><td class="hide-sm num">${m.kind === 'vehicle' ? `${(m.mileage || 0).toLocaleString('en-MY')} km` : m.pmHours ? `${(m.hours || 0).toLocaleString('en-MY')} h` : '—'}</td>
         <td><div class="row-actions">${can() ? `<button class="btn btn-sm" data-act="ops-pm-log" data-id="${m.id}">Log service</button>` : ''}</div></td></tr>`; }).join('')}</tbody></table></div></div>`;
   }
@@ -444,7 +460,7 @@ window.AllurusOps = (function () {
         const m = machine(d.machineId), tech = technicians()[0];
         const b = { id: U.uid('bk'), no: `BD-${String(ops().breakdowns.length + 1).padStart(3, '0')}`, machineId: m.id, reportedBy: ctx.me()?.id || actor(), reportedAt: new Date().toISOString(), problem: d.problem.trim(), photo, assignee: tech?.id || '', status: tech ? 'Assigned' : 'Reported', fixedAt: '', downtime: 0, parts: [], billId: '' };
         ops().breakdowns.push(b);
-        if (d.stopped === 'on') m.status = 'Down';
+        if (d.stopped === 'on') { b.stopped = true; if (can()) m.status = 'Down'; }
         const to = [...new Set([tech?.id, ...opsPeople()].filter(Boolean))];
         notify('ops.breakdown', { machine: m.name, who: ctx.fullName(emp(b.reportedBy)) || 'Someone', problem: b.problem, href: '#ops-machines' }, to, { from: b.reportedBy });
         ui.machTab = 'breakdowns';
@@ -520,10 +536,10 @@ window.AllurusOps = (function () {
   }
   function deliveriesCard() {
     const list = ops().dos.filter((d) => d.date === T()), cash = list.reduce((s, d) => s + (d.cash || 0), 0);
-    const toCollect = list.filter((d) => ['Planned', 'Out'].includes(d.status)).reduce((s, d) => { const so = ops().orders.find((x) => x.id === d.soId); return s + (so?.terms === 'COD' ? soTotal(so) : 0); }, 0);
+    const toCollect = list.filter((d) => ['Planned', 'Out'].includes(d.status)).reduce((s, d) => { const sl = slipOf(d); return s + (sl.terms === 'COD' ? sl.total : 0); }, 0);
     const count = (s) => list.filter((d) => d.status === s).length;
     return card('Deliveries and cash', 'ops-sales', `${big(`${count('Delivered')}<span class="faint" style="font-size:18px"> / ${list.length}</span>`, 'delivered today')}
-      <div class="chips" style="margin:8px 0">${count('Out') ? `<span class="tag">${count('Out')} out now</span>` : ''}${count('Planned') ? `<span class="tag">${count('Planned')} not left yet</span>` : ''}${count('Failed') ? `<span class="tag warn">${count('Failed')} not delivered</span>` : ''}</div>
+      <div class="chips" style="margin:8px 0">${count('Out') ? `<span class="tag">${count('Out')} out now</span>` : ''}${count('Planned') ? `<span class="tag">${count('Planned')} not left yet</span>` : ''}${count('Failed') ? `<span class="tag warn">${count('Failed')} not delivered</span>` : ''}${toInvoice().length ? `<span class="tag warn">${toInvoice().length} to invoice</span>` : ''}</div>
       <dl class="kv"><dt>Cash collected</dt><dd class="num">${money(cash)}</dd><dt>Cash still to collect</dt><dd class="num">${money(toCollect)}</dd></dl>`, count('Failed') ? 'warn' : '');
   }
   function moneyInCard() {
@@ -542,7 +558,7 @@ window.AllurusOps = (function () {
       <h4 class="lv-h">Due in 7 days · ${money(tot(d.week))}</h4>${rows(d.week.sort((a, b) => a.due.localeCompare(b.due)).slice(0, 6).map(line), 'Nothing due this week')}`, d.overdue.length ? 'warn' : '');
   }
   function machinesCard() {
-    const ms = ops().machines, down = ms.filter((m) => m.status === 'Down'), pm = ms.map((m) => ({ m, s: O.pmStatus(m, T()) })).filter((x) => x.s.status !== 'OK');
+    const ms = ops().machines, down = ms.filter(isDown), pm = ms.map((m) => ({ m, s: O.pmStatus(m, T()) })).filter((x) => x.s.status !== 'OK');
     const hrs = O.downtime(ops().breakdowns, T().slice(0, 7), new Date().toISOString());
     return card('Machines', 'ops-machines', `${big(`${ms.length - down.length}<span class="faint" style="font-size:18px"> / ${ms.length}</span>`, 'running')}
       ${down.map((m) => { const b = ops().breakdowns.find((x) => x.machineId === m.id && x.status !== 'Fixed'); return `<p>${pill('Down')} <strong>${esc(m.name)}</strong>${b ? `<span class="faint"> · ${esc(b.status.toLowerCase())}, ${esc(first(b.assignee))}</span>` : ''}</p>`; }).join('')}
@@ -578,7 +594,7 @@ window.AllurusOps = (function () {
   const myDOs = (id, day = T()) => ops().dos.filter((d) => d.date === day && (d.driverId === id || d.helperId === id)).sort((a, b) => a.seq - b.seq);
   function myDeliveries() {
     const me = ctx.me(), list = myDOs(me.id), left = list.filter((d) => ['Planned', 'Out'].includes(d.status)), cash = list.reduce((s, d) => s + (d.cash || 0), 0);
-    const codDue = left.reduce((s, d) => { const so = ops().orders.find((x) => x.id === d.soId); return s + (so?.terms === 'COD' ? soTotal(so) : 0); }, 0);
+    const codDue = left.reduce((s, d) => { const sl = slipOf(d); return s + (sl.terms === 'COD' ? sl.total : 0); }, 0);
     const v = list[0] ? machine(list[0].vehicleId) : null;
     return `<div class="page-head"><div><h1>My deliveries today</h1><p class="sub">${list.length ? `${left.length} to go of ${list.length}${v ? ` · ${esc(v.name)}` : ''}` : 'Nothing assigned to you today.'}</p></div></div>
       ${list.length ? `<div class="grid g-2 keep-2"><div class="card kpi"><div class="kpi-label">Cash collected</div><div class="kpi-value">${money(cash)}</div></div><div class="card kpi"><div class="kpi-label">Cash still to collect</div><div class="kpi-value">${money(codDue)}</div></div></div>
@@ -587,7 +603,7 @@ window.AllurusOps = (function () {
   function myMachines() {
     const me = ctx.me(), mine = ops().breakdowns.filter((b) => b.reportedBy === me.id), jobs = ops().breakdowns.filter((b) => b.assignee === me.id && b.status !== 'Fixed');
     const ms = ops().machines, pm = ms.filter((m) => O.pmStatus(m, T()).status !== 'OK');
-    return `<div class="page-head"><div><h1>Machines</h1><p class="sub">${ms.filter((m) => m.status === 'Down').length} down now. Report anything that isn’t working right.</p></div><div class="actions"><button class="btn btn-primary" data-act="ops-bd-new">${icon('plus')}Report a breakdown</button></div></div>
+    return `<div class="page-head"><div><h1>Machines</h1><p class="sub">${ms.filter(isDown).length} down now. Report anything that isn’t working right.</p></div><div class="actions"><button class="btn btn-primary" data-act="ops-bd-new">${icon('plus')}Report a breakdown</button></div></div>
       ${jobs.length ? `<h3 class="lv-h">Assigned to you</h3>${bdTable(jobs)}` : ''}
       ${technicians().some((e) => e.id === me.id) && pm.length ? `<div class="card"><div class="card-head"><h3>Services due</h3></div><ul class="hr-list">${pm.map((m) => { const s = O.pmStatus(m, T()); return `<li><div><strong>${esc(m.name)}</strong><div class="person-sub">${s.nextDate ? fmt(s.nextDate) : ''}${s.hoursLeft != null ? ` · ${Math.round(s.hoursLeft)} h left` : ''}</div></div>${pill(s.status)}</li>`; }).join('')}</ul></div>` : ''}
       <h3 class="lv-h">Reported by you</h3>${mine.length ? bdTable(mine) : `<div class="card">${empty('Nothing reported', 'Tap Report a breakdown if a machine stops or sounds wrong.')}</div>`}`;
@@ -610,8 +626,9 @@ window.AllurusOps = (function () {
   function insights() {
     if (!has()) return [];
     const out = [];
+    if (can() && canFinance() && toInvoice().length) out.push({ tone: 'warn', icon: 'doc', title: `${toInvoice().length} deliver${toInvoice().length === 1 ? 'y' : 'ies'} to invoice`, detail: 'Delivered by the drivers; the invoices and any cash collected go to Finance.', action: { label: 'Invoice now', act: 'ops-invoice-all' }, prio: 3 });
     if (can()) {
-      const lv = levels(), lowFree = lv.filter((x) => x.low && !x.onOrder), down = ops().machines.filter((m) => m.status === 'Down'), over = ops().machines.filter((m) => O.pmStatus(m, T()).status === 'Overdue'), hold = ops().batches.filter((b) => b.qc === 'Hold'), drafts = ops().pos.filter((p) => p.status === 'Draft' && p.by !== actor());
+      const lv = levels(), lowFree = lv.filter((x) => x.low && !x.onOrder), down = ops().machines.filter(isDown), over = ops().machines.filter((m) => O.pmStatus(m, T()).status === 'Overdue'), hold = ops().batches.filter((b) => b.qc === 'Hold'), drafts = ops().pos.filter((p) => p.status === 'Draft' && p.by !== actor());
       if (down.length && inScope('machines')) out.push({ tone: 'bad', icon: 'sliders', title: `${down.map((m) => m.name).join(', ')} ${down.length === 1 ? 'is' : 'are'} down`, detail: ops().breakdowns.filter((b) => b.status !== 'Fixed').map((b) => b.problem).slice(0, 1).join(''), action: { label: 'Open', href: '#ops-machines' }, prio: 3 });
       if (lowFree.length && inScope('stock')) out.push({ tone: 'warn', icon: 'box', title: `${lowFree.length} item${lowFree.length === 1 ? '' : 's'} below reorder level with nothing on order`, detail: lowFree.map((x) => x.name).join(', '), action: { label: 'Make PO', act: 'ops-po-new', id: lowFree[0].id }, prio: 2 });
       if (drafts.length && inScope('stock')) out.push({ tone: 'info', icon: 'box', title: `${drafts.length} purchase order${drafts.length === 1 ? '' : 's'} to approve`, detail: drafts.map((p) => `${p.no} (${money(O.poTotal(p))})`).join(', '), action: { label: 'Review', act: 'ops-po-open', id: drafts[0].id }, prio: 2 });
@@ -620,7 +637,7 @@ window.AllurusOps = (function () {
     }
     if (ctx.role() === 'employee') {
       const left = myDOs(ctx.me().id).filter((d) => ['Planned', 'Out'].includes(d.status));
-      if (left.length) out.push({ tone: 'info', icon: 'pin', title: `${left.length} deliver${left.length === 1 ? 'y' : 'ies'} to go today`, detail: left.map((d) => contact(ops().orders.find((s) => s.id === d.soId)?.clientId)?.name).join(', '), action: { label: 'Open', href: '#my-deliveries' }, prio: 3 });
+      if (left.length) out.push({ tone: 'info', icon: 'pin', title: `${left.length} deliver${left.length === 1 ? 'y' : 'ies'} to go today`, detail: left.map((d) => slipOf(d).client).join(', '), action: { label: 'Open', href: '#my-deliveries' }, prio: 3 });
       const jobs = ops().breakdowns.filter((b) => b.assignee === ctx.me().id && b.status !== 'Fixed');
       if (jobs.length) out.push({ tone: 'bad', icon: 'sliders', title: `${jobs.length} breakdown${jobs.length === 1 ? '' : 's'} assigned to you`, detail: jobs.map((b) => machine(b.machineId)?.name).join(', '), action: { label: 'Open', href: '#my-machines' }, prio: 3 });
     }
@@ -634,7 +651,7 @@ window.AllurusOps = (function () {
   function badge(routeId) {
     if (!has()) return 0;
     if (routeId === 'ops-stock') return ops().pos.filter((p) => p.status === 'Draft').length;
-    if (routeId === 'ops-machines') return ops().machines.filter((m) => m.status === 'Down').length;
+    if (routeId === 'ops-machines') return ops().machines.filter(isDown).length;
     if (routeId === 'ops-production') return ops().batches.filter((b) => b.qc === 'Hold').length;
     if (routeId === 'my-deliveries') return myDOs(ctx.me()?.id).filter((d) => ['Planned', 'Out'].includes(d.status)).length;
     if (routeId === 'my-machines') return ops().breakdowns.filter((b) => b.assignee === ctx.me()?.id && b.status !== 'Fixed').length;
@@ -681,6 +698,11 @@ window.AllurusOps = (function () {
       'ops-day': (_, v) => { ui.day = +v === 0 ? T() : U.addDays(ui.day || T(), +v); ctx.render(); },
       'ops-do-out': (id) => { const d = ops().dos.find((x) => x.id === id); d.status = 'Out'; ctx.commit(`${d.no} out for delivery`); },
       'ops-do-deliver': (id) => deliverModal(id),
+      'ops-invoice-all': () => {
+        if (!canFinance()) { ctx.toast('Invoices need the Finance area', 'error'); return; }
+        const made = toInvoice().map(invoiceDelivery).filter(Boolean);
+        ctx.commit(`${made.length} invoice${made.length === 1 ? '' : 's'} added to Finance`, `Invoiced ${made.length} deliveries`);
+      },
       'ops-do-fail': (id) => {
         const d = ops().dos.find((x) => x.id === id), why = prompt('Why couldn’t it be delivered?', 'Shop closed');
         if (why == null) return;

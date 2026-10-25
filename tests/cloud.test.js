@@ -58,7 +58,7 @@ test('payroll and loans need the payroll area, the books the finance area; leave
 test('role templates: each admin reads and writes only their areas', () => {
   const HR = ['people', 'time', 'payroll', 'claims', 'talent', 'settings'], FIN = ['finance', 'claims'], PAY = ['people', 'time', 'payroll', 'claims'];
   const r = (admin, perms) => plain(M.readable(admin, perms)).sort().join(',');
-  assert.equal(r(true, null), 'a,f,m,p', 'Owner');
+  assert.equal(r(true, null), 'a,f,m,o,p', 'Owner');
   assert.equal(r(true, HR), 'a,m,p', 'HR admin: no books');
   assert.equal(r(true, FIN), 'a,f,m', 'Finance: no payroll');
   assert.equal(r(false, null), 'm', 'Employee');
@@ -191,4 +191,61 @@ test('personal plans and reliefs round-trip for their owner only', () => {
   assert.deepEqual(out.plans.e2, ws.plans.e2);
   assert.deepEqual(out.reliefs['daniel.lim@serimaju.com.my'], ws.reliefs['daniel.lim@serimaju.com.my']);
   assert.equal(out.reliefs['aisyah.rahman@serimaju.com.my'], undefined);
+});
+
+// ---------- Operations (the Suria Enterprise demo) ----------
+const suria = () => plain(vm.runInContext('AllurusSeed.companies.suria.create()', sandbox));
+
+test('operations data survives the round trip, deliveries split by driver', () => {
+  const ws = suria();
+  const { docs, out } = roundTrip(ws);
+  ['items', 'moves', 'pos', 'products', 'batches', 'orders', 'machines', 'maint', 'breakdowns', 'licences'].forEach((k) => assert.equal(M.stable(out.ops[k]), M.stable(ws.ops[k]), `ops.${k}`));
+  const byId = (a) => [...a].sort((x, y) => x.id.localeCompare(y.id));
+  assert.equal(M.stable(byId(out.ops.dos)), M.stable(byId(ws.ops.dos)), 'ops.dos');
+  assert.equal(M.stable(out.ops.seq), M.stable(ws.ops.seq));
+  const drivers = [...new Set(ws.ops.dos.map((d) => d.driverId))].sort();
+  assert.deepEqual(plain(Object.keys(docs).filter((id) => id.startsWith('ops.dos~')).sort()), drivers.map((e) => `ops.dos~${e}`));
+  assert.equal(docs['ops.dos'], undefined, 'no bucket holds every delivery');
+  // One driver's bucket arriving replaces only that driver's deliveries.
+  const e26 = 'ops.dos~e26', mine = { ...docs[e26].f };
+  const partial = { ops: { dos: ws.ops.dos.map((d) => (d.driverId === 'e26' ? { ...d, status: 'Stale' } : d)) } };
+  M.applyBucket(partial, e26, 's', mine, () => undefined);
+  assert.ok(partial.ops.dos.every((d) => d.status !== 'Stale'));
+  assert.equal(partial.ops.dos.length, ws.ops.dos.length);
+});
+
+test('operations buckets: admins with the operations area; drivers their own deliveries; breakdowns for everyone', () => {
+  const { docs } = roundTrip(suria());
+  const OPS = ['operations'], FIN = ['finance', 'claims'];
+  assert.equal(docs['ops.items'].r, 'o');
+  assert.equal(docs['ops.pos'].r, 'o');
+  assert.equal(docs['ops.orders'].r, 'o');
+  assert.equal(docs.ops.r, 'o');
+  assert.equal(docs['ops.dos~e26'].r, 'd:e26');
+  ['ops.machines', 'ops.products', 'ops.breakdowns'].forEach((b) => assert.equal(docs[b].r, 'm', b));
+  const r = (admin, perms, empId) => plain(M.readable(admin, perms, empId)).sort().join(',');
+  assert.equal(r(true, OPS, 'e19'), 'a,d:e19,m,o', 'storekeeper');
+  assert.equal(r(true, FIN, 'e3'), 'a,d:e3,f,m', 'accounts: no stock or production');
+  assert.equal(r(false, null, 'e26'), 'd:e26,m', 'driver: own deliveries only');
+  assert.equal(M.canWrite('ops.pos', true, OPS), true);
+  assert.equal(M.canWrite('ops.pos', true, FIN), false);
+  assert.equal(M.canWrite('ops.pos', false, null, 'e26'), false);
+  assert.equal(M.canWrite('ops.dos~e26', false, null, 'e26'), true, 'a driver updates their own deliveries');
+  assert.equal(M.canWrite('ops.dos~e27', false, null, 'e26'), false, 'but not another driver’s');
+  assert.equal(M.canWrite('ops.dos~e27', true, OPS, 'e2'), true);
+  assert.equal(M.canWrite('ops.breakdowns', false, null, 'e9'), true, 'an operator reports a breakdown (the rules allow adding only)');
+  assert.equal(M.canWrite('ops.machines', false, null, 'e9'), false);
+  assert.equal(M.canWrite('finance.invoices', false, null, 'e26'), false, 'a driver never writes the books');
+  // Seri Maju has no operations data, so no operations buckets.
+  assert.ok(!Object.keys(roundTrip(seed()).docs).some((id) => id.startsWith('ops')));
+});
+
+test('firestore.rules agree with the operations classes', () => {
+  const rules = fs.readFileSync(path.join(root, 'firestore.rules'), 'utf8');
+  assert.match(rules, /function opsShared\(b\) \{ return b in \['ops\.machines', 'ops\.products', 'ops\.breakdowns'\]; \}/);
+  assert.match(rules, /r == 'o' && hasArea\(t, 'operations'\)/);
+  assert.match(rules, /r == 'd:' \+ me\(\)\.empId/);
+  assert.match(rules, /isDriverBucket\(b\) && member\(t\) && driverOf\(b\) == me\(\)\.empId/);
+  assert.match(rules, /b == 'ops\.breakdowns' && \(hasArea\(t, 'operations'\) \|\| \(member\(t\) && onlyAdds\(\)\)\)/);
+  assert.match(rules, /changedKeys\(\)\.hasOnly\(\['~ord'\]\)/);
 });
