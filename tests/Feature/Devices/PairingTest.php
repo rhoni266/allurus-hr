@@ -109,7 +109,7 @@ it('rate-limits the public pairing endpoint', function () {
 
 describe('issuing codes from a terminal', function () {
     it('lets a manager issue a code for their outlet, and the code pairs', function () {
-        $session = signIn($this->w, staffMember($this->w, 'manager', '1111'), '1111');
+        $session = signIn($this->w, staffMember($this->w, 'manager', '111111'), '111111');
 
         $code = $this->withHeader('X-Staff-Session', $session)->postJson('/api/v1/devices/pairing-codes')
             ->assertCreated()->assertJsonPath('outlet_id', $this->w->outlet->id)->json('code');
@@ -133,17 +133,17 @@ describe('issuing codes from a terminal', function () {
     it('keeps managers to their own outlet but lets owners choose', function () {
         $other = Outlet::create(['name' => 'Second', 'region_code' => 'KL']);
 
-        $manager = signIn($this->w, staffMember($this->w, 'manager', '1111'), '1111');
+        $manager = signIn($this->w, staffMember($this->w, 'manager', '111111'), '111111');
         $this->withHeader('X-Staff-Session', $manager)->postJson('/api/v1/devices/pairing-codes', ['outlet_id' => $other->id])->assertForbidden();
 
-        $owner = signIn($this->w, staffMember($this->w, 'owner', '3333', null), '3333');
+        $owner = signIn($this->w, staffMember($this->w, 'owner', '333333', null), '333333');
         $this->withHeader('X-Staff-Session', $owner)->postJson('/api/v1/devices/pairing-codes', ['outlet_id' => $other->id])
             ->assertCreated()->assertJsonPath('outlet_id', $other->id);
     });
 
     it("can't issue a code for another tenant's outlet", function () {
         $foreign = world()->outlet;
-        $owner = signIn($this->w, staffMember($this->w, 'owner', '3333', null), '3333');
+        $owner = signIn($this->w, staffMember($this->w, 'owner', '333333', null), '333333');
 
         $this->withHeader('X-Staff-Session', $owner)->postJson('/api/v1/devices/pairing-codes', ['outlet_id' => $foreign->id])->assertNotFound();
     });

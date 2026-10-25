@@ -36,8 +36,8 @@ function asTarget(string $token): \Tests\TestCase
 beforeEach(function () {
     $this->w = world();
     [$this->target, $this->token] = pairDevice($this->w);
-    $this->manager = staffMember($this->w, 'manager', '1111');
-    $this->session = signIn($this->w, $this->manager, '1111');
+    $this->manager = staffMember($this->w, 'manager', '111111');
+    $this->session = signIn($this->w, $this->manager, '111111');
 });
 
 it('lists the devices with their status and unsynced backlog', function () {
@@ -113,7 +113,7 @@ describe('retire', function () {
 
     it('refuses pull and sign-in while retiring', function () {
         asTarget($this->token)->getJson('/api/v1/sync/pull')->assertForbidden()->assertJsonPath('error', 'device_retiring');
-        asTarget($this->token)->postJson('/api/v1/auth/login', ['staff_id' => $this->manager->id, 'pin' => '1111'])->assertForbidden();
+        asTarget($this->token)->postJson('/api/v1/auth/login', ['staff_id' => $this->manager->id, 'pin' => '111111'])->assertForbidden();
     });
 
     it('becomes revoked when the device reports its outbox is empty', function () {
@@ -149,7 +149,7 @@ describe('who may unpair', function () {
 
         asAdmin($this->w, $this->session)->postJson("/api/v1/devices/{$elsewhere->id}/unpair", ['mode' => 'revoke'])->assertNotFound();
 
-        $owner = signIn($this->w, staffMember($this->w, 'owner', '3333', null), '3333');
+        $owner = signIn($this->w, staffMember($this->w, 'owner', '333333', null), '333333');
         asAdmin($this->w, $owner)->postJson("/api/v1/devices/{$elsewhere->id}/unpair", ['mode' => 'revoke'])->assertOk();
     });
 

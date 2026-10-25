@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Models\{OfflineSyncQueue, Terminal};
-use App\Sync\{DbErrors, DependencyMissing, MutationHandlerRegistry, MutationRejected};
+use App\Models\{OfflineSyncQueue, SyncConflict, Terminal};
+use App\Sync\{DbErrors, DependencyMissing, MutationHandlerRegistry, MutationRejected, OfflineAuth, Outcome};
 use Carbon\CarbonImmutable;
 use App\Tenancy\TenantContext;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -35,6 +35,10 @@ class SyncPushController
             'mutations.*.type'              => ['required', 'string', 'max:64'],
             'mutations.*.payload'           => ['required', 'array'],
             'mutations.*.client_created_at' => ['required', 'date'],
+            'mutations.*.auth'              => ['nullable', 'array'],
+            'mutations.*.auth.mode'         => ['required_with:mutations.*.auth', 'in:online,offline'],
+            'mutations.*.auth.credential_id'=> ['required_if:mutations.*.auth.mode,offline', 'nullable', 'uuid'],
+            'mutations.*.auth.signed_in_at' => ['required_if:mutations.*.auth.mode,offline', 'nullable', 'date'],
             'outbox_pending'                => ['nullable', 'integer', 'min:0'],   // shown in the device list
         ]);
 
@@ -89,6 +93,16 @@ class SyncPushController
                 ]);
 
                 $outcome = $this->handlers->for($m['type'])->handle($terminal, $m['payload'], $queue);
+
+                // Who authorised it offline, checked the same way for every mutation type.
+                // Skipped for domain duplicates (already flagged when first applied).
+                if (! isset($outcome->result['note']) && $auth = OfflineAuth::conflicts($terminal, $m)) {
+                    foreach ($auth as $c) {
+                        SyncConflict::create(['queue_id' => $queue->id, 'kind' => $c['kind'], 'detail' => $c['detail']]);
+                    }
+                    $kinds = array_values(array_unique([...($outcome->result['conflicts'] ?? []), ...array_column($auth, 'kind')]));
+                    $outcome = Outcome::conflict(['conflicts' => $kinds] + $outcome->result);
+                }
 
                 $queue->update([
                     'status'       => $outcome->status,

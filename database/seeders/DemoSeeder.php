@@ -14,7 +14,7 @@ use Ramsey\Uuid\Uuid;
  *   - Kopi Kita Café (F&B, two outlets, regional pricing, modifiers)
  *   - Cue Masters Snooker (time-billed tables + drinks)
  *
- * Demo staff PINs per tenant: 1111 owner, 2222 cashier, 3333 kitchen/cashier.
+ * Demo staff PINs per tenant: 111111 owner (owners/managers need 6 digits), 2222 cashier, 3333 kitchen/cashier.
  *
  *   php artisan migrate:fresh --seed --seeder=DemoSeeder
  *
@@ -114,7 +114,7 @@ class DemoSeeder extends Seeder
         }
 
         $this->stock($tenantId, [$bangsar, $kuantan], [$water => 240]);
-        $this->staff([['owner', 'Aisyah (Owner)', '1111', null], ['cashier', 'Ravi (Cashier)', '2222', $bangsar], ['kitchen', 'Mei Ling (Kitchen)', '3333', $bangsar]], 'cafe');
+        $this->staff([['owner', 'Aisyah (Owner)', '111111', null], ['cashier', 'Ravi (Cashier)', '2222', $bangsar], ['kitchen', 'Mei Ling (Kitchen)', '3333', $bangsar]], 'cafe');
     }
 
     private function snooker(string $tenantId): void
@@ -134,7 +134,7 @@ class DemoSeeder extends Seeder
         $chips = $this->item('snooker:chips', 'Potato Chips', 250, 'SST_SALES', stock: true);
 
         $this->stock($tenantId, [$outlet], [$drink => 96, $chips => 40]);
-        $this->staff([['owner', 'Farid (Owner)', '1111', null], ['cashier', 'Siti (Cashier)', '2222', $outlet], ['cashier', 'Kumar (Cashier)', '3333', $outlet]], 'snooker');
+        $this->staff([['owner', 'Farid (Owner)', '111111', null], ['cashier', 'Siti (Cashier)', '2222', $outlet], ['cashier', 'Kumar (Cashier)', '3333', $outlet]], 'snooker');
     }
 
     // ---------------------------------------------------------------- helpers

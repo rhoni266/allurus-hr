@@ -78,10 +78,15 @@ final class LocalStore
                 status TEXT NOT NULL DEFAULT 'pending',   -- pending | sent | acked | rejected
                 attempts INTEGER NOT NULL DEFAULT 0,
                 not_before INTEGER,                         -- epoch ms; set when the server says retry
+                auth TEXT,                                  -- {"mode":"online"} or the offline sign-in
                 result TEXT,
                 created_at TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS outbox_status ON outbox (status, client_seq);
+
+            -- offline sign-in permissions from the feed. The real app also keeps here the PIN
+            -- verifier it sealed with its hardware key; the simulator only tracks validity.
+            CREATE TABLE IF NOT EXISTS credentials (id TEXT PRIMARY KEY, staff_id TEXT, expires_at TEXT, revoked_at TEXT);
 
             CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT);
         SQL);

@@ -1,6 +1,20 @@
 # Offline staff PIN sign-in — proposal
 
-Status: **proposal, needs a decision** (see "Decisions needed"). Nothing PIN-derived is synced to devices today; staff can sign in only while the terminal is online, and a session then lasts 12 hours even if the network drops.
+Status: **decided — option C. Server side built; terminal (Flutter) side not started.**
+
+Decisions (2026-10-25):
+1. Offline window: **7 days** (`StaffCredential::OFFLINE_WINDOW_DAYS`).
+2. Owners and managers need **6-digit PINs** (`Staff::LONG_PIN_ROLES`); a shorter one gets `403 pin_change_required` at sign-in.
+3. Manager actions offline are **allowed and always flagged** (`offline_manager_action`).
+4. **Rooted devices are refused**: pairing needs a passing attestation and offline credentials are only issued to attested devices (`pos.attestation.required`, on by default).
+
+What exists on the server: `staff_credentials` (no secrets, synced to the outlet's terminals), credential issuance in the login response (with the KDF parameters), revocation by a Postgres trigger on deactivation or PIN change, `auth` on every mutation with `offline_credential_unknown` / `offline_credential_stale` / `offline_manager_action` flags, PIN change (`POST auth/pin`), manager PIN reset (`POST staff/{id}/pin`), `php artisan pos:staff-pin`, and attestation (`POST attestation/challenge`; drivers: Play Integrity, App Attest *stub that fails closed*, dev). Covered by `tests/Feature/Devices/OfflineSigninTest.php` and the `offline-signin` simulator scenario.
+
+One deviation from the proposal below: there is no "signed in before the credential was issued" check, because device and server clocks differ; it would only ever catch clock skew.
+
+The original proposal follows.
+
+---
 
 ## The problem in one paragraph
 

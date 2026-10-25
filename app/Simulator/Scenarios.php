@@ -16,7 +16,7 @@ final class Scenarios
         'offline-day', 'flaky-network', 'crash-mid-sync', 'clock-skew',
         'stale-price', 'concurrent-terminals', 'duplicate-race', 'cursor-race',
         'void-storm', 'open-tabs', 'stock-adjust', 'snooker-sessions',
-        'lost-device', 'retire-device',
+        'lost-device', 'retire-device', 'offline-signin',
     ];
 
     public function __construct(
@@ -462,12 +462,56 @@ final class Scenarios
             ->salesLedger(expectedRejected: 5);   // the 40 backlog sales arrive exactly once
     }
 
+    /**
+     * Offline sign-in (option C). The outlet loses its network for the day. The cashier
+     * signs in offline and sells 20; the manager signs in offline and voids 3 (allowed,
+     * flagged). Meanwhile HQ resets the cashier's PIN, which revokes their credential, but
+     * the device can't know: the cashier signs in offline again and sells 10 more. On
+     * reconnect every sale is kept; exactly those 10 are flagged stale and the 3 voids are
+     * flagged as offline manager actions. After the next pull the device itself refuses
+     * the revoked credential.
+     */
+    private function offlineSignin(string $name): Verifier
+    {
+        $world = $this->world($name);
+        $t = $this->terminal($world, 'T1');
+        $t->pull();
+
+        $okCashier = $t->signInOffline('cashier');
+        $sales = $t->sell(20);
+        $okManager = $t->signInOffline('manager');
+        foreach (array_slice($sales, 0, 3) as $id) {
+            $t->voidOrder($id, 'manager');
+        }
+
+        Hq::enter($world->tenantId);
+        Hq::write(fn () => \App\Models\Staff::findOrFail($world->staff['cashier']['id'])->setPin('7777')->save());
+        usleep(20_000);
+
+        $t->signInOffline('cashier');   // the device hasn't heard about the reset
+        $t->sell(10);
+
+        $t->sync();
+        $refusedAfterPull = ! $t->signInOffline('cashier');
+        $stillManager = $t->signInOffline('manager');
+        $this->say('30 sales and 3 voids made offline; HQ reset the cashier PIN mid-day');
+
+        return (new Verifier($world, ['T1' => $t->store]))
+            ->check('offline sign-in worked with the network down', $okCashier && $okManager)
+            ->expectConflicts('offline_credential_stale', 10)
+            ->expectConflicts('offline_manager_action', 3)
+            ->check('device refuses the revoked credential after pulling', $refusedAfterPull && $stillManager,
+                'cashier refused: '.json_encode($refusedAfterPull).', manager still ok: '.json_encode($stillManager))
+            ->salesLedger();   // nothing rejected: offline actions are flagged, never refused
+    }
+
     /** A staff member signs in on one of the world's terminals; returns a ready HTTP client. */
     private function signIn(World $world, string $terminal, int $server, string $role): \Illuminate\Http\Client\PendingRequest
     {
         $token = $world->terminal($terminal)['token'];
         $session = Http::baseUrl($this->pool->url($server))->withToken($token)->acceptJson()
-            ->post('/api/v1/auth/login', ['staff_id' => $world->staff[$role]['id'], 'pin' => $world->staff[$role]['pin']])
+            ->post('/api/v1/auth/login', ['staff_id' => $world->staff[$role]['id'], 'pin' => $world->staff[$role]['pin'],
+                'attestation' => $this->attestation($server)])
             ->throw()->json('session_token');
 
         return Http::baseUrl($this->pool->url($server))->withToken($token)->withHeader('X-Staff-Session', $session)->acceptJson();
@@ -492,29 +536,47 @@ final class Scenarios
     }
 
     /**
-     * Each terminal redeems its one-time code over HTTP, then the cashier signs in by PIN
-     * on it, as on a real device. Pairing and login are online-only; selling isn't.
+     * Each terminal proves it isn't rooted (attestation bound to a fresh challenge), redeems
+     * its one-time code over HTTP, then the cashier and manager sign in by PIN on it, each
+     * getting an offline credential, as on a real device. Pairing and login are
+     * online-only; selling isn't.
      */
     private function pairAll(World $world): World
     {
         $paired = [];
         foreach ($world->terminals as $i => $t) {
-            $res = Http::baseUrl($this->pool->url($i))->acceptJson()->post('/api/v1/devices/register', [
+            $http = fn () => Http::baseUrl($this->pool->url($i))->acceptJson();
+            $res = $http()->post('/api/v1/devices/register', [
                 'code' => $t['code'], 'device_fingerprint' => "sim:{$world->tenantId}:{$t['name']}", 'name' => $t['name'],
+                'attestation' => $this->attestation($i),
             ]);
             if ($res->status() !== 201) {
                 throw new \RuntimeException("pairing {$t['name']} failed: HTTP {$res->status()} ".$res->body());
             }
-            $paired[] = ['name' => $t['name'], 'id' => $res->json('terminal.id'), 'token' => $res->json('token')];
 
-            $login = Http::baseUrl($this->pool->url($i))->withToken($res->json('token'))->acceptJson()
-                ->post('/api/v1/auth/login', ['staff_id' => $world->staff['cashier']['id'], 'pin' => $world->staff['cashier']['pin']]);
-            if ($login->status() !== 201) {
-                throw new \RuntimeException("staff login on {$t['name']} failed: HTTP {$login->status()} ".$login->body());
+            $credentials = [];
+            foreach (['cashier', 'manager'] as $role) {
+                $login = $http()->withToken($res->json('token'))->post('/api/v1/auth/login', [
+                    'staff_id' => $world->staff[$role]['id'], 'pin' => $world->staff[$role]['pin'], 'attestation' => $this->attestation($i),
+                ]);
+                if ($login->status() !== 201 || ! $login->json('offline_credential.issued')) {
+                    throw new \RuntimeException("{$role} login on {$t['name']} failed: HTTP {$login->status()} ".$login->body());
+                }
+                $credentials[$role] = $login->json('offline_credential.id');
             }
+
+            $paired[] = ['name' => $t['name'], 'id' => $res->json('terminal.id'), 'token' => $res->json('token'), 'credentials' => $credentials];
         }
 
         return $world->withTerminals($paired);
+    }
+
+    /** What the device's platform attestation would produce (dev verdict signer). */
+    private function attestation(int $server): array
+    {
+        $nonce = Http::baseUrl($this->pool->url($server))->acceptJson()->post('/api/v1/attestation/challenge')->throw()->json('nonce');
+
+        return ['platform' => 'android', 'nonce' => $nonce, 'token' => \App\Devices\Attestation\DevAttestation::token($nonce)];
     }
 
     private function worldPath(string $name): string

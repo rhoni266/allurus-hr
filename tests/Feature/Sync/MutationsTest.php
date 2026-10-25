@@ -54,7 +54,7 @@ function conflictKinds(): array
 beforeEach(function () {
     $this->w = world();
     seedStock($this->w, 10_000);
-    $this->manager = staffMember($this->w, 'manager', '1111');
+    $this->manager = staffMember($this->w, 'manager', '111111');
     $this->cashier = staffMember($this->w, 'cashier', '2222');
     $this->w->cashier = $this->cashier;
     actAsTerminal($this->w->terminal);
@@ -134,7 +134,7 @@ describe('order.void', function () {
         $other = world();
         actAsTerminal($other->terminal);
 
-        push(voidOf($this->orderId, staffMember($other, 'manager', '1111')->id, 1))->assertJsonPath('results.0.status', 'retry');
+        push(voidOf($this->orderId, staffMember($other, 'manager', '111111')->id, 1))->assertJsonPath('results.0.status', 'retry');
 
         asTenant($this->w->tenant->id);
         expect(Order::find($this->orderId)->status)->toBe('paid');

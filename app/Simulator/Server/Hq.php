@@ -80,7 +80,7 @@ final class Hq
     }
 
     public const CASHIER_PIN = '2222';
-    public const MANAGER_PIN = '1111';
+    public const MANAGER_PIN = '111111';
     public const SNOOKER_RATE = ['rate_sen' => 1500, 'unit_minutes' => 60, 'min_minutes' => 30, 'round_to' => 15, 'round' => 'up'];
 
     /** Sim-only rates (test data, not legal rates). */

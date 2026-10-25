@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Models\{Modifier, PriceOverride, Product, ProductVariant, Staff, SyncChange};
+use App\Models\{Modifier, PriceOverride, Product, ProductVariant, Staff, StaffCredential, SyncChange};
 use App\Tenancy\TenantContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +15,7 @@ class SyncPullController
         'price_override' => PriceOverride::class,
         'modifier'       => Modifier::class,
         'staff'          => Staff::class,     // for the login screen; pin_hash is $hidden, never sent
+        'staff_credential' => StaffCredential::class,   // offline sign-in permissions + revocations; no secrets
     ];
 
     public function __invoke(Request $request)

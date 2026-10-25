@@ -73,11 +73,11 @@ it('stops one PIN being sprayed across every staff member on a terminal', functi
 
 it('refuses staff assigned to a different outlet, but lets all-outlet staff in', function () {
     $elsewhere = staffMember($this->w, 'cashier', '4444', App\Models\Outlet::create(['name' => 'Other', 'region_code' => 'KL'])->id);
-    $owner = staffMember($this->w, 'owner', '1111', null);
+    $owner = staffMember($this->w, 'owner', '111111', null);
     actAsTerminal($this->w->terminal);
 
     login($elsewhere->id, '4444')->assertUnauthorized();
-    login($owner->id, '1111')->assertCreated();
+    login($owner->id, '111111')->assertCreated();
 });
 
 it('ends sessions when the staff member is deactivated', function () {
@@ -125,7 +125,7 @@ it('keeps staff sessions isolated between tenants, including via raw SQL', funct
 it('sends the staff list to terminals without PIN hashes, routed by outlet', function () {
     $other = App\Models\Outlet::create(['name' => 'Other', 'region_code' => 'KL']);
     staffMember($this->w, 'cashier', '4444', $other->id);
-    $owner = staffMember($this->w, 'owner', '1111', null);
+    $owner = staffMember($this->w, 'owner', '111111', null);
     actAsTerminal($this->w->terminal);
 
     $staff = collect($this->getJson('/api/v1/sync/pull?cursor=0')->json('changes'))->where('entity', 'staff');

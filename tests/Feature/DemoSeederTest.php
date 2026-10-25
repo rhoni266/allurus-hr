@@ -25,12 +25,12 @@ it('is safe to run twice', function () {
     expect(Tenant::count())->toBe(2)->and(TaxRule::count())->toBe(6);
 });
 
-it('gives each tenant staff with PINs 1111 / 2222 / 3333', function () use ($cafe, $snooker) {
+it('gives each tenant staff with PINs 111111 / 2222 / 3333', function () use ($cafe, $snooker) {
     foreach ([$cafe(), $snooker()] as $tenant) {
         asTenant($tenant);
         $staff = Staff::orderBy('name')->get();
         expect($staff)->toHaveCount(3);
-        foreach (['1111', '2222', '3333'] as $pin) {
+        foreach (['111111', '2222', '3333'] as $pin) {
             expect($staff->filter->checkPin($pin))->toHaveCount(1, "tenant {$tenant} pin {$pin}");
         }
     }

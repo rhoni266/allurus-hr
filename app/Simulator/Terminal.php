@@ -287,8 +287,39 @@ final class Terminal
 
     private function enqueue(\PDO $db, string $type, array $payload, string $at): void
     {
-        $db->prepare('INSERT INTO outbox (id, type, payload, created_at) VALUES (?, ?, ?, ?)')
-            ->execute([(string) Str::uuid7(), $type, json_encode($payload), $at]);
+        $db->prepare('INSERT INTO outbox (id, type, payload, created_at, auth) VALUES (?, ?, ?, ?, ?)')
+            ->execute([(string) Str::uuid7(), $type, json_encode($payload), $at, json_encode($this->auth)]);
+    }
+
+    // ---------------------------------------------------------------- offline sign-in
+
+    /** How the current actions are authorised; attached to every outbox row. */
+    private array $auth = ['mode' => 'online'];
+
+    /**
+     * Sign $role in with no network, using the offline credential issued at the last online
+     * sign-in on this device (option C). Refused if the device has learned, through pull,
+     * that the credential was revoked or has expired. A device that hasn't synced since a
+     * revocation still lets the person in; the server flags it afterwards.
+     */
+    public function signInOffline(string $role): bool
+    {
+        $id = $this->me['credentials'][$role] ?? null;
+        $row = $id ? ($this->store->all('SELECT revoked_at, expires_at FROM credentials WHERE id = ?', [$id])[0] ?? null) : null;
+        if (! $id || ($row && ($row['revoked_at'] !== null || CarbonImmutable::parse($row['expires_at'])->lt($this->now())))) {
+            return false;
+        }
+
+        $this->auth = ['mode' => 'offline', 'credential_id' => $id, 'signed_in_at' => $this->now()->toIso8601ZuluString('microsecond')];
+        $this->staffId = $this->world->staff[$role]['id'];
+
+        return true;
+    }
+
+    public function signInOnline(string $role): void
+    {
+        $this->auth = ['mode' => 'online'];
+        $this->staffId = $this->world->staff[$role]['id'];
     }
 
     private function staffIdFor(string $role): string
@@ -418,10 +449,11 @@ final class Terminal
         $in = implode(',', array_map('intval', $ids));
         $this->store->db->exec("UPDATE outbox SET status = 'sent', attempts = attempts + 1 WHERE client_seq IN ({$in})");
 
-        $results = $this->client->push(array_map(fn ($r) => [
+        $results = $this->client->push(array_map(fn ($r) => array_filter([
             'id' => $r['id'], 'client_seq' => (int) $r['client_seq'], 'type' => $r['type'],
             'payload' => json_decode($r['payload'], true), 'client_created_at' => $r['created_at'],
-        ], $rows), $this->pendingCount());
+            'auth' => $r['auth'] ? json_decode($r['auth'], true) : null,
+        ], fn ($v) => $v !== null), $rows), $this->pendingCount());
         $this->stats['pushed_batches']++;
 
         if ($this->chaos->crashAfterPushes !== null && $this->client->pushResponses >= $this->chaos->crashAfterPushes) {
@@ -502,6 +534,8 @@ final class Terminal
                     ['variant', 'delete'] => $db->prepare('UPDATE variants SET deleted = 1 WHERE id = ?')->execute([$c['id']]),
                     ['price_override', 'delete'] => $db->prepare('DELETE FROM price_overrides WHERE id = ?')->execute([$c['id']]),
                     ['modifier', 'delete'] => $db->prepare('DELETE FROM modifiers WHERE id = ?')->execute([$c['id']]),
+                    ['staff_credential', 'upsert'] => $db->prepare('INSERT OR REPLACE INTO credentials (id, staff_id, expires_at, revoked_at) VALUES (?, ?, ?, ?)')
+                        ->execute([$d['id'], $d['staff_id'], $d['expires_at'], $d['revoked_at']]),
                     default => null,
                 };
                 $this->stats['pulled_changes']++;

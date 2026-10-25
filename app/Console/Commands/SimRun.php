@@ -49,6 +49,8 @@ class SimRun extends Command
             'DB_CONNECTION' => 'pgsql', 'DB_DATABASE' => self::DATABASE, 'APP_ENV' => 'local', 'APP_DEBUG' => 'false',
             'LOG_LEVEL' => 'warning',
             'POS_PAIRING_PER_MINUTE' => '1000',   // every scenario pairs devices from 127.0.0.1
+            // production policy (refuse unattested devices), with the dev verdict signer
+            'POS_ATTESTATION_REQUIRED' => 'true', 'POS_ATTESTATION_ANDROID' => 'dev', 'POS_ATTESTATION_IOS' => 'dev',
         ]);
         $this->info("Starting {$this->option('servers')} API servers from port {$this->option('port')} ...");
         $pool->start();

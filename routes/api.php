@@ -1,11 +1,14 @@
 <?php
 
 use App\Http\Controllers\Api\{DeviceAdminController, DeviceRegisterController, DeviceSelfController, PairingCodeController, StaffAuthController, SyncPullController, SyncPushController};
+use App\Devices\Attestation\Attestation;
 use App\Http\Middleware\{EnsureDeviceActive, ResolveTenant};
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
-    // Public: a new device trades a one-time code for its token.
+    // Public: a new device trades a one-time code for its token (with an attestation
+    // bound to a fresh challenge when attestation is required).
+    Route::post('attestation/challenge', fn () => response()->json(Attestation::challenge()))->middleware('throttle:pairing');
     Route::post('devices/register', DeviceRegisterController::class)->middleware('throttle:pairing');
 
     // Order matters: authenticate the device, derive the tenant from its token, then refuse
@@ -22,8 +25,10 @@ Route::prefix('v1')->group(function () {
         Route::middleware('staff')->group(function () {
             Route::get('auth/me', [StaffAuthController::class, 'me']);
             Route::post('auth/logout', [StaffAuthController::class, 'logout']);
+            Route::post('auth/pin', [StaffAuthController::class, 'changePin']);
 
             Route::middleware('staff:owner,manager')->group(function () {
+                Route::post('staff/{id}/pin', [StaffAuthController::class, 'resetPin'])->whereUuid('id');
                 Route::post('devices/pairing-codes', PairingCodeController::class);
                 Route::get('devices', [DeviceAdminController::class, 'index']);
                 Route::post('devices/{id}/unpair', [DeviceAdminController::class, 'unpair'])->whereUuid('id');

@@ -31,6 +31,11 @@
         <env name="DB_DATABASE" value="allurus_test"/>
         <env name="DB_USERNAME" value="allurus_app"/>
         <env name="DB_PASSWORD" value="allurus_app"/>
+        <!-- dev attestation driver so the full challenge/verdict path runs without Google/Apple;
+             'required' is off by default here and switched on per test -->
+        <env name="POS_ATTESTATION_REQUIRED" value="false"/>
+        <env name="POS_ATTESTATION_ANDROID" value="dev"/>
+        <env name="POS_ATTESTATION_IOS" value="dev"/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
