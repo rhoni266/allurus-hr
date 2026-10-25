@@ -94,8 +94,8 @@ app/Devices/Attestation/        Attestation (challenge + check), PlayIntegrity, 
 app/Sync/OfflineAuth.php        flags for mutations signed in offline
 app/Http/Controllers/Api/       SyncPull, SyncPush, DeviceRegister, PairingCode, DeviceAdmin, DeviceSelf, StaffAuth
 app/Http/Middleware/            ResolveTenant (after auth:sanctum), EnsureDeviceActive, RequireStaffSession (alias `staff`)
-docs/                           offline-pin-signin.md (proposal)
-config/pos.php                  pairing rate limit (POS_PAIRING_PER_MINUTE)
+docs/                           offline-pin-signin.md (decided: option C)
+config/pos.php                  pairing rate limit, attestation (POS_ATTESTATION_*)
 app/Simulator/                  reference terminal: LocalStore (SQLite outbox), SyncClient, Chaos, Scenarios
 app/Console/Commands/           sim:run, sim:terminal, sim:churn, pos:pairing-code, pos:unpair, pos:staff-pin
 tests/Feature                   Pest, RefreshDatabase
