@@ -13,5 +13,5 @@ class StockMovement extends Model
 
     public $timestamps = false;
     protected $guarded = [];
-    protected $casts = ['occurred_at' => 'immutable_datetime'];
+    protected $casts = ['occurred_at' => 'immutable_datetime', 'qty_delta_milli' => 'integer'];
 }

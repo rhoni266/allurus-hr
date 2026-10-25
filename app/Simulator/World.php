@@ -13,7 +13,14 @@ final class World
         public readonly array $terminals,
         /** @var list<string> */
         public readonly array $variantIds,
-        public readonly int $initialStock,
+        public readonly int $initialStockMilli,
+        /**
+         * PricingEngine `tax_rules` input. Stand-in until national tax rules get their own
+         * pull path; the real terminal will receive them by sync.
+         */
+        public readonly array $taxRules,
+        /** PricingEngine `service_charge` input, or null for none. */
+        public readonly ?array $serviceCharge = null,
     ) {}
 
     public function terminal(string $name): array

@@ -41,6 +41,7 @@ final class Verifier
         $localOrders = [];
         $localTotal = 0;
         $soldQty = [];
+        $localQtyMilli = 0;
         $movementLines = 0;
         $outboxTotal = 0;
         $stuck = 0;
@@ -51,10 +52,11 @@ final class Verifier
                 $localOrders[$o['id']] = true;
                 $localTotal += (int) $o['total_sen'];
             }
-            foreach ($store->all('SELECT order_id, variant_id, SUM(qty) q FROM order_items GROUP BY order_id, variant_id') as $l) {
-                $soldQty[$l['variant_id']] = ($soldQty[$l['variant_id']] ?? 0) + (float) $l['q'];
+            foreach ($store->all('SELECT order_id, variant_id, SUM(qty_milli) q FROM order_items GROUP BY order_id, variant_id') as $l) {
+                $soldQty[$l['variant_id']] = ($soldQty[$l['variant_id']] ?? 0) + (int) $l['q'];
                 $movementLines++;
             }
+            $localQtyMilli += (int) $store->scalar('SELECT COALESCE(SUM(qty_milli), 0) FROM order_items');
             $outboxTotal += (int) $store->scalar('SELECT COUNT(*) FROM outbox');
             $stuck += (int) $store->scalar("SELECT COUNT(*) FROM outbox WHERE status IN ('pending','sent')");
             $rejected += (int) $store->scalar("SELECT COUNT(*) FROM outbox WHERE status = 'rejected'");
@@ -84,12 +86,21 @@ final class Verifier
         $movements = DB::table('stock_movements')->where('reason', 'sale')->where('tenant_id', $this->world->tenantId)->count();
         $this->check('one stock movement per order line', $movements === $movementLines, "server={$movements} expected={$movementLines}");
 
+        $serverQty = (int) DB::table('order_items')->whereIn('order_id', array_keys($localOrders))->sum('qty_milli');
+        $this->check('quantities match to the milli-unit', $serverQty === $localQtyMilli, "server={$serverQty} local={$localQtyMilli}");
+
+        // every stored order must still satisfy the pricing spec's identity
+        $broken = DB::table('orders')->whereIn('terminal_id', $terminalIds)
+            ->whereRaw('total_sen <> subtotal_sen - discount_sen + service_charge_sen + tax_sen + rounding_sen')->count();
+        $this->check('stored totals satisfy the pricing identity', $broken === 0, "{$broken} orders don't add up");
+
+        // integers on both sides: exact equality, no tolerance
         $bad = [];
-        $levels = DB::table('stock_levels')->where('outlet_id', $this->world->outletId)->pluck('on_hand', 'variant_id');
+        $levels = DB::table('stock_levels')->where('outlet_id', $this->world->outletId)->pluck('on_hand_milli', 'variant_id');
         foreach ($this->world->variantIds as $vid) {
-            $expected = $this->world->initialStock - ($soldQty[$vid] ?? 0);
-            if (abs((float) ($levels[$vid] ?? 0) - $expected) > 0.0001) {
-                $bad[] = substr($vid, -6).': '.(float) ($levels[$vid] ?? 0)." != {$expected}";
+            $expected = $this->world->initialStockMilli - ($soldQty[$vid] ?? 0);
+            if ((int) ($levels[$vid] ?? 0) !== $expected) {
+                $bad[] = substr($vid, -6).': '.($levels[$vid] ?? 'missing')." != {$expected}";
             }
         }
         $this->check('stock on hand exact', ! $bad, $bad ? implode('; ', array_slice($bad, 0, 3)) : count($this->world->variantIds).' variants');

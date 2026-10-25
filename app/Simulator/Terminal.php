@@ -2,6 +2,7 @@
 
 namespace App\Simulator;
 
+use App\Billing\PricingEngine;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 
@@ -14,7 +15,6 @@ use Illuminate\Support\Str;
 final class Terminal
 {
     public const BATCH = 50;
-    private const SST_BPS = 600;   // sim only; real rates come from synced, versioned tax_rules
 
     public array $stats = ['sold' => 0, 'pushed_batches' => 0, 'transport_failures' => 0, 'retry_results' => 0, 'pulled_changes' => 0, 'resyncs' => 0];
 
@@ -38,9 +38,13 @@ final class Terminal
 
     // ---------------------------------------------------------------- selling
 
+    private const QTY_MILLI = [250, 500, 1000, 1000, 1000, 1500, 2000, 3000];   // includes weighed / half portions
+
     /**
      * Ring up $count random sales from the local catalogue. Works with no network.
-     * $crashMidSale hard-exits inside the SQLite transaction, to prove sales are atomic.
+     * Baskets mix fractional quantities, line discounts and order discounts so every
+     * PricingEngine path goes through sync. $crashMidSale hard-exits inside the SQLite
+     * transaction, to prove sales are atomic.
      */
     public function sell(int $count, bool $crashMidSale = false): void
     {
@@ -52,53 +56,87 @@ final class Terminal
         for ($i = 0; $i < $count; $i++) {
             $lines = [];
             foreach (range(1, $this->chaos->int(1, 3)) as $_) {
-                $vid = $this->chaos->pick($variants)['id'];
-                $lines[$vid] = ($lines[$vid] ?? 0) + $this->chaos->int(1, 3);
+                $line = ['variant_id' => $this->chaos->pick($variants)['id'], 'qty_milli' => $this->chaos->pick(self::QTY_MILLI)];
+                if ($this->chaos->int(1, 5) === 1) {
+                    $line['discount'] = $this->chaos->int(0, 1)
+                        ? ['percent_bps' => $this->chaos->pick([500, 1000, 1500])]
+                        : ['amount_sen' => $this->chaos->int(50, 300)];
+                }
+                $lines[] = $line;
             }
-            $this->ringUp($lines, $crashMidSale);
+            $orderDiscount = $this->chaos->int(1, 6) === 1
+                ? ($this->chaos->int(0, 1) ? ['percent_bps' => 1000] : ['amount_sen' => $this->chaos->int(100, 500)])
+                : null;
+
+            $this->ringUp($lines, $orderDiscount, $crashMidSale);
         }
     }
 
-    /** @param array<string,int> $lines variant_id => qty */
-    public function ringUp(array $lines, bool $crashMidSale = false): string
+    /**
+     * Price a basket with PricingEngine (CLAUDE.md rule 7: pricing lives in one place) and
+     * record it. Offline means cash, so the 5-sen cash rounding always applies (rule 9).
+     *
+     * @param list<array{variant_id:string, qty_milli:int, discount?:array}> $lines
+     */
+    public function ringUp(array $lines, ?array $orderDiscount = null, bool $crashMidSale = false): string
     {
         $at = $this->now()->toIso8601ZuluString('microsecond');
         $orderId = (string) Str::uuid7();
 
-        return $this->store->transaction(function (\PDO $db) use ($lines, $at, $orderId, $crashMidSale) {
+        $catalogue = [];
+        $input = ['tender' => 'cash', 'tax_rules' => $this->world->taxRules, 'lines' => []];
+        foreach ($lines as $i => $line) {
+            $catalogue[$i] = $this->lookup($line['variant_id']);
+            $input['lines'][] = array_filter([
+                'id' => (string) Str::uuid7(),
+                'qty_milli' => $line['qty_milli'],
+                'unit_price_sen' => $catalogue[$i]['price_sen'],
+                'tax_code' => $catalogue[$i]['tax_code'],
+                'discount' => $line['discount'] ?? null,
+            ], fn ($v) => $v !== null);
+        }
+        if ($orderDiscount) {
+            $input['order_discount'] = $orderDiscount;
+        }
+        if ($this->world->serviceCharge) {
+            $input['service_charge'] = $this->world->serviceCharge;
+        }
+
+        $priced = PricingEngine::price($input);
+
+        return $this->store->transaction(function (\PDO $db) use ($input, $priced, $catalogue, $lines, $at, $orderId, $crashMidSale) {
             $seq = (int) ($this->store->get('receipt_seq', '0')) + 1;
             $this->store->put('receipt_seq', (string) $seq);
             // outlet + terminal prefix: two terminals can never collide, even offline
             $receipt = sprintf('OUT1-%s-%06d', $this->me['name'], $seq);
 
             $items = [];
-            $subtotal = 0;
-            foreach ($lines as $variantId => $qty) {
-                [$price, $version] = $this->price($variantId);
+            foreach ($priced['lines'] as $i => $p) {
                 $items[] = [
-                    'id' => (string) Str::uuid7(), 'variant_id' => $variantId, 'name' => "Item {$variantId}",
-                    'qty' => $qty, 'unit_price_sen' => $price, 'price_row_version' => $version,
+                    'id' => $p['id'], 'variant_id' => $lines[$i]['variant_id'], 'name' => $catalogue[$i]['name'],
+                    'qty_milli' => $input['lines'][$i]['qty_milli'],
+                    'unit_price_sen' => $catalogue[$i]['price_sen'],          // catalogue price, before discounts
+                    'price_row_version' => $catalogue[$i]['row_version'],
+                    'tax_code' => $catalogue[$i]['tax_code'],
+                    'gross_sen' => $p['gross_sen'], 'discount_sen' => $p['line_discount_sen'] + $p['order_discount_sen'], 'net_sen' => $p['net_sen'],
                 ];
-                $subtotal += $qty * $price;
             }
-
-            $tax = intdiv($subtotal * self::SST_BPS + 5000, 10000);   // round half up
-            $preRound = $subtotal + $tax;
-            $total = intdiv($preRound + 2, 5) * 5;                     // Malaysian 5-sen cash rounding
 
             $order = [
                 'id' => $orderId, 'receipt_no' => $receipt, 'status' => 'paid', 'channel' => 'pos',
-                'staff_id' => $this->staffId, 'subtotal_sen' => $subtotal, 'discount_sen' => 0,
-                'service_charge_sen' => 0, 'tax_sen' => $tax, 'rounding_sen' => $total - $preRound,
-                'total_sen' => $total, 'created_offline' => true, 'occurred_at' => $at,
-                'tax_breakdown' => [['code' => 'SST_SALES', 'rate_bps' => self::SST_BPS, 'base_sen' => $subtotal, 'amount_sen' => $tax]],
+                'staff_id' => $this->staffId, 'subtotal_sen' => $priced['subtotal_sen'], 'discount_sen' => $priced['discount_sen'],
+                'service_charge_sen' => $priced['service_charge_sen'], 'tax_sen' => $priced['tax_sen'],
+                'rounding_sen' => $priced['rounding_sen'], 'total_sen' => $priced['total_sen'],
+                'tax_breakdown' => $priced['tax_breakdown'], 'pricing_spec_version' => $priced['spec_version'],
+                'created_offline' => true, 'occurred_at' => $at,
             ];
+            $total = $priced['total_sen'];
 
             $db->prepare('INSERT INTO orders (id, receipt_no, total_sen, occurred_at) VALUES (?, ?, ?, ?)')
                 ->execute([$orderId, $receipt, $total, $at]);
             foreach ($items as $it) {
-                $db->prepare('INSERT INTO order_items (id, order_id, variant_id, qty, unit_price_sen) VALUES (?, ?, ?, ?, ?)')
-                    ->execute([$it['id'], $orderId, $it['variant_id'], $it['qty'], $it['unit_price_sen']]);
+                $db->prepare('INSERT INTO order_items (id, order_id, variant_id, qty_milli, unit_price_sen, net_sen) VALUES (?, ?, ?, ?, ?, ?)')
+                    ->execute([$it['id'], $orderId, $it['variant_id'], $it['qty_milli'], $it['unit_price_sen'], $it['net_sen']]);
             }
 
             if ($crashMidSale) {
@@ -119,16 +157,27 @@ final class Terminal
         });
     }
 
-    /** Local twin of PriceResolver: outlet override > region override > base. */
-    private function price(string $variantId): array
+    /**
+     * Catalogue facts for one variant. Price follows the local twin of PriceResolver:
+     * outlet override > region override > base.
+     */
+    private function lookup(string $variantId): array
     {
-        $v = $this->store->all('SELECT base_price_sen, row_version FROM variants WHERE id = ?', [$variantId])[0];
+        $v = $this->store->all(
+            'SELECT v.base_price_sen, v.row_version, p.name, p.tax_code FROM variants v JOIN products p ON p.id = v.product_id WHERE v.id = ?',
+            [$variantId],
+        )[0];
         $overrides = $this->store->all('SELECT scope, scope_key, price_sen FROM price_overrides WHERE variant_id = ?', [$variantId]);
 
         $pick = fn (string $scope, string $key) => collect($overrides)->first(fn ($o) => $o['scope'] === $scope && $o['scope_key'] === $key);
         $o = $pick('outlet', $this->world->outletId) ?? $pick('region', $this->world->region);
 
-        return [(int) ($o['price_sen'] ?? $v['base_price_sen']), (int) $v['row_version']];
+        return [
+            'price_sen' => (int) ($o['price_sen'] ?? $v['base_price_sen']),
+            'row_version' => (int) $v['row_version'],
+            'name' => $v['name'],
+            'tax_code' => $v['tax_code'],
+        ];
     }
 
     // ---------------------------------------------------------------- sync
@@ -238,8 +287,8 @@ final class Terminal
             foreach ($changes as $c) {
                 $d = $c['data'];
                 match ([$c['entity'], $c['op']]) {
-                    ['product', 'upsert'] => $db->prepare('INSERT OR REPLACE INTO products (id, name, track_stock, row_version, deleted) VALUES (?, ?, ?, ?, 0)')
-                        ->execute([$d['id'], $d['name'], (int) $d['track_stock'], $d['row_version']]),
+                    ['product', 'upsert'] => $db->prepare('INSERT OR REPLACE INTO products (id, name, tax_code, track_stock, row_version, deleted) VALUES (?, ?, ?, ?, ?, 0)')
+                        ->execute([$d['id'], $d['name'], $d['tax_code'], (int) $d['track_stock'], $d['row_version']]),
                     ['variant', 'upsert'] => $db->prepare('INSERT OR REPLACE INTO variants (id, product_id, sku, base_price_sen, row_version, deleted) VALUES (?, ?, ?, ?, ?, 0)')
                         ->execute([$d['id'], $d['product_id'], $d['sku'], $d['base_price_sen'], $d['row_version']]),
                     ['price_override', 'upsert'] => $db->prepare('INSERT OR REPLACE INTO price_overrides (id, variant_id, scope, scope_key, price_sen, row_version) VALUES (?, ?, ?, ?, ?, ?)')

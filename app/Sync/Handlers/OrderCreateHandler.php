@@ -81,7 +81,7 @@ class OrderCreateHandler implements MutationHandler
                 'order_id'          => $order->id,
                 'variant_id'        => $item['variant_id'],
                 'name_snapshot'     => $item['name'],
-                'qty'               => $item['qty'],
+                'qty_milli'         => $item['qty_milli'],
                 'unit_price_sen'    => $item['unit_price_sen'],
                 'catalog_price_sen' => $catalogPrice ?? $item['unit_price_sen'],
                 'price_row_version' => $item['price_row_version'],
@@ -105,14 +105,14 @@ class OrderCreateHandler implements MutationHandler
             }
 
             if ($variant && $variant->product?->track_stock !== false) {
-                $stockDeltas[$variant->id] = ($stockDeltas[$variant->id] ?? 0) - (float) $item['qty'];
+                $stockDeltas[$variant->id] = ($stockDeltas[$variant->id] ?? 0) - $item['qty_milli'];
             }
         }
 
         foreach ($stockDeltas as $variantId => $delta) {
             StockMovement::create([
                 'outlet_id' => $terminal->outlet_id, 'variant_id' => $variantId,
-                'reason' => 'sale', 'qty_delta' => $delta,
+                'reason' => 'sale', 'qty_delta_milli' => $delta,
                 'ref_id' => $order->id, 'occurred_at' => $occurredAt,
             ]);
         }
@@ -160,22 +160,22 @@ class OrderCreateHandler implements MutationHandler
 
         $rows = [];
         foreach ($deltas as $variantId => $delta) {
-            $rows[] = ['tenant_id' => $tenantId, 'outlet_id' => $outletId, 'variant_id' => $variantId, 'on_hand' => $delta];
+            $rows[] = ['tenant_id' => $tenantId, 'outlet_id' => $outletId, 'variant_id' => $variantId, 'on_hand_milli' => $delta];
         }
 
         DB::table('stock_levels')->upsert(
             $rows,
             ['outlet_id', 'variant_id'],
-            ['on_hand' => DB::raw('stock_levels.on_hand + excluded.on_hand')],
+            ['on_hand_milli' => DB::raw('stock_levels.on_hand_milli + excluded.on_hand_milli')],
         );
 
         // Never block revenue on inventory drift; just raise it.
         return DB::table('stock_levels')
             ->where('outlet_id', $outletId)
             ->whereIn('variant_id', array_keys($deltas))
-            ->where('on_hand', '<', 0)
-            ->get(['variant_id', 'on_hand'])
-            ->map(fn ($r) => ['kind' => 'negative_stock', 'detail' => ['variant_id' => $r->variant_id, 'on_hand' => (float) $r->on_hand]])
+            ->where('on_hand_milli', '<', 0)
+            ->get(['variant_id', 'on_hand_milli'])
+            ->map(fn ($r) => ['kind' => 'negative_stock', 'detail' => ['variant_id' => $r->variant_id, 'on_hand_milli' => (int) $r->on_hand_milli]])
             ->all();
     }
 
@@ -194,7 +194,8 @@ class OrderCreateHandler implements MutationHandler
             'items.*.id'               => ['required', 'uuid', 'distinct'],
             'items.*.variant_id'       => ['required', 'uuid'],
             'items.*.name'             => ['required', 'string', 'max:255'],
-            'items.*.qty'              => ['required', 'numeric', 'gt:0'],
+            // Integer milli-units only: a decimal or float qty is a terminal bug, not a rounding choice.
+            'items.*.qty_milli'        => ['required', 'integer', 'min:1', 'max:1000000000'],
             'items.*.unit_price_sen'   => ['required', 'integer'],
             'items.*.price_row_version'=> ['required', 'integer', 'min:0'],
             'payments'                 => ['present', 'array'],
@@ -206,6 +207,13 @@ class OrderCreateHandler implements MutationHandler
 
         // Throws ValidationException -> push controller stores 'rejected'.
         $v->validate();
+
+        // Laravel's 'integer' also passes "2000" and 2000.0; quantities must be real JSON integers.
+        foreach ($p['items'] as $i => $item) {
+            if (! is_int($item['qty_milli'])) {
+                throw new MutationRejected('invalid_qty', ['item' => $i, 'qty_milli' => $item['qty_milli']]);
+            }
+        }
 
         // The totals must add up; a terminal that sends inconsistent money is buggy.
         $o = $p['order'];

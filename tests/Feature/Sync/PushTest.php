@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 
 beforeEach(function () {
     $this->w = world();
-    seedStock($this->w, 10);
+    seedStock($this->w, 10_000);   // 10 units
     actAsTerminal($this->w->terminal);
 });
 
@@ -18,9 +18,9 @@ it('applies an offline sale end to end', function () {
     asTenant($this->w->tenant->id);
     $orderId = $m['payload']['order']['id'];
     expect(Order::find($orderId))->total_sen->toBe(700)
-        ->and(OrderItem::where('order_id', $orderId)->count())->toBe(1)
+        ->and(OrderItem::where('order_id', $orderId)->value('qty_milli'))->toBe(2000)
         ->and(Payment::where('order_id', $orderId)->count())->toBe(1)
-        ->and((float) StockMovement::where('ref_id', $orderId)->value('qty_delta'))->toBe(-2.0)
+        ->and(StockMovement::where('ref_id', $orderId)->value('qty_delta_milli'))->toBe(-2000)
         ->and(OfflineSyncQueue::find($m['id'])->status)->toBe('applied');
 });
 
@@ -28,7 +28,48 @@ it('decrements existing stock', function () {
     push(orderMutation($this->w))->assertOk();
 
     asTenant($this->w->tenant->id);
-    expect((float) DB::table('stock_levels')->where('variant_id', $this->w->variant->id)->value('on_hand'))->toBe(8.0);
+    expect(onHandMilli($this->w))->toBe(8000);
+});
+
+it('moves fractional quantities exactly, with no float drift', function () {
+    // 0.1 + 0.2 != 0.3 in floats; 100 + 200 == 300 in milli-units
+    push(
+        orderMutation($this->w, 1, item: ['qty_milli' => 100]),
+        orderMutation($this->w, 2, item: ['qty_milli' => 200]),
+    )->assertOk();
+
+    asTenant($this->w->tenant->id);
+    expect(onHandMilli($this->w))->toBe(10_000 - 300);
+});
+
+it('rejects a decimal or string quantity', function (mixed $qty) {
+    $m = orderMutation($this->w);
+    $m['payload']['items'][0]['qty_milli'] = $qty;
+
+    push($m)->assertJsonPath('results.0.status', 'rejected');
+
+    asTenant($this->w->tenant->id);
+    expect(Order::count())->toBe(0)->and(onHandMilli($this->w))->toBe(10_000);
+})->with(['float' => 1.5, 'numeric string' => '2000', 'zero' => 0]);
+
+it('rejects a whole-number float like 2000.0 on the wire', function () {
+    // json_encode() drops ".0" unless asked, so build the body the way Dart's jsonEncode does
+    $body = json_encode(['mutations' => [orderMutation($this->w)]], JSON_PRESERVE_ZERO_FRACTION);
+    $body = str_replace('"qty_milli":2000', '"qty_milli":2000.0', $body);
+    expect($body)->toContain('"qty_milli":2000.0');
+
+    $this->call('POST', '/api/v1/sync/push', server: ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'], content: $body)
+        ->assertJsonPath('results.0.status', 'rejected')
+        ->assertJsonPath('results.0.result.error', 'invalid_qty');
+});
+
+it('rejects the legacy decimal qty field', function () {
+    $m = orderMutation($this->w);
+    $m['payload']['items'][0]['qty'] = 2;
+    unset($m['payload']['items'][0]['qty_milli']);
+
+    push($m)->assertJsonPath('results.0.status', 'rejected')
+        ->assertJsonPath('results.0.result.error', 'invalid_payload');
 });
 
 it('creates the stock_levels row when none exists instead of silently skipping', function () {
@@ -37,12 +78,11 @@ it('creates the stock_levels row when none exists instead of silently skipping',
     push(orderMutation($this->w))->assertOk();
 
     asTenant($this->w->tenant->id);
-    $onHand = DB::table('stock_levels')->where('variant_id', $this->w->variant->id)->value('on_hand');
-    expect((float) $onHand)->toBe(-2.0);
+    expect(onHandMilli($this->w))->toBe(-2000);
 });
 
 it('flags negative stock without blocking the sale', function () {
-    seedStock($this->w, 1);
+    seedStock($this->w, 1000);
 
     push(orderMutation($this->w))
         ->assertJsonPath('results.0.status', 'conflict')

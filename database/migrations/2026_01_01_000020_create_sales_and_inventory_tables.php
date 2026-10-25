@@ -21,8 +21,9 @@ return new class extends Migration
             $t->uuid('tenant_id')->index();
             $t->uuid('outlet_id');
             $t->uuid('variant_id');
-            $t->decimal('on_hand', 14, 3)->default(0);    // projection of stock_movements
-            $t->decimal('low_stock_threshold', 14, 3)->nullable();
+            // Quantities are integer milli-units (qty x 1000) everywhere: no decimal math (CLAUDE.md rule 1).
+            $t->bigInteger('on_hand_milli')->default(0);    // projection of stock_movements
+            $t->bigInteger('low_stock_threshold_milli')->nullable();
             $t->primary(['outlet_id', 'variant_id']);
         });
 
@@ -33,7 +34,7 @@ return new class extends Migration
                 outlet_id   uuid           NOT NULL,
                 variant_id  uuid           NOT NULL,
                 reason      varchar(32)    NOT NULL,
-                qty_delta   numeric(14,3)  NOT NULL,
+                qty_delta_milli bigint     NOT NULL,   -- signed
                 ref_id      uuid,
                 occurred_at timestamptz    NOT NULL,
                 created_at  timestamptz    NOT NULL DEFAULT now(),
@@ -78,7 +79,7 @@ return new class extends Migration
                 order_id          uuid          NOT NULL,
                 variant_id        uuid          NOT NULL,
                 name_snapshot     varchar(255)  NOT NULL,
-                qty               numeric(10,3) NOT NULL,
+                qty_milli         bigint        NOT NULL CHECK (qty_milli > 0),
                 unit_price_sen    bigint        NOT NULL,
                 catalog_price_sen bigint        NOT NULL,
                 price_row_version bigint        NOT NULL,

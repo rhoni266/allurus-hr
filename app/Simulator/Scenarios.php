@@ -136,7 +136,7 @@ final class Scenarios
         });
 
         foreach (range(1, 5) as $_) {
-            $t->ringUp([$repriced => 1, $deleted => 1]);
+            $t->ringUp([['variant_id' => $repriced, 'qty_milli' => 1000], ['variant_id' => $deleted, 'qty_milli' => 1000]]);
         }
         $t->sync();
 

@@ -39,7 +39,7 @@ final class LocalStore
     {
         $this->db->exec(<<<'SQL'
             CREATE TABLE IF NOT EXISTS products (
-                id TEXT PRIMARY KEY, name TEXT, track_stock INTEGER, row_version INTEGER, deleted INTEGER DEFAULT 0
+                id TEXT PRIMARY KEY, name TEXT, tax_code TEXT, track_stock INTEGER, row_version INTEGER, deleted INTEGER DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS variants (
                 id TEXT PRIMARY KEY, product_id TEXT, sku TEXT, base_price_sen INTEGER,
@@ -54,7 +54,8 @@ final class LocalStore
                 id TEXT PRIMARY KEY, receipt_no TEXT UNIQUE, total_sen INTEGER, occurred_at TEXT
             );
             CREATE TABLE IF NOT EXISTS order_items (
-                id TEXT PRIMARY KEY, order_id TEXT, variant_id TEXT, qty REAL, unit_price_sen INTEGER
+                id TEXT PRIMARY KEY, order_id TEXT, variant_id TEXT,
+                qty_milli INTEGER NOT NULL, unit_price_sen INTEGER, net_sen INTEGER   -- integers only, never REAL
             );
 
             -- AUTOINCREMENT (not plain rowid) so a client_seq is never reused after pruning:

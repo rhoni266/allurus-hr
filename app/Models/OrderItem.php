@@ -14,6 +14,7 @@ class OrderItem extends Model
     protected $guarded = [];
     protected $casts = [
         'modifiers'         => 'array',
+        'qty_milli'         => 'integer',
         'unit_price_sen'    => 'integer',
         'catalog_price_sen' => 'integer',
         'occurred_at'       => 'immutable_datetime',

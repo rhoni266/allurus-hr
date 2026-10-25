@@ -1,5 +1,6 @@
 <?php
 
+use App\Billing\PricingEngine;
 use App\Models\{Outlet, Product, ProductVariant, Tenant, Terminal};
 use App\Tenancy\TenantContext;
 use Illuminate\Foundation\Testing\{DatabaseTruncation, RefreshDatabase};
@@ -18,13 +19,20 @@ pest()->extend(Tests\TestCase::class)
     ->use(DatabaseTruncation::class)
     ->in('Integration');
 
-function seedStock(object $w, float $onHand): void
+function seedStock(object $w, int $onHandMilli): void
 {
     DB::table('stock_levels')->upsert(
-        [['tenant_id' => $w->tenant->id, 'outlet_id' => $w->outlet->id, 'variant_id' => $w->variant->id, 'on_hand' => $onHand]],
+        [['tenant_id' => $w->tenant->id, 'outlet_id' => $w->outlet->id, 'variant_id' => $w->variant->id, 'on_hand_milli' => $onHandMilli]],
         ['outlet_id', 'variant_id'],
-        ['on_hand'],
+        ['on_hand_milli'],
     );
+}
+
+function onHandMilli(object $w): ?int
+{
+    $v = DB::table('stock_levels')->where('variant_id', $w->variant->id)->value('on_hand_milli');
+
+    return $v === null ? null : (int) $v;
 }
 
 /**
@@ -64,9 +72,9 @@ function actAsTerminal(Terminal $terminal, array $abilities = ['pos:terminal']):
 /** A complete, internally consistent order.create mutation. */
 function orderMutation(object $w, int $clientSeq = 1, array $item = [], array $order = []): array
 {
-    $qty = $item['qty'] ?? 2;
+    $qtyMilli = $item['qty_milli'] ?? 2000;
     $price = $item['unit_price_sen'] ?? 350;
-    $subtotal = (int) round($qty * $price);
+    $subtotal = PricingEngine::divHalfUp($qtyMilli * $price, 1000);
     $orderId = $order['id'] ?? (string) Str::uuid7();
     $at = $order['occurred_at'] ?? now()->subHour()->toIso8601String();
 
@@ -92,7 +100,7 @@ function orderMutation(object $w, int $clientSeq = 1, array $item = [], array $o
                 'id'                => (string) Str::uuid7(),
                 'variant_id'        => $w->variant->id,
                 'name'              => 'Kopi O',
-                'qty'               => $qty,
+                'qty_milli'         => $qtyMilli,
                 'unit_price_sen'    => $price,
                 'price_row_version' => $w->variant->row_version,
             ], $item)],

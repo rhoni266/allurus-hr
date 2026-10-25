@@ -162,12 +162,13 @@ class DemoSeeder extends Seeder
             'sku' => strtoupper(str_replace([':', '-'], '_', $key)), 'base_price_sen' => $priceSen])->id;
     }
 
+    /** @param array<string,int> $onHand variant id => whole units */
     private function stock(string $tenantId, array $outletIds, array $onHand): void
     {
         foreach ($outletIds as $outletId) {
-            foreach ($onHand as $variantId => $qty) {
-                DB::table('stock_levels')->insert(['tenant_id' => $tenantId, 'outlet_id' => $outletId,
-                    'variant_id' => $variantId, 'on_hand' => $qty, 'low_stock_threshold' => intdiv($qty, 4)]);
+            foreach ($onHand as $variantId => $units) {
+                DB::table('stock_levels')->insert(['tenant_id' => $tenantId, 'outlet_id' => $outletId, 'variant_id' => $variantId,
+                    'on_hand_milli' => $units * 1000, 'low_stock_threshold_milli' => intdiv($units, 4) * 1000]);
             }
         }
     }

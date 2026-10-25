@@ -71,7 +71,7 @@ return new class extends Migration
             $t->string('name');
             $t->bigInteger('price_delta_sen')->default(0);
             $t->uuid('consumes_variant_id')->nullable();
-            $t->decimal('consumes_qty', 10, 3)->nullable();
+            $t->bigInteger('consumes_qty_milli')->nullable();   // qty x 1000
             $t->unsignedBigInteger('row_version')->default(1);
             $t->timestampsTz();
         });
@@ -81,7 +81,7 @@ return new class extends Migration
             $t->uuid('tenant_id')->index();
             $t->uuid('combo_product_id')->index();
             $t->uuid('component_variant_id');
-            $t->decimal('qty', 10, 3)->default(1);
+            $t->bigInteger('qty_milli')->default(1000);          // qty x 1000
             $t->uuid('slot_group_id')->nullable();
         });
 

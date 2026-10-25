@@ -88,22 +88,22 @@ Done (branch `allurus-pos` on rhoni266/allurus-hr):
 * CLI terminal simulator + 8 chaos scenarios, all passing
 * `PricingEngine` (spec v1) + 20 golden vectors (15 priced, 5 errors) + 2,000-basket invariant test, all passing
 * `staff` (RLS, hashed PINs) and `tax_rules` (versioned, date-effective) tables
-* `DemoSeeder`, run against the dev database; 69 Pest tests, all passing
+* `DemoSeeder`, run against the dev database
 * `allurus-pos-architecture.md` committed
+* Quantities are integer milli-units end to end: sync payload `items.*.qty_milli` (strict JSON integer; `2000.0` and `"2000"` are rejected), `order_items.qty_milli`, `stock_movements.qty_delta_milli`, `stock_levels.on_hand_milli`. No decimal quantity column remains.
+* The simulator terminal prices every sale with `PricingEngine` (fractional quantities, line and order discounts, service charge, mixed tax codes) and pushes the engine's output.
+* 75 Pest tests and all 8 simulator scenarios passing
 
 Known gaps:
 
-* The simulator terminal prices orders itself (`Terminal::ringUp`) instead of using `PricingEngine`, which breaks rule 7. Switch it over.
-* `OrderCreateHandler` aggregates stock deltas as floats, which breaks rule 1. Move to `qty_milli`.
-* `order_items.qty` and the sync payload still carry decimal `qty`; the pricing engine takes `qty_milli`. Decide where the conversion lives (ideally the payload carries `qty_milli`).
-* The server doesn't recompute or check terminal pricing against `PricingEngine` yet (it should flag, never rewrite — rule 4).
+* The server doesn't recompute or check terminal pricing against `PricingEngine` yet (it should flag, never rewrite — rule 4). The payload doesn't yet carry the full engine input (line discounts, order discount, service-charge policy) needed to do that.
+* Modifiers aren't priced in the simulator yet (the engine supports them; the local catalogue doesn't map them to lines).
 * `tax_rules` aren't in the sync feed yet (the trigger needs a tenant; national rules need their own pull path).
 * The server doesn't yet flag terminals with skewed clocks (the simulator only reports the skew).
 * Demo tax rates are illustrative. Confirm with RMCD before go-live.
 
 Next, in order:
 
-1. Switch the simulator to `PricingEngine` and move stock deltas and the sync payload to `qty_milli`.
-2. Device pairing (one-time code, `pos:terminal` token) and staff PIN login (the `staff` table exists).
-3. Remaining mutations: `order.void`, `payment.add`, `stock.adjust`, then `session.end` — each with a simulator scenario.
-4. Dart port of `PricingEngine`, run against `spec/pricing/vectors.json` in CI.
+1. Device pairing (one-time code, `pos:terminal` token) and staff PIN login (the `staff` table exists).
+2. Remaining mutations: `order.void`, `payment.add`, `stock.adjust`, then `session.end` — each with a simulator scenario.
+3. Dart port of `PricingEngine`, run against `spec/pricing/vectors.json` in CI.
