@@ -256,10 +256,36 @@ final class Scenarios
 
     private function world(string $name, int $terminals = 1): World
     {
-        $world = Hq::provision($name, $terminals);
+        $world = $this->pairAll(Hq::provision($name, $terminals));
         $world->save($this->worldPath($name));
 
         return $world;
+    }
+
+    /**
+     * Each terminal redeems its one-time code over HTTP, then the cashier signs in by PIN
+     * on it, as on a real device. Pairing and login are online-only; selling isn't.
+     */
+    private function pairAll(World $world): World
+    {
+        $paired = [];
+        foreach ($world->terminals as $i => $t) {
+            $res = Http::baseUrl($this->pool->url($i))->acceptJson()->post('/api/v1/devices/register', [
+                'code' => $t['code'], 'device_fingerprint' => "sim:{$world->tenantId}:{$t['name']}", 'name' => $t['name'],
+            ]);
+            if ($res->status() !== 201) {
+                throw new \RuntimeException("pairing {$t['name']} failed: HTTP {$res->status()} ".$res->body());
+            }
+            $paired[] = ['name' => $t['name'], 'id' => $res->json('terminal.id'), 'token' => $res->json('token')];
+
+            $login = Http::baseUrl($this->pool->url($i))->withToken($res->json('token'))->acceptJson()
+                ->post('/api/v1/auth/login', ['staff_id' => $world->staff['id'], 'pin' => $world->staff['pin']]);
+            if ($login->status() !== 201) {
+                throw new \RuntimeException("staff login on {$t['name']} failed: HTTP {$login->status()} ".$login->body());
+            }
+        }
+
+        return $world->withTerminals($paired);
     }
 
     private function worldPath(string $name): string

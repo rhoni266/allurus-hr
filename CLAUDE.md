@@ -25,7 +25,13 @@ Multi-tenant, offline-first, omnichannel POS for the Malaysian market (F&B, reta
 
 * **The change feed is Postgres triggers, not Eloquent events** (`database/migrations/2026_01_01_000060_create_sync_triggers.php`). `increment()`, query-builder updates and raw SQL skip model hooks, and a missed feed row leaves terminals on a stale price forever. Don't reintroduce PHP-side feed writes. `row_version` is bumped by the trigger, so call `->refresh()` if you need it in memory.
 * **Timestamps carry offset and microseconds.** Models use `PreciseTimestamps` (`App\Database\Timestamps::FORMAT`); query-builder bindings must pass `->format(Timestamps::FORMAT)` explicitly. DB sessions are pinned to UTC in `config/database.php`. Device-time columns use `timestampTz(..., 6)` — Laravel's default precision is whole seconds.
-* **Terminals are not tenant-scoped and have no RLS**: Sanctum resolves them before a tenant is known.
+* **Terminals and `device_pairing_codes` are not tenant-scoped and have no RLS**: both are looked up before a tenant is known (Sanctum auth, device registration). Pairing codes are found only by SHA-256 hash.
+
+### Devices and staff
+
+* Pairing: a one-time code (8 chars, 15 min, single use, stored as a hash) comes from `php artisan pos:pairing-code <tenant-slug> [outlet-id]` or from an owner/manager signed in on a paired terminal (`POST /api/v1/devices/pairing-codes`). The device redeems it at `POST /api/v1/devices/register` (public, rate-limited) for a Sanctum token with **only** `pos:terminal`. Re-pairing the same device revokes its old token and staff sessions.
+* Staff sign-in: `POST /api/v1/auth/login {staff_id, pin}` on a paired terminal returns a 12-hour session token, sent as `X-Staff-Session`. Sessions are bound to that terminal. Guarded routes use the `staff` / `staff:owner,manager` middleware, after `ResolveTenant`. PIN guessing is locked out after 5 failures per staff member per terminal and 15 per terminal, for 15 minutes.
+* Staff reach terminals through the sync feed (routed by `outlet_id`) **without** `pin_hash`. Never add the hash to the payload without a deliberate offline-login design.
 
 ## Commands
 
@@ -60,10 +66,12 @@ app/Tenancy/                    TenantContext, TenantScope, BelongsToTenant
 app/Pricing/PriceResolver.php   server-side price lookup (outlet override > region > base)
 app/Sync/                       MutationHandler, MutationHandlerRegistry, Outcome, MutationRejected, DbErrors
 app/Sync/Handlers/              OrderCreateHandler
-app/Http/Controllers/Api/       SyncPullController, SyncPushController
-app/Http/Middleware/            ResolveTenant (after auth:sanctum)
+app/Devices/                    PairingService (issue / redeem one-time codes)
+app/Http/Controllers/Api/       SyncPullController, SyncPushController, DeviceRegisterController, PairingCodeController, StaffAuthController
+app/Http/Middleware/            ResolveTenant (after auth:sanctum), RequireStaffSession (alias `staff`)
+config/pos.php                  pairing rate limit (POS_PAIRING_PER_MINUTE)
 app/Simulator/                  reference terminal: LocalStore (SQLite outbox), SyncClient, Chaos, Scenarios
-app/Console/Commands/           sim:run, sim:terminal, sim:churn
+app/Console/Commands/           sim:run, sim:terminal, sim:churn, pos:pairing-code
 tests/Feature                   Pest, RefreshDatabase
 tests/Integration               Pest, DatabaseTruncation (needs real top-level transactions)
 ```
@@ -92,9 +100,16 @@ Done (branch `allurus-pos` on rhoni266/allurus-hr):
 * `allurus-pos-architecture.md` committed
 * Quantities are integer milli-units end to end: sync payload `items.*.qty_milli` (strict JSON integer; `2000.0` and `"2000"` are rejected), `order_items.qty_milli`, `stock_movements.qty_delta_milli`, `stock_levels.on_hand_milli`. No decimal quantity column remains.
 * The simulator terminal prices every sale with `PricingEngine` (fractional quantities, line and order discounts, service charge, mixed tax codes) and pushes the engine's output.
-* 75 Pest tests and all 8 simulator scenarios passing
+* Device pairing (CLI and manager-issued one-time codes) and staff PIN sign-in, with lockout and terminal-bound sessions; staff synced to terminals without PIN hashes
+* Simulator terminals pair over HTTP and ring up sales as a cashier who signed in by PIN
+* 101 Pest tests and all 8 simulator scenarios passing
 
 Known gaps:
+
+* Offline PIN sign-in isn't designed yet. A 4-digit PIN hash on the device can be brute-forced offline, so decide the trade-off (e.g. a per-device verifier, a capped offline window, owner override) before syncing anything PIN-derived.
+* `order.create` doesn't yet check that `staff_id` is a real, active staff member of the tenant (it should flag a conflict, never reject a sale).
+* No HQ users yet: pairing codes come from the CLI or from an owner/manager on an already-paired terminal. The first device per tenant needs the CLI.
+* No unpair / remote-wipe endpoint yet (re-pairing revokes, but nothing revokes a lost device on its own).
 
 * The server doesn't recompute or check terminal pricing against `PricingEngine` yet (it should flag, never rewrite — rule 4). The payload doesn't yet carry the full engine input (line discounts, order discount, service-charge policy) needed to do that.
 * Modifiers aren't priced in the simulator yet (the engine supports them; the local catalogue doesn't map them to lines).
@@ -104,6 +119,6 @@ Known gaps:
 
 Next, in order:
 
-1. Device pairing (one-time code, `pos:terminal` token) and staff PIN login (the `staff` table exists).
-2. Remaining mutations: `order.void`, `payment.add`, `stock.adjust`, then `session.end` — each with a simulator scenario.
+1. Remaining mutations: `order.void`, `payment.add`, `stock.adjust`, then `session.end` — each with a simulator scenario. Voids and refunds need a staff session with the right role.
+2. Device unpair / remote wipe, and the offline PIN sign-in decision.
 3. Dart port of `PricingEngine`, run against `spec/pricing/vectors.json` in CI.

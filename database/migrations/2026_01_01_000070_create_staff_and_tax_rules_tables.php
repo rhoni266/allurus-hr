@@ -3,6 +3,7 @@
 use App\Database\Rls;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -17,9 +18,16 @@ return new class extends Migration
             $t->string('role');                             // owner | manager | cashier | kitchen
             $t->string('pin_hash');                         // never the PIN itself
             $t->boolean('is_active')->default(true);
+            $t->unsignedBigInteger('row_version')->default(1);
             $t->timestampsTz();
         });
         Rls::enable('staff');
+
+        // Terminals need the staff list (not the PIN hashes) for the login screen.
+        // Same triggers as the catalogue (migration 000060). Deactivation is an upsert
+        // with is_active = false, so a device drops the person on its next pull.
+        DB::statement('CREATE TRIGGER staff_row_version BEFORE UPDATE ON staff FOR EACH ROW EXECUTE FUNCTION sync_bump_row_version()');
+        DB::statement("CREATE TRIGGER staff_sync_change AFTER INSERT OR UPDATE OR DELETE ON staff FOR EACH ROW EXECUTE FUNCTION sync_record_change('staff')");
 
         // National tax rules: shared by every tenant, so no tenant_id and no RLS.
         // Rates are data (CLAUDE.md rule 8). Each change is a new version with an effective date;

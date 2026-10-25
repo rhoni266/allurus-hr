@@ -39,8 +39,11 @@ return new class extends Migration
                     op := 'delete';
                 END IF;
 
+                -- outlet-specific rows go only to that outlet's terminals
                 IF TG_TABLE_NAME = 'price_overrides' AND j->>'scope' = 'outlet' THEN
-                    outlet := (j->>'scope_key')::uuid;   -- only that outlet's terminals receive it
+                    outlet := (j->>'scope_key')::uuid;
+                ELSIF j ? 'outlet_id' AND j->>'outlet_id' IS NOT NULL THEN
+                    outlet := (j->>'outlet_id')::uuid;   -- e.g. staff assigned to one outlet
                 END IF;
 
                 -- Serialise feed writers per tenant until commit, so seq order == commit

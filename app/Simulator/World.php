@@ -9,7 +9,7 @@ final class World
         public readonly string $tenantId,
         public readonly string $outletId,
         public readonly string $region,
-        /** @var list<array{id:string,name:string,token:string}> */
+        /** @var list<array{name:string, code?:string, id?:string, token?:string}> code before pairing; id + token after */
         public readonly array $terminals,
         /** @var list<string> */
         public readonly array $variantIds,
@@ -21,7 +21,18 @@ final class World
         public readonly array $taxRules,
         /** PricingEngine `service_charge` input, or null for none. */
         public readonly ?array $serviceCharge = null,
+        /** The cashier who signs in and rings up sales: ['id' => ..., 'pin' => ...] */
+        public readonly ?array $staff = null,
     ) {}
+
+    /** @param list<array{name:string,id:string,token:string}> $terminals */
+    public function withTerminals(array $terminals): self
+    {
+        $d = get_object_vars($this);
+        $d['terminals'] = $terminals;
+
+        return new self(...$d);
+    }
 
     public function terminal(string $name): array
     {

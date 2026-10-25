@@ -112,6 +112,34 @@ function orderMutation(object $w, int $clientSeq = 1, array $item = [], array $o
     ];
 }
 
+/** Make the next request with a real bearer token (forgets the guard's cached user first). */
+function asDevice(string $token): \Tests\TestCase
+{
+    app('auth')->forgetGuards();
+
+    return test()->withToken($token);
+}
+
+function staffMember(object $w, string $role = 'cashier', string $pin = '2222', string|false|null $outletId = false): App\Models\Staff
+{
+    asTenant($w->tenant->id);
+    $s = (new App\Models\Staff([
+        'name' => ucfirst($role).' '.Str::random(3), 'role' => $role,
+        'outlet_id' => $outletId === false ? $w->outlet->id : $outletId,
+    ]))->setPin($pin);
+    $s->save();
+
+    return $s;
+}
+
+/** Signs a staff member in on $w's terminal; returns the X-Staff-Session token. */
+function signIn(object $w, App\Models\Staff $staff, string $pin = '2222'): string
+{
+    actAsTerminal($w->terminal);
+
+    return test()->postJson('/api/v1/auth/login', ['staff_id' => $staff->id, 'pin' => $pin])->assertCreated()->json('session_token');
+}
+
 function push(array ...$mutations)
 {
     return test()->postJson('/api/v1/sync/push', ['mutations' => $mutations]);

@@ -48,6 +48,7 @@ class SimRun extends Command
         $pool = new ServerPool((int) $this->option('port'), (int) $this->option('servers'), [
             'DB_CONNECTION' => 'pgsql', 'DB_DATABASE' => self::DATABASE, 'APP_ENV' => 'local', 'APP_DEBUG' => 'false',
             'LOG_LEVEL' => 'warning',
+            'POS_PAIRING_PER_MINUTE' => '1000',   // every scenario pairs devices from 127.0.0.1
         ]);
         $this->info("Starting {$this->option('servers')} API servers from port {$this->option('port')} ...");
         $pool->start();

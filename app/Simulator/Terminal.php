@@ -28,7 +28,8 @@ final class Terminal
         private Chaos $chaos,
         private int $clockOffsetSeconds = 0,
     ) {
-        $this->staffId = $store->get('staff_id') ?? tap((string) Str::uuid7(), fn ($id) => $store->put('staff_id', $id));
+        // the cashier signed in by PIN when the device was paired (Scenarios::pairAll)
+        $this->staffId = $world->staff['id'] ?? $store->get('staff_id') ?? tap((string) Str::uuid7(), fn ($id) => $store->put('staff_id', $id));
     }
 
     public function now(): CarbonImmutable
