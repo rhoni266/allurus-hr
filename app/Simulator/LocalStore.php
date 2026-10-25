@@ -87,6 +87,26 @@ final class LocalStore
         SQL);
     }
 
+    /**
+     * Remote wipe: erase every row (sales, outbox, catalogue, cursor). The real app also
+     * deletes the SQLCipher key from the keystore, which makes the file unreadable.
+     */
+    public function wipe(): void
+    {
+        $tables = $this->db->query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")->fetchAll(PDO::FETCH_COLUMN);
+        $this->transaction(function (PDO $db) use ($tables) {
+            foreach ($tables as $t) {
+                $db->exec("DELETE FROM \"{$t}\"");
+            }
+        });
+        $this->db->exec('VACUUM');
+    }
+
+    public function isEmpty(): bool
+    {
+        return (int) $this->scalar('SELECT (SELECT COUNT(*) FROM orders) + (SELECT COUNT(*) FROM outbox) + (SELECT COUNT(*) FROM variants)') === 0;
+    }
+
     public function get(string $key, ?string $default = null): ?string
     {
         $st = $this->db->prepare('SELECT value FROM sync_state WHERE key = ?');

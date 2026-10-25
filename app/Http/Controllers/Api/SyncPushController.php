@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Models\OfflineSyncQueue;
+use App\Models\{OfflineSyncQueue, Terminal};
 use App\Sync\{DbErrors, DependencyMissing, MutationHandlerRegistry, MutationRejected};
 use Carbon\CarbonImmutable;
 use App\Tenancy\TenantContext;
@@ -35,6 +35,7 @@ class SyncPushController
             'mutations.*.type'              => ['required', 'string', 'max:64'],
             'mutations.*.payload'           => ['required', 'array'],
             'mutations.*.client_created_at' => ['required', 'date'],
+            'outbox_pending'                => ['nullable', 'integer', 'min:0'],   // shown in the device list
         ]);
 
         $terminal = $request->user();
@@ -44,7 +45,13 @@ class SyncPushController
             ->map(fn (array $m) => $this->processOne($terminal, $m))
             ->values();
 
-        $terminal->forceFill(['last_seen_at' => now()])->save();
+        // The device counts its outbox before sending, so this batch is included: subtract
+        // what just settled, leaving what is still unsynced on the device right now.
+        $pending = $terminal->outbox_pending;
+        if (isset($data['outbox_pending'])) {
+            $pending = max(0, $data['outbox_pending'] - $results->where('status', '!=', 'retry')->count());
+        }
+        $terminal->forceFill(['last_seen_at' => now(), 'outbox_pending' => $pending])->save();
 
         return response()->json(['results' => $results]);
     }
@@ -54,6 +61,14 @@ class SyncPushController
         // Idempotent replay: anything stored is final.
         if ($stored = $this->stored($terminal, $m)) {
             return $stored;
+        }
+
+        // A retiring device may sync its backlog, but nothing it did after the cutoff.
+        // Device clock: a tampered clock could backdate; that's why stolen devices are
+        // revoked (nothing accepted at all), not retired.
+        if ($terminal->status === Terminal::RETIRING
+            && CarbonImmutable::parse($m['client_created_at'])->gt($terminal->retire_requested_at)) {
+            return $this->reject($terminal, $m, 'device_retired', ['cutoff' => $terminal->retire_requested_at->toIso8601String()]);
         }
 
         try {

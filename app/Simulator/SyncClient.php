@@ -19,9 +19,9 @@ final class SyncClient
     ) {}
 
     /** @return list<array{id:string,client_seq:int,status:string,result:?array}> */
-    public function push(array $mutations): array
+    public function push(array $mutations, ?int $outboxPending = null): array
     {
-        $body = $this->send(fn ($http) => $http->post('/api/v1/sync/push', ['mutations' => $mutations]));
+        $body = $this->send(fn ($http) => $http->post('/api/v1/sync/push', ['mutations' => $mutations, 'outbox_pending' => $outboxPending]));
         $this->pushResponses++;
 
         return $body['results'];
@@ -30,6 +30,12 @@ final class SyncClient
     public function pull(int $cursor, int $limit = 500): array
     {
         return $this->send(fn ($http) => $http->get('/api/v1/sync/pull', ['cursor' => $cursor, 'limit' => $limit]));
+    }
+
+    /** devices/wipe-confirm or devices/retired; chaos-free, these are the last words. */
+    public function lifecycle(string $path): int
+    {
+        return Http::baseUrl($this->baseUrl)->withToken($this->token)->acceptJson()->post("/api/v1/{$path}")->status();
     }
 
     private function send(callable $call): array
@@ -53,6 +59,9 @@ final class SyncClient
             throw new TransportFailure('chaos: response dropped');
         }
 
+        if ($res->status() === 403 && in_array($res->json('error'), ['device_revoked', 'device_retiring'], true)) {
+            throw new DeviceRevoked($res->json('error'), (bool) $res->json('wipe'));
+        }
         if (! $res->successful()) {
             throw new TransportFailure("HTTP {$res->status()}: ".mb_substr($res->body(), 0, 300));
         }

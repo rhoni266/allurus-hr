@@ -17,7 +17,16 @@ class Terminal extends Authenticatable
     use HasApiTokens, HasUuids, PreciseTimestamps;
 
     protected $guarded = [];
-    protected $casts = ['last_seen_at' => 'immutable_datetime'];
+    protected $casts = [
+        'last_seen_at' => 'immutable_datetime', 'paired_at' => 'immutable_datetime',
+        'retire_requested_at' => 'immutable_datetime', 'revoked_at' => 'immutable_datetime',
+        'wipe_requested_at' => 'immutable_datetime', 'wipe_confirmed_at' => 'immutable_datetime',
+        'outbox_pending' => 'integer',
+    ];
+
+    public const ACTIVE = 'active';
+    public const RETIRING = 'retiring';
+    public const REVOKED = 'revoked';
 
     public function outlet(): BelongsTo
     {

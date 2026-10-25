@@ -32,7 +32,11 @@ Multi-tenant, offline-first, omnichannel POS for the Malaysian market (F&B, reta
 
 * Pairing: a one-time code (8 chars, 15 min, single use, stored as a hash) comes from `php artisan pos:pairing-code <tenant-slug> [outlet-id]` or from an owner/manager signed in on a paired terminal (`POST /api/v1/devices/pairing-codes`). The device redeems it at `POST /api/v1/devices/register` (public, rate-limited) for a Sanctum token with **only** `pos:terminal`. Re-pairing the same device revokes its old token and staff sessions.
 * Staff sign-in: `POST /api/v1/auth/login {staff_id, pin}` on a paired terminal returns a 12-hour session token, sent as `X-Staff-Session`. Sessions are bound to that terminal. Guarded routes use the `staff` / `staff:owner,manager` middleware, after `ResolveTenant`. PIN guessing is locked out after 5 failures per staff member per terminal and 15 per terminal, for 15 minutes.
-* Staff reach terminals through the sync feed (routed by `outlet_id`) **without** `pin_hash`. Never add the hash to the payload without a deliberate offline-login design.
+* Staff reach terminals through the sync feed (routed by `outlet_id`) **without** `pin_hash`. Never sync anything PIN-derived: the offline sign-in design is in `docs/offline-pin-signin.md` (proposal, awaiting decisions).
+* Taking a device out of service (`App\Devices\DeviceLifecycle`, `POST /api/v1/devices/{id}/unpair` by owner/manager, or `php artisan pos:unpair`):
+  * **retire** (replacing a device): it may still push mutations made *before* the cutoff for 72 h (later ones are rejected `device_retired`); everything else gets `403 device_retiring`. It becomes revoked when it calls `devices/retired` or the grace period ends.
+  * **revoke** (lost / stolen): everything gets `403 {"error":"device_revoked","wipe":bool}` at once. With `wipe` the device erases its data and calls `devices/wipe-confirm`; only then are its tokens deleted (a deleted token would leave it unable to learn it should wipe). Unsynced sales on a wiped device are lost — `GET /api/v1/devices` shows each device's `outbox_pending` as of its last push.
+  * `EnsureDeviceActive` runs on every device route after `ResolveTenant`. Re-pairing returns a device to `active`.
 
 ### Sync mutations
 
@@ -53,7 +57,7 @@ php spec/pricing/run.php              # pricing vectors, no framework needed
 php spec/time-billing/run.php         # time-billing vectors
 php artisan test                      # Pest suite (needs Postgres, see below)
 php artisan migrate:fresh --seed --seeder=DemoSeeder   # demo data (never in production)
-php artisan sim:run                   # 12 chaos scenarios against real API server processes
+php artisan sim:run                   # 14 chaos scenarios against real API server processes
 php artisan sim:run crash-mid-sync --orders=5000
 ./vendor/bin/pint                     # code style
 ```
@@ -81,12 +85,13 @@ app/Tenancy/                    TenantContext, TenantScope, BelongsToTenant
 app/Pricing/PriceResolver.php   server-side price lookup (outlet override > region > base)
 app/Sync/                       MutationHandler, MutationHandlerRegistry, Outcome, MutationRejected, DependencyMissing, DbErrors, StockLedger, Facts
 app/Sync/Handlers/              OrderCreate, OrderVoid, PaymentAdd, StockAdjust, SessionEnd
-app/Devices/                    PairingService (issue / redeem one-time codes)
-app/Http/Controllers/Api/       SyncPullController, SyncPushController, DeviceRegisterController, PairingCodeController, StaffAuthController
-app/Http/Middleware/            ResolveTenant (after auth:sanctum), RequireStaffSession (alias `staff`)
+app/Devices/                    PairingService (issue / redeem one-time codes), DeviceLifecycle (retire / revoke / wipe)
+app/Http/Controllers/Api/       SyncPull, SyncPush, DeviceRegister, PairingCode, DeviceAdmin, DeviceSelf, StaffAuth
+app/Http/Middleware/            ResolveTenant (after auth:sanctum), EnsureDeviceActive, RequireStaffSession (alias `staff`)
+docs/                           offline-pin-signin.md (proposal)
 config/pos.php                  pairing rate limit (POS_PAIRING_PER_MINUTE)
 app/Simulator/                  reference terminal: LocalStore (SQLite outbox), SyncClient, Chaos, Scenarios
-app/Console/Commands/           sim:run, sim:terminal, sim:churn, pos:pairing-code
+app/Console/Commands/           sim:run, sim:terminal, sim:churn, pos:pairing-code, pos:unpair
 tests/Feature                   Pest, RefreshDatabase
 tests/Integration               Pest, DatabaseTruncation (needs real top-level transactions)
 ```
@@ -118,7 +123,8 @@ Done (branch `allurus-pos` on rhoni266/allurus-hr):
 * Device pairing (CLI and manager-issued one-time codes) and staff PIN sign-in, with lockout and terminal-bound sessions; staff synced to terminals without PIN hashes
 * Simulator terminals pair over HTTP and ring up sales as a cashier who signed in by PIN
 * All five sync mutations (`order.create`, `order.void`, `payment.add`, `stock.adjust`, `session.end`), with `TimeBilling` spec v1 + 15 golden vectors; `order.create` now flags unknown staff
-* 146 Pest tests and all 12 simulator scenarios passing (new: void-storm, open-tabs, stock-adjust, snooker-sessions)
+* Device retire / revoke / remote wipe (API for owners and managers, CLI), with a device list showing status and unsynced backlog
+* 161 Pest tests and all 14 simulator scenarios passing (newest: lost-device, retire-device)
 
 Known gaps:
 
@@ -127,10 +133,10 @@ Known gaps:
 * Sessions are only synced when they end; a running session isn't visible to HQ or other terminals yet.
 * A void or payment waiting on another terminal's order gives up after 72 h of *device* time; a badly skewed clock shifts that deadline.
 
-* Offline PIN sign-in isn't designed yet. A 4-digit PIN hash on the device can be brute-forced offline, so decide the trade-off (e.g. a per-device verifier, a capped offline window, owner override) before syncing anything PIN-derived.
+* Offline PIN sign-in: proposal in `docs/offline-pin-signin.md` (recommended: per-device credential sealed by a hardware key, 6-digit manager PINs). Four decisions are open; nothing is built yet.
+* A retiring device's cutoff uses its *device* clock, so a tampered clock could backdate sales. That's why lost/stolen devices are revoked, never retired.
 * `order.create` doesn't yet check that `staff_id` is a real, active staff member of the tenant (it should flag a conflict, never reject a sale).
 * No HQ users yet: pairing codes come from the CLI or from an owner/manager on an already-paired terminal. The first device per tenant needs the CLI.
-* No unpair / remote-wipe endpoint yet (re-pairing revokes, but nothing revokes a lost device on its own).
 
 * The server doesn't recompute or check terminal pricing against `PricingEngine` yet (it should flag, never rewrite — rule 4). The payload doesn't yet carry the full engine input (line discounts, order discount, service-charge policy) needed to do that.
 * Modifiers aren't priced in the simulator yet (the engine supports them; the local catalogue doesn't map them to lines).
@@ -140,6 +146,6 @@ Known gaps:
 
 Next, in order:
 
-1. Device unpair / remote wipe, and the offline PIN sign-in decision.
+1. Decide the four questions in `docs/offline-pin-signin.md`, then build the server side of option C.
 2. `order.refund` (partial, by line) and server-side stocktake.
 3. Dart port of `PricingEngine` and `TimeBilling`, run against both vector files in CI.

@@ -322,9 +322,46 @@ final class Terminal
     // ---------------------------------------------------------------- sync
 
     /** Push until the outbox is drained, then pull to head. Gives up after $maxRounds failures. */
+    /** active | retiring | revoked | wiped, as last learned from the server */
+    public string $deviceState = 'active';
+
+    /**
+     * Push until the outbox is drained, then pull to head. Gives up after $maxRounds failures.
+     *
+     * If the server says this device was taken out of service, behave as the real app must:
+     *  - revoked with wipe: erase the local database, confirm the wipe, stop;
+     *  - revoked without wipe: stop;
+     *  - retiring: push is still allowed for the backlog; once the outbox is empty, tell
+     *    the server we're done (devices/retired) and stop.
+     */
     public function sync(int $maxRounds = 500): bool
     {
-        return $this->drain($maxRounds) && $this->pull($maxRounds);
+        try {
+            return $this->drain($maxRounds) && $this->pull($maxRounds);
+        } catch (DeviceRevoked $e) {
+            return $this->onRevoked($e);
+        }
+    }
+
+    private function onRevoked(DeviceRevoked $e): bool
+    {
+        if ($e->reason === 'device_retiring') {
+            $this->deviceState = 'retiring';
+            if ($this->pendingCount() === 0 && $this->client->lifecycle('devices/retired') === 200) {
+                $this->deviceState = 'revoked';
+            }
+            return false;
+        }
+
+        $this->deviceState = 'revoked';
+        if ($e->wipe) {
+            $this->store->wipe();
+            if ($this->client->lifecycle('devices/wipe-confirm') === 204) {
+                $this->deviceState = 'wiped';
+            }
+        }
+
+        return false;
     }
 
     public function pendingCount(): int
@@ -384,7 +421,7 @@ final class Terminal
         $results = $this->client->push(array_map(fn ($r) => [
             'id' => $r['id'], 'client_seq' => (int) $r['client_seq'], 'type' => $r['type'],
             'payload' => json_decode($r['payload'], true), 'client_created_at' => $r['created_at'],
-        ], $rows));
+        ], $rows), $this->pendingCount());
         $this->stats['pushed_batches']++;
 
         if ($this->chaos->crashAfterPushes !== null && $this->client->pushResponses >= $this->chaos->crashAfterPushes) {

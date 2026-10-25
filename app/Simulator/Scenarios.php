@@ -16,6 +16,7 @@ final class Scenarios
         'offline-day', 'flaky-network', 'crash-mid-sync', 'clock-skew',
         'stale-price', 'concurrent-terminals', 'duplicate-race', 'cursor-race',
         'void-storm', 'open-tabs', 'stock-adjust', 'snooker-sessions',
+        'lost-device', 'retire-device',
     ];
 
     public function __construct(
@@ -390,6 +391,86 @@ final class Scenarios
             ->check('server recomputed every session', $diverged === 3, "{$diverged} differ from TimeBilling (3 tampered)")
             ->expectConflicts('session_amount_mismatch', 3)
             ->salesLedger();
+    }
+
+    /**
+     * Revoke + wipe. T1 syncs 30 sales, then rings up 25 more offline and goes missing. A
+     * manager on T2 revokes it with a wipe. When T1 next connects it is refused, erases
+     * itself and confirms; its token then stops working. The 25 unsynced sales are lost:
+     * that's the documented price of a wipe. T2 carries on untouched.
+     */
+    private function lostDevice(string $name): Verifier
+    {
+        $world = $this->world($name, terminals: 2);
+        $t1 = $this->terminal($world, 'T1', server: 0);
+        $t2 = $this->terminal($world, 'T2', server: 1);
+        $t1->pull();
+        $t2->pull();
+        $t1->sell(30);
+        $t1->sync();
+        $t1->sell(25);   // never synced
+
+        $manager = $this->signIn($world, 'T2', 1, 'manager');
+        $t1Id = $world->terminal('T1')['id'];
+        $listed = collect($manager->get('/api/v1/devices')->json('devices'))->firstWhere('id', $t1Id);
+        $unpair = $manager->post("/api/v1/devices/{$t1Id}/unpair", ['mode' => 'revoke', 'wipe' => true, 'reason' => 'lost']);
+
+        $t1->sync();   // comes back online: refused, wipes, confirms
+        $afterWipe = Http::baseUrl($this->pool->url(0))->withToken($world->terminal('T1')['token'])->acceptJson()->get('/api/v1/sync/pull')->status();
+
+        $t2->sell(5);
+        $t2->sync();
+        $this->say("HQ saw T1 with {$listed['outbox_pending']} unsynced at last contact (it had 25 by the time it went missing); now {$t1->deviceState}");
+
+        return (new Verifier($world, ['T2' => $t2->store]))
+            ->check('manager revoked it with a wipe', $unpair->status() === 200 && $unpair->json('wipe_requested') === true, "HTTP {$unpair->status()}")
+            ->check('device list showed the backlog as of last contact', $listed['outbox_pending'] === 0, "{$listed['outbox_pending']} (the 25 came after)")
+            ->check('device erased itself and confirmed', $t1->deviceState === 'wiped' && $t1->store->isEmpty(), $t1->deviceState)
+            ->check('its token is dead after the wipe', $afterWipe === 401, "pull -> HTTP {$afterWipe}")
+            ->check('server kept only what had synced', ($n = DB::table('orders')->where('terminal_id', $t1Id)->count()) === 30, "{$n} of T1's orders (30 synced, 25 lost)")
+            ->check('wipe recorded', DB::table('terminals')->where('id', $t1Id)->whereNotNull('wipe_confirmed_at')->exists())
+            ->check('other terminal unaffected', $t2->deviceState === 'active' && $t2->pendingCount() === 0, $t2->deviceState);
+    }
+
+    /**
+     * Retire. T1 has 40 unsynced sales when a manager retires it (it's being replaced).
+     * It then rings up 5 more. On reconnect it may push the 40 (applied) but not the 5
+     * (rejected device_retired); pull is refused; it reports done and ends up revoked,
+     * without a wipe.
+     */
+    private function retireDevice(string $name): Verifier
+    {
+        $world = $this->world($name, terminals: 2);
+        $t1 = $this->terminal($world, 'T1', server: 0);
+        $t1->pull();
+        $t1->sell(40);
+
+        $t1Id = $world->terminal('T1')['id'];
+        $retire = $this->signIn($world, 'T2', 1, 'manager')->post("/api/v1/devices/{$t1Id}/unpair", ['mode' => 'retire', 'reason' => 'replaced']);
+        usleep(20_000);
+        $t1->sell(5);   // after the cutoff
+
+        $t1->sync();
+        $refused = (int) $t1->store->scalar("SELECT COUNT(*) FROM outbox WHERE status = 'rejected' AND json_extract(result, '$.error') = 'device_retired'");
+        $status = DB::table('terminals')->where('id', $t1Id)->value('status');
+        $this->say("backlog synced, {$refused} post-cutoff sales refused, device {$t1->deviceState}");
+
+        return (new Verifier($world, ['T1' => $t1->store]))
+            ->check('manager retired it', $retire->status() === 200 && $retire->json('status') === 'retiring', "HTTP {$retire->status()}")
+            ->check('post-cutoff sales refused', $refused === 5, "{$refused} of 5")
+            ->check('device reported done and is revoked, not wiped', $t1->deviceState === 'revoked' && $status === 'revoked' && ! $t1->store->isEmpty(), "{$t1->deviceState} / {$status}")
+            ->salesLedger(expectedRejected: 5);   // the 40 backlog sales arrive exactly once
+    }
+
+    /** A staff member signs in on one of the world's terminals; returns a ready HTTP client. */
+    private function signIn(World $world, string $terminal, int $server, string $role): \Illuminate\Http\Client\PendingRequest
+    {
+        $token = $world->terminal($terminal)['token'];
+        $session = Http::baseUrl($this->pool->url($server))->withToken($token)->acceptJson()
+            ->post('/api/v1/auth/login', ['staff_id' => $world->staff[$role]['id'], 'pin' => $world->staff[$role]['pin']])
+            ->throw()->json('session_token');
+
+        return Http::baseUrl($this->pool->url($server))->withToken($token)->withHeader('X-Staff-Session', $session)->acceptJson();
     }
 
     // ------------------------------------------------------------------ helpers

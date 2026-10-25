@@ -57,16 +57,28 @@ final class Verifier
         $rejected = 0;
 
         foreach ($this->stores as $store) {
+            // A sale the server rejected (e.g. rung up on a retired device after the cutoff)
+            // legitimately exists only on the device; leave it out of the expectations.
+            $refused = array_flip(array_column($store->all(
+                "SELECT json_extract(payload, '$.order.id') id FROM outbox WHERE type = 'order.create' AND status = 'rejected'"), 'id'));
+
             foreach ($store->all('SELECT id, total_sen, status FROM orders') as $o) {
+                if (isset($refused[$o['id']])) {
+                    continue;
+                }
                 $localOrders[$o['id']] = true;
                 $localStatus[$o['id']] = $o['status'];
                 $localTotal += (int) $o['total_sen'];
             }
             foreach ($store->all('SELECT order_id, variant_id, SUM(qty_milli) q FROM order_items GROUP BY order_id, variant_id') as $l) {
-                $lines[$l['order_id']][$l['variant_id']] = (int) $l['q'];
+                if (! isset($refused[$l['order_id']])) {
+                    $lines[$l['order_id']][$l['variant_id']] = (int) $l['q'];
+                }
             }
             foreach ($store->all('SELECT order_id, SUM(amount_sen) s FROM payments GROUP BY order_id') as $p) {
-                $localPayments[$p['order_id']] = ($localPayments[$p['order_id']] ?? 0) + (int) $p['s'];
+                if (! isset($refused[$p['order_id']])) {
+                    $localPayments[$p['order_id']] = ($localPayments[$p['order_id']] ?? 0) + (int) $p['s'];
+                }
             }
             foreach ($store->all('SELECT DISTINCT order_id FROM voids') as $v) {
                 $voided[$v['order_id']] = true;
@@ -77,7 +89,6 @@ final class Verifier
             }
             $sessions += (int) $store->scalar('SELECT COUNT(*) FROM sessions');
             $sessionSen += (int) $store->scalar('SELECT COALESCE(SUM(amount_sen), 0) FROM sessions');
-            $localQtyMilli += (int) $store->scalar('SELECT COALESCE(SUM(qty_milli), 0) FROM order_items');
             $outboxTotal += (int) $store->scalar('SELECT COUNT(*) FROM outbox');
             $stuck += (int) $store->scalar("SELECT COUNT(*) FROM outbox WHERE status IN ('pending','sent')");
             $rejected += (int) $store->scalar("SELECT COUNT(*) FROM outbox WHERE status = 'rejected'");
@@ -86,6 +97,7 @@ final class Verifier
             $this->check("local atomicity [{$store->path}]", $orphans === 0, "{$orphans} orders without outbox row");
         }
 
+        $localQtyMilli = array_sum(array_map('array_sum', $lines));
         $terminalIds = array_column($this->world->terminals, 'id');
         $serverIds = DB::table('orders')->whereIn('terminal_id', $terminalIds)->pluck('id')->all();
         $serverSet = array_fill_keys($serverIds, true);

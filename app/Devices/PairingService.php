@@ -71,7 +71,13 @@ final class PairingService
                     // Re-pairing (wiped tablet, moved outlet): the old credentials die here.
                     $terminal->tokens()->delete();
                     StaffSession::where('terminal_id', $terminal->id)->whereNull('revoked_at')->update(['revoked_at' => now()]);
-                    $terminal->forceFill(['outlet_id' => $row->outlet_id, 'name' => $name ?? $terminal->name, 'paired_at' => now()])->save();
+                    $terminal->forceFill([
+                        'outlet_id' => $row->outlet_id, 'name' => $name ?? $terminal->name, 'paired_at' => now(),
+                        // a retired / revoked / wiped device comes back as a fresh one
+                        'status' => Terminal::ACTIVE, 'retire_requested_at' => null, 'revoked_at' => null,
+                        'wipe_requested_at' => null, 'wipe_confirmed_at' => null, 'revoked_by_staff_id' => null,
+                        'revoke_reason' => null, 'outbox_pending' => null,
+                    ])->save();
                 } else {
                     $terminal = Terminal::create([
                         'tenant_id' => $row->tenant_id, 'outlet_id' => $row->outlet_id,
