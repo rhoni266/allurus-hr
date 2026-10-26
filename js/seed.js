@@ -839,7 +839,8 @@ window.AllurusSeed = {
   },
 
   // Super Admin data: every company subscribed to Allurus.
-  platform(demoSeats) {
+  // `first` replaces the first row (the demo company itself) for another demo company: { row: [...], admin }.
+  platform(demoSeats, first = null) {
     const r = U.rng(7);
     const T = U.today();
     const plans = [
@@ -863,10 +864,11 @@ window.AllurusSeed = {
       ['Harbor Hotels', 'Barcelona', 'Hospitality', 'Spain', 'growth', 121, 'Suspended', 390],
       ['Nimbus Analytics', 'Bengaluru', 'Technology', 'India', 'starter', 19, 'Active', 70],
     ];
+    if (first) rows[0] = first.row;
     const tenants = rows.map(([name, city, industry, country, plan, seats, status, ago], i) => {
       const slug = name.toLowerCase().replace(/[^a-z]+/g, '');
       const c = U.city(city);
-      return { id: 't' + (i + 1), name, city, lat: c.lat, lng: c.lng, industry, country, hasWorkspace: i === 0, plan, seats, status, joined: U.addDays(T, -ago), admin: i === 0 ? 'aisyah.rahman@serimaju.com.my' : 'hr@' + slug.slice(0, 12) + '.com', lastActive: U.addDays(T, -Math.floor(r() * (status === 'Suspended' ? 40 : 4))) };
+      return { id: 't' + (i + 1), name, city, lat: c.lat, lng: c.lng, industry, country, hasWorkspace: i === 0, plan, seats, status, joined: U.addDays(T, -ago), admin: i === 0 ? (first?.admin || 'aisyah.rahman@serimaju.com.my') : 'hr@' + slug.slice(0, 12) + '.com', lastActive: U.addDays(T, -Math.floor(r() * (status === 'Suspended' ? 40 : 4))) };
     });
     const price = (t) => plans.find((p) => p.id === t.plan).price * t.seats;
     const cur = U.monthKey(T);
@@ -890,3 +892,21 @@ window.AllurusSeed = {
     return { plans, tenants, invoices, mrr };
   },
 };
+
+// Demo companies, chosen with ?demo=<id> in the address (?demo alone opens Seri Maju). Each keeps its own copy in
+// the browser under its own storage key, so two companies never mix. Another company registers itself here from
+// its own file (js/seed-suria.js), so a new one needs no change to app.js.
+//   logins: the one-click buttons on the sign-in screen, [email, label, who and what].
+AllurusSeed.companies = {
+  serimaju: {
+    id: 'serimaju', name: 'Seri Maju Digital Sdn Bhd', short: 'Seri Maju Digital', blurb: 'Software and digital agency, Kuantan',
+    storeKey: 'allurus-hr-v9', published: AllurusSeed.published, create: () => AllurusSeed.create(),
+    logins: [
+      ['aisyah.rahman@serimaju.com.my', 'HR admin', 'Aisyah · people, payroll, leave'], ['grace.ng@serimaju.com.my', 'Finance', 'Grace · books and claims'],
+      ['nurul.aina@serimaju.com.my', 'Payroll', 'Nurul · payroll and records'], ['arjun.pillai@serimaju.com.my', 'Manager', 'Arjun · approves his team'],
+      ['daniel.lim@serimaju.com.my', 'Employee', 'Daniel · check in, leave, pay'], ['meiling@tanpartners.com.my', 'Auditor', 'Mei Ling · verifies the books'],
+    ],
+  },
+};
+AllurusSeed.company = (id) => AllurusSeed.companies[id] || AllurusSeed.companies.serimaju;
+

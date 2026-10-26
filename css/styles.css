@@ -1558,3 +1558,32 @@ kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; 
 /* Statutory & Claim Guide: on small screens the notes move under the item name instead of a clipped column. */
 .guide-note-sm { display: none; margin-top: 6px; font-size: 12.5px; white-space: normal; }
 @media (max-width: 720px) { .guide-note-sm { display: block; } }
+
+/* ---------- Operations (js/ops.js) ---------- */
+tr.ops-low td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
+.ops-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.ops-lines { display: grid; gap: 6px; }
+.ops-line { display: grid; grid-template-columns: minmax(0, 1fr) 90px 100px auto; gap: 6px; align-items: center; }
+.ops-stop { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.ops-stop:first-of-type { border-top: 0; }
+.ops-stop.done { opacity: .72; }
+.ops-seq { flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); font-weight: 700; font-size: 13px; }
+.ops-stop-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.ops-stop-foot { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.ops-home .btn { flex: 1 1 auto; }
+@media (max-width: 560px) {
+  .ops-line { grid-template-columns: minmax(0, 1fr) 70px 80px auto; }
+  .ops-grid { grid-template-columns: 1fr; }
+  .ops-stop-foot .btn { flex: 1 1 auto; min-height: 44px; }
+}
+.ops-today { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+.ops-card.warn { box-shadow: inset 0 3px 0 var(--gold); }
+.ops-card.bad { box-shadow: inset 0 3px 0 var(--bad); }
+.ops-big { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.ops-big .kpi-value { font-size: 30px; }
+.ops-aging { display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: var(--line); margin: 8px 0 10px; }
+@media (max-width: 560px) { .ops-today { grid-template-columns: 1fr; } }
+.ops-card .hr-list li > span:first-child { flex: 1; min-width: 0; }
+/* A choice of three or more long labels wraps on a phone instead of widening the page. */
+@media (max-width: 560px) { .field .seg, .card .seg:not(.rc-tabs) { flex-wrap: wrap; max-width: 100%; } }
+.ops-card .chips .tag { white-space: normal; max-width: 100%; height: auto; line-height: 1.4; padding-top: 3px; padding-bottom: 3px; }

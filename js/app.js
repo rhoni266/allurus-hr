@@ -2,12 +2,17 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.2';
+  const APP_VERSION = '3.4';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
   const CLOUD_ON = !!(window.ALLURUS_FIREBASE && window.ALLURUS_FIREBASE.apiKey) && !/[?&]demo(\b|=)/.test(location.search);
-  const STORE_KEY = CLOUD_ON ? 'allurus-hr-cloud-v1' : 'allurus-hr-v9';
+  // Demo mode can show more than one sample company: ?demo or ?demo=serimaju opens Seri Maju, ?demo=suria opens
+  // Suria Enterprise. Each has its own storage key (js/seed.js, AllurusSeed.companies).
+  const DEMO = AllurusSeed.company((/[?&]demo=([a-z0-9-]+)/i.exec(location.search)?.[1] || 'serimaju').toLowerCase());
+  const STORE_KEY = CLOUD_ON ? 'allurus-hr-cloud-v1' : DEMO.storeKey;
+  // A fresh copy of the sample data: the chosen demo company, or Seri Maju as the base for the cloud workspace.
+  const seedNew = () => (CLOUD_ON ? AllurusSeed.create() : DEMO.create());
   const esc = U.esc;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
@@ -17,7 +22,7 @@
   function load() {
     let s = null;
     try { const raw = localStorage.getItem(STORE_KEY); if (raw) s = JSON.parse(raw); } catch (e) { /* storage unavailable */ }
-    if (!s) { s = AllurusSeed.create(); carryOverZones(s); }
+    if (!s) { s = seedNew(); if (CLOUD_ON || DEMO.id === 'serimaju') carryOverZones(s); }
     [s.settings, ...Object.values(s.workspaces || {}).map((w) => w.settings)].forEach((st) => {
       if (!st.checkin) st.checkin = defaultZone(st.company);
       const c = st.checkin, city = U.city(st.office);
@@ -27,7 +32,7 @@
       if (U.hasCoords(c)) { c.lat = +c.lat; c.lng = +c.lng; }
       // Old builds seeded every browser with a placeholder point in Kuantan (3.769833, 103.224556) and no setAt,
       // so employees' phones measured check-ins from there. Replace it with the published point.
-      U.applyPublishedZone(st, AllurusSeed.published);
+      U.applyPublishedZone(st, CLOUD_ON ? AllurusSeed.published : DEMO.published);
     });
     [s, ...Object.values(s.workspaces || {})].forEach(migrateLeave);
     [s, ...Object.values(s.workspaces || {})].forEach(migrateTime);
@@ -367,6 +372,8 @@
     ],
     employee: [
       { id: 'home', label: 'Home', icon: 'dashboard', group: 'Me' },
+      { id: 'my-deliveries', label: 'My deliveries', icon: 'pin', group: 'Me' },
+      { id: 'my-machines', label: 'Machines', icon: 'sliders', group: 'Me' },
       { id: 'my-time', label: 'My attendance', icon: 'clock', group: 'Me' },
       { id: 'my-leave', label: 'My time off', icon: 'calendar', group: 'Me' },
       { id: 'my-approvals', label: 'Approvals', icon: 'check', group: 'Me' },
@@ -409,6 +416,7 @@
     claims: 'Claims',
     finance: 'Books, invoices, bills, budget, tax, audit',
     talent: 'Hiring, appraisals, training, grievances',
+    operations: 'Stock, purchasing, production, deliveries, machines',
     settings: 'Company settings and team access',
   };
   const ALL_AREAS = Object.keys(AREAS);
@@ -417,7 +425,11 @@
     hr: { label: 'HR admin', desc: 'People, time, payroll, claims, hiring and settings. Sees salaries.', perms: ['people', 'time', 'payroll', 'claims', 'talent', 'settings'] },
     payroll: { label: 'Payroll', desc: 'Staff records, attendance, payroll and claims', perms: ['people', 'time', 'payroll', 'claims'] },
     finance: { label: 'Finance', desc: 'The books and claims. No staff records or payroll detail.', perms: ['finance', 'claims'] },
+    // For a company that makes and delivers (a workspace with operations data); hidden elsewhere.
+    operations: { label: 'Operations', desc: 'Stock, purchasing, production, deliveries and machines', perms: ['operations'], ops: true },
+    manager: { label: 'Admin manager', desc: 'Runs the office and the floor: everything but hiring and appraisals', perms: ['people', 'time', 'payroll', 'claims', 'finance', 'operations', 'settings'], ops: true },
   };
+  const shownTemplates = () => Object.entries(TEMPLATES).filter(([, t]) => !t.ops || state.ops);
   const templateOf = (perms) => (!perms ? 'owner' : Object.keys(TEMPLATES).find((k) => TEMPLATES[k].perms.length === perms.length && TEMPLATES[k].perms.every((x) => perms.includes(x))) || 'custom');
   const ROUTE_AREA = {
     employees: 'people', departments: 'people', onboarding: 'people', assets: 'people', 'org-chart': 'people', rooms: 'people', announcements: 'people', 'hr-reports': 'people',
@@ -425,6 +437,7 @@
     payroll: 'payroll', claims: 'claims',
     finance: 'finance', books: 'finance', invoices: 'finance', bills: 'finance', contacts: 'finance', budget: 'finance', tax: 'finance', reports: 'finance', projects: 'payroll',
     recruitment: 'talent', performance: 'talent', training: 'talent', grievances: 'talent',
+    'ops-today': 'operations', 'ops-stock': 'operations', 'ops-production': 'operations', 'ops-sales': 'operations', 'ops-machines': 'operations',
   };
   const myPerms = () => { const a = account(); return a && Array.isArray(a.perms) ? a.perms : null; };
   // Whether the person may work in an area of the company console (only ever in Company Admin view).
@@ -433,7 +446,12 @@
   // "HR admin", "Finance", "Owner"… for the company console; the role's own name otherwise.
   const roleLabel = (r) => (r === 'admin' && myPerms() ? TEMPLATES[templateOf(myPerms())]?.label || 'Company Admin' : ROLES[r]?.label || r);
   ROLE_ROUTES.admin = [
+    { id: 'ops-today', label: 'Operations today', icon: 'chart', group: 'Overview' },
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', group: 'Overview' },
+    { id: 'ops-stock', label: 'Stock & purchasing', icon: 'box', group: 'Operations' },
+    { id: 'ops-production', label: 'Production', icon: 'layers', group: 'Operations' },
+    { id: 'ops-sales', label: 'Sales & delivery', icon: 'pin', group: 'Operations' },
+    { id: 'ops-machines', label: 'Machines', icon: 'sliders', group: 'Operations' },
     { id: 'employees', label: 'Employees', icon: 'people', group: 'Workforce' },
     { id: 'departments', label: 'Departments', icon: 'building', group: 'Workforce' },
     { id: 'onboarding', label: 'Onboarding', icon: 'userplus', group: 'Workforce' },
@@ -463,14 +481,15 @@
     { id: 'projects', label: 'Project costing', icon: 'layers', group: 'Insights' },
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
   ];
-  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()));
-  const route = () => { const h = location.hash.replace('#', ''); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
+  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)));
+  // A page may carry a query after "?" (#ops-stock?po=…); it is the page's to read.
+  const route = () => { const h = location.hash.replace('#', '').split('?')[0]; const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
   function renderNav() {
     let html = '', group = '';
     const rs = routes(), pinned = AllurusUX.pins().map((id) => rs.find((r) => r.id === id)).filter(Boolean);
     const navItem = (r) => {
-      const count = r.id === 'my-approvals' ? leaveApi.myCount(me().id) + timeApi.myCount(me().id) + claimsApi.myCount(me().id) + (recruitApi?.taskCount(me().id) || 0) : r.id === 'training' ? lmsApi?.pendingCount() || 0 : r.id === 'my-training' ? lmsApi?.todoCount(me().id) || 0 : r.id === 'grievances' ? grievApi?.badge() || 0 : r.id === 'recruitment' ? recruitApi?.badge() || 0 : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'employees' ? hrApi?.pendingCount() || 0 : r.id === 'onboarding' ? hrApi?.overdueCount() || 0 : r.id === 'performance' || r.id === 'my-appraisal' ? appraisalApi?.badge(r.id) || 0 : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || 0);
+      const count = r.id === 'my-approvals' ? leaveApi.myCount(me().id) + timeApi.myCount(me().id) + claimsApi.myCount(me().id) + (recruitApi?.taskCount(me().id) || 0) : r.id === 'training' ? lmsApi?.pendingCount() || 0 : r.id === 'my-training' ? lmsApi?.todoCount(me().id) || 0 : r.id === 'grievances' ? grievApi?.badge() || 0 : r.id === 'recruitment' ? recruitApi?.badge() || 0 : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'employees' ? hrApi?.pendingCount() || 0 : r.id === 'onboarding' ? hrApi?.overdueCount() || 0 : r.id === 'performance' || r.id === 'my-appraisal' ? appraisalApi?.badge(r.id) || 0 : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || opsApi?.badge(r.id) || 0);
       const on = AllurusUX.pins().includes(r.id), cur = route() === r.id;
       return `<div class="nav-item"><a href="#${r.id}" class="${cur ? 'active' : ''}" ${cur ? 'aria-current="page"' : ''}>${icon(r.icon)}<span>${r.label}</span>${count ? `<span class="count" aria-label="${count} waiting">${count}</span>` : ''}</a><button type="button" class="nav-pin ${on ? 'on' : ''}" data-act="ux-pin" data-id="${r.id}" aria-pressed="${on}" aria-label="${on ? 'Unpin' : 'Pin'} ${esc(r.label)}" title="${on ? 'Unpin' : 'Pin to top'}">${icon(on ? 'starFill' : 'star')}</button></div>`;
     };
@@ -512,6 +531,13 @@
     $('#login').hidden = signedIn;
     $('.app').hidden = !signedIn;
     if (!signedIn) { $('#login').innerHTML = loginView(); bindLogin(); return; }
+    // A link to an Operations page of the person's other view (a notification opened in the employee app)
+    // switches to that view.
+    const want = location.hash.slice(1).split('?')[0];
+    if (/^ops-/.test(want) && !routes().some((x) => x.id === want)) {
+      const was = state.session.role, other = state.session.roles.find((x) => x !== was && (ROLE_ROUTES[x] || []).some((rr) => rr.id === want));
+      if (other) { state.session.role = other; if (routes().some((x) => x.id === want)) save(); else state.session.role = was; }
+    }
     const r = route();
     AllurusUX.beforeRender(r);
     renderNav();
@@ -534,7 +560,7 @@
   const VIEWS = {};
   const AFTER = {};
   const ACTIONS_EXTRA = {};
-  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null, appraisalApi = null, hrApi = null, costingApi = null, einvApi = null, recruitApi = null, lmsApi = null, grievApi = null, roomsApi = null;
+  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null, appraisalApi = null, hrApi = null, costingApi = null, einvApi = null, recruitApi = null, lmsApi = null, grievApi = null, roomsApi = null, opsApi = null;
   let clockTimer = null;
 
   // ---------- Automated insights (what needs attention, trends and wellbeing nudges) ----------
@@ -612,7 +638,7 @@
     if (hrApi) out.push(...hrApi.insights());
     if (costingApi) out.push(...costingApi.insights());
     if (einvApi) out.push(...einvApi.insights());
-    [recruitApi, lmsApi, grievApi, roomsApi].forEach((a) => { if (a) out.push(...a.insights()); });
+    [recruitApi, lmsApi, grievApi, roomsApi, opsApi].forEach((a) => { if (a) out.push(...a.insights()); });
     return out.sort((a, b) => b.prio - a.prio);
   }
   const actionLink = (a, cls = 'btn btn-sm') => a.href ? `<a class="${cls}" href="${a.href}">${esc(a.label)}</a>` : `<button type="button" class="${cls}" data-act="${a.act}" ${a.id ? `data-id="${a.id}"` : ''} ${a.v ? `data-v="${a.v}"` : ''}>${esc(a.label)}</button>`;
@@ -814,7 +840,7 @@
       <div class="field"><label for="f-dept">Department</label><select class="select" id="f-dept" name="dept">${opt(state.departments.map((d) => [d.id, d.name]), e.dept)}</select></div>
       <div class="field"><label for="f-manager">Reports to</label><select class="select" id="f-manager" name="manager"><option value="">No manager</option>${opt(state.employees.filter((x) => x.id !== e.id).map((x) => [x.id, fullName(x)]), e.manager)}</select></div>
       <div class="field"><label for="f-pattern">Working pattern</label><select class="select" id="f-pattern" name="timePattern">${opt([['', 'Department’s pattern'], ...state.settings.time.patterns.map((p) => [p.id, `${p.name} (${AllurusTimeRules.shiftLabel(p)})`])], e.timePattern || '')}</select><span class="field-hint">The Schedule can change single days.</span></div>
-      <div class="field"><label for="f-type">Employment type</label><select class="select" id="f-type" name="type">${opt(['Full-time', 'Part-time', 'Contract', 'Intern'], e.type || 'Full-time')}</select></div>
+      <div class="field"><label for="f-type">Employment type</label><select class="select" id="f-type" name="type">${opt(['Full-time', 'Part-time', 'Contract', 'Intern', 'Owner'], e.type || 'Full-time')}</select></div>
       <div class="field"><label for="f-location">Location</label><input class="input" id="f-location" name="location" value="${esc(e.location)}"></div>
       <div class="field"><label for="f-salary">Annual salary (${esc(state.settings.currency)})</label><input class="input" id="f-salary" name="salary" type="number" min="0" step="500" required value="${esc(e.salary)}"></div>
       <div class="field"><label for="f-start">Start date</label><input class="input" id="f-start" name="start" type="date" required value="${esc(e.start || U.today())}"></div>
@@ -1305,7 +1331,7 @@
       ${CLOUD ? '<div class="card" id="team-access"><div class="card-head"><h3>Team access</h3><span class="hint">Loading…</span></div></div>' : ''}
       ${accountCard()}
       ${CLOUD ? '' : `<div class="card"><div class="card-head"><h3>Data</h3></div>
-        <div class="settings-row"><div><div class="label">Reset demo workspace</div><div class="desc">Data is stored in this browser only. Resetting replaces everything with the sample company.</div></div><button class="btn btn-danger" data-act="ask-reset">Reset data</button></div>
+        <div class="settings-row"><div><div class="label">Reset demo workspace</div><div class="desc">Data is stored in this browser only. Resetting puts ${esc(state.settings.company)} back to its sample data; other demo companies are not touched.</div></div><button class="btn btn-danger" data-act="ask-reset">Reset data</button></div>
         <div id="reset-confirm"></div>
       </div>`}`;
   };
@@ -1344,8 +1370,8 @@
         <button class="btn btn-primary login-submit" type="submit">Sign in</button>
         ${CLOUD ? '<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px"><button type="button" class="link-btn" data-act="cloud-reset">Forgot password?</button><button type="button" class="link-btn" data-act="cloud-activate">First time here? Set up your account</button></div>' : ''}
       </form>
-      ${CLOUD ? '' : `<div class="card demo-pick" style="width:100%;max-width:440px;margin:0 auto 16px;padding:18px 20px"><div style="font-weight:600;margin-bottom:4px">Explore the demo company</div><p class="muted" style="font-size:13.5px;margin-bottom:12px">${esc(state.settings.company)}, a sample business. Changes stay in this browser.</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${[['aisyah.rahman@serimaju.com.my', 'HR admin', 'Aisyah · people, payroll, leave'], ['grace.ng@serimaju.com.my', 'Finance', 'Grace · books and claims'], ['nurul.aina@serimaju.com.my', 'Payroll', 'Nurul · payroll and records'], ['arjun.pillai@serimaju.com.my', 'Manager', 'Arjun · approves his team'], ['daniel.lim@serimaju.com.my', 'Employee', 'Daniel · check in, leave, pay'], ['meiling@tanpartners.com.my', 'Auditor', 'Mei Ling · verifies the books']].filter(([e]) => state.accounts.some((a) => a.email === e)).map(([e, label, sub]) => `<button type="button" class="btn" style="flex-direction:column;align-items:flex-start;height:auto;padding:10px 12px;text-align:left" data-act="demo-as" data-v="${e}"><span style="font-weight:600">${label}</span><span class="muted" style="font-size:12px;font-weight:400">${sub}</span></button>`).join('')}</div></div>`}
+      ${CLOUD ? '' : `<div class="card demo-pick" style="width:100%;max-width:440px;margin:0 auto 16px;padding:18px 20px"><div style="font-weight:600;margin-bottom:4px">Explore the demo company</div>${Object.keys(AllurusSeed.companies).length > 1 ? `<div class="seg demo-co" role="group" aria-label="Demo company" style="margin:4px 0 8px;width:100%">${Object.values(AllurusSeed.companies).map((c) => `<button type="button" data-act="demo-company" data-v="${c.id}" class="${c.id === DEMO.id ? 'on' : ''}" aria-pressed="${c.id === DEMO.id}" style="flex:1">${esc(c.short)}</button>`).join('')}</div>` : ''}<p class="muted" style="font-size:13.5px;margin-bottom:12px">${esc(state.settings.company)}${DEMO.blurb ? ` · ${esc(DEMO.blurb)}` : ''}. A sample business; changes stay in this browser.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${DEMO.logins.filter(([e]) => state.accounts.some((a) => a.email === e)).map(([e, label, sub]) => `<button type="button" class="btn" style="flex-direction:column;align-items:flex-start;height:auto;padding:10px 12px;text-align:left" data-act="demo-as" data-v="${e}"><span style="font-weight:600">${label}</span><span class="muted" style="font-size:12px;font-weight:400">${sub}</span></button>`).join('')}</div></div>`}
       <div class="register-cta"><div><strong>New to Allurus?</strong><span class="muted"> Register your company and start a free trial.</span></div><button class="btn btn-primary" data-act="register">${icon('plus')}Register company</button></div>
       <p class="faint" style="font-size:12.5px">${CLOUD ? 'Your company’s data is kept securely in the cloud and shared live with your team. <a href="?demo">Try the demo company instead</a>.' : CAN_CLOUD ? `Demo company, saved in this browser only. <a href="${location.pathname}">Sign in to your real workspace</a>.` : `Demo mode. Your workspace is saved in this browser${cloud.db ? '; company sign-ups and check-ins are also shared with the Allurus team' : ''}.`} Version ${APP_VERSION}</p>
     </div>`;
@@ -1391,7 +1417,7 @@
     save();
     // Pick up where this person left off last time.
     const last = AllurusUX.prefs().lastRoute?.[state.session.role];
-    const target = last && routes().some((r) => r.id === last) ? last : '';
+    const target = last && routes().some((r) => r.id === last) ? last : opsApi?.landing(state.session.role) || '';
     if (location.hash.slice(1) !== target) location.hash = target; else render();
     window.scrollTo(0, 0);
     toast(target && target !== routes()[0].id ? `Welcome back. You’re where you left off.` : `Signed in as ${acct.email}`);
@@ -1604,10 +1630,11 @@
       { id: 'today', title: 'Today', span: 12, fixed: true, render: () => hero({
         title: birthday ? `Happy birthday, ${esc(e.first)}!` : greeting(e.first),
         sub: `${esc(e.role)} · ${esc(dept(e.dept)?.name || '')}. ${birthday ? 'Everyone at ' + esc(state.settings.company) + ' wishes you a great day.' : dayNote()}`,
-        actions: `<button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button>`,
+        actions: `<button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button>${opsApi?.heroAction() || ''}`,
         side: `<div class="clock-box"><div class="kpi-label">${icon('clock')}Time clock</div><div class="kpi-value clock-time" id="live-clock">${nowHM()}</div>${clock}<div class="kpi-foot">${U.isWeekend(T) ? 'It’s the weekend. Check-ins still count. ' : ''}${isField(me()) ? 'Field staff: check in from anywhere, with a selfie.' : `Within ${zone().radius} m of ${esc(zone().label)}, with a selfie.`}${phoneStatus(me()) ? ` ${phoneStatus(me())}` : ''}${timeApi.todayShift(e) ? `<div class="clock-shift">${esc(timeApi.todayShift(e))}</div>` : ''}${kioskApi.syncBanner(e.id)}${kioskApi.isSupervisor(e) ? `<button class="btn btn-sm" data-act="sv-open" style="margin-top:10px">${icon('people')}Check in a team member</button>` : ''}</div></div>`,
         focus: focus.filter((f) => f.action.act !== 'check-in'), calm: 'Nothing needs you right now. Have a good day.' }) },
       { id: 'setup', title: 'Getting started', span: 12, fixed: true, render: () => AllurusUX.setupCard() },
+      ...(opsApi?.homeCard() ? [{ id: 'ops', title: 'Work', span: 12, fixed: true, render: () => opsApi.homeCard() }] : []),
       { id: 'kpis', title: 'My numbers', span: 12, render: () => `<div class="grid g-4 keep-2">
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Annual leave left</div><div class="kpi-value">${aLeft}</div><div class="progress"><i style="width:${aTot ? Math.min(100, (aLeft / aTot) * 100) : 0}%"></i></div><div class="kpi-foot">of ${aTot} days${lvA.pending ? ` · ${lvA.pending} pending` : ''}</div></div>
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>Sick leave left</div><div class="kpi-value">${sLeft}</div><div class="progress"><i style="width:${sTot ? Math.min(100, (sLeft / sTot) * 100) : 0}%;background:var(--gold)"></i></div><div class="kpi-foot">of ${sTot} days</div></div>
@@ -1723,7 +1750,7 @@
   };
 
   // ---------- Workspaces (one per company) ----------
-  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects', 'notifications', 'outbox', 'announcements', 'notifyKeys', 'reminderRun', 'cycles', 'goals', 'payChanges', 'editRequests', 'checklists', 'assets', 'loans', 'insurance', 'documents', 'costing', 'savedReports', 'requisitions', 'courses', 'enrolments', 'trainingRequests', 'grievances', 'rooms', 'bookings'];
+  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects', 'notifications', 'outbox', 'announcements', 'notifyKeys', 'reminderRun', 'cycles', 'goals', 'payChanges', 'editRequests', 'checklists', 'assets', 'loans', 'insurance', 'documents', 'costing', 'savedReports', 'requisitions', 'courses', 'enrolments', 'trainingRequests', 'grievances', 'rooms', 'bookings', 'ops'];
   function switchWorkspace(tid) {
     if (tid === state.session.tenantId) return;
     const cur = {}; WS_KEYS.forEach((k) => { cur[k] = state[k]; });
@@ -2457,7 +2484,8 @@
     'pay-shift': (_, v) => { ui.payMonth = U.addMonths(ui.payMonth, Number(v)); render(); },
     'pay-run': () => {
       const mk = ui.payMonth;
-      const items = activeEmployees().filter((e) => e.start <= U.monthEnd(mk)).map((e) => payItem(e, appraisalApi ? appraisalApi.bonusFor(e.id, mk) : 0, mk));
+      // The owner of a sole proprietorship or partnership draws profits, not a salary, so isn't on the pay run.
+      const items = activeEmployees().filter((e) => e.start <= U.monthEnd(mk) && e.type !== 'Owner').map((e) => payItem(e, appraisalApi ? appraisalApi.bonusFor(e.id, mk) : 0, mk));
       if (!items.length) { toast('No employees were active that month'); return; }
       state.payroll[mk] = { status: 'Draft', items };
       commit('Draft created', `Payroll draft created for ${U.fmtMonth(mk)}`);
@@ -2500,9 +2528,11 @@
       openEmployeeModal(null, { first, last: rest.join(' '), email: `${first}.${rest.join('')}`.toLowerCase().replace(/[^a-z.]/g, '') + '@' + state.settings.domain, role: j?.title || '', dept: j?.dept, location: j?.location || '', start: U.addDays(U.today(), 14) }, () => { c.converted = true; });
     },
     'theme': (_, v) => ACTIONS['ux-pref']('theme', v),
-    'ask-reset': () => { $('#reset-confirm').innerHTML = `<div class="confirm-bar"><span style="flex:1">Replace all data with the sample company?</span><button class="btn btn-sm" data-act="cancel-reset">Cancel</button><button class="btn btn-sm btn-danger" data-act="do-reset">Reset</button></div>`; },
+    'ask-reset': () => { $('#reset-confirm').innerHTML = `<div class="confirm-bar"><span style="flex:1">Put ${esc(state.settings.company)} back to its sample data?</span><button class="btn btn-sm" data-act="cancel-reset">Cancel</button><button class="btn btn-sm btn-danger" data-act="do-reset">Reset</button></div>`; },
     'cancel-reset': () => { $('#reset-confirm').innerHTML = ''; },
-    'do-reset': () => { state = AllurusSeed.create(); commit('Workspace reset'); },
+    'do-reset': () => { state = seedNew(); commit('Workspace reset'); },
+    // Switch demo company: each one lives under its own address and storage key.
+    'demo-company': (_, id) => { if (CLOUD || id === DEMO.id) return; location.href = `${location.pathname}?demo${id === 'serimaju' ? '' : `=${id}`}`; },
     'menu': () => $('#sidebar').classList.toggle('open'),
     ...ACTIONS_EXTRA,
   };
@@ -2535,7 +2565,7 @@
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
     downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
     save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
-    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, get einvoice() { return einvApi; }, get lms() { return lmsApi; }, get recruit() { return recruitApi; }, get ui() { return ui; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
+    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, get einvoice() { return einvApi; }, get lms() { return lmsApi; }, get recruit() { return recruitApi; }, get ops() { return opsApi; }, get ui() { return ui; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
   };
   AllurusUX.install(moduleCtx);
   finApi = AllurusFinance.install(moduleCtx);
@@ -2556,6 +2586,7 @@
   lmsApi = AllurusLMS.install(moduleCtx);
   grievApi = AllurusGrievance.install(moduleCtx);
   roomsApi = AllurusRooms.install(moduleCtx);
+  opsApi = AllurusOps.install(moduleCtx);
   kioskApi = AllurusKiosk.install(moduleCtx, { write: writeCheckin, zone, deviceId, deviceName, squareCanvas, nowHM, isField, selfieThumb, cloudWrite: (p, d) => cloudWrite(p, d), cloudOn: () => !!cloud.db });
   // Approvers see their team's claims under Approvals, after leave and attendance requests.
   const approvalsBase = VIEWS['my-approvals'];
@@ -2590,14 +2621,14 @@
       const waiting = people.filter((e) => e.email && this.status(e).key === 'none').length;
       el.innerHTML = `<div class="card-head"><h3>Team access</h3>${waiting ? `<button class="btn btn-sm" data-act="acc-invite-all">Invite all ${waiting}</button>` : ''}</div>
         <p class="muted" style="margin-bottom:12px">Invite people by their work email. They open Allurus, choose <b>First time here? Set up your account</b>, confirm their email and sign in. Everyone gets the employee app; a role adds parts of the company console. Managers need no role: being an approver in the leave settings is enough.</p>
-        <div class="chips" style="margin-bottom:12px;flex-wrap:wrap">${Object.entries(TEMPLATES).map(([, t]) => `<span class="tag" title="${esc(t.desc)}"><b>${esc(t.label)}</b>: ${esc(t.desc)}</span>`).join('')}</div>
+        <div class="chips" style="margin-bottom:12px;flex-wrap:wrap">${shownTemplates().map(([, t]) => `<span class="tag" title="${esc(t.desc)}"><b>${esc(t.label)}</b>: ${esc(t.desc)}</span>`).join('')}</div>
         <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
       $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value)));
     },
     // The templates this person may give: only ones within their own areas; Owner only by an Owner.
     options(current) {
       const mine = myPerms(), ok = (k) => k === 'employee' || (k === 'owner' ? !mine : !mine || TEMPLATES[k].perms.every((a) => mine.includes(a)));
-      const list = [['employee', 'Employee'], ...Object.entries(TEMPLATES).map(([k, t]) => [k, t.label])];
+      const list = [['employee', 'Employee'], ...shownTemplates().map(([k, t]) => [k, t.label])];
       if (current === 'custom') list.push(['custom', 'Custom']);
       return list.map(([k, label]) => `<option value="${k}" ${k === current ? 'selected' : ''} ${ok(k) || k === current ? '' : 'disabled'}>${label}</option>`).join('');
     },

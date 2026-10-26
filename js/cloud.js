@@ -64,7 +64,7 @@ function localDocs(onBlob) {
   const st = app.state, out = new Map(), p = S.profile;
   const put = (path, fields, meta) => out.set(path, { fields, meta });
   const buckets = M.bucketsOf(st, app.WS_KEYS, onBlob);
-  Object.entries(buckets).forEach(([id, b]) => { if (M.canWrite(id, S.admin, S.perms)) put(`${T()}/buckets/${id}`, b.f, { t: b.t, r: b.r }); });
+  Object.entries(buckets).forEach(([id, b]) => { if (M.canWrite(id, S.admin, S.perms, p.empId)) put(`${T()}/buckets/${id}`, b.f, { t: b.t, r: b.r }); });
   if (seePay()) {
     const payFields = {}; Object.keys(st.payroll || {}).forEach((m) => { payFields[m] = M.enc(st.payroll[m], onBlob); });
     put(`${T()}/buckets/payroll`, payFields, { t: 'o', r: M.readClass('payroll') });
@@ -135,7 +135,9 @@ function listen(ready) {
   const p = S.profile, t = T();
   // Only what this person may read: the rules refuse a query that could return anything else.
   const sources = [
-    query(collection(db, `${t}/buckets`), where('r', 'in', M.readable(S.admin, S.perms))),
+    query(collection(db, `${t}/buckets`), where('r', 'in', M.readable(S.admin, S.perms, p.empId))),
+    // Admins with the operations area also read every driver's deliveries (read class 'd:<empId>').
+    ...(can('operations') ? [query(collection(db, `${t}/buckets`), where('r', '>=', 'd:'), where('r', '<', 'd;'))] : []),
     seePeople() ? collection(db, `${t}/people`) : doc(db, `${t}/people/${p.empId}`),
     seePay() ? collection(db, `${t}/payslips`) : doc(db, `${t}/payslips/${p.empId}`),
     doc(db, `${t}/personal/${p.empId}`),

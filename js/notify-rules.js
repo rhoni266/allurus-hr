@@ -14,7 +14,7 @@ window.AllurusNotifyRules = (function () {
   // Categories people can set a channel for.
   const CATEGORIES = {
     requests: 'Requests and approvals', pay: 'Payroll and payslips', announcements: 'Announcements and policies',
-    schedule: 'Roster changes', attendance: 'Flagged check-ins', appraisals: 'Appraisals and feedback', talent: 'Hiring, training, concerns and rooms', reminders: 'Reminders',
+    schedule: 'Roster changes', attendance: 'Flagged check-ins', appraisals: 'Appraisals and feedback', talent: 'Hiring, training, concerns and rooms', operations: 'Stock, deliveries and machines', reminders: 'Reminders',
   };
   const CHANNELS = { both: 'In the app and by email', inapp: 'In the app only', email: 'By email only', off: 'Off' };
   const defaultPrefs = () => Object.fromEntries(Object.keys(CATEGORIES).map((k) => [k, k === 'reminders' ? 'inapp' : 'both']));
@@ -49,6 +49,12 @@ window.AllurusNotifyRules = (function () {
     'grievance.raised': { cat: 'talent', icon: 'shield', text: (d) => [`New concern: ${d.subject}`, `${d.priority} priority. Acknowledge it by ${fmt(d.ackDue)}.`] },
     'grievance.update': { cat: 'talent', icon: 'shield', text: (d) => [`Your concern is now ${d.status}`, d.note ? `“${d.note}”` : `${d.subject}`] },
     'booking.cancelled': { cat: 'talent', icon: 'calendar', text: (d) => [`Your booking of ${d.room} was cancelled`, `${fmt(d.date)} ${d.time}${d.note ? `: ${d.note}` : '.'}`] },
+    'ops.breakdown': { cat: 'operations', icon: 'sliders', text: (d) => [`${d.machine} is down`, d.problem ? `${d.who} reported: ${d.problem}` : `Reported by ${d.who}.`] },
+    'ops.fixed': { cat: 'operations', icon: 'check', text: (d) => [`${d.machine} is running again`, `Fixed by ${d.who}${d.hours ? ` after ${d.hours} hours` : ''}.`] },
+    'ops.incoming': { cat: 'operations', icon: 'box', text: (d) => [`Coming in: ${d.no || 'a purchase order'}${d.expected ? `, ${d.expected}` : ''}`, `${d.vendor || 'The vendor'}${d.items ? `: ${d.items}` : ''}. Get the store ready.`] },
+    'ops.po': { cat: 'operations', icon: 'box', text: (d) => [`Purchase order ${d.no} needs approval`, `${d.vendor}, ${d.total}. Raised by ${d.who}.`] },
+    'ops.delivery': { cat: 'operations', icon: 'pin', text: (d) => [`${d.count} deliver${d.count === 1 ? 'y' : 'ies'} for you ${d.when || 'today'}`, d.route || 'Open My deliveries for the route.'] },
+    'ops.qc': { cat: 'operations', icon: 'shield', text: (d) => [`Batch ${d.no} is on QC hold`, d.note || 'Keep it off sale until QC releases it.'] },
     'task.assigned': { cat: 'reminders', icon: 'userplus', text: (d) => [`${d.count} ${d.kind} task${d.count === 1 ? '' : 's'} for ${d.self ? 'you' : d.who}`, `First: ${d.first}, due ${fmt(d.date)}.`] },
     'task.overdue': { cat: 'reminders', icon: 'userplus', text: (d) => [`${d.count} onboarding or offboarding task${d.count === 1 ? ' is' : 's are'} overdue`, `${d.first} (${d.who})${d.count > 1 ? ' and more' : ''}.`] },
     'reminder.document': { cat: 'reminders', icon: 'doc', text: (d) => [`${d.self ? 'Your ' : ''}${d.title}${d.who && !d.self ? ` for ${d.who}` : ''} ${d.left < 0 ? 'has expired' : 'expires ' + inDays(d.left)}`, `Expiry ${fmt(d.date)}. Renew it or upload the new one.`] },

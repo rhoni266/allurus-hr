@@ -123,7 +123,7 @@ window.U = (function () {
     ['Karachi', 'Pakistan', 24.861, 67.010, 'Asia/Karachi'], ['Lahore', 'Pakistan', 31.520, 74.358], ['Islamabad', 'Pakistan', 33.684, 73.048],
     ['Mumbai', 'India', 19.076, 72.878, 'Asia/Kolkata'], ['Bengaluru', 'India', 12.972, 77.595], ['Delhi', 'India', 28.614, 77.209],
     ['Dhaka', 'Bangladesh', 23.810, 90.413, 'Asia/Dhaka'], ['Singapore', 'Singapore', 1.352, 103.820, 'Asia/Singapore'],
-    ['Kuala Lumpur', 'Malaysia', 3.139, 101.687, 'Asia/Kuala_Lumpur'], ['Kuantan', 'Malaysia', 3.808, 103.326], ['Jakarta', 'Indonesia', -6.208, 106.846, 'Asia/Jakarta'],
+    ['Kuala Lumpur', 'Malaysia', 3.139, 101.687, 'Asia/Kuala_Lumpur'], ['Kuantan', 'Malaysia', 3.808, 103.326], ['Muar', 'Malaysia', 2.044, 102.569], ['Jakarta', 'Indonesia', -6.208, 106.846, 'Asia/Jakarta'],
     ['Manila', 'Philippines', 14.600, 120.984, 'Asia/Manila'], ['Hong Kong', 'Hong Kong', 22.320, 114.169, 'Asia/Hong_Kong'],
     ['Shanghai', 'China', 31.230, 121.474, 'Asia/Shanghai'], ['Tokyo', 'Japan', 35.676, 139.650, 'Asia/Tokyo'],
     ['Seoul', 'South Korea', 37.567, 126.978, 'Asia/Seoul'], ['Sydney', 'Australia', -33.869, 151.209, 'Australia/Sydney'],

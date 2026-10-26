@@ -12,6 +12,10 @@ People operations SaaS for growing companies: a minimal, Apple-style HRMS with t
 
 Open the app with `?demo` (for example `https://rhoni266.github.io/allurus-hr/?demo`) to show **Seri Maju Digital Sdn Bhd**, a sample Kuantan software and digital agency with 19 staff, Malaysian payroll, a Terengganu leave calendar, clients, bills and an external auditor. The sign-in screen has one-click buttons to explore it as the HR admin (Aisyah Rahman), a manager (Arjun Pillai), an employee (Daniel Lim) or the auditor, with no password. Everything stays in that browser; nothing touches the cloud. To start the sample over, use **Settings → Reset demo workspace** as the HR admin.
 
+A second demo company, **Suria Enterprise**, opens with `?demo=suria`. It is a made-up cili boh factory in Muar, Johor, with 28 staff on two shifts, a Monday-to-Saturday week, three months of attendance, leave, claims and payroll, and the **Operations** module: stock and purchasing, production batches, deliveries, and machines. Switch between the two companies on the sign-in card. Each company keeps its own copy in the browser, and a reset affects only the company you are in. Its logins and a 10-minute walkthrough are in [`docs/demo-accounts-suria.md`](docs/demo-accounts-suria.md).
+
+A third, **Major Far East Sdn Bhd** (`?demo=majorfe`), is a made-up hardware and building materials wholesaler in Kepong, Kuala Lumpur, with three logins: the admin (Owner), the HR admin, and a warehouse supervisor. The supervisor is an employee who can also open the stock page. When a purchase order is approved, he gets a notification that opens that order, so he knows what is coming and when. See [`docs/demo-accounts-majorfe.md`](docs/demo-accounts-majorfe.md).
+
 ## Signing in
 
 Everyone signs in with email and password. The sidebar's view picker shows only the views an account is allowed to use.
@@ -50,6 +54,34 @@ For SMEs that don't want to hire an accounts clerk: the books keep themselves, a
 Employees get **Tax reliefs**: personal receipts tracked against LHDN relief caps (Lifestyle RM2,500, Sports RM1,000, Medical RM10,000, Education RM7,000, Parents' medical RM8,000). Employees can **scan receipts** too: each item is matched to a relief (a book to Lifestyle, a badminton racket to Sports, rice to "not a relief"). A **BE form helper** takes their income, PCB and EPF from their payslips and estimates chargeable income and tax.
 
 The tax features use keyword matching and the rates in `js/tax.js`. They help prepare records; they are not tax advice. Check caps and rates for the current year of assessment with LHDN or your tax agent.
+
+## Operations: stock, production, deliveries and machines
+
+For a company that makes, sells and delivers a product. It shows only in a workspace with operations data (the Suria Enterprise demo), under a new console area, **operations**. It has two role templates: *Operations*, and *Admin manager* (everything except hiring and appraisals).
+
+- **Operations today** is the admin manager's first page. It shows:
+  - manpower by department, with overtime this month;
+  - stock, with days of cover at the last 30 days' usage;
+  - production today and this week, and any batch on QC hold;
+  - deliveries and the cash collected;
+  - money in, with aging and the top 5 debtors;
+  - money out: bills overdue and due this week;
+  - machines that are down, services due and downtime;
+  - staff and company documents expiring within 30 days.
+
+  The owner also sees the month so far: sales, output, raw materials bought and payroll cost.
+- **Stock & purchasing**: a *Coming in* list of the orders on their way. When a purchase order is approved, everyone who looks after the store (the operations area, or the stock page only) is told what is coming and when, with a link that opens the order; from the employee app it switches them to their stock view. Stock on hand from an opening count plus every movement in and out. Items at or below their reorder level are flagged, with *Make PO*. A purchase order goes Draft → Approved (by someone other than the person who raised it) → Sent → Partial / Received → Billed. The vendor bill goes to Finance.
+- **Production**: products with a recipe per batch. *Plan a batch* checks the stock. *Record output* takes the raw materials off stock and sets the expiry. A batch can be put on QC hold, then released or rejected. Finished goods are tracked by batch, and each batch shows which deliveries it went to.
+- **Sales & delivery**: a sales order makes a delivery order, picked from the batch that expires first. Batches on hold or past expiry are never picked. Drivers get **My deliveries** on their phone: stops in order, *Delivered* with a photo, who received the goods and the cash collected. With the finance area, delivery creates the invoice at once (paid, if the cash covers it). A driver's delivery waits for the office to invoice it with one click.
+- **Machines & maintenance**: machines and vehicles, with preventive maintenance every so many days or running hours, whichever comes first. Anyone can report a breakdown from a phone, with a photo. The technician marks it fixed, and the parts can go to a Finance bill. Company licences (halal, MeSTI, council), road tax and insurance go into the daily expiry reminders.
+
+The rules are in `js/ops-rules.js` (no DOM), with tests in `tests/ops.test.js`. The screens are in `js/ops.js`.
+
+In the cloud, operations data is readable only by admins with the operations area, except for:
+- machines, products and breakdowns, which every member can read. Without the operations area, a member can add a breakdown report but not change one;
+- each driver's delivery orders, which have their own bucket that only that driver can read and update.
+
+The page limits for the storekeeper, technician and sales executive (`opsScope`) are in the menus only.
 
 ## Experience (2026 SaaS standards)
 
@@ -379,10 +411,14 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 index.html          App shell: sign-in screen, sidebar, top bar
 brand.html          Brand kit: logo, palette, type, usage rules
 design-system.html  Live tokens and components
-tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules, notifications, appraisals, HR admin, reports, project costing, e-Invoice, talent
+tests/              Unit tests (npm test): check-in geometry, leave rules, time attendance rules, statutory files, claims, check-in rules, notifications, appraisals, HR admin, reports, project costing, e-Invoice, talent, operations, the Suria demo
 css/styles.css      Design tokens (light and dark) and all components
 js/utils.js         Dates, payroll math (EPF, SOCSO, EIS, PCB), city table, location helpers
-js/seed.js          Demo data: the Seri Maju Digital Sdn Bhd workspace and 14 subscribed companies
+js/seed.js          Demo data: the Seri Maju Digital Sdn Bhd workspace and 14 subscribed companies; the demo company registry
+js/seed-suria.js    Demo data: Suria Enterprise, a cili boh factory in Muar (?demo=suria)
+js/seed-majorfe.js  Demo data: Major Far East Sdn Bhd, a hardware wholesaler in Kepong (?demo=majorfe)
+js/ops-rules.js     Operations rules: stock, purchase orders, recipes, oldest-expiry-first picking, maintenance, aging
+js/ops.js           Operations screens: stock, production, sales and delivery, machines, Operations today
 js/geo-map.js       Check-in map picker, preview and place search (Leaflet, OpenStreetMap, Nominatim)
 js/experience.js    Preferences, ⌘K palette, dashboards, setup, tour, help, live updates
 js/leave-rules.js   Leave rules (no DOM): types, states, holidays, day counts, balances, carry forward, approval chains, unpaid pay
