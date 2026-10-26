@@ -4,7 +4,7 @@ window.AllurusFinance = (function () {
   'use strict';
 
   const INCOME_CATS = ['Subscriptions', 'Services', 'Product sales', 'Other income'];
-  const EXPENSE_CATS = ['Payroll', 'Rent', 'Utilities', 'Software', 'Marketing', 'Travel', 'Entertainment', 'Training', 'Professional fees', 'Repairs and maintenance', 'Office supplies', 'Bank charges', 'Staff benefits', 'Raw materials', 'Packaging', 'Fuel and transport', 'Other expenses'];
+  const EXPENSE_CATS = ['Payroll', 'Rent', 'Utilities', 'Software', 'Marketing', 'Travel', 'Entertainment', 'Training', 'Professional fees', 'Repairs and maintenance', 'Office supplies', 'Bank charges', 'Staff benefits', 'Raw materials', 'Packaging', 'Stock purchases', 'Fuel and transport', 'Other expenses'];
   const r2 = (n) => Math.round(n * 100) / 100;
   const sum = (rows, f) => r2(rows.reduce((s, x) => s + f(x), 0));
 
