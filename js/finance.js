@@ -3,8 +3,8 @@
 window.AllurusFinance = (function () {
   'use strict';
 
-  const INCOME_CATS = ['Subscriptions', 'Services', 'Other income'];
-  const EXPENSE_CATS = ['Payroll', 'Rent', 'Utilities', 'Software', 'Marketing', 'Travel', 'Entertainment', 'Training', 'Professional fees', 'Repairs and maintenance', 'Office supplies', 'Bank charges', 'Staff benefits', 'Other expenses'];
+  const INCOME_CATS = ['Subscriptions', 'Services', 'Product sales', 'Other income'];
+  const EXPENSE_CATS = ['Payroll', 'Rent', 'Utilities', 'Software', 'Marketing', 'Travel', 'Entertainment', 'Training', 'Professional fees', 'Repairs and maintenance', 'Office supplies', 'Bank charges', 'Staff benefits', 'Raw materials', 'Packaging', 'Fuel and transport', 'Other expenses'];
   const r2 = (n) => Math.round(n * 100) / 100;
   const sum = (rows, f) => r2(rows.reduce((s, x) => s + f(x), 0));
 
@@ -715,7 +715,7 @@ window.AllurusFinance = (function () {
         // After credit or debit notes the payment is the balance, split between amount and tax in proportion.
         const k = t.total ? t.balance / t.total : 1, tax = r2(t.tax * k);
         i.status = 'Paid'; i.paidOn = T();
-        fin().txns.push({ id: U.uid('x'), date: T(), desc: `Payment from ${i.customer}`, type: 'in', category: /service|implement|consult/i.test(i.items[0].desc) ? 'Services' : 'Subscriptions', amount: r2(t.balance - tax), tax, ref: i.no, source: 'invoice', reconciled: false });
+        fin().txns.push({ id: U.uid('x'), date: T(), desc: `Payment from ${i.customer}`, type: 'in', category: i.category || (/service|implement|consult/i.test(i.items[0].desc) ? 'Services' : 'Subscriptions'), amount: r2(t.balance - tax), tax, ref: i.no, source: 'invoice', reconciled: false });
         closeOverlay(); commit(`${money(t.balance)} received from ${i.customer}`, `Payment of ${money(t.balance)} received for ${i.no}`);
       },
       'fin-new-bill': () => billModal(),
