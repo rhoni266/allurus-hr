@@ -55,7 +55,9 @@ return new class extends Migration
                 -- the app role is subject to RLS even here, so act as the row's tenant for
                 -- this statement, then restore whatever the caller had
                 PERFORM set_config('app.tenant_id', NEW.tenant_id::text, true);
-                UPDATE staff_credentials SET revoked_at = now(), revoke_reason = reason, updated_at = now()
+                -- clock_timestamp(), not now(): now() is the *transaction start*, which in a long
+                -- transaction predates the change and makes earlier offline sign-ins look stale
+                UPDATE staff_credentials SET revoked_at = clock_timestamp(), revoke_reason = reason, updated_at = clock_timestamp()
                  WHERE staff_id = NEW.id AND revoked_at IS NULL;
                 PERFORM set_config('app.tenant_id', COALESCE(outer_tenant, ''), true);
                 RETURN NULL;

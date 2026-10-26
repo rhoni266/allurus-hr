@@ -54,7 +54,14 @@ Multi-tenant, offline-first, omnichannel POS for the Malaysian market (F&B, reta
 | `order.refund` | `order_refunds` + lines, negative `refunded` payments, `refund` movements for restocked lines; amount from `PricingEngine::refund` (spec v2, cumulative so pieces sum to the sale exactly); status `partially_refunded` / `refunded`. Rejected for voided orders | `refund_amount_mismatch`, `over_refund`, `unauthorized_refund` |
 | `stock.count` | a count anchor; `stocktake` movement = counted − books at count time. Later-synced movements dated before a count are cancelled (`count_absorbed`) | `unauthorized_stocktake` |
 
-All stock changes go through `App\Sync\StockLedger::move()`; order lookups through `App\Sync\Facts::order()` (partition-pruned, locked).
+All stock changes go through `App\Sync\StockLedger::move()`; order lookups through `App\Sync\Facts::order()` (partition-pruned, locked); voids (terminal or platform cancellation) through `App\Sync\Voids::apply()`.
+
+### Delivery platforms (`docs/delivery-integration.md`)
+
+* `POST /api/v1/webhooks/delivery/{provider}` is public. The tenant comes from the external store id via `delivery_store_routes` (no RLS, no secrets, **written only by a trigger** on `delivery_connections`), never from the caller. Signature on the raw body; unknown store, inactive connection and bad signature are the same 401 and store nothing.
+* Everything provider-specific is one `App\Delivery\Contracts\DeliveryProvider` class, registered in `AppServiceProvider`. `FixtureProvider` is for tests/local only and is not registered in production.
+* Delivery orders never get dropped: gaps become `delivery_orders.attention_reasons`. `orders` keeps our pricing identity (engine-priced, tender `card`); the platform's figures stay on `delivery_orders`.
+* Cloud orders have no terminal or cashier (`orders.terminal_id` / `staff_id` nullable).
 
 ## Commands
 
@@ -94,9 +101,12 @@ app/Sync/Handlers/              OrderCreate, OrderVoid, PaymentAdd, StockAdjust,
 app/Devices/                    PairingService (issue / redeem one-time codes), DeviceLifecycle (retire / revoke / wipe)
 app/Devices/Attestation/        Attestation (challenge + check), PlayIntegrity, AppAttest (stub), Dev
 app/Sync/OfflineAuth.php        flags for mutations signed in offline
+app/Delivery/                   DeliveryProvider contract, DTOs, ProviderRegistry, DeliveryOrderIngestor, Providers/FixtureProvider
+app/Jobs/ProcessDeliveryEvent   queue "delivery"; enters the tenant, ingests or cancels
+tests/Fixtures/delivery/        one recorded payload per provider and event type
 app/Http/Controllers/Api/       SyncPull, SyncPush, DeviceRegister, PairingCode, DeviceAdmin, DeviceSelf, StaffAuth
 app/Http/Middleware/            ResolveTenant (after auth:sanctum), EnsureDeviceActive, RequireStaffSession (alias `staff`)
-docs/                           offline-pin-signin.md (decided: option C)
+docs/                           offline-pin-signin.md (decided: option C), delivery-integration.md (week 1 built)
 config/pos.php                  pairing rate limit, attestation (POS_ATTESTATION_*)
 app/Simulator/                  reference terminal: LocalStore (SQLite outbox), SyncClient, Chaos, Scenarios
 app/Console/Commands/           sim:run, sim:terminal, sim:churn, pos:pairing-code, pos:unpair, pos:staff-pin
@@ -110,7 +120,8 @@ tests/Integration               Pest, DatabaseTruncation (needs real top-level t
 * Tenant isolation test for every new tenant table: two tenants, assert neither can read or write the other's rows, including via raw queries (RLS).
 * Every new sync mutation type gets a simulator scenario as well as Pest tests.
 * API: versioned under `/api/v1`, API Resources, cursor pagination, `Idempotency-Key` on non-sync POSTs.
-* Queue jobs carry `tenant_id` and call `TenantContext::set()` first.
+* Queue jobs carry `tenant_id` and call `TenantContext::enter()` first and `leave()` in a `finally`. `set()` alone doesn't set the Postgres setting, so RLS hides every row.
+* In triggers, timestamp with `clock_timestamp()`, not `now()` (`now()` is the transaction's start time).
 * Demo data uses `DemoSeeder` only. Demo staff PINs are 111111 (owners) / 2222 / 3333.
 * Windows PowerShell 5 writes a UTF-8 BOM with `Set-Content -Encoding utf8`, which breaks PHP namespaces. Edit files with editor tools, not PowerShell.
 
@@ -137,7 +148,8 @@ Done (branch `allurus-pos` on rhoni266/allurus-hr):
 
 Known gaps:
 
-* `order.refund` and `stock.count` done (221 Pest tests; `refunds` and `stocktake` scenarios pass). In one full `sim:run`, `crash-mid-sync` hung on a terminal subprocess (600 s timeout); it passes alone. Not yet investigated.
+* Delivery integration week 1 done (fixture provider; 240 Pest tests). Weeks 2–5 (Reverb push + KDS, status outbox, menu sync, real adapter) not started; week 2 needs KDS and Reverb first. Real adapters need partner sandbox access.
+* `order.refund` and `stock.count` done (`refunds` and `stocktake` scenarios pass). In one full `sim:run`, `crash-mid-sync` hung on a terminal subprocess (600 s timeout); it passes alone. Not yet investigated.
 * Sessions are only synced when they end; a running session isn't visible to HQ or other terminals yet.
 * A void or payment waiting on another terminal's order gives up after 72 h of *device* time; a badly skewed clock shifts that deadline.
 

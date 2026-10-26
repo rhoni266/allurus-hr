@@ -18,6 +18,23 @@ final class TenantContext
     }
 
     /**
+     * Enter a tenant outside an HTTP request (queue jobs, CLI, webhooks resolved by route):
+     * both the app-level scope AND the Postgres setting RLS reads. set() alone leaves RLS
+     * hiding every row. Always pair with leave() in a finally.
+     */
+    public static function enter(string $id): void
+    {
+        self::set($id);
+        DB::statement("SELECT set_config('app.tenant_id', ?, false)", [$id]);
+    }
+
+    public static function leave(): void
+    {
+        DB::statement("SELECT set_config('app.tenant_id', '', false)");
+        self::clear();
+    }
+
+    /**
      * Set the RLS tenant for the current DB transaction only (SET LOCAL semantics).
      * Call as the first statement inside every DB::transaction so this stays correct
      * under PgBouncer transaction pooling, where session-level settings leak.

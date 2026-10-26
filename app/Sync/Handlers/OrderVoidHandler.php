@@ -2,12 +2,10 @@
 
 namespace App\Sync\Handlers;
 
-use App\Models\{OfflineSyncQueue, OrderVoid, Payment, StockMovement};
-use App\Sync\{Facts, MutationHandler, Outcome, StockLedger};
-use App\Tenancy\TenantContext;
+use App\Models\{OfflineSyncQueue, OrderVoid};
+use App\Sync\{Facts, MutationHandler, Outcome, Voids};
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str;
 
 /**
  * order.void — reverses a completed sale with new rows, never by editing it (rule 4):
@@ -45,29 +43,7 @@ class OrderVoidHandler implements MutationHandler
             ]]], ['order_id' => $order->id, 'note' => 'already_voided']);
         }
 
-        OrderVoid::create([
-            'id' => $p['void_id'], 'order_id' => $order->id, 'terminal_id' => $terminal->id,
-            'staff_id' => $p['staff_id'], 'reason' => $p['reason'], 'occurred_at' => $at,
-        ]);
-        $order->forceFill(['status' => 'void'])->save();
-
-        // give back what the sale took and refunds haven't already returned, per variant
-        $returned = StockMovement::where('ref_id', $order->id)->whereIn('reason', ['sale', 'refund'])->get()
-            ->groupBy('variant_id')->map(fn ($g) => -(int) $g->sum('qty_delta_milli'))->all();
-        StockLedger::move(TenantContext::require(), $order->outlet_id, $returned, 'void', $order->id, $at);
-
-        // payments net to zero per method, counting anything already refunded
-        $reversed = 0;
-        foreach (Payment::where('order_id', $order->id)->get()->groupBy('method') as $method => $pays) {
-            $net = (int) $pays->sum('amount_sen');
-            if ($net > 0) {
-                Payment::create([
-                    'id' => (string) Str::uuid7(), 'order_id' => $order->id, 'method' => $method,
-                    'amount_sen' => -$net, 'status' => 'reversed', 'occurred_at' => $at,
-                ]);
-                $reversed += $net;
-            }
-        }
+        $reversed = Voids::apply($order, $p['void_id'], $terminal->id, $p['staff_id'], $p['reason'], $at);
 
         return Facts::outcome(
             $queue,

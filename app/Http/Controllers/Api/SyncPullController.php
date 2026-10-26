@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Models\{Modifier, PriceOverride, Product, ProductVariant, Staff, StaffCredential, SyncChange};
+use App\Models\{DeliveryMenuMapping, DeliveryOrder, Modifier, PriceOverride, Product, ProductVariant, Staff, StaffCredential, SyncChange};
 use App\Tenancy\TenantContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +16,8 @@ class SyncPullController
         'modifier'       => Modifier::class,
         'staff'          => Staff::class,     // for the login screen; pin_hash is $hidden, never sent
         'staff_credential' => StaffCredential::class,   // offline sign-in permissions + revocations; no secrets
+        'delivery_order' => DeliveryOrder::class,       // safety net behind the real-time push; raw_payload $hidden
+        'delivery_menu_mapping' => DeliveryMenuMapping::class,
     ];
 
     public function __invoke(Request $request)

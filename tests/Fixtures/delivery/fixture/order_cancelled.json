@@ -1,0 +1,6 @@
+{
+  "event_id": "evt_0002",
+  "type": "order.cancelled",
+  "store_id": "{{STORE_ID}}",
+  "order": { "id": "FX-ORDER-1001", "reason": "customer_cancelled" }
+}

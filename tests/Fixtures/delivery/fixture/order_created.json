@@ -1,0 +1,33 @@
+{
+  "event_id": "evt_0001",
+  "type": "order.created",
+  "store_id": "{{STORE_ID}}",
+  "order": {
+    "id": "FX-ORDER-1001",
+    "short_code": "AB12",
+    "fulfilment": "delivery",
+    "payment_mode": "platform_collected",
+    "placed_at": "2026-10-26T04:30:00.123456Z",
+    "accept_by": "2026-10-26T04:33:00Z",
+    "pickup_eta": "2026-10-26T04:50:00Z",
+    "items": [
+      {
+        "id": "ext-kopi",
+        "name": "Kopi Ais",
+        "qty": 2,
+        "unit_price_sen": 400,
+        "modifiers": [{ "id": "ext-extra-shot", "name": "Extra shot", "qty": 1, "price_sen": 150 }],
+        "notes": "less sugar"
+      },
+      { "id": "ext-teh", "name": "Teh Tarik", "qty": 1, "unit_price_sen": 500 }
+    ],
+    "items_total_sen": 1600,
+    "delivery_fee_sen": 500,
+    "platform_discount_sen": 200,
+    "merchant_discount_sen": 100,
+    "commission_sen": 480,
+    "total_sen": 1800,
+    "notes": "Call on arrival",
+    "customer": { "first_name": "Aina", "phone_suffix": "4321", "address": "should never be stored" }
+  }
+}
