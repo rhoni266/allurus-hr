@@ -1587,3 +1587,12 @@ tr.ops-low td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
 /* A choice of three or more long labels wraps on a phone instead of widening the page. */
 @media (max-width: 560px) { .field .seg, .card .seg:not(.rc-tabs) { flex-wrap: wrap; max-width: 100%; } }
 .ops-card .chips .tag { white-space: normal; max-width: 100%; height: auto; line-height: 1.4; padding-top: 3px; padding-bottom: 3px; }
+
+/* Location gate (js/app.js): an employee's phone must share its location before using the app. */
+.loc-gate { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 20px; background: rgba(10, 14, 20, 0.72); backdrop-filter: blur(6px); }
+.loc-gate-card { width: min(420px, 100%); max-height: calc(100vh - 40px); overflow: auto; background: var(--surface); color: var(--fg); border-radius: 20px; padding: 26px 22px; box-shadow: 0 20px 60px rgba(0, 0, 0, .35); text-align: center; }
+.loc-gate-icon { width: 56px; height: 56px; margin: 0 auto 12px; border-radius: 50%; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); }
+.loc-gate-icon svg { width: 28px; height: 28px; }
+.loc-gate h2 { font-size: 21px; margin: 0 0 8px; }
+.loc-gate p { color: var(--fg-2); font-size: 14.5px; line-height: 1.55; text-align: left; margin: 0 0 18px; }
+.loc-gate-actions { display: grid; gap: 8px; }

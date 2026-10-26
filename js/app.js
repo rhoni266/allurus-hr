@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.4';
+  const APP_VERSION = '3.5';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -549,6 +549,7 @@
     $('#sidebar').classList.remove('open');
     AllurusUX.afterRender(r, navigated);
     navigated = false;
+    checkLocationGate();
     if (r !== 'settings' && zonePicker) { zonePicker.destroy(); zonePicker = null; }
     applySetupLink();
     // Daily reminders run once a day on the first load; the bell shows the unread count.
@@ -1952,18 +1953,7 @@
       <label class="check"><input type="checkbox" id="ci-agree"><span>I agree to my face being used to verify my check-ins</span></label>
       <div class="ci-actions"><button class="btn" data-act="close-overlay">Not now</button><button class="btn btn-primary" data-act="ci-consent">Continue</button></div>`);
   }
-  async function ciLocate() {
-    const z = zone();
-    if (isField(me())) {
-      ciStep(`<div class="ci-status"><span class="spinner" aria-hidden="true"></span><div><strong>Noting where you are</strong><p class="muted">You can check in from anywhere. Your location is saved with the check-in if your phone shares it.</p></div></div>`);
-      const loc = await U.locate({ gpsOnly: true });
-      if (!$('#ci-body')) return;
-      ci.loc = { ...(loc || { lat: null, lng: null, accuracy: null }), field: true, inside: true, m: loc && z.source === 'checkin' ? U.checkZone(loc, z).m : null };
-      ci.loc.flags = kioskApi.gpsCheck(me(), ci.loc);
-      ciSelfie();
-      return;
-    }
-    // What to tell someone whose phone gave no position, by the reason and the kind of phone.
+  // What to tell someone whose phone gave no position, by the reason and the kind of phone.
   function locationHelp(why) {
     const ua = navigator.userAgent || '', ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
     const inApp = /FBAN|FBAV|Instagram|Line\/|WhatsApp/i.test(ua);
@@ -1975,6 +1965,62 @@
     if (why === 'unsupported') return ['This browser can’t share your location', 'Open this page in Safari (iPhone) or Chrome (Android) and try again.'];
     return ['Location is off', `Check-in needs your phone’s GPS position. Turn on location${ios ? ' (Settings → Privacy &amp; Security → Location Services)' : ''}, allow it for this site, then try again.`];
   }
+
+  // ----- Location gate: an employee's phone must share its location before using the app -----
+  // A web page can't open the phone's Settings app, so on a phone the employee app shows a screen that stays until
+  // location is allowed: it asks the browser at once (one tap), or, if location is blocked, shows the steps and
+  // checks again by itself when they come back from Settings. Field staff and computers are not asked.
+  let gateState = '', gateBusy = false;
+  async function locPermission() {
+    try { const r = await navigator.permissions.query({ name: 'geolocation' }); return r.state; } catch (e) { return ''; }
+  }
+  function gateHtml(perm, why) {
+    const [title, how] = perm === 'denied' ? locationHelp('denied') : why ? locationHelp(why) : ['Turn on your location', `${esc(state.settings?.company || '')} checks you in at ${esc(zone().label)}. Allow location so the app can see you’re there. It’s only read when you check in.`];
+    return `<div class="loc-gate" role="dialog" aria-modal="true" aria-labelledby="loc-gate-t"><div class="loc-gate-card">
+      <div class="loc-gate-icon">${icon('pin')}</div><h2 id="loc-gate-t">${title}</h2><p>${how}</p>
+      <div class="loc-gate-actions"><button class="btn btn-primary btn-lg" data-act="loc-allow">${perm === 'denied' ? 'I’ve turned it on, check again' : 'Allow location'}</button>
+      <button class="btn btn-ghost" data-act="logout">Sign out</button></div></div></div>`;
+  }
+  function showGate(perm, why = '') {
+    let g = document.getElementById('loc-gate-root');
+    if (!g) { g = document.createElement('div'); g.id = 'loc-gate-root'; document.body.appendChild(g); }
+    g.innerHTML = gateHtml(perm, why);
+  }
+  const hideGate = () => { const g = document.getElementById('loc-gate-root'); if (g) g.innerHTML = ''; };
+  const gateNeeded = () => role() === 'employee' && onPhone() && !kioskApi?.kioskOn() && !isField(me()) && zone().source === 'checkin' && !!navigator.geolocation;
+  async function checkLocationGate() {
+    if (!gateNeeded()) { hideGate(); return; }
+    const perm = await locPermission();
+    gateState = perm;
+    if (perm === 'granted') { hideGate(); return; }
+    // Safari asks again in each visit unless the site is set to Allow; ask once per visit, not on every page.
+    if (perm === 'prompt' || perm === '') { try { if (sessionStorage.getItem('loc-ok')) { hideGate(); return; } } catch (e) { /* no storage */ } }
+    showGate(perm === 'denied' ? 'denied' : 'prompt');
+  }
+  async function gateAllow() {
+    if (gateBusy) return;
+    gateBusy = true;
+    const btn = document.querySelector('[data-act=loc-allow]'); if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+    const loc = await U.locate({ gpsOnly: true });
+    gateBusy = false;
+    if (loc) { try { sessionStorage.setItem('loc-ok', '1'); } catch (e) { /* no storage */ } hideGate(); toast('Location is on. You can check in.'); return; }
+    const why = U.locateError();
+    showGate(why === 'denied' ? 'denied' : 'prompt', why === 'denied' ? '' : why);
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && gateState && gateState !== 'granted') checkLocationGate(); });
+  document.addEventListener('click', (ev) => { if (ev.target.closest('[data-act=loc-allow]')) { ev.preventDefault(); gateAllow(); } });
+
+  async function ciLocate() {
+    const z = zone();
+    if (isField(me())) {
+      ciStep(`<div class="ci-status"><span class="spinner" aria-hidden="true"></span><div><strong>Noting where you are</strong><p class="muted">You can check in from anywhere. Your location is saved with the check-in if your phone shares it.</p></div></div>`);
+      const loc = await U.locate({ gpsOnly: true });
+      if (!$('#ci-body')) return;
+      ci.loc = { ...(loc || { lat: null, lng: null, accuracy: null }), field: true, inside: true, m: loc && z.source === 'checkin' ? U.checkZone(loc, z).m : null };
+      ci.loc.flags = kioskApi.gpsCheck(me(), ci.loc);
+      ciSelfie();
+      return;
+    }
   // Never guess: without a check-in point set by HR there is nothing to measure against.
     if (z.source !== 'checkin') {
       ciProblem('Your admin hasn’t set a check-in location yet', `Ask HR to set the check-in point in Settings, then send you the setup link. ${esc(state.settings.company)} check-ins open once it’s set.`);
