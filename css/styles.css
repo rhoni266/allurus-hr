@@ -1596,3 +1596,14 @@ tr.ops-low td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
 .loc-gate h2 { font-size: 21px; margin: 0 0 8px; }
 .loc-gate p { color: var(--fg-2); font-size: 14.5px; line-height: 1.55; text-align: left; margin: 0 0 18px; }
 .loc-gate-actions { display: grid; gap: 8px; }
+
+/* Sign out, always in the top bar. On a narrow phone only the icon shows. */
+.top-signout { margin-left: 4px; white-space: nowrap; }
+@media (max-width: 379px) { .top-signout span { display: none; } .top-signout { padding: 0 8px; } }
+@media (max-width: 560px) {
+  .topbar .cmdk-trigger { min-width: 0; flex: none; width: 40px; justify-content: center; padding: 0; }
+  .topbar .cmdk-trigger span { display: none; }
+  .topbar { gap: 4px; padding-left: 10px; padding-right: 10px; }
+  .topbar > .btn { flex: none; }
+  .topbar > .btn-icon { width: 36px; }
+}
