@@ -1936,7 +1936,19 @@
       ciSelfie();
       return;
     }
-    // Never guess: without a check-in point set by HR there is nothing to measure against.
+    // What to tell someone whose phone gave no position, by the reason and the kind of phone.
+  function locationHelp(why) {
+    const ua = navigator.userAgent || '', ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    const inApp = /FBAN|FBAV|Instagram|Line\/|WhatsApp/i.test(ua);
+    if (why === 'denied') {
+      if (ios) return ['Location is blocked for this site', `On your iPhone: open <b>Settings → Privacy &amp; Security → Location Services</b>, make sure it is on, then tap <b>Safari Websites</b> and choose <b>While Using the App</b> (turn on <b>Precise Location</b>). Then in Safari tap <b>aA</b> (or the page menu) → <b>Website Settings → Location → Allow</b>, reload this page and try again.${inApp ? ' If you opened this from WhatsApp, tap the Safari icon to open it in Safari first.' : ''}`];
+      return ['Location is blocked for this site', `Turn on your phone’s location, then allow it for this site: in Chrome tap the icon left of the address → <b>Permissions → Location → Allow</b>, reload and try again.${inApp ? ' If you opened this from an app such as WhatsApp, open it in Chrome first.' : ''}`];
+    }
+    if (why === 'timeout') return ['Couldn’t get a GPS fix', 'Your phone took too long to find you, which happens indoors. Move near a window or step outside for a moment, make sure location is on with <b>Precise Location</b>, then try again.'];
+    if (why === 'unsupported') return ['This browser can’t share your location', 'Open this page in Safari (iPhone) or Chrome (Android) and try again.'];
+    return ['Location is off', `Check-in needs your phone’s GPS position. Turn on location${ios ? ' (Settings → Privacy &amp; Security → Location Services)' : ''}, allow it for this site, then try again.`];
+  }
+  // Never guess: without a check-in point set by HR there is nothing to measure against.
     if (z.source !== 'checkin') {
       ciProblem('Your admin hasn’t set a check-in location yet', `Ask HR to set the check-in point in Settings, then send you the setup link. ${esc(state.settings.company)} check-ins open once it’s set.`);
       return;
@@ -1945,7 +1957,8 @@
     const loc = await U.locate({ gpsOnly: true });
     if (!$('#ci-body')) return;
     if (!loc) {
-      ciProblem('Location is off', 'Check-in needs your phone’s GPS position. Turn on location for this browser, allow access for this site, then try again.');
+      const [title, how] = locationHelp(U.locateError());
+      ciProblem(title, how);
       return;
     }
     const { m, inside } = U.checkZone(loc, z);

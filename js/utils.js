@@ -139,7 +139,11 @@ window.U = (function () {
   const nearestCity = (p) => CITIES.reduce((best, c) => (distanceKm(p, c) < distanceKm(p, best) ? c : best), CITIES[0]);
   // Best-effort device location: GPS/Wi-Fi first, then the city implied by the device time zone.
   // With { gpsOnly: true } it resolves null instead of guessing from the time zone.
+  // Why the last GPS-only lookup failed: 'denied' (blocked for this site or browser), 'unavailable' (no fix),
+  // 'timeout' (no fix in time, often indoors) or 'unsupported'. Read by the check-in screen to say what to do.
+  let lastLocateError = '';
   const locate = (opts = {}) => new Promise((resolve) => {
+    lastLocateError = '';
     const fallback = () => {
       if (opts.gpsOnly) return resolve(null);
       let tz = '';
@@ -148,16 +152,16 @@ window.U = (function () {
       if (c) resolve({ lat: c.lat, lng: c.lng, label: `${c.name}, ${c.country}`, source: 'timezone', accuracy: 50000 });
       else resolve({ lat: null, lng: null, label: tz ? tz.split('/').pop().replace(/_/g, ' ') : 'Unknown', source: 'timezone', accuracy: null });
     };
-    if (!navigator.geolocation) return fallback();
+    if (!navigator.geolocation) { lastLocateError = 'unsupported'; return fallback(); }
     let done = false;
-    const timer = setTimeout(() => { if (!done) { done = true; fallback(); } }, opts.gpsOnly ? 14000 : 8000);
+    const timer = setTimeout(() => { if (!done) { done = true; lastLocateError = 'timeout'; fallback(); } }, opts.gpsOnly ? 14000 : 8000);
     try {
       navigator.geolocation.getCurrentPosition((pos) => {
         if (done) return; done = true; clearTimeout(timer);
         const p = { lat: +pos.coords.latitude.toFixed(6), lng: +pos.coords.longitude.toFixed(6) };
         const c = nearestCity(p), km = distanceKm(p, c);
         resolve({ ...p, label: km < 60 ? `Near ${c.name}, ${c.country}` : `${km.toFixed(0)} km from ${c.name}`, source: 'gps', accuracy: Math.round(pos.coords.accuracy), accuracyRaw: pos.coords.accuracy });
-      }, () => { if (!done) { done = true; clearTimeout(timer); fallback(); } }, opts.gpsOnly ? { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 } : { enableHighAccuracy: false, timeout: 7000, maximumAge: 300000 });
+      }, (err) => { if (!done) { done = true; clearTimeout(timer); lastLocateError = err?.code === 1 ? 'denied' : err?.code === 3 ? 'timeout' : 'unavailable'; fallback(); } }, opts.gpsOnly ? { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 } : { enableHighAccuracy: false, timeout: 7000, maximumAge: 300000 });
     } catch (e) { if (!done) { done = true; clearTimeout(timer); fallback(); } }
   });
 
@@ -268,5 +272,5 @@ window.U = (function () {
     } catch (e) { return sha256js(msg); }
   }
 
-  return { parseCoords, parseCoordsDetailed, hasCoords, distanceM, resolveZone, applyPublishedZone, checkZone, GPS_SLACK_M, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, pad, iso, parse, today, addDays, isWeekend, setWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
+  return { parseCoords, parseCoordsDetailed, hasCoords, distanceM, resolveZone, applyPublishedZone, checkZone, GPS_SLACK_M, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, locateError: () => lastLocateError, pad, iso, parse, today, addDays, isWeekend, setWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
 })();
