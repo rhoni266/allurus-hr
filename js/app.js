@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.3';
+  const APP_VERSION = '3.4';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -482,7 +482,8 @@
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
   ];
   const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)));
-  const route = () => { const h = location.hash.replace('#', ''); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
+  // A page may carry a query after "?" (#ops-stock?po=…); it is the page's to read.
+  const route = () => { const h = location.hash.replace('#', '').split('?')[0]; const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
   function renderNav() {
     let html = '', group = '';
@@ -530,6 +531,13 @@
     $('#login').hidden = signedIn;
     $('.app').hidden = !signedIn;
     if (!signedIn) { $('#login').innerHTML = loginView(); bindLogin(); return; }
+    // A link to an Operations page of the person's other view (a notification opened in the employee app)
+    // switches to that view.
+    const want = location.hash.slice(1).split('?')[0];
+    if (/^ops-/.test(want) && !routes().some((x) => x.id === want)) {
+      const was = state.session.role, other = state.session.roles.find((x) => x !== was && (ROLE_ROUTES[x] || []).some((rr) => rr.id === want));
+      if (other) { state.session.role = other; if (routes().some((x) => x.id === want)) save(); else state.session.role = was; }
+    }
     const r = route();
     AllurusUX.beforeRender(r);
     renderNav();

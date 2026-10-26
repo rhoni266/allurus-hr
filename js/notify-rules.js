@@ -51,6 +51,7 @@ window.AllurusNotifyRules = (function () {
     'booking.cancelled': { cat: 'talent', icon: 'calendar', text: (d) => [`Your booking of ${d.room} was cancelled`, `${fmt(d.date)} ${d.time}${d.note ? `: ${d.note}` : '.'}`] },
     'ops.breakdown': { cat: 'operations', icon: 'sliders', text: (d) => [`${d.machine} is down`, d.problem ? `${d.who} reported: ${d.problem}` : `Reported by ${d.who}.`] },
     'ops.fixed': { cat: 'operations', icon: 'check', text: (d) => [`${d.machine} is running again`, `Fixed by ${d.who}${d.hours ? ` after ${d.hours} hours` : ''}.`] },
+    'ops.incoming': { cat: 'operations', icon: 'box', text: (d) => [`Coming in: ${d.no || 'a purchase order'}${d.expected ? `, ${d.expected}` : ''}`, `${d.vendor || 'The vendor'}${d.items ? `: ${d.items}` : ''}. Get the store ready.`] },
     'ops.po': { cat: 'operations', icon: 'box', text: (d) => [`Purchase order ${d.no} needs approval`, `${d.vendor}, ${d.total}. Raised by ${d.who}.`] },
     'ops.delivery': { cat: 'operations', icon: 'pin', text: (d) => [`${d.count} deliver${d.count === 1 ? 'y' : 'ies'} for you ${d.when || 'today'}`, d.route || 'Open My deliveries for the route.'] },
     'ops.qc': { cat: 'operations', icon: 'shield', text: (d) => [`Batch ${d.no} is on QC hold`, d.note || 'Keep it off sale until QC releases it.'] },

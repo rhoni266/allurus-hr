@@ -86,16 +86,30 @@ window.AllurusOps = (function () {
   const toInvoice = () => ops().dos.filter((d) => d.status === 'Delivered' && !d.invoiceId);
 
   // ---------- Stock & purchasing ----------
+  const KIND = { raw: 'Raw material', pack: 'Packaging', goods: 'Trading goods' };
+  // People who look after the store: accounts with the operations area, unless limited to other pages.
+  const storePeople = () => st().accounts.filter((a) => a.roles.includes('admin') && (!Array.isArray(a.perms) || a.perms.includes('operations')) && (!a.opsScope || a.opsScope.includes('stock'))).map((a) => a.empId).filter(Boolean);
+  // Purchase orders on their way: approved or sent, or partly received, soonest first.
+  const drafted = (itemId) => ops().pos.find((p) => p.status === 'Draft' && p.lines.some((l) => l.itemId === itemId));
+  const incoming = () => ops().pos.filter((p) => ['Approved', 'Sent', 'Partial'].includes(p.status)).sort((a, b) => (a.expected || '').localeCompare(b.expected || ''));
+  const poItems = (p) => p.lines.map((l) => `${qty(Math.max(0, l.qty - (l.received || 0)))} ${esc(item(l.itemId)?.unit || '')} ${esc(item(l.itemId)?.name.toLowerCase() || '')}`).join(', ');
+  function incomingCard() {
+    const list = incoming();
+    if (!list.length) return '';
+    return `<div class="card ops-incoming"><div class="card-head"><h3>Coming in</h3><span class="hint">What has been bought and when it arrives</span></div>
+      <ul class="hr-list">${list.map((p) => `<li class="clickable" data-act="ops-po-open" data-id="${p.id}"><div><strong>${esc(p.no)} · ${esc(contact(p.vendorId)?.name || '')}</strong><div class="person-sub">${poItems(p)}</div></div>
+        <span>${p.status === 'Partial' ? pill('Partial', 'Rest due') : ''} ${pill(p.expected < T() ? 'Overdue' : p.expected === T() ? 'Due' : 'Open', p.expected < T() ? `Late, ${fmt(p.expected)}` : p.expected === T() ? 'Today' : fmt(p.expected, { weekday: 'short', day: 'numeric', month: 'short' }))}</span></li>`).join('')}</ul></div>`;
+  }
   function stockView() {
     const lv = levels(), low = lv.filter((x) => x.low), open = ops().pos.filter((p) => ['Draft', 'Approved', 'Sent', 'Partial'].includes(p.status));
     const value = lv.reduce((s, x) => s + x.onHand * (x.lastPrice || 0), 0);
     return `${head('Stock &amp; purchasing', `${low.length} item${low.length === 1 ? '' : 's'} below reorder level · ${open.filter((p) => ['Sent', 'Partial'].includes(p.status)).length} orders waiting for delivery · stock worth ${money(value)}`, can() ? `<button class="btn btn-primary" data-act="ops-po-new">${icon('plus')}New purchase order</button>` : '')}
       ${tabs('stockTab', [['stock', 'Stock'], ['pos', `Purchase orders${open.length ? ` (${open.length})` : ''}`], ['moves', 'Stock movements']], 'ops-stock-tab')}
-      ${ui.stockTab === 'pos' ? poTable() : ui.stockTab === 'moves' ? movesTable() : stockTable(lv)}`;
+      ${ui.stockTab === 'pos' ? poTable() : ui.stockTab === 'moves' ? movesTable() : incomingCard() + stockTable(lv)}`;
   }
   function stockTable(lv) {
-    const row = (x) => `<tr class="clickable ${x.low ? 'ops-low' : ''}" data-act="ops-item" data-id="${x.id}"><td><strong>${esc(x.name)}</strong><div class="person-sub">${esc(x.code)} · ${x.kind === 'raw' ? 'Raw material' : 'Packaging'}</div></td>
-      <td class="r num"><strong>${qty(x.onHand)}</strong> <span class="faint">${esc(x.unit)}</span>${x.low ? `<div>${pill('Overdue', 'Below reorder')}</div>${can() && !x.onOrder ? `<button class="btn btn-sm btn-primary" style="margin-top:6px" data-act="ops-po-new" data-id="${x.id}">Make PO</button>` : ''}` : ''}</td><td class="r num hide-sm">${qty(x.reorder)}</td>
+    const row = (x) => `<tr class="clickable ${x.low ? 'ops-low' : ''}" data-act="ops-item" data-id="${x.id}"><td><strong>${esc(x.name)}</strong><div class="person-sub">${esc(x.code)} · ${KIND[x.kind] || ''}</div></td>
+      <td class="r num"><strong>${qty(x.onHand)}</strong> <span class="faint">${esc(x.unit)}</span>${x.low ? `<div>${pill('Overdue', 'Below reorder')}</div>${!can() || x.onOrder ? '' : drafted(x.id) ? `<div class="person-sub" style="margin-top:4px">${esc(drafted(x.id).no)} waiting for approval</div>` : `<button class="btn btn-sm btn-primary" style="margin-top:6px" data-act="ops-po-new" data-id="${x.id}">Make PO</button>`}` : ''}</td><td class="r num hide-sm">${qty(x.reorder)}</td>
       <td class="r num hide-sm">${x.onOrder ? qty(x.onOrder) : '—'}</td><td class="hide-sm">${esc(contact(x.vendorId)?.name || '—')}</td><td class="r num hide-sm">${money(x.lastPrice)}</td>
 </tr>`;
     return `<div class="card card-flush"><div class="table-wrap"><table><thead><tr><th>Item</th><th class="r">On hand</th><th class="r hide-sm">Reorder at</th><th class="r hide-sm">On order</th><th class="hide-sm">Usual vendor</th><th class="r hide-sm">Last price</th></tr></thead>
@@ -192,7 +206,8 @@ window.AllurusOps = (function () {
     });
   }
   function createBill(p) {
-    const cat = p.lines.every((l) => item(l.itemId)?.kind === 'pack') ? 'Packaging' : 'Raw materials';
+    const kinds = p.lines.map((l) => item(l.itemId)?.kind);
+    const cat = kinds.every((k) => k === 'goods') ? 'Stock purchases' : kinds.every((k) => k === 'pack') ? 'Packaging' : 'Raw materials';
     const b = billFrom({ vendorId: p.vendorId, amount: O.poReceivedValue(p), note: `${p.no}: ${p.lines.map((l) => item(l.itemId)?.name.toLowerCase()).join(', ')}`, ref: p.no, category: cat, extra: { poId: p.id } });
     p.status = 'Billed'; p.billId = b.id;
     p.lines.forEach((l) => { const it = item(l.itemId); if (it) it.lastPrice = l.price; });
@@ -520,10 +535,10 @@ window.AllurusOps = (function () {
   const used30 = (itemId) => -ops().moves.filter((m) => m.itemId === itemId && m.qty < 0 && m.date > U.addDays(T(), -30)).reduce((s, m) => s + m.qty, 0);
   function stockCard() {
     const lv = levels().map((x) => ({ ...x, cover: O.daysCover(x.onHand, used30(x.id)) })).sort((a, b) => (a.cover ?? 1e9) - (b.cover ?? 1e9));
-    const low = lv.filter((x) => x.low);
+    const low = lv.filter((x) => x.low), free = low.find((x) => !x.onOrder && !drafted(x.id));
     return card('Stock', 'ops-stock', `${big(low.length, `item${low.length === 1 ? '' : 's'} below reorder level`)}
       ${rows(lv.slice(0, 6).map((x) => `<li><div><strong>${esc(x.name)}</strong><div class="person-sub">${qty(x.onHand, x.unit)}${x.onOrder ? ` · ${qty(x.onOrder)} on order` : ''}</div></div>${x.cover != null ? `<span class="pill ${x.cover < 5 ? 'bad' : x.cover < 10 ? 'warn' : 'ok'}">${x.cover} days</span>` : ''}</li>`))}
-      ${low.some((x) => !x.onOrder) && can() ? `<button class="btn btn-sm btn-primary" data-act="ops-po-new" data-id="${low.find((x) => !x.onOrder).id}">Make PO for ${esc(low.find((x) => !x.onOrder).name.toLowerCase())}</button>` : ''}`, low.some((x) => !x.onOrder) ? 'warn' : '');
+      ${free && can() ? `<button class="btn btn-sm btn-primary" data-act="ops-po-new" data-id="${free.id}">Make PO for ${esc(free.name.toLowerCase())}</button>` : ''}`, free ? 'warn' : '');
   }
   const units = (bs) => bs.filter((b) => b.status === 'Done').reduce((s, b) => s + b.actual, 0);
   function productionCard() {
@@ -572,22 +587,29 @@ window.AllurusOps = (function () {
     return card('Expiring soon', '', `${big(list.length, 'in the next 30 days')}
       ${rows(list.map((x) => `<li><div><strong>${esc(x.title)}</strong>${x.who ? `<div class="person-sub">${esc(x.who)}</div>` : ''}</div>${pill(x.expiry < t ? 'Overdue' : 'Due', x.expiry < t ? 'Expired' : fmt(x.expiry))}</li>`))}`, list.some((x) => x.expiry < t) ? 'bad' : list.length ? 'warn' : '');
   }
+  // For a trading company with no production: what has been bought and is on its way.
+  function incomingTodayCard() {
+    const list = incoming(), late = list.filter((p) => p.expected < T());
+    return card('Coming in', 'ops-stock', `${big(list.length, `purchase order${list.length === 1 ? '' : 's'} on the way`)}
+      ${rows(list.slice(0, 6).map((p) => `<li><div><strong>${esc(contact(p.vendorId)?.name || '')}</strong><div class="person-sub">${esc(p.no)} · ${money(O.poTotal(p))}</div></div>${pill(p.expected < T() ? 'Overdue' : 'Open', p.expected < T() ? 'Late' : fmt(p.expected))}</li>`), 'Nothing on order')}`, late.length ? 'warn' : '');
+  }
   // The owner's month so far: what was sold, made and bought, and what the people cost.
   function monthCard() {
     const mk = T().slice(0, 7), name = U.fmtMonth(mk, { month: 'long' });
     const sales = fin().invoices.filter((i) => i.type === 'invoice' && i.issue?.startsWith(mk)).reduce((s, i) => s + AllurusFinance.invoiceTotals(i).total, 0);
     const made = units(ops().batches.filter((b) => b.date.startsWith(mk)));
-    const bought = fin().bills.filter((b) => b.issue?.startsWith(mk) && ['Raw materials', 'Packaging'].includes(b.category)).reduce((s, b) => s + (Number(b.amount) || 0), 0);
+    const bought = fin().bills.filter((b) => b.issue?.startsWith(mk) && ['Raw materials', 'Packaging', 'Stock purchases'].includes(b.category)).reduce((s, b) => s + (Number(b.amount) || 0), 0);
+    const makes = ops().products.length > 0;
     const paid = Object.keys(st().payroll).filter((k) => st().payroll[k].status === 'Paid').sort().pop(), pt = paid ? ctx.payTotal(st().payroll[paid]) : null;
     const pay = pt ? pt.gross + pt.erCost : 0;
     const k = (label, v, foot) => `<div class="card kpi"><div class="kpi-label">${label}</div><div class="kpi-value">${v}</div><div class="kpi-foot">${foot}</div></div>`;
-    return `<h3 class="lv-h">${esc(name)} so far</h3><div class="grid g-4 keep-2" style="margin-bottom:16px">${k('Sales', money(sales), 'invoiced to clients')}${k('Output', made.toLocaleString('en-MY'), 'units made')}${k('Raw materials bought', money(bought), 'ingredients and packaging')}${k('Payroll cost', money(pay), paid ? `${U.fmtMonth(paid, { month: 'long' })}, with employer contributions` : 'No payroll paid yet')}</div>`;
+    return `<h3 class="lv-h">${esc(name)} so far</h3><div class="grid g-4 keep-2" style="margin-bottom:16px">${k('Sales', money(sales), 'invoiced to clients')}${makes ? k('Output', made.toLocaleString('en-MY'), 'units made') : k('Stock on hand', money(levels().reduce((s, x) => s + x.onHand * (x.lastPrice || 0), 0)), 'at last purchase prices')}${k(makes ? 'Raw materials bought' : 'Stock bought', money(bought), makes ? 'ingredients and packaging' : 'from vendors this month')}${k('Payroll cost', money(pay), paid ? `${U.fmtMonth(paid, { month: 'long' })}, with employer contributions` : 'No payroll paid yet')}</div>`;
   }
   function todayView() {
     const owner = !Array.isArray(ctx.account()?.perms);
     return `${head('Operations today', `${fmt(T(), { weekday: 'long', day: 'numeric', month: 'long' })} at ${esc(st().settings.company)}. Everything that needs a look, on one page.`)}
       ${owner ? monthCard() : ''}
-      <div class="ops-grid ops-today">${[manpower(), stockCard(), productionCard(), deliveriesCard(), moneyInCard(), moneyOutCard(), machinesCard(), expiringCard()].join('')}</div>`;
+      <div class="ops-grid ops-today">${[manpower(), stockCard(), ...(ops().products.length ? [productionCard(), deliveriesCard()] : [incomingTodayCard()]), moneyInCard(), moneyOutCard(), ...(ops().machines.length ? [machinesCard()] : []), expiringCard()].join('')}</div>`;
   }
 
   // ---------- Employee views: the driver's deliveries and machine breakdowns ----------
@@ -614,7 +636,9 @@ window.AllurusOps = (function () {
     if (!has() || ctx.role() !== 'employee') return '';
     const me = ctx.me(), dos = myDOs(me.id), left = dos.filter((d) => ['Planned', 'Out'].includes(d.status)).length;
     const jobs = ops().breakdowns.filter((b) => b.assignee === me.id && b.status !== 'Fixed').length;
+    const store = storePeople().includes(me.id) ? incoming() : [];
     const bits = [
+      store.length ? `<a class="btn btn-primary" href="#ops-stock">${icon('box')}${store.length} purchase order${store.length === 1 ? '' : 's'} coming in${store.some((p) => p.expected <= T()) ? ' (due today)' : ''}</a>` : '',
       dos.length ? `<a class="btn btn-primary" href="#my-deliveries">${icon('pin')}My deliveries today (${left} to go)</a>` : '',
       jobs ? `<a class="btn btn-primary" href="#my-machines">${icon('sliders')}${jobs} breakdown${jobs === 1 ? '' : 's'} to fix</a>` : '',
       isFloor(me) || dos.length ? `<button class="btn" data-act="ops-bd-new">${icon('sliders')}Report a breakdown</button>` : '',
@@ -623,7 +647,12 @@ window.AllurusOps = (function () {
   }
 
   // On the factory floor, reporting a breakdown sits next to Request time off.
-  const heroAction = () => (has() && ctx.role() === 'employee' && isFloor(ctx.me()) ? `<button class="btn" data-act="ops-bd-new">${icon('sliders')}Report a breakdown</button>` : '');
+  // For the store, what has been bought and is on its way.
+  const heroAction = () => {
+    if (!has() || ctx.role() !== 'employee') return '';
+    const n = storePeople().includes(ctx.me()?.id) ? incoming().length : 0;
+    return `${n ? `<a class="btn" href="#ops-stock">${icon('box')}${n} order${n === 1 ? '' : 's'} coming in</a>` : ''}${isFloor(ctx.me()) ? `<button class="btn" data-act="ops-bd-new">${icon('sliders')}Report a breakdown</button>` : ''}`;
+  };
 
   // ---------- Insights, reminders, badges ----------
   function insights() {
@@ -631,7 +660,7 @@ window.AllurusOps = (function () {
     const out = [];
     if (can() && canFinance() && toInvoice().length) out.push({ tone: 'warn', icon: 'doc', title: `${toInvoice().length} deliver${toInvoice().length === 1 ? 'y' : 'ies'} to invoice`, detail: 'Delivered by the drivers; the invoices and any cash collected go to Finance.', action: { label: 'Invoice now', act: 'ops-invoice-all' }, prio: 3 });
     if (can()) {
-      const lv = levels(), lowFree = lv.filter((x) => x.low && !x.onOrder), down = ops().machines.filter(isDown), over = ops().machines.filter((m) => O.pmStatus(m, T()).status === 'Overdue'), hold = ops().batches.filter((b) => b.qc === 'Hold'), drafts = ops().pos.filter((p) => p.status === 'Draft' && p.by !== actor());
+      const lv = levels(), lowFree = lv.filter((x) => x.low && !x.onOrder && !drafted(x.id)), down = ops().machines.filter(isDown), over = ops().machines.filter((m) => O.pmStatus(m, T()).status === 'Overdue'), hold = ops().batches.filter((b) => b.qc === 'Hold'), drafts = ops().pos.filter((p) => p.status === 'Draft' && p.by !== actor());
       if (down.length && inScope('machines')) out.push({ tone: 'bad', icon: 'sliders', title: `${down.map((m) => m.name).join(', ')} ${down.length === 1 ? 'is' : 'are'} down`, detail: ops().breakdowns.filter((b) => b.status !== 'Fixed').map((b) => b.problem).slice(0, 1).join(''), action: { label: 'Open', href: '#ops-machines' }, prio: 3 });
       if (lowFree.length && inScope('stock')) out.push({ tone: 'warn', icon: 'box', title: `${lowFree.length} item${lowFree.length === 1 ? '' : 's'} below reorder level with nothing on order`, detail: lowFree.map((x) => x.name).join(', '), action: { label: 'Make PO', act: 'ops-po-new', id: lowFree[0].id }, prio: 2 });
       if (drafts.length && inScope('stock')) out.push({ tone: 'info', icon: 'box', title: `${drafts.length} purchase order${drafts.length === 1 ? '' : 's'} to approve`, detail: drafts.map((p) => `${p.no} (${money(O.poTotal(p))})`).join(', '), action: { label: 'Review', act: 'ops-po-open', id: drafts[0].id }, prio: 2 });
@@ -663,11 +692,16 @@ window.AllurusOps = (function () {
   // Which Operations pages a person sees, and the page a driver opens on a phone.
   const ROUTE_TAB = { 'ops-stock': 'stock', 'ops-production': 'production', 'ops-sales': 'sales', 'ops-machines': 'machines' };
   const routeAllowed = (id) => {
+    // Someone limited to part of Operations (a storekeeper, a supervisor) has no company dashboard or guide.
+    if (scope() && ctx.role() === 'admin' && ['dashboard', 'guide'].includes(id)) return false;
     if (!/^(ops-|my-deliveries|my-machines)/.test(id)) return true;
     if (!has()) return false;
     if (id === 'my-deliveries') return ops().dos.some((d) => d.driverId === ctx.me()?.id || d.helperId === ctx.me()?.id);
     if (id === 'my-machines') return true;
     if (id === 'ops-today') return !scope();
+    // Production and sales need products; a trading company has neither.
+    if (['ops-production', 'ops-sales'].includes(id) && !ops().products.length) return false;
+    if (id === 'ops-machines' && !ops().machines.length) return false;
     return !ROUTE_TAB[id] || inScope(ROUTE_TAB[id]);
   };
   const landing = (role) => (has() && role === 'employee' && myDOs(ctx.me()?.id).length ? 'my-deliveries' : '');
@@ -675,6 +709,13 @@ window.AllurusOps = (function () {
   function install(c) {
     ctx = c;
     Object.assign(ctx.VIEWS, { 'ops-today': todayView, 'ops-stock': stockView, 'ops-production': prodView, 'ops-sales': salesView, 'ops-machines': machView, 'my-deliveries': myDeliveries, 'my-machines': myMachines });
+    // A link to one purchase order (#ops-stock?po=<id>, from the store's notification) opens it.
+    ctx.AFTER['ops-stock'] = () => {
+      const id = /[?&]po=([^&]+)/.exec(location.hash)?.[1];
+      if (!id) return;
+      history.replaceState(null, '', `${location.pathname}${location.search}#ops-stock`);
+      if (ops().pos.some((p) => p.id === id)) poOpen(id);
+    };
     ctx.AFTER['ops-sales'] = () => ctx.$('#ops-day')?.addEventListener('change', (ev) => { if (ev.target.value) { ui.day = ev.target.value; ctx.render(); } });
     const tab = (k) => (_, v) => { ui[k] = v; ctx.render(); };
     const po = (id) => ops().pos.find((x) => x.id === id);
@@ -685,9 +726,13 @@ window.AllurusOps = (function () {
       'ops-po-open': (id) => poOpen(id),
       'ops-po-approve': (id) => {
         const p = po(id);
-        if (p.by === actor()) { ctx.toast('Someone else must approve a purchase order you raised', 'error'); return; }
+        // Someone else approves, except the owner, who signs off their own purchases.
+        if (p.by === actor() && Array.isArray(ctx.account()?.perms)) { ctx.toast('Someone else must approve a purchase order you raised', 'error'); return; }
         Object.assign(p, { status: 'Approved', approvedBy: actor(), approvedOn: T() });
-        ctx.closeOverlay(); ctx.commit(`${p.no} approved`, `Purchase order ${p.no} approved`);
+        // The store hears at once what has been bought and when it arrives, with a link to the order.
+        const to = storePeople().filter((x) => x !== actor());
+        notify('ops.incoming', { no: p.no, vendor: contact(p.vendorId)?.name || '', items: p.lines.map((l) => `${qty(l.qty)} ${item(l.itemId)?.unit || ''} ${item(l.itemId)?.name.toLowerCase() || ''}`).join(', '), expected: U.fmtDate(p.expected, { weekday: 'short', day: 'numeric', month: 'short' }), href: `#ops-stock?po=${p.id}` }, to, { from: actor() });
+        ctx.closeOverlay(); ctx.commit(`${p.no} approved${to.length ? `; the store has been told (${to.map(first).join(', ')})` : ''}`, `Purchase order ${p.no} approved`);
       },
       'ops-po-send': (id) => { const p = po(id); Object.assign(p, { status: 'Sent', sentOn: T() }); ctx.commit(`${p.no} sent to ${contact(p.vendorId)?.name || 'the vendor'}`); },
       'ops-po-receive': (id) => receiveModal(id),
