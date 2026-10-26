@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
-use App\Models\{DeliveryMenuMapping, DeliveryOrder, Modifier, PriceOverride, Product, ProductVariant, Staff, StaffCredential, SyncChange};
+use App\Models\{DeliveryMenuMapping, DeliveryOrder, KitchenTicket, Modifier, PriceOverride, Printer, PrintJob, Product, ProductVariant, Staff, StaffCredential, SyncChange, Terminal};
 use App\Tenancy\TenantContext;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +18,13 @@ class SyncPullController
         'staff_credential' => StaffCredential::class,   // offline sign-in permissions + revocations; no secrets
         'delivery_order' => DeliveryOrder::class,       // safety net behind the real-time push; raw_payload $hidden
         'delivery_menu_mapping' => DeliveryMenuMapping::class,
+        'kitchen_ticket' => KitchenTicket::class,
+        'print_job'      => PrintJob::class,
+        'printer'        => Printer::class,
     ];
+
+    /** A KDS screen or print node sees the kitchen and nothing else: no staff, catalogue or orders. */
+    private const KITCHEN_ENTITIES = ['kitchen_ticket', 'print_job', 'printer'];
 
     public function __invoke(Request $request)
     {
@@ -40,6 +46,7 @@ class SyncPullController
         $changes = SyncChange::query()
             ->where('seq', '>', $cursor)
             ->where(fn ($q) => $q->whereNull('outlet_id')->orWhere('outlet_id', $terminal->outlet_id))
+            ->when($terminal->kind === Terminal::KIND_KITCHEN, fn ($q) => $q->whereIn('entity', self::KITCHEN_ENTITIES))
             ->orderBy('seq')
             ->limit($limit + 1)
             ->get();

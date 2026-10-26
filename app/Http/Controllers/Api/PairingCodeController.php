@@ -17,7 +17,7 @@ class PairingCodeController
     {
         /** @var Staff $staff */
         $staff = $request->attributes->get('staff');
-        $data = $request->validate(['outlet_id' => ['nullable', 'uuid']]);
+        $data = $request->validate(['outlet_id' => ['nullable', 'uuid'], 'kind' => ['nullable', 'in:terminal,kitchen']]);
 
         $outletId = $data['outlet_id'] ?? $request->user()->outlet_id;
         if ($staff->role === 'manager' && $staff->outlet_id !== null && $outletId !== $staff->outlet_id) {
@@ -26,10 +26,12 @@ class PairingCodeController
 
         // TenantScope: another tenant's outlet id simply isn't found
         $outlet = Outlet::find($outletId) ?? abort(404, 'Unknown outlet.');
-        $issued = $pairing->issue($outlet, $staff->id);
+        $kind = $data['kind'] ?? 'terminal';
+        $issued = $pairing->issue($outlet, $staff->id, $kind);
 
         return response()->json([
             'code'       => $issued['code'],
+            'kind'       => $kind,
             'outlet_id'  => $outlet->id,
             'expires_at' => $issued['expires_at']->toIso8601String(),
         ], 201);

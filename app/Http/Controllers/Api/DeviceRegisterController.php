@@ -20,7 +20,10 @@ class DeviceRegisterController
 
         // Refuse rooted / jailbroken / emulated devices before they get a token.
         // Checked before the code, so a refused device doesn't burn the pairing code.
-        if (Attestation::required()) {
+        // Kitchen devices (a print node may be a Raspberry Pi, which can't attest) are exempt
+        // unless pos.attestation.kitchen_required: they hold no sales, cash or credentials.
+        $kitchen = $pairing->kindOf($data['code']) === 'kitchen';
+        if (Attestation::required() && (! $kitchen || config('pos.attestation.kitchen_required'))) {
             $att = Attestation::check($data['attestation'] ?? null);
             if (! $att->passed) {
                 return response()->json(['error' => 'attestation_failed', 'reason' => $att->reason], 422);
@@ -35,7 +38,7 @@ class DeviceRegisterController
 
         return response()->json([
             'token'    => $token,   // shown once; store it in the device keystore
-            'terminal' => ['id' => $t->id, 'name' => $t->name, 'tenant_id' => $t->tenant_id, 'outlet_id' => $t->outlet_id],
+            'terminal' => ['id' => $t->id, 'name' => $t->name, 'kind' => $t->kind, 'tenant_id' => $t->tenant_id, 'outlet_id' => $t->outlet_id],
             'next'     => ['pull' => '/api/v1/sync/pull?cursor=0'],
         ], 201);
     }

@@ -79,6 +79,38 @@ final class Hq
         });
     }
 
+    /**
+     * A kitchen for $world's outlet: one kitchen printer, a one-time code for its print node,
+     * and a delivery store (fixture provider) that auto-accepts, with three items mapped.
+     *
+     * @return array{printer_id: string, code: string, store_id: string, secret: string, items: list<array{id: string, name: string, price_sen: int}>}
+     */
+    public static function kitchen(World $world): array
+    {
+        self::enter($world->tenantId);
+
+        return self::write(function () use ($world) {
+            $outlet = Outlet::findOrFail($world->outletId);
+            $printer = \App\Models\Printer::create(['outlet_id' => $outlet->id, 'name' => 'Kitchen', 'role' => 'kitchen',
+                'connection' => ['type' => 'tcp', 'host' => '192.168.1.50', 'port' => 9100]]);
+            $code = app(PairingService::class)->issue($outlet, kind: 'kitchen')['code'];
+
+            $storeId = 'sim-store-'.Str::lower(Str::random(8));
+            $secret = 'whsec_sim_'.Str::random(16);
+            $c = \App\Models\DeliveryConnection::create(['outlet_id' => $outlet->id, 'provider' => 'fixture', 'external_store_id' => $storeId,
+                'webhook_secret' => $secret, 'credentials' => [], 'status' => 'active', 'auto_accept' => true]);
+            $items = [];
+            foreach (array_slice($world->variantIds, 0, 3) as $i => $vid) {
+                $price = 600 + 100 * $i;
+                \App\Models\DeliveryMenuMapping::create(['outlet_id' => $outlet->id, 'connection_id' => $c->id, 'variant_id' => $vid,
+                    'external_item_id' => "ext-{$i}", 'price_sen' => $price]);
+                $items[] = ['id' => "ext-{$i}", 'name' => 'Product '.($i + 1), 'price_sen' => $price];
+            }
+
+            return ['printer_id' => $printer->id, 'code' => $code, 'store_id' => $storeId, 'secret' => $secret, 'items' => $items];
+        });
+    }
+
     public const CASHIER_PIN = '2222';
     public const MANAGER_PIN = '111111';
     public const SNOOKER_RATE = ['rate_sen' => 1500, 'unit_minutes' => 60, 'min_minutes' => 30, 'round_to' => 15, 'round' => 'up'];

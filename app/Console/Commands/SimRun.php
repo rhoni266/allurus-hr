@@ -51,6 +51,9 @@ class SimRun extends Command
             'POS_PAIRING_PER_MINUTE' => '1000',   // every scenario pairs devices from 127.0.0.1
             // production policy (refuse unattested devices), with the dev verdict signer
             'POS_ATTESTATION_REQUIRED' => 'true', 'POS_ATTESTATION_ANDROID' => 'dev', 'POS_ATTESTATION_IOS' => 'dev',
+            // webhooks processed in the request (no worker); no Reverb running: kitchen devices pull
+            'QUEUE_CONNECTION' => 'sync', 'BROADCAST_CONNECTION' => 'log',
+            'POS_KITCHEN_PRESENCE_SECONDS' => '2',   // so print-node can let the kitchen go quiet quickly
         ]);
         $this->info("Starting {$this->option('servers')} API servers from port {$this->option('port')} ...");
         $pool->start();

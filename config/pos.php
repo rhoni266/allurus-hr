@@ -9,6 +9,9 @@ return [
     // issued to attested devices. Defaults are production-safe: required, real drivers.
     'attestation' => [
         'required' => (bool) env('POS_ATTESTATION_REQUIRED', true),
+        // Kitchen devices (KDS, print nodes) hold no sales, cash or credentials, and a print
+        // node may be a board that can't attest, so by default they pair without it.
+        'kitchen_required' => (bool) env('POS_ATTESTATION_KITCHEN_REQUIRED', false),
         'android'  => env('POS_ATTESTATION_ANDROID', 'play_integrity'),   // play_integrity | dev
         'ios'      => env('POS_ATTESTATION_IOS', 'app_attest'),           // app_attest | dev
         'challenge_ttl_seconds' => 300,
@@ -20,5 +23,14 @@ return [
             'access_token' => env('POS_PLAY_INTEGRITY_ACCESS_TOKEN'),
             'max_age_seconds' => 300,
         ],
+    ],
+
+    // Kitchen (docs/web-ordering-and-auto-accept.md).
+    'kitchen' => [
+        // A kitchen device counts as listening if it heartbeat within this many seconds.
+        'presence_seconds' => (int) env('POS_KITCHEN_PRESENCE_SECONDS', 60),
+        // A terminal sale sent to the kitchen that reaches the server later than this
+        // (device time) gets a 'late' ticket: recorded, not printed, flagged.
+        'fresh_seconds' => (int) env('POS_KITCHEN_FRESH_SECONDS', 900),
     ],
 ];

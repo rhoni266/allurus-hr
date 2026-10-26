@@ -5,58 +5,6 @@ use App\Models\{DeliveryConnection, DeliveryMenuMapping, DeliveryModifierMapping
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
-const SECRET = 'whsec_test_0123456789';
-
-/** A recorded fixture payload for $w's store, optionally edited. */
-function deliveryPayload(object $w, string $name = 'order_created', ?callable $edit = null): array
-{
-    $p = json_decode(str_replace('{{STORE_ID}}', $w->storeId, file_get_contents(__DIR__."/../../Fixtures/delivery/fixture/{$name}.json")), true);
-
-    return $edit ? $edit($p) : $p;
-}
-
-/** POST it as the platform would: raw JSON body, HMAC over exactly those bytes. */
-function deliver(array|string $payload, ?string $secret = SECRET, string $provider = 'fixture'): \Illuminate\Testing\TestResponse
-{
-    $raw = is_string($payload) ? $payload : json_encode($payload);
-    app('auth')->forgetGuards();
-    test()->flushHeaders();
-
-    return test()->call('POST', "/api/v1/webhooks/delivery/{$provider}", server: array_filter([
-        'CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json',
-        'HTTP_X_FIXTURE_SIGNATURE' => $secret === null ? null : hash_hmac('sha256', $raw, $secret),
-    ]), content: $raw);
-}
-
-/** A tenant with a connected store, a mapped kopi (+ modifier) and a mapped teh. */
-function deliveryWorld(): object
-{
-    $w = world();
-    seedStock($w, 10_000);
-    TaxRule::firstOrCreate(['code' => 'SST_SERVICE_FNB', 'version' => 1],
-        ['rate_bps' => 600, 'effective_from' => '2018-09-01', 'description' => 'test', 'source' => 'test']);
-    TaxRule::firstOrCreate(['code' => 'EXEMPT', 'version' => 1],
-        ['rate_bps' => 0, 'effective_from' => '2018-09-01', 'description' => 'test', 'source' => 'test']);
-
-    asTenant($w->tenant->id);
-    $w->product->update(['tax_code' => 'SST_SERVICE_FNB']);
-    $w->teh = ProductVariant::create(['product_id' => $w->product->id, 'sku' => 'TEH-'.Str::random(4), 'base_price_sen' => 420])->refresh();
-    DB::table('stock_levels')->insert(['tenant_id' => $w->tenant->id, 'outlet_id' => $w->outlet->id, 'variant_id' => $w->teh->id, 'on_hand_milli' => 10_000]);
-    $w->storeId = 'store-'.Str::random(8);
-    $w->connection = DeliveryConnection::create([
-        'outlet_id' => $w->outlet->id, 'provider' => 'fixture', 'external_store_id' => $w->storeId,
-        'webhook_secret' => SECRET, 'credentials' => ['api_key' => 'k_live_secret'], 'status' => 'active',
-    ]);
-    $w->kopiMap = DeliveryMenuMapping::create(['outlet_id' => $w->outlet->id, 'connection_id' => $w->connection->id,
-        'variant_id' => $w->variant->id, 'external_item_id' => 'ext-kopi', 'markup_bps' => 2000]);
-    DeliveryMenuMapping::create(['outlet_id' => $w->outlet->id, 'connection_id' => $w->connection->id,
-        'variant_id' => $w->teh->id, 'external_item_id' => 'ext-teh', 'price_sen' => 500]);
-    $mod = Modifier::create(['modifier_group_id' => (string) Str::uuid7(), 'name' => 'Extra shot', 'price_delta_sen' => 150]);
-    DeliveryModifierMapping::create(['connection_id' => $w->connection->id, 'modifier_id' => $mod->id, 'external_modifier_id' => 'ext-extra-shot']);
-
-    return $w;
-}
-
 beforeEach(fn () => $this->w = deliveryWorld());
 
 describe('webhook security', function () {

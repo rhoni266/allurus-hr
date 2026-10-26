@@ -4,6 +4,7 @@ namespace App\Sync\Handlers;
 
 use App\Models\{OfflineSyncQueue, Order, OrderItem, Payment, ProductVariant, StockMovement, SyncConflict};
 use App\Database\Timestamps;
+use App\Kitchen\Kitchen;
 use App\Pricing\PriceResolver;
 use App\Sync\{Facts, MutationHandler, MutationRejected, Outcome, StockLedger};
 use App\Tenancy\TenantContext;
@@ -139,6 +140,21 @@ class OrderCreateHandler implements MutationHandler
             }
         }
 
+        // Kitchen: only when the till asked for it. A sale that reaches us long after it was
+        // rung up (the outlet was offline) is recorded as a 'late' ticket, never printed: the
+        // kitchen would be cooking a meal that was served, or abandoned, hours ago.
+        if ($o['send_to_kitchen'] ?? false) {
+            $late = $occurredAt->lt(now()->subSeconds(config('pos.kitchen.fresh_seconds')));
+            Kitchen::fire($order, 'terminal', $o['receipt_no'], array_map(fn ($i) => [
+                'name' => $i['name'], 'qty_milli' => $i['qty_milli'], 'notes' => $i['kitchen_notes'] ?? null,
+                'modifiers' => array_values(array_filter(array_map(fn ($m) => is_array($m) ? ($m['name'] ?? null) : null, $i['modifiers'] ?? []))),
+            ], $p['items']), $o['kitchen_notes'] ?? null, $late);
+            if ($late) {
+                $conflicts[] = ['kind' => 'kitchen_ticket_late', 'detail' => ['order_id' => $order->id,
+                    'occurred_at' => $occurredAt->toIso8601String(), 'received_at' => now()->toIso8601String()]];
+            }
+        }
+
         foreach ($conflicts as $c) {
             SyncConflict::create(['queue_id' => $queue->id, 'kind' => $c['kind'], 'detail' => $c['detail']]);
         }
@@ -171,6 +187,9 @@ class OrderCreateHandler implements MutationHandler
             'items.*.net_sen'          => ['nullable', 'integer', 'min:0'],
             'items.*.tax_code'         => ['nullable', 'string', 'max:32'],
             'order.tender'             => ['nullable', 'string', 'max:16'],
+            'order.send_to_kitchen'    => ['sometimes', 'boolean'],
+            'order.kitchen_notes'      => ['nullable', 'string', 'max:500'],
+            'items.*.kitchen_notes'    => ['nullable', 'string', 'max:255'],
             'payments'                 => ['present', 'array'],
             'payments.*.id'            => ['required', 'uuid', 'distinct'],
             'payments.*.method'        => ['required', 'string', 'max:32'],

@@ -46,7 +46,7 @@ Multi-tenant, offline-first, omnichannel POS for the Malaysian market (F&B, reta
 
 | Type | Fact written | Flags (never rejections) |
 |---|---|---|
-| `order.create` | order, items, payments, `sale` movements | `price_mismatch`, `product_deleted`, `negative_stock`, `offline_noncash_payment`, `unknown_staff` |
+| `order.create` | order, items, payments, `sale` movements; a kitchen ticket if `order.send_to_kitchen` | `price_mismatch`, `product_deleted`, `negative_stock`, `offline_noncash_payment`, `unknown_staff`, `kitchen_ticket_late` |
 | `order.void` | `order_voids` row, `void` movements returning the stock, negative `reversed` payments; `orders.status = 'void'` is a projection | `unauthorized_void` (not owner/manager), `duplicate_void` (second void is a no-op) |
 | `payment.add` | payment; order becomes `paid` once covered | `overpaid`, `payment_on_void_order`, `offline_noncash_payment` |
 | `stock.adjust` | one signed movement (`waste`, `adjust`, `transfer_in`, `transfer_out`); never an absolute count | `unauthorized_adjustment` (non-waste by non-manager), `negative_stock`, `product_deleted` |
@@ -62,6 +62,15 @@ All stock changes go through `App\Sync\StockLedger::move()`; order lookups throu
 * Everything provider-specific is one `App\Delivery\Contracts\DeliveryProvider` class, registered in `AppServiceProvider`. `FixtureProvider` is for tests/local only and is not registered in production.
 * Delivery orders never get dropped: gaps become `delivery_orders.attention_reasons`. `orders` keeps our pricing identity (engine-priced, tender `card`); the platform's figures stay on `delivery_orders`.
 * Cloud orders have no terminal or cashier (`orders.terminal_id` / `staff_id` nullable).
+* **Auto-accept needs a listening kitchen**: `delivery_connections.auto_accept` **and** `KitchenPresence::isListening()` (a kitchen device at the outlet heartbeat within `pos.kitchen.presence_seconds` and reported a live KDS or an ok kitchen printer). Otherwise the order stays `received`, flagged `auto_accept_skipped`. An accept also queues a `delivery_status_outbox` row, since the platform only knows what we tell it (sending it is week 3).
+
+### Kitchen (`docs/web-ordering-and-auto-accept.md` §7)
+
+* **Rows are the delivery, the WebSocket is a doorbell.** `kitchen_tickets` (one per order) and `print_jobs` (one per active kitchen printer) are feed rows. `KitchenTicketChanged` on `private-outlet.{id}.kitchen` carries only the ticket id and is sent after commit inside `rescue()`; devices render from what they pull and pull on reconnect. Never put order data in the broadcast or let a broadcast failure fail an order.
+* Everything goes through `App\Kitchen\Kitchen::fire()` / `cancel()`. `Voids::apply` cancels the ticket (CANCELLED slip).
+* Kitchen devices (KDS, print nodes) pair with a `kind=kitchen` code (`pos:pairing-code … --kind=kitchen`, or `kind` on `devices/pairing-codes`), get only `pos:kitchen`, can't push or sign staff in, pull only kitchen entities, and skip attestation unless `pos.attestation.kitchen_required`.
+* Print nodes ack each job (`kitchen/print-jobs/{id}/ack`, idempotent; a late `failed` can't undo `printed`). A power cut mid-print is reported `failed: print_uncertain` and never reprinted automatically.
+* Channel auth is `POST /api/v1/broadcasting/auth` with the device token, after `ResolveTenant` and `EnsureDeviceActive` (`routes/channels.php`).
 
 ## Commands
 
@@ -70,7 +79,8 @@ php spec/pricing/run.php              # pricing vectors, no framework needed
 php spec/time-billing/run.php         # time-billing vectors
 php artisan test                      # Pest suite (needs Postgres, see below)
 php artisan migrate:fresh --seed --seeder=DemoSeeder   # demo data (never in production)
-php artisan sim:run                   # 15 chaos scenarios against real API server processes
+php artisan sim:run                   # 18 chaos scenarios against real API server processes
+php artisan reverb:start              # the kitchen doorbell, locally (tests and the simulator don't need it)
 php artisan sim:run crash-mid-sync --orders=5000
 ./vendor/bin/pint                     # code style
 ```
@@ -103,10 +113,13 @@ app/Devices/Attestation/        Attestation (challenge + check), PlayIntegrity, 
 app/Sync/OfflineAuth.php        flags for mutations signed in offline
 app/Delivery/                   DeliveryProvider contract, DTOs, ProviderRegistry, DeliveryOrderIngestor, Providers/FixtureProvider
 app/Jobs/ProcessDeliveryEvent   queue "delivery"; enters the tenant, ingests or cancels
+app/Kitchen/                    Kitchen (fire / cancel), KitchenPresence, KitchenTicketChanged (the doorbell)
+routes/channels.php             private broadcast channels (outlet.{id}.kitchen)
+app/Simulator/PrintNode.php     reference print node (+ Paper, NodeCrashed)
 tests/Fixtures/delivery/        one recorded payload per provider and event type
 app/Http/Controllers/Api/       SyncPull, SyncPush, DeviceRegister, PairingCode, DeviceAdmin, DeviceSelf, StaffAuth
 app/Http/Middleware/            ResolveTenant (after auth:sanctum), EnsureDeviceActive, RequireStaffSession (alias `staff`)
-docs/                           offline-pin-signin.md (decided: option C), delivery-integration.md (week 1 built)
+docs/                           offline-pin-signin.md (decided: option C), delivery-integration.md (week 1 built), web-ordering-and-auto-accept.md (step 1 built)
 config/pos.php                  pairing rate limit, attestation (POS_ATTESTATION_*)
 app/Simulator/                  reference terminal: LocalStore (SQLite outbox), SyncClient, Chaos, Scenarios
 app/Console/Commands/           sim:run, sim:terminal, sim:churn, pos:pairing-code, pos:unpair, pos:staff-pin
@@ -148,7 +161,8 @@ Done (branch `allurus-pos` on rhoni266/allurus-hr):
 
 Known gaps:
 
-* Delivery integration week 1 done (fixture provider; 240 Pest tests). Weeks 2–5 (Reverb push + KDS, status outbox, menu sync, real adapter) not started; week 2 needs KDS and Reverb first. Real adapters need partner sandbox access.
+* Delivery integration week 1 done (fixture provider). Kitchen step 1 done (261 Pest tests; `print-node` scenario): tickets, print jobs, kitchen devices, presence-gated auto-accept, Reverb doorbell. Not yet: stations, KDS bump/status mutations, reprint, unprinted-job alerts, manual accept/reject and the status outbox sender (delivery week 3), menu sync, real adapters (need partner sandbox access), BYOD and table-QR web ordering (design steps 3–4).
+* Installing Reverb downgraded Guzzle 8 → 7 (Reverb 1.12 needs `guzzlehttp/psr7` 2.x).
 * `order.refund` and `stock.count` done (`refunds` and `stocktake` scenarios pass). In one full `sim:run`, `crash-mid-sync` hung on a terminal subprocess (600 s timeout); it passes alone. Not yet investigated.
 * Sessions are only synced when they end; a running session isn't visible to HQ or other terminals yet.
 * A void or payment waiting on another terminal's order gives up after 72 h of *device* time; a badly skewed clock shifts that deadline.

@@ -2,6 +2,7 @@
 
 namespace App\Sync;
 
+use App\Kitchen\Kitchen;
 use App\Models\{Order, OrderVoid, Payment, StockMovement};
 use App\Tenancy\TenantContext;
 use Carbon\CarbonImmutable;
@@ -41,6 +42,9 @@ final class Voids
                 $reversed += $net;
             }
         }
+
+        // stop the kitchen: a fired ticket is cancelled and a CANCELLED slip printed
+        Kitchen::cancel($order->id);
 
         return $reversed;
     }

@@ -22,7 +22,11 @@ class Terminal extends Authenticatable
         'retire_requested_at' => 'immutable_datetime', 'revoked_at' => 'immutable_datetime',
         'wipe_requested_at' => 'immutable_datetime', 'wipe_confirmed_at' => 'immutable_datetime',
         'outbox_pending' => 'integer',
+        'last_heartbeat_at' => 'immutable_datetime', 'heartbeat' => 'array',
     ];
+
+    public const KIND_TERMINAL = 'terminal';
+    public const KIND_KITCHEN = 'kitchen';   // KDS screen or print node: pos:kitchen, no sales
 
     public const ACTIVE = 'active';
     public const RETIRING = 'retiring';

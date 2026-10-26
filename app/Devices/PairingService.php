@@ -13,19 +13,26 @@ use Illuminate\Support\Str;
  *  1. a manager (CLI/HQ, or an owner/manager signed in on a paired terminal) issues a
  *     one-time code for an outlet;
  *  2. the new device redeems it once, within the TTL, and receives a Sanctum token with
- *     the single ability `pos:terminal`. The tenant comes from the code, never the device.
+ *     one ability: `pos:terminal` for a till, `pos:kitchen` for a KDS screen or print node
+ *     (the code's kind decides). The tenant comes from the code, never the device.
  */
 final class PairingService
 {
     public const TTL_MINUTES = 15;
+
+    /** device kind => the one Sanctum ability its token gets */
+    public const ABILITIES = ['terminal' => 'pos:terminal', 'kitchen' => 'pos:kitchen'];
 
     // No 0/O, 1/I/L: codes get read aloud and typed on a tablet.
     private const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
     private const LENGTH = 8;   // 31^8 ~ 8.5e11; with the TTL and the rate limit, not guessable
 
     /** @return array{code: string, expires_at: CarbonImmutable, id: string} plaintext code, shown once */
-    public function issue(Outlet $outlet, ?string $issuedByStaffId = null): array
+    public function issue(Outlet $outlet, ?string $issuedByStaffId = null, string $kind = 'terminal'): array
     {
+        if (! isset(self::ABILITIES[$kind])) {
+            throw new \InvalidArgumentException("Unknown device kind {$kind}");
+        }
         $code = '';
         for ($i = 0; $i < self::LENGTH; $i++) {
             $code .= self::ALPHABET[random_int(0, strlen(self::ALPHABET) - 1)];
@@ -38,6 +45,7 @@ final class PairingService
             'code_hash' => self::hash($code),
             'expires_at' => CarbonImmutable::now()->addMinutes(self::TTL_MINUTES),
             'issued_by_staff_id' => $issuedByStaffId,
+            'kind' => $kind,
         ]);
 
         return ['code' => substr($code, 0, 4).'-'.substr($code, 4), 'expires_at' => $row->expires_at, 'id' => $row->id];
@@ -72,27 +80,39 @@ final class PairingService
                     $terminal->tokens()->delete();
                     StaffSession::where('terminal_id', $terminal->id)->whereNull('revoked_at')->update(['revoked_at' => now()]);
                     $terminal->forceFill([
-                        'outlet_id' => $row->outlet_id, 'name' => $name ?? $terminal->name, 'paired_at' => now(),
+                        'outlet_id' => $row->outlet_id, 'name' => $name ?? $terminal->name, 'paired_at' => now(), 'kind' => $row->kind,
                         // a retired / revoked / wiped device comes back as a fresh one
                         'status' => Terminal::ACTIVE, 'retire_requested_at' => null, 'revoked_at' => null,
                         'wipe_requested_at' => null, 'wipe_confirmed_at' => null, 'revoked_by_staff_id' => null,
-                        'revoke_reason' => null, 'outbox_pending' => null,
+                        'revoke_reason' => null, 'outbox_pending' => null, 'last_heartbeat_at' => null, 'heartbeat' => null,
                     ])->save();
                 } else {
                     $terminal = Terminal::create([
                         'tenant_id' => $row->tenant_id, 'outlet_id' => $row->outlet_id,
-                        'name' => $name ?? 'Terminal', 'device_fingerprint' => $fingerprint, 'paired_at' => now(),
+                        'name' => $name ?? 'Terminal', 'device_fingerprint' => $fingerprint, 'paired_at' => now(), 'kind' => $row->kind,
                     ]);
                 }
 
                 $row->forceFill(['used_at' => now(), 'used_by_terminal_id' => $terminal->id])->save();
-                $token = $terminal->createToken('device', ['pos:terminal'])->plainTextToken;
+                $token = $terminal->createToken('device', [self::ABILITIES[$row->kind]])->plainTextToken;
             } finally {
                 TenantContext::clear();
             }
 
             return ['terminal' => $terminal, 'token' => $token];
         });
+    }
+
+    /**
+     * The kind of device a code would pair, without redeeming it (null if it isn't
+     * redeemable). Lets registration decide whether attestation applies before it burns
+     * the code.
+     */
+    public function kindOf(string $code): ?string
+    {
+        $row = DevicePairingCode::where('code_hash', self::hash($code))->first();
+
+        return $row && $row->used_at === null && ! $row->expires_at->isPast() ? $row->kind : null;
     }
 
     /** Case, spaces and dashes don't matter: "abcd efgh" == "ABCD-EFGH". */

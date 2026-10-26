@@ -2,7 +2,7 @@
 
 Addendum to `allurus-pos-architecture.md`. Goal: no more "tablet hell". A delivery order reaches the cloud, becomes a normal Allurus order, and appears on the terminal and KDS within seconds; kitchen status flows back to the platform.
 
-Status: **week 1 built** against a fixture provider (schema, provider contract, webhook, ingestion, cancellation). Weeks 2–5 below are not started. This is the original addendum, corrected to match the codebase; the corrections are listed at the end.
+Status: **week 1 built** against a fixture provider (schema, provider contract, webhook, ingestion, cancellation). **Week 2's kitchen half is built** (auto-accept gated on kitchen presence, kitchen tickets, print jobs, Reverb doorbell: `docs/web-ordering-and-auto-accept.md` §7); the terminal "new order" UI and weeks 3–5 are not started. This is the original addendum, corrected to match the codebase; the corrections are listed at the end.
 
 > **Verify before building adapters.** No platform's current API, partner terms, fees or Malaysian availability has been checked. Grab, Foodpanda and ShopeeFood APIs are partner-gated; aggregators (Deliverect, Klikit, Otter) have their own onboarding. Partner/sandbox access is the critical path, not engineering.
 

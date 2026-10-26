@@ -13,10 +13,12 @@ use Illuminate\Support\Facades\DB;
  *
  *   php artisan pos:pairing-code demo-cafe            # lists outlets
  *   php artisan pos:pairing-code demo-cafe <outlet-id>
+ *   php artisan pos:pairing-code demo-cafe <outlet-id> --kind=kitchen
  */
 class PosPairingCode extends Command
 {
-    protected $signature = 'pos:pairing-code {tenant : tenant slug} {outlet? : outlet id}';
+    protected $signature = 'pos:pairing-code {tenant : tenant slug} {outlet? : outlet id}
+        {--kind=terminal : terminal, or kitchen (KDS screen / print node)}';
 
     protected $description = 'Issue a one-time code to pair a POS device with an outlet';
 
@@ -44,8 +46,12 @@ class PosPairingCode extends Command
                 return self::FAILURE;
             }
 
-            $issued = $pairing->issue($outlet);
-            $this->info("Pairing code for {$outlet->name}: {$issued['code']}");
+            if (! in_array($kind = $this->option('kind'), ['terminal', 'kitchen'], true)) {
+                $this->error('--kind must be terminal or kitchen.');
+                return self::FAILURE;
+            }
+            $issued = $pairing->issue($outlet, kind: $kind);
+            $this->info("Pairing code for {$outlet->name}: {$issued['code']}".($kind === 'kitchen' ? ' (kitchen device)' : ''));
             $this->line('Valid once, until '.$issued['expires_at']->toDateTimeString().' UTC.');
 
             return self::SUCCESS;

@@ -17,6 +17,7 @@ final class Scenarios
         'stale-price', 'concurrent-terminals', 'duplicate-race', 'cursor-race',
         'void-storm', 'open-tabs', 'stock-adjust', 'snooker-sessions',
         'lost-device', 'retire-device', 'offline-signin', 'refunds', 'stocktake',
+        'print-node',
     ];
 
     public function __construct(
@@ -617,6 +618,124 @@ final class Scenarios
             ->check("T1's pre-count sales were absorbed, post-count ones were not", $absorbed === $t1PreLines && $absorbedOnlyPre,
                 "{$absorbed} absorbed, {$t1PreLines} pre-count lines".($absorbedOnlyPre ? '' : ', some post-count!'))
             ->salesLedger(stock: false);
+    }
+
+    /**
+     * Zero-touch kitchen. A print node pairs over HTTP without attestation (kitchen devices
+     * are exempt, even with attestation required). The till sends 40 sales to the kitchen;
+     * 18 delivery orders arrive by webhook and are auto-accepted because the node is
+     * heartbeating. The node prints while being power-cut at each dangerous point (after
+     * marking a job, after printing it, before acking) and losing 30% of its ack responses.
+     * There is no Reverb here, so it never hears a doorbell: everything arrives by pull.
+     * Then the node goes quiet and 5 more orders arrive, which must not be accepted.
+     *
+     * Every job must print exactly once, or (power cut mid-print) be reported
+     * print_uncertain for a person to check. Nothing may print twice or vanish.
+     */
+    private function printNode(string $name): Verifier
+    {
+        $world = $this->world($name);
+        $k = Hq::kitchen($world);
+        $url = $this->pool->url(0);
+        $dir = dirname($this->worldPath($name));
+
+        $reg = Http::baseUrl($url)->acceptJson()->post('/api/v1/devices/register',
+            ['code' => $k['code'], 'device_fingerprint' => "sim:{$world->tenantId}:node", 'name' => 'Print node']);
+        if ($reg->status() !== 201) {
+            throw new \RuntimeException("print node pairing failed: HTTP {$reg->status()} ".$reg->body());
+        }
+        foreach (['node.sqlite', 'node.sqlite-wal', 'node.sqlite-shm'] as $f) {
+            @unlink("{$dir}/{$f}");
+        }
+        $paper = new Paper("{$dir}/paper.txt");
+        $chaos = new Chaos(dropResponse: 0.3, seed: $this->seed);
+        $boot = fn () => new PrintNode($url, $reg->json('token'), $k['printer_id'], "{$dir}/node.sqlite", $paper, $chaos);
+        $node = $boot();
+        $node->heartbeat();
+
+        // the till's sales, verified on their own before platform orders join the outlet
+        $t = $this->terminal($world, 'T1');
+        $t->sendToKitchen = true;
+        $t->pull();
+        $t->sell(40);
+        $t->sync();
+        $v = (new Verifier($world, ['T1' => $t->store]))->salesLedger();
+
+        $n = 0;
+        $deliver = function () use (&$n, $url, $k, $world): int {
+            $n++;
+            $item = $k['items'][$n % 3];
+            $qty = 1 + $n % 2;
+            $raw = json_encode(['event_id' => "evt-{$world->tenantId}-{$n}", 'type' => 'order.created', 'store_id' => $k['store_id'], 'order' => [
+                'id' => "SIM-{$n}", 'short_code' => sprintf('S%03d', $n), 'fulfilment' => 'delivery', 'payment_mode' => 'platform_collected',
+                'placed_at' => now()->toIso8601ZuluString('microsecond'),
+                'items' => [['id' => $item['id'], 'name' => $item['name'], 'qty' => $qty, 'unit_price_sen' => $item['price_sen']]],
+                'items_total_sen' => $qty * $item['price_sen'], 'delivery_fee_sen' => 500, 'total_sen' => $qty * $item['price_sen'] + 500,
+                'customer' => ['first_name' => 'Sim', 'phone_suffix' => '0000'],
+            ]]);
+
+            return Http::baseUrl($url)->acceptJson()->withHeaders(['X-Fixture-Signature' => hash_hmac('sha256', $raw, $k['secret'])])
+                ->withBody($raw, 'application/json')->post('/api/v1/webhooks/delivery/fixture')->status();
+        };
+
+        $crashes = ['after_mark' => 0, 'after_print' => 0, 'before_ack' => 0];
+        $dropped = 0;
+        $webhookFailures = 0;
+        for ($round = 0; $round < 60; $round++) {
+            $crashAt = $round < 6 ? PrintNode::CRASH_POINTS[$round % 3] : null;
+            if ($round < 6) {
+                foreach (range(1, 3) as $_) {
+                    $node->heartbeat();   // presence is a 2 s window in the sim
+                    $webhookFailures += $deliver() === 200 ? 0 : 1;
+                }
+            }
+            $node->heartbeat();
+            $fresh = $node->pull();
+            try {
+                $node->printAll($crashAt, crashOnJob: $chaos->int(1, 3));
+                $node->ackAll();
+            } catch (NodeCrashed) {
+                $crashes[$crashAt]++;
+                $dropped += $node->droppedAcks;
+                $node = $boot();   // power back: same files, new process
+            }
+            if ($round >= 6 && $fresh === 0 && $node->pending() === 0) {
+                break;
+            }
+        }
+        $dropped += $node->droppedAcks;
+
+        // the node goes quiet; orders arriving now must wait for a person
+        usleep(3_000_000);   // > POS_KITCHEN_PRESENCE_SECONDS (2) on the sim servers
+        foreach (range(1, 5) as $_) {
+            $webhookFailures += $deliver() === 200 ? 0 : 1;
+        }
+
+        Hq::enter($world->tenantId);
+        $jobs = DB::table('print_jobs')->get(['id', 'status', 'last_error'])->keyBy('id');
+        $tally = $paper->tally();
+        $printed = $jobs->where('status', 'printed');
+        $uncertain = $jobs->where('status', 'failed')->where('last_error', 'print_uncertain');
+        $midPrint = $crashes['after_mark'] + $crashes['after_print'];
+        $accepted = DB::table('delivery_orders')->where('status', 'accepted')->where('accepted_by', 'auto')->count();
+        $waiting = DB::table('delivery_orders')->where('status', 'received')->whereRaw("attention_reasons @> '[{\"kind\":\"auto_accept_skipped\"}]'")->count();
+        $tickets = DB::table('kitchen_tickets')->selectRaw('source, count(*) n')->groupBy('source')->pluck('n', 'source');
+        $this->say(sprintf('%d jobs: %d printed, %d uncertain; crashes %s; %d acks lost', $jobs->count(), $printed->count(), $uncertain->count(),
+            json_encode($crashes), $dropped));
+
+        return $v
+            ->check('print node paired without attestation', $reg->json('terminal.kind') === 'kitchen')
+            ->check('webhooks all acknowledged', $webhookFailures === 0, "{$webhookFailures} failed")
+            ->check('a ticket for every kitchen sale and accepted order', (int) ($tickets['terminal'] ?? 0) === 40 && (int) ($tickets['delivery'] ?? 0) === 18,
+                json_encode($tickets))
+            ->check('auto-accepted only while the kitchen listened', $accepted === 18 && $waiting === 5, "{$accepted} accepted, {$waiting} left for a person")
+            ->check('chaos fired at every crash point', min($crashes) >= 1 && $dropped >= 3, json_encode($crashes)." / {$dropped} lost acks")
+            ->check('nothing printed twice', $tally === [] || max($tally) === 1, 'max '.($tally ? max($tally) : 0))
+            ->check('every job printed or reported uncertain', $printed->count() + $uncertain->count() === $jobs->count() && $jobs->count() === 58,
+                "{$printed->count()} + {$uncertain->count()} of {$jobs->count()}")
+            ->check('printed jobs are on paper exactly once', $printed->every(fn ($j) => ($tally[$j->id] ?? 0) === 1))
+            ->check('only a mid-print power cut leaves a job uncertain', $uncertain->count() === $midPrint, "{$uncertain->count()} uncertain, {$midPrint} mid-print cuts")
+            ->check('no paper the server does not know about', collect(array_keys($tally))->every(fn ($id) => $jobs->has($id)));
     }
 
     /** A staff member signs in on one of the world's terminals; returns a ready HTTP client. */

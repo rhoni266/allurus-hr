@@ -4,6 +4,7 @@ namespace App\Delivery;
 
 use App\Billing\{PricingEngine, PricingException};
 use App\Database\Timestamps;
+use App\Kitchen\{Kitchen, KitchenPresence};
 use App\Models\{DeliveryConnection, DeliveryOrder, Order, OrderItem, OrderVoid, Payment, TaxRule};
 use App\Sync\{Facts, StockLedger, Voids};
 use App\Tenancy\TenantContext;
@@ -74,7 +75,7 @@ final class DeliveryOrderIngestor
             DB::table('order_ids')->insert(['id' => $orderId, 'tenant_id' => TenantContext::require(), 'occurred_at' => $at->format(Timestamps::FORMAT)]);
 
             $paid = $d->paymentMode === 'platform_collected';
-            Order::create([
+            $order = Order::create([
                 'id' => $orderId, 'outlet_id' => $c->outlet_id, 'terminal_id' => null, 'staff_id' => null,
                 'receipt_no' => 'DLV-'.strtoupper(substr($c->provider, 0, 3)).'-'.($d->shortCode ?? substr($d->externalOrderId, -8)),
                 'channel' => $c->provider, 'status' => $paid ? 'paid' : 'open',
@@ -111,10 +112,19 @@ final class DeliveryOrderIngestor
                 ]);
             }
 
-            return DeliveryOrder::create([
+            // Zero-touch: accept without a cashier only if the outlet opted in AND someone in
+            // the kitchen can see the ticket now. Otherwise it waits for a person (and, in
+            // week 3, auto-reject at accept_by), and says why.
+            $accept = $c->auto_accept && KitchenPresence::isListening(TenantContext::require(), $c->outlet_id);
+            if ($c->auto_accept && ! $accept) {
+                $reasons[] = ['kind' => 'auto_accept_skipped', 'reason' => 'kitchen_not_listening'];
+            }
+
+            $delivery = DeliveryOrder::create([
                 'outlet_id' => $c->outlet_id, 'connection_id' => $c->id, 'order_id' => $orderId,
                 'provider' => $c->provider, 'external_order_id' => $d->externalOrderId, 'short_code' => $d->shortCode,
-                'status' => 'received', 'fulfilment' => $d->fulfilment, 'payment_mode' => $d->paymentMode,
+                'status' => $accept ? 'accepted' : 'received', 'accepted_at' => $accept ? now() : null, 'accepted_by' => $accept ? 'auto' : null,
+                'fulfilment' => $d->fulfilment, 'payment_mode' => $d->paymentMode,
                 'items_total_sen' => $d->itemsTotalSen, 'delivery_fee_sen' => $d->deliveryFeeSen,
                 'platform_discount_sen' => $d->platformDiscountSen, 'merchant_discount_sen' => $d->merchantDiscountSen,
                 'commission_sen' => $d->commissionSen, 'platform_total_sen' => $d->platformTotalSen,
@@ -122,6 +132,17 @@ final class DeliveryOrderIngestor
                 'placed_at' => $d->placedAt, 'accept_by' => $d->acceptBy, 'pickup_eta' => $d->pickupEta,
                 'needs_attention' => $reasons !== [], 'attention_reasons' => $reasons, 'raw_payload' => $rawPayload,
             ]);
+
+            if ($accept) {
+                // unmapped lines go to the kitchen too, under the platform's name
+                Kitchen::fire($order, 'delivery', $order->receipt_no, array_map(fn ($l) => [
+                    'name' => $l['name'], 'qty_milli' => $l['qty_milli'], 'notes' => $l['notes'],
+                    'modifiers' => array_map(fn ($m) => $m['qty'] > 1 ? "{$m['qty']}x {$m['name']}" : $m['name'], $l['modifiers']),
+                ], $lines), $d->notes);
+                DeliveryStatusOutbox::queue($delivery, 'accepted', ['by' => 'auto']);   // the platform must be told (week 3 sends it)
+            }
+
+            return $delivery;
         });
     }
 

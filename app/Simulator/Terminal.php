@@ -20,6 +20,9 @@ final class Terminal
 
     private string $staffId;
 
+    /** F&B till: every sale also goes to the kitchen (order.send_to_kitchen). */
+    public bool $sendToKitchen = false;
+
     public function __construct(
         private World $world,
         private array $me,            // ['id','name','token']
@@ -166,6 +169,7 @@ final class Terminal
                 'tax_breakdown' => $priced['tax_breakdown'], 'pricing_spec_version' => $priced['spec_version'],
                 'tender' => 'cash', 'service_charge_tax_code' => $input['service_charge']['tax_code'] ?? null,
                 'created_offline' => true, 'occurred_at' => $at,
+                'send_to_kitchen' => $this->sendToKitchen,
             ];
             $total = $priced['total_sen'];
             $original = [
