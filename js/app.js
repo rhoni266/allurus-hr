@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.6';
+  const APP_VERSION = '3.7';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -183,6 +183,8 @@
   function save() {
     saveLocal();
     fire()?.changed();
+    // Demo mode: share a new check-in point with the other phones (set up further down, so not during start-up).
+    try { demoZone.publish(); } catch (e) { /* not set up yet */ }
   }
   function saveLocal() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {
@@ -1198,7 +1200,7 @@
   }
   function bindCheckinCard() {
     const c = state.settings.checkin, f = $('#z-coords'), msg = $('#z-coords-msg');
-    $('#z-label').addEventListener('change', (ev) => { c.label = ev.target.value.trim() || c.label; save(); toast('Check-in name saved'); });
+    $('#z-label').addEventListener('change', (ev) => { c.label = ev.target.value.trim() || c.label; if (U.hasCoords(c)) c.setAt = Date.now(); save(); toast('Check-in name saved'); });
     let typeTimer = null;
     const showError = (text) => { f.setAttribute('aria-invalid', 'true'); msg.textContent = text; msg.classList.add('field-error'); };
     f.addEventListener('input', () => { if (f.getAttribute('aria-invalid')) { f.removeAttribute('aria-invalid'); msg.classList.remove('field-error'); msg.textContent = 'Saves when you stop typing.'; }
@@ -1885,6 +1887,53 @@
   const ci = { mode: 'present', loc: null, photo: null, canvas: null, face: null, fails: 0, consent: false, first: false, upload: false };
   // Where check-ins are measured from: always the saved check-in point; the head office city only when none is set.
   const zone = () => U.resolveZone(state.settings);
+
+  // ---------- Demo: one check-in point for every phone ----------
+  // In demo mode each browser keeps its own copy of the company, so a point the demo admin sets would stay on their
+  // computer. The point (only that: coordinates, radius, name, field staff) is also kept in the cloud database at
+  // demoZones/<demo company>, through Firestore's REST interface, and phones pick it up when the app opens, when
+  // they come back to it, and every minute. Anyone using the public demo can move it; that is all it holds.
+  // Needs the demoZones rule in firestore.rules to be published; without it this does nothing and the setup link
+  // still works.
+  const demoZone = (() => {
+    const cfg = window.ALLURUS_FIREBASE;
+    const on = () => !CLOUD && !!cfg?.apiKey && !!cfg?.projectId && state.settings?.company === DEMO.name;
+    const url = () => `https://firestore.googleapis.com/v1/projects/${cfg.projectId}/databases/(default)/documents/demoZones/${DEMO.id}?key=${cfg.apiKey}`;
+    let sent = 0, busy = false;
+    const pack = (c) => ({ fields: {
+      lat: { doubleValue: +c.lat }, lng: { doubleValue: +c.lng }, radius: { integerValue: String(Math.round(c.radius || 50)) },
+      label: { stringValue: String(c.label || '').slice(0, 79) }, field: { arrayValue: { values: (c.field || []).slice(0, 49).map((x) => ({ stringValue: String(x) })) } },
+      setAt: { integerValue: String(Math.round(c.setAt)) },
+    } });
+    const num = (v) => (v ? Number(v.doubleValue ?? v.integerValue) : NaN);
+    function publish() {
+      if (!on()) return;
+      const c = state.settings.checkin;
+      if (!c?.setAt || c.setAt <= sent || !U.hasCoords(c) || c.setAt <= (DEMO.published?.at || 0)) return;
+      sent = c.setAt;
+      fetch(url(), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pack(c)) }).catch(() => { sent = 0; });
+    }
+    async function pull() {
+      if (!on() || busy) return;
+      busy = true;
+      try {
+        const r = await fetch(url(), { cache: 'no-store' });
+        if (!r.ok) return;
+        const f = (await r.json()).fields || {};
+        const p = { lat: num(f.lat), lng: num(f.lng), radius: num(f.radius), setAt: num(f.setAt), label: f.label?.stringValue || '', field: (f.field?.arrayValue?.values || []).map((v) => v.stringValue) };
+        const c = state.settings.checkin || (state.settings.checkin = {});
+        if (!U.hasCoords(p) || !(p.setAt > (c.setAt || 0))) return;
+        Object.assign(c, { lat: p.lat, lng: p.lng, radius: Math.min(5000, Math.max(10, p.radius || 50)), label: p.label || c.label, field: p.field, setAt: p.setAt });
+        sent = p.setAt;
+        saveLocal();
+        if (role()) { render(); toast(`HR updated the check-in point: ${c.label}`, 'info'); }
+      } catch (e) { /* offline or not published: keep this phone's point */ } finally { busy = false; }
+    }
+    return { publish, pull };
+  })();
+  demoZone.pull();
+  setInterval(() => demoZone.pull(), 60000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') demoZone.pull(); });
   const lockOn = () => zone().deviceLock !== false;
   const faceOn = () => zone().faceCheck !== false;
   const liveOnly = () => zone().liveOnly !== false;

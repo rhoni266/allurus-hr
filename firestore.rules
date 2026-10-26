@@ -102,6 +102,20 @@ service cloud.firestore {
       allow delete: if hasArea(resource.data.tenantId, 'settings');
     }
 
+    // The public demo (?demo, ?demo=suria, ?demo=majorfe): the check-in point its admin set, so every phone trying the
+    // demo checks in against it. No sign-in, demo companies only, and only these fields with sensible values.
+    match /demoZones/{co} {
+      allow read: if co in ['serimaju', 'suria', 'majorfe'];
+      allow write: if co in ['serimaju', 'suria', 'majorfe']
+        && request.resource.data.keys().hasOnly(['lat', 'lng', 'radius', 'label', 'field', 'setAt'])
+        && request.resource.data.lat is number && request.resource.data.lat >= -90 && request.resource.data.lat <= 90
+        && request.resource.data.lng is number && request.resource.data.lng >= -180 && request.resource.data.lng <= 180
+        && request.resource.data.radius is int && request.resource.data.radius >= 10 && request.resource.data.radius <= 5000
+        && request.resource.data.label is string && request.resource.data.label.size() < 80
+        && request.resource.data.field is list && request.resource.data.field.size() < 50
+        && request.resource.data.setAt is int;
+    }
+
     match /tenants/{t} {
       allow read: if member(t);
       allow create: if signedIn() && !hasProfile() && request.resource.data.owner == request.auth.uid;
