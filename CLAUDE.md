@@ -62,7 +62,12 @@ All stock changes go through `App\Sync\StockLedger::move()`; order lookups throu
 * Everything provider-specific is one `App\Delivery\Contracts\DeliveryProvider` class, registered in `AppServiceProvider`. `FixtureProvider` is for tests/local only and is not registered in production.
 * Delivery orders never get dropped: gaps become `delivery_orders.attention_reasons`. `orders` keeps our pricing identity (engine-priced, tender `card`); the platform's figures stay on `delivery_orders`.
 * Cloud orders have no terminal or cashier (`orders.terminal_id` / `staff_id` nullable).
-* **Auto-accept needs a listening kitchen**: `delivery_connections.auto_accept` **and** `KitchenPresence::isListening()` (a kitchen device at the outlet heartbeat within `pos.kitchen.presence_seconds` and reported a live KDS or an ok kitchen printer). Otherwise the order stays `received`, flagged `auto_accept_skipped`. An accept also queues a `delivery_status_outbox` row, since the platform only knows what we tell it (sending it is week 3).
+* **Auto-accept needs a listening kitchen**: `delivery_connections.auto_accept` **and** `KitchenPresence::isListening()` (a kitchen device at the outlet heartbeat within `pos.kitchen.presence_seconds` and reported a live KDS or an ok kitchen printer). Otherwise the order stays `received`, flagged `auto_accept_skipped`.
+* **Accept and reject go through `App\Delivery\DeliveryOrderActions`** (auto-accept at ingest, staff at `POST delivery-orders/{id}/accept|reject`, auto-reject in `delivery:tick`). They run under the same per-order lock as ingest and cancel, and each queues its status in `delivery_status_outbox` in the same transaction. A received order goes one way only. Reject voids the sale through `Voids::apply`.
+* **Statuses reach the platform strictly in order per order** (`DeliveryStatusPusher`). A transient failure blocks that order's later rows and backs off (`pos.delivery.push_backoff`); a permanent one gives the row up and flags `status_push_failed`. `pushStatus` / `setStoreOpen` must be safe to repeat (a lost response is retried). Never hold a DB transaction across a platform call.
+* **`delivery:tick` (scheduled every 15 s) is load-bearing**: status retries, auto-reject `pos.delivery.reject_margin_seconds` before `accept_by`, and the watchdog that pauses an auto-accepting store whose kitchen has been quiet for `pos.delivery.pause_after_seconds` (and reopens it; never a store paused by hand). Production needs `schedule:work` / cron running.
+* **`Idempotency-Key`** on non-sync POSTs is the `idempotent` middleware (per device, `idempotency_keys`, replays carry `Idempotent-Replayed: true`). Put it on every new non-sync POST.
+* `TenantContext::enter()` / `leave()` nest: `leave()` restores the tenant entered before, so a job run inline inside another (sync queue, afterCommit dispatch) doesn't strip the outer tenant.
 
 ### Kitchen (`docs/web-ordering-and-auto-accept.md` §7)
 
@@ -79,7 +84,8 @@ php spec/pricing/run.php              # pricing vectors, no framework needed
 php spec/time-billing/run.php         # time-billing vectors
 php artisan test                      # Pest suite (needs Postgres, see below)
 php artisan migrate:fresh --seed --seeder=DemoSeeder   # demo data (never in production)
-php artisan sim:run                   # 18 chaos scenarios against real API server processes
+php artisan sim:run                   # 19 chaos scenarios against real API server processes
+php artisan schedule:work             # runs delivery:tick every 15 s (status retries, auto-reject, watchdog)
 php artisan reverb:start              # the kitchen doorbell, locally (tests and the simulator don't need it)
 php artisan sim:run crash-mid-sync --orders=5000
 ./vendor/bin/pint                     # code style
@@ -111,15 +117,19 @@ app/Sync/Handlers/              OrderCreate, OrderVoid, PaymentAdd, StockAdjust,
 app/Devices/                    PairingService (issue / redeem one-time codes), DeviceLifecycle (retire / revoke / wipe)
 app/Devices/Attestation/        Attestation (challenge + check), PlayIntegrity, AppAttest (stub), Dev
 app/Sync/OfflineAuth.php        flags for mutations signed in offline
-app/Delivery/                   DeliveryProvider contract, DTOs, ProviderRegistry, DeliveryOrderIngestor, Providers/FixtureProvider
+app/Delivery/                   DeliveryProvider contract, DTOs, ProviderRegistry, DeliveryOrderIngestor, DeliveryOrderActions (accept / reject),
+                                DeliveryStatusOutbox + DeliveryStatusPusher, DeliveryWatchdog, Providers/FixtureProvider
 app/Jobs/ProcessDeliveryEvent   queue "delivery"; enters the tenant, ingests or cancels
+app/Jobs/PushDeliveryStatus     queue "delivery"; sends an order's queued statuses after commit
+app/Console/Commands/DeliveryTick  delivery:tick (scheduled in routes/console.php)
+app/Http/Middleware/Idempotent  Idempotency-Key for non-sync POSTs (alias `idempotent`)
 app/Kitchen/                    Kitchen (fire / cancel), KitchenPresence, KitchenTicketChanged (the doorbell)
 routes/channels.php             private broadcast channels (outlet.{id}.kitchen)
 app/Simulator/PrintNode.php     reference print node (+ Paper, NodeCrashed)
 tests/Fixtures/delivery/        one recorded payload per provider and event type
 app/Http/Controllers/Api/       SyncPull, SyncPush, DeviceRegister, PairingCode, DeviceAdmin, DeviceSelf, StaffAuth
 app/Http/Middleware/            ResolveTenant (after auth:sanctum), EnsureDeviceActive, RequireStaffSession (alias `staff`)
-docs/                           offline-pin-signin.md (decided: option C), delivery-integration.md (week 1 built), web-ordering-and-auto-accept.md (step 1 built)
+docs/                           offline-pin-signin.md (decided: option C), delivery-integration.md (weeks 1 and 3 built), web-ordering-and-auto-accept.md (step 1 built)
 config/pos.php                  pairing rate limit, attestation (POS_ATTESTATION_*)
 app/Simulator/                  reference terminal: LocalStore (SQLite outbox), SyncClient, Chaos, Scenarios
 app/Console/Commands/           sim:run, sim:terminal, sim:churn, pos:pairing-code, pos:unpair, pos:staff-pin
@@ -161,7 +171,9 @@ Done (branch `allurus-pos` on rhoni266/allurus-hr):
 
 Known gaps:
 
-* Delivery integration week 1 done (fixture provider). Kitchen step 1 done (261 Pest tests; `print-node` scenario): tickets, print jobs, kitchen devices, presence-gated auto-accept, Reverb doorbell. Not yet: stations, KDS bump/status mutations, reprint, unprinted-job alerts, manual accept/reject and the status outbox sender (delivery week 3), menu sync, real adapters (need partner sandbox access), BYOD and table-QR web ordering (design steps 3–4).
+* Delivery integration weeks 1 and 3 done (fixture provider; 281 Pest tests; `delivery-status` scenario), and kitchen step 1 (`print-node` scenario). Not yet: preparing/ready from the KDS (needs a bump mutation), stations, reprint, unprinted-job alerts, a manager alert / missed-orders banner when a store is paused, pruning `idempotency_keys`, menu sync (week 4), real adapters (need partner sandbox access), BYOD and table-QR web ordering (design steps 3–4).
+* The watchdog only covers stores that auto-accept (or opt in): terminals don't heartbeat, so a manual-accept store can't tell that nobody is at the till.
+* `delivery:tick` walks every tenant with a delivery store each 15 s, one query set per tenant. Fine for now; shard or queue it per tenant before it gets slow.
 * Installing Reverb downgraded Guzzle 8 → 7 (Reverb 1.12 needs `guzzlehttp/psr7` 2.x).
 * `order.refund` and `stock.count` done (`refunds` and `stocktake` scenarios pass). In one full `sim:run`, `crash-mid-sync` hung on a terminal subprocess (600 s timeout); it passes alone. Not yet investigated.
 * Sessions are only synced when they end; a running session isn't visible to HQ or other terminals yet.

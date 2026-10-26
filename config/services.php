@@ -28,6 +28,12 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    // FixtureProvider (tests and the simulator only): simulated platform failures and a call log.
+    'fixture_delivery' => [
+        'fail_rate' => (float) env('FIXTURE_DELIVERY_FAIL_RATE', 0),
+        'log' => env('FIXTURE_DELIVERY_LOG'),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

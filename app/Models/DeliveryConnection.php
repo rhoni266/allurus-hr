@@ -22,6 +22,7 @@ class DeliveryConnection extends Model
     protected $casts = [
         'credentials' => 'encrypted:array', 'webhook_secret' => 'encrypted', 'settings' => 'array',
         'auto_accept' => 'boolean', 'last_event_at' => 'immutable_datetime', 'last_menu_sync_at' => 'immutable_datetime',
+        'paused_at' => 'immutable_datetime', 'kitchen_quiet_since' => 'immutable_datetime',
     ];
 
     public function menuMappings(): HasMany { return $this->hasMany(DeliveryMenuMapping::class, 'connection_id'); }

@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'abilities' => \Laravel\Sanctum\Http\Middleware\CheckAbilities::class,
             'ability'   => \Laravel\Sanctum\Http\Middleware\CheckForAnyAbility::class,
             'staff'     => \App\Http\Middleware\RequireStaffSession::class,
+            'idempotent' => \App\Http\Middleware\Idempotent::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -33,4 +33,16 @@ return [
         // (device time) gets a 'late' ticket: recorded, not printed, flagged.
         'fresh_seconds' => (int) env('POS_KITCHEN_FRESH_SECONDS', 900),
     ],
+
+    // Delivery week 3 (docs/delivery-integration.md).
+    'delivery' => [
+        // Seconds to wait before each retry of a status the platform didn't take; after the
+        // last one the row is given up and the order flagged status_push_failed.
+        'push_backoff' => array_map('intval', explode(',', env('POS_DELIVERY_PUSH_BACKOFF', '5,15,30,60,120,300,600,1800'))),
+        // Reject an unaccepted order this long before the platform's accept deadline, so our
+        // answer arrives before the platform gives up (and penalises the store) on its own.
+        'reject_margin_seconds' => (int) env('POS_DELIVERY_REJECT_MARGIN_SECONDS', 20),
+        // The watchdog pauses an auto-accepting store once its kitchen has been quiet this long.
+        'pause_after_seconds' => (int) env('POS_DELIVERY_PAUSE_AFTER_SECONDS', 120),
+    ],
 ];

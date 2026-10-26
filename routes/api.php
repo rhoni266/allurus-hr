@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\Api\{DeliveryWebhookController, DeviceAdminController, DeviceRegisterController, DeviceSelfController, KitchenDeviceController, PairingCodeController, StaffAuthController, SyncPullController, SyncPushController};
+use App\Http\Controllers\Api\{DeliveryOrderController, DeliveryWebhookController, DeviceAdminController, DeviceRegisterController, DeviceSelfController, KitchenDeviceController, PairingCodeController, StaffAuthController, SyncPullController, SyncPushController};
 use App\Devices\Attestation\Attestation;
 use App\Http\Middleware\{EnsureDeviceActive, ResolveTenant};
 use Illuminate\Support\Facades\Route;
@@ -37,6 +37,11 @@ Route::prefix('v1')->group(function () {
             Route::get('auth/me', [StaffAuthController::class, 'me']);
             Route::post('auth/logout', [StaffAuthController::class, 'logout']);
             Route::post('auth/pin', [StaffAuthController::class, 'changePin']);
+
+            Route::middleware('idempotent')->group(function () {
+                Route::post('delivery-orders/{id}/accept', [DeliveryOrderController::class, 'accept'])->whereUuid('id');
+                Route::post('delivery-orders/{id}/reject', [DeliveryOrderController::class, 'reject'])->whereUuid('id');
+            });
 
             Route::middleware('staff:owner,manager')->group(function () {
                 Route::post('staff/{id}/pin', [StaffAuthController::class, 'resetPin'])->whereUuid('id');

@@ -33,8 +33,23 @@ interface DeliveryProvider
     /** For cancellations, which may carry less than a full order. */
     public function externalOrderId(array $payload): string;
 
-    // Weeks 3-4 (status outbox, menu push); declared now so adapters are written against the whole contract.
+    /**
+     * Tell the platform about a status change (accepted, rejected, ...). Called by
+     * PushDeliveryStatus, strictly in order per order, and possibly more than once for the
+     * same change (a lost response is retried), so it must be safe to repeat.
+     *
+     * @throws \App\Delivery\DeliveryPushFailed
+     */
     public function pushStatus(DeliveryConnection $c, DeliveryOrder $o, string $status, array $context = []): void;
+
+    /**
+     * Open or pause the store on the platform (the kitchen watchdog). Safe to repeat.
+     *
+     * @throws \App\Delivery\DeliveryPushFailed
+     */
+    public function setStoreOpen(DeliveryConnection $c, bool $open, string $reason): void;
+
+    // Week 4 (menu push); declared now so adapters are written against the whole contract.
 
     public function setItemAvailability(DeliveryConnection $c, DeliveryMenuMapping $m, bool $available): void;
 

@@ -3,7 +3,8 @@
 namespace App\Delivery\Providers;
 
 use App\Delivery\Contracts\DeliveryProvider;
-use App\Delivery\{DeliveryEventType, DeliveryItemData, DeliveryModifierData, DeliveryOrderData, InvalidDeliveryPayload};
+use App\Delivery\{DeliveryEventType, DeliveryItemData, DeliveryModifierData, DeliveryOrderData, DeliveryPushFailed, InvalidDeliveryPayload};
+use App\Database\Timestamps;
 use App\Models\{DeliveryConnection, DeliveryMenuMapping, DeliveryOrder};
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -21,8 +22,15 @@ use Illuminate\Support\Collection;
  */
 final class FixtureProvider implements DeliveryProvider
 {
-    /** Outbound calls, recorded for tests (status/menu push arrive in weeks 3-4). */
+    /** Outbound calls, recorded for tests. */
     public array $sent = [];
+
+    /**
+     * Test hook: called before each outbound call; throw from it to simulate the platform
+     * failing. The simulator uses services.fixture_delivery.fail_rate instead, and reads
+     * services.fixture_delivery.log (one JSON line per call that reached the "platform").
+     */
+    public ?\Closure $before = null;
 
     public function key(): string
     {
@@ -100,7 +108,37 @@ final class FixtureProvider implements DeliveryProvider
 
     public function pushStatus(DeliveryConnection $c, DeliveryOrder $o, string $status, array $context = []): void
     {
-        $this->sent[] = ['status', $o->external_order_id, $status, $context];
+        $this->call(['status', $o->external_order_id, $status, $context], $c);
+    }
+
+    public function setStoreOpen(DeliveryConnection $c, bool $open, string $reason): void
+    {
+        $this->call(['store', $c->external_store_id, $open, $reason], $c);
+    }
+
+    /**
+     * Fails before the "platform" sees the call, or (half the simulated failures) after it,
+     * as when a response is lost: the caller retries a call that already took effect.
+     */
+    private function call(array $entry, DeliveryConnection $c): void
+    {
+        if ($this->before) {
+            ($this->before)($entry);
+        }
+        $failRate = (float) config('services.fixture_delivery.fail_rate', 0);
+        $fail = $failRate > 0 && mt_rand() / mt_getrandmax() < $failRate;
+        if ($fail && mt_rand(0, 1) === 0) {
+            throw new DeliveryPushFailed('fixture: platform unavailable');
+        }
+
+        $this->sent[] = $entry;
+        if ($log = config('services.fixture_delivery.log')) {
+            file_put_contents($log, json_encode(['store' => $c->external_store_id, 'call' => $entry, 'at' => now()->format(Timestamps::FORMAT)])."\n", FILE_APPEND | LOCK_EX);
+        }
+
+        if ($fail) {
+            throw new DeliveryPushFailed('fixture: response lost');
+        }
     }
 
     public function setItemAvailability(DeliveryConnection $c, DeliveryMenuMapping $m, bool $available): void

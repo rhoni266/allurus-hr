@@ -7,6 +7,7 @@ use App\Simulator\Server\{Hq, ServerPool, Verifier};
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Client\Pool;
 use Illuminate\Support\Facades\{DB, Http};
+use Illuminate\Support\Str;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Process\Process;
 
@@ -17,7 +18,7 @@ final class Scenarios
         'stale-price', 'concurrent-terminals', 'duplicate-race', 'cursor-race',
         'void-storm', 'open-tabs', 'stock-adjust', 'snooker-sessions',
         'lost-device', 'retire-device', 'offline-signin', 'refunds', 'stocktake',
-        'print-node',
+        'print-node', 'delivery-status',
     ];
 
     public function __construct(
@@ -662,20 +663,8 @@ final class Scenarios
         $v = (new Verifier($world, ['T1' => $t->store]))->salesLedger();
 
         $n = 0;
-        $deliver = function () use (&$n, $url, $k, $world): int {
-            $n++;
-            $item = $k['items'][$n % 3];
-            $qty = 1 + $n % 2;
-            $raw = json_encode(['event_id' => "evt-{$world->tenantId}-{$n}", 'type' => 'order.created', 'store_id' => $k['store_id'], 'order' => [
-                'id' => "SIM-{$n}", 'short_code' => sprintf('S%03d', $n), 'fulfilment' => 'delivery', 'payment_mode' => 'platform_collected',
-                'placed_at' => now()->toIso8601ZuluString('microsecond'),
-                'items' => [['id' => $item['id'], 'name' => $item['name'], 'qty' => $qty, 'unit_price_sen' => $item['price_sen']]],
-                'items_total_sen' => $qty * $item['price_sen'], 'delivery_fee_sen' => 500, 'total_sen' => $qty * $item['price_sen'] + 500,
-                'customer' => ['first_name' => 'Sim', 'phone_suffix' => '0000'],
-            ]]);
-
-            return Http::baseUrl($url)->acceptJson()->withHeaders(['X-Fixture-Signature' => hash_hmac('sha256', $raw, $k['secret'])])
-                ->withBody($raw, 'application/json')->post('/api/v1/webhooks/delivery/fixture')->status();
+        $deliver = function () use (&$n, $url, $k, $world): int {   // by reference: each call is a new order
+            return $this->platformOrder($url, $k, $world, ++$n);
         };
 
         $crashes = ['after_mark' => 0, 'after_print' => 0, 'before_ack' => 0];
@@ -736,6 +725,144 @@ final class Scenarios
             ->check('printed jobs are on paper exactly once', $printed->every(fn ($j) => ($tally[$j->id] ?? 0) === 1))
             ->check('only a mid-print power cut leaves a job uncertain', $uncertain->count() === $midPrint, "{$uncertain->count()} uncertain, {$midPrint} mid-print cuts")
             ->check('no paper the server does not know about', collect(array_keys($tally))->every(fn ($id) => $jobs->has($id)));
+    }
+
+    /**
+     * Delivery week 3 under chaos. The "platform" (fixture provider) fails 30% of status
+     * calls, half of them after taking effect (a lost response), on the servers and in the
+     * tick. 10 orders are auto-accepted. With auto-accept off, 8 more arrive due in 25 s: a
+     * cashier accepts 3 (each request sent twice under one Idempotency-Key) and rejects 2;
+     * the tick auto-rejects the other 3 before the deadline. Then the kitchen goes quiet:
+     * the watchdog pauses the store, and reopens it when the kitchen is back.
+     *
+     * The platform must end up told exactly one decision per order, in order, with nothing
+     * given up, and our books must match (5 rejections, 5 voids).
+     */
+    private function deliveryStatus(string $name): Verifier
+    {
+        $world = $this->world($name);
+        $k = Hq::kitchen($world);
+        $url = $this->pool->url(0);
+        $log = \App\Console\Commands\SimRun::platformLog();
+        config(['services.fixture_delivery.fail_rate' => 0.3, 'services.fixture_delivery.log' => $log,
+            'pos.delivery.push_backoff' => array_fill(0, 12, 1), 'pos.delivery.pause_after_seconds' => 3,
+            'pos.kitchen.presence_seconds' => 2, 'pos.delivery.reject_margin_seconds' => 20]);
+        $tick = fn () => \Illuminate\Support\Facades\Artisan::call('delivery:tick');
+        $connection = function () use ($world) {
+            Hq::enter($world->tenantId);
+
+            return \App\Models\DeliveryConnection::firstOrFail();
+        };
+
+        $kds = Http::baseUrl($url)->acceptJson()->post('/api/v1/devices/register',
+            ['code' => $k['code'], 'device_fingerprint' => "sim:{$world->tenantId}:kds", 'name' => 'KDS'])->throw()->json('token');
+        $heartbeat = fn () => Http::baseUrl($url)->withToken($kds)->acceptJson()->post('/api/v1/kitchen/heartbeat', ['kds' => true])->throw();
+
+        // A: zero-touch
+        $failures = 0;
+        foreach (range(1, 10) as $n) {
+            $heartbeat();
+            $failures += $this->platformOrder($url, $k, $world, $n) === 200 ? 0 : 1;
+        }
+
+        // B: a person decides, or the clock does
+        Hq::write(fn () => $connection()->update(['auto_accept' => false]));
+        $due = CarbonImmutable::now()->addSeconds(25);
+        foreach (range(11, 18) as $n) {
+            $failures += $this->platformOrder($url, $k, $world, $n, $due) === 200 ? 0 : 1;
+        }
+        Hq::enter($world->tenantId);
+        $ids = \App\Models\DeliveryOrder::where('status', 'received')->orderBy('placed_at')->pluck('id', 'external_order_id');
+        $cashier = $this->signIn($world, 'T1', 0, 'cashier');
+        // one client per request below (clone): withHeaders merges recursively, so reusing one would pile up keys
+        $replayed = 0;
+        foreach (['SIM-11', 'SIM-12', 'SIM-13'] as $ext) {
+            $key = Str::uuid()->toString();
+            $a = (clone $cashier)->withHeaders(['Idempotency-Key' => $key])->post("/api/v1/delivery-orders/{$ids[$ext]}/accept");
+            $b = (clone $cashier)->withHeaders(['Idempotency-Key' => $key])->post("/api/v1/delivery-orders/{$ids[$ext]}/accept");   // "lost response" retry
+            $replayed += $a->ok() && $b->header('Idempotent-Replayed') === 'true' && $a->json() === $b->json() ? 1 : 0;
+        }
+        foreach (['SIM-14', 'SIM-15'] as $ext) {
+            (clone $cashier)->withHeaders(['Idempotency-Key' => Str::uuid()->toString()])->post("/api/v1/delivery-orders/{$ids[$ext]}/reject", ['reason' => 'sold out'])->throw();
+        }
+        $refused = (clone $cashier)->withHeaders(['Idempotency-Key' => Str::uuid()->toString()])->post("/api/v1/delivery-orders/{$ids['SIM-14']}/accept")->status();
+
+        while (now()->lt($due->subSeconds(19))) {   // past (deadline - margin)
+            $tick();
+            usleep(500_000);
+        }
+        $tick();
+
+        // C: the kitchen goes quiet, then comes back
+        Hq::write(fn () => $connection()->update(['auto_accept' => true]));
+        $paused = $resumed = false;
+        $deadline = microtime(true) + 30;
+        while (microtime(true) < $deadline && ! $resumed) {
+            $tick();
+            if (! $paused && $connection()->status === 'paused') {
+                $paused = true;
+            }
+            if ($paused) {
+                $heartbeat();
+                $tick();
+                $resumed = $connection()->status === 'active';
+            }
+            usleep(500_000);
+        }
+
+        // let the outbox drain
+        $deadline = microtime(true) + 30;
+        do {
+            $tick();
+            Hq::enter($world->tenantId);
+            $open = DB::table('delivery_status_outbox')->whereNull('sent_at')->whereNull('gave_up_at')->count();
+            usleep(300_000);
+        } while ($open > 0 && microtime(true) < $deadline);
+
+        Hq::enter($world->tenantId);
+        $orders = DB::table('delivery_orders')->get(['id', 'external_order_id', 'status', 'accepted_by', 'rejected_by', 'order_id'])->keyBy('external_order_id');
+        $outbox = DB::table('delivery_status_outbox')->get();
+        $calls = collect(file($log, FILE_IGNORE_NEW_LINES))->map(fn ($l) => json_decode($l, true))->where('store', $k['store_id']);
+        $told = $calls->where('call.0', 'status')->groupBy(fn ($c) => $c['call'][1])->map(fn ($g) => $g->pluck('call.2')->unique()->values()->all());
+        $expected = $orders->map(fn ($o) => [$o->status]);
+        $store = $calls->where('call.0', 'store')->pluck('call.2')->values()->all();
+        $voids = DB::table('order_voids')->whereIn('order_id', $orders->where('status', 'rejected')->pluck('order_id'))->count();
+        $this->say(sprintf('%d status calls reached the platform for %d decisions; %d rows needed retries; store calls %s',
+            $calls->where('call.0', 'status')->count(), $outbox->count(), $outbox->where('attempts', '>', 1)->count(), json_encode($store)));
+
+        return (new Verifier($world, []))
+            ->check('webhooks all acknowledged', $failures === 0, "{$failures} failed")
+            ->check('10 auto-accepted', $orders->where('accepted_by', 'auto')->count() === 10)
+            ->check('3 accepted and 2 rejected by the cashier', $orders->where('status', 'accepted')->whereNotIn('accepted_by', ['auto'])->count() === 3
+                && $orders->where('status', 'rejected')->where('rejected_by', '!=', 'auto')->count() === 2)
+            ->check('3 auto-rejected before the deadline', $orders->where('rejected_by', 'auto')->count() === 3, $orders->where('rejected_by', 'auto')->count().' auto')
+            ->check('retried accepts replayed the first answer', $replayed === 3, "{$replayed} of 3")
+            ->check('a rejected order cannot then be accepted', $refused === 409, "HTTP {$refused}")
+            ->check('every rejected sale voided', $voids === 5, "{$voids} voids")
+            ->check('chaos fired', $outbox->where('attempts', '>', 1)->count() >= 2, $outbox->where('attempts', '>', 1)->count().' rows retried')
+            ->check('every status reached the platform, none given up', $outbox->count() === 18 && $outbox->whereNull('sent_at')->isEmpty() && $outbox->whereNotNull('gave_up_at')->isEmpty(),
+                $outbox->whereNotNull('sent_at')->count().' of '.$outbox->count().' sent')
+            ->check('the platform heard exactly our decision for each order', $told->toArray() == $expected->toArray(),
+                $told->count().' orders told')
+            ->check('watchdog paused the store and reopened it', $paused && $resumed && $store !== [] && end($store) === true && in_array(false, $store, true),
+                json_encode($store));
+    }
+
+    /** One signed fixture-platform order for $k's store; returns the webhook's HTTP status. */
+    private function platformOrder(string $url, array $k, World $world, int $n, ?CarbonImmutable $acceptBy = null): int
+    {
+        $item = $k['items'][$n % 3];
+        $qty = 1 + $n % 2;
+        $raw = json_encode(['event_id' => "evt-{$world->tenantId}-{$n}", 'type' => 'order.created', 'store_id' => $k['store_id'], 'order' => [
+            'id' => "SIM-{$n}", 'short_code' => sprintf('S%03d', $n), 'fulfilment' => 'delivery', 'payment_mode' => 'platform_collected',
+            'placed_at' => now()->toIso8601ZuluString('microsecond'), 'accept_by' => $acceptBy?->toIso8601ZuluString('microsecond'),
+            'items' => [['id' => $item['id'], 'name' => $item['name'], 'qty' => $qty, 'unit_price_sen' => $item['price_sen']]],
+            'items_total_sen' => $qty * $item['price_sen'], 'delivery_fee_sen' => 500, 'total_sen' => $qty * $item['price_sen'] + 500,
+            'customer' => ['first_name' => 'Sim', 'phone_suffix' => '0000'],
+        ]]);
+
+        return Http::baseUrl($url)->acceptJson()->withHeaders(['X-Fixture-Signature' => hash_hmac('sha256', $raw, $k['secret'])])
+            ->withBody($raw, 'application/json')->post('/api/v1/webhooks/delivery/fixture')->status();
     }
 
     /** A staff member signs in on one of the world's terminals; returns a ready HTTP client. */

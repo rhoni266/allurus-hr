@@ -16,6 +16,7 @@ class DeliveryOrder extends Model
     protected $hidden = ['raw_payload'];   // never sent to terminals; audit/replay only
     protected $casts = [
         'customer' => 'array', 'attention_reasons' => 'array', 'raw_payload' => 'array', 'needs_attention' => 'boolean',
+        'kitchen_lines' => 'array', 'accepted_at' => 'immutable_datetime', 'rejected_at' => 'immutable_datetime',
         'placed_at' => 'immutable_datetime', 'accept_by' => 'immutable_datetime', 'pickup_eta' => 'immutable_datetime',
         'items_total_sen' => 'integer', 'platform_total_sen' => 'integer',
     ];

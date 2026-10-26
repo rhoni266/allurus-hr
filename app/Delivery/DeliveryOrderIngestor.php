@@ -31,7 +31,7 @@ final class DeliveryOrderIngestor
     {
         return DB::transaction(function () use ($c, $d, $rawPayload) {
             TenantContext::applyToTransaction();
-            $this->lock($c, $d->externalOrderId);
+            self::lockOrder($c->id, $d->externalOrderId);
 
             if ($existing = DeliveryOrder::where('connection_id', $c->id)->where('external_order_id', $d->externalOrderId)->first()) {
                 return $existing;
@@ -131,15 +131,17 @@ final class DeliveryOrderIngestor
                 'customer' => $d->customer, 'notes' => $d->notes,
                 'placed_at' => $d->placedAt, 'accept_by' => $d->acceptBy, 'pickup_eta' => $d->pickupEta,
                 'needs_attention' => $reasons !== [], 'attention_reasons' => $reasons, 'raw_payload' => $rawPayload,
+                // unmapped lines go to the kitchen too, under the platform's name; kept so a
+                // manual accept later fires exactly this ticket
+                'kitchen_lines' => array_map(fn ($l) => [
+                    'name' => $l['name'], 'qty_milli' => $l['qty_milli'], 'notes' => $l['notes'],
+                    'modifiers' => array_map(fn ($m) => $m['qty'] > 1 ? "{$m['qty']}x {$m['name']}" : $m['name'], $l['modifiers']),
+                ], $lines),
             ]);
 
             if ($accept) {
-                // unmapped lines go to the kitchen too, under the platform's name
-                Kitchen::fire($order, 'delivery', $order->receipt_no, array_map(fn ($l) => [
-                    'name' => $l['name'], 'qty_milli' => $l['qty_milli'], 'notes' => $l['notes'],
-                    'modifiers' => array_map(fn ($m) => $m['qty'] > 1 ? "{$m['qty']}x {$m['name']}" : $m['name'], $l['modifiers']),
-                ], $lines), $d->notes);
-                DeliveryStatusOutbox::queue($delivery, 'accepted', ['by' => 'auto']);   // the platform must be told (week 3 sends it)
+                Kitchen::fire($order, 'delivery', $order->receipt_no, $delivery->kitchen_lines, $d->notes);
+                DeliveryStatusOutbox::queue($delivery, 'accepted', ['by' => 'auto']);   // the platform only knows what we tell it
             }
 
             return $delivery;
@@ -155,7 +157,7 @@ final class DeliveryOrderIngestor
     {
         return DB::transaction(function () use ($c, $externalOrderId, $reason) {
             TenantContext::applyToTransaction();
-            $this->lock($c, $externalOrderId);
+            self::lockOrder($c->id, $externalOrderId);
 
             $do = DeliveryOrder::where('connection_id', $c->id)->where('external_order_id', $externalOrderId)->first();
             if (! $do) {
@@ -164,7 +166,10 @@ final class DeliveryOrderIngestor
             if ($do->order_id && ! OrderVoid::where('order_id', $do->order_id)->exists()) {
                 Voids::apply(Facts::order($do->order_id), (string) Str::uuid7(), null, null, $reason, now()->toImmutable());
             }
-            $do->update(['status' => 'cancelled']);
+            // we rejected it first (already voided): the platform's cancellation just confirms
+            if ($do->status !== 'rejected') {
+                $do->update(['status' => 'cancelled']);
+            }
 
             return $do;
         });
@@ -198,9 +203,9 @@ final class DeliveryOrderIngestor
         }
     }
 
-    /** One worker per (connection, external order) at a time. */
-    private function lock(DeliveryConnection $c, string $externalOrderId): void
+    /** One worker per (connection, external order) at a time: ingest, cancel, accept, reject. */
+    public static function lockOrder(string $connectionId, string $externalOrderId): void
     {
-        DB::statement('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', ["delivery:{$c->id}:{$externalOrderId}"]);
+        DB::statement('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', ["delivery:{$connectionId}:{$externalOrderId}"]);
     }
 }

@@ -33,6 +33,12 @@ class SimRun extends Command
         DB::setDefaultConnection('pgsql');
     }
 
+    /** Every call the fixture delivery platform received, from the servers and from the tick. */
+    public static function platformLog(): string
+    {
+        return storage_path('sim'.DIRECTORY_SEPARATOR.'platform.log');
+    }
+
     public function handle(): int
     {
         $names = $this->argument('scenarios') ?: Scenarios::NAMES;
@@ -42,6 +48,10 @@ class SimRun extends Command
         }
 
         self::useSimDatabase();
+        if (! is_dir(dirname(self::platformLog()))) {
+            mkdir(dirname(self::platformLog()), 0777, true);
+        }
+        file_put_contents(self::platformLog(), '');
         $this->info('Resetting '.self::DATABASE.' ...');
         Artisan::call('migrate:fresh', ['--force' => true, '--database' => 'pgsql']);
 
@@ -54,6 +64,10 @@ class SimRun extends Command
             // webhooks processed in the request (no worker); no Reverb running: kitchen devices pull
             'QUEUE_CONNECTION' => 'sync', 'BROADCAST_CONNECTION' => 'log',
             'POS_KITCHEN_PRESENCE_SECONDS' => '2',   // so print-node can let the kitchen go quiet quickly
+            // the fixture "platform" fails 30% of status calls (half after taking effect) and logs
+            // what it received; retries come round in seconds, not minutes
+            'FIXTURE_DELIVERY_FAIL_RATE' => '0.3', 'FIXTURE_DELIVERY_LOG' => self::platformLog(),
+            'POS_DELIVERY_PUSH_BACKOFF' => implode(',', array_fill(0, 12, 1)),
         ]);
         $this->info("Starting {$this->option('servers')} API servers from port {$this->option('port')} ...");
         $pool->start();

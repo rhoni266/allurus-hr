@@ -2,7 +2,7 @@
 
 Addendum to `allurus-pos-architecture.md`. Goal: no more "tablet hell". A delivery order reaches the cloud, becomes a normal Allurus order, and appears on the terminal and KDS within seconds; kitchen status flows back to the platform.
 
-Status: **week 1 built** against a fixture provider (schema, provider contract, webhook, ingestion, cancellation). **Week 2's kitchen half is built** (auto-accept gated on kitchen presence, kitchen tickets, print jobs, Reverb doorbell: `docs/web-ordering-and-auto-accept.md` §7); the terminal "new order" UI and weeks 3–5 are not started. This is the original addendum, corrected to match the codebase; the corrections are listed at the end.
+Status: **week 1 built** against a fixture provider (schema, provider contract, webhook, ingestion, cancellation). **Week 2's kitchen half is built** (auto-accept gated on kitchen presence, kitchen tickets, print jobs, Reverb doorbell: `docs/web-ordering-and-auto-accept.md` §7); **week 3 is built** except KDS-driven preparing/ready (see §6a). The terminal "new order" UI and weeks 4–5 are not started. This is the original addendum, corrected to match the codebase; the corrections are listed at the end.
 
 > **Verify before building adapters.** No platform's current API, partner terms, fees or Malaysian availability has been checked. Grab, Foodpanda and ShopeeFood APIs are partner-gated; aggregators (Deliverect, Klikit, Otter) have their own onboarding. Partner/sandbox access is the critical path, not engineering.
 
@@ -65,11 +65,37 @@ change feed (trigger) → terminals pull delivery_order rows (safety net behind 
 ## 6. Remaining plan
 
 1. **Week 2 — real-time:** Reverb (`ShouldBroadcastNow` on `private-outlet.{id}.delivery`), terminal "new delivery order" UI, KDS tickets through the same path as dine-in. *Depends on the F&B module (KDS) and Reverb, neither built yet.* The terminal's cursor pull of `delivery_order` is already the safety net.
-2. **Week 3 — status back to the platform:** `DeliveryStatusService` → `delivery_status_outbox` → `PushDeliveryStatus` job (strictly ordered, retried); accept/reject endpoints (`Idempotency-Key`); KDS status → preparing/ready; `AutoRejectIfUnaccepted`; heartbeat watchdog that pauses the store when no terminal is connected.
+2. **Week 3 — status back to the platform:** built, see §6a. Still open: KDS status → preparing/ready (needs the KDS bump mutation), a manager alert and missed-orders banner when the store is paused.
 3. **Week 4 — menu:** mapping UI (HQ), push menu/price/availability, availability off when `stock_levels.on_hand_milli` hits zero, "unmapped items seen in orders" report from `attention_reasons`.
 4. **Weeks 5–6:** aggregator adapter against its sandbox, pilot one merchant on one platform; then a second platform or direct Grab.
 
 **Exit criteria:** a sandbox order appears on the terminal and KDS in under 3 s; status changes reach the platform; a replayed webhook creates no duplicate; an order with an unmapped item still shows up, clearly flagged.
+
+## 6a. Week 3 as built
+
+* **Status outbox.** Every accept and reject writes a `delivery_status_outbox` row in the same transaction, then a `PushDeliveryStatus` job (queue `delivery`) sends it after commit. `DeliveryStatusPusher` sends one order's rows oldest first, holding a per-order session advisory lock; no transaction stays open across the call to the platform.
+  * A **transient** failure (`DeliveryPushFailed`, or any exception) stops that order's queue, so a later status can't overtake an earlier one. It retries after `pos.delivery.push_backoff` (5 s … 30 min).
+  * A **permanent** refusal, or running out of retries, sets `gave_up_at` and flags the order `status_push_failed`.
+  * Providers must make `pushStatus` safe to repeat: a lost response means the same status is sent again.
+* **Accept / reject by a person:** `POST /api/v1/delivery-orders/{id}/accept`, and `.../reject {reason}`. Rules:
+  * Needs any signed-in staff member, an order at this terminal's outlet, and an `Idempotency-Key`.
+  * Accept fires the kitchen ticket from `delivery_orders.kitchen_lines`, saved at ingest, so the platform's item notes reach the kitchen.
+  * Reject voids our sale through `Voids::apply`, which returns stock and nets payments to zero.
+  * A received order goes one way only: repeating the same decision is a no-op, and the other decision gets `409 delivery_order_not_pending`.
+  * A platform cancellation after our rejection leaves the order `rejected`.
+* **Idempotency-Key** (`App\Http\Middleware\Idempotent`, alias `idempotent`): applies to every non-sync POST from now on. Keys are per device, stored in `idempotency_keys` (RLS).
+  * A replay returns the first response with `Idempotent-Replayed: true`.
+  * The same key on a different request gets 422; a key whose first request is still running gets 409.
+  * A 5xx isn't stored. Keys aren't pruned yet.
+* **`delivery:tick`**, scheduled every 15 s, runs for each tenant found through `delivery_store_routes`:
+  * it sends due statuses;
+  * it rejects unaccepted orders `pos.delivery.reject_margin_seconds` (20 s) before `accept_by`, or before `placed_at + accept_timeout_seconds` when the platform gives no deadline;
+  * it runs the watchdog.
+* **Watchdog.** A store that auto-accepts, or has `settings.pause_when_kitchen_quiet`, is paused on the platform (`setStoreOpen(false, 'kitchen_quiet')`) once `KitchenPresence` has said no for `pos.delivery.pause_after_seconds` (120 s). It is reopened when the kitchen is back.
+  * A store paused by hand (`pause_reason = manual`) is never reopened here.
+  * A failed platform call changes nothing; the next tick retries.
+  * Manual-accept stores without kitchen devices aren't watched, because terminals don't heartbeat yet.
+* Simulator: `delivery-status`. The platform fails 30% of calls, half of them after taking effect. The scenario covers auto and manual decisions, replayed requests, auto-reject and pause/reopen.
 
 ## 7. Risks
 
@@ -77,9 +103,9 @@ change feed (trigger) → terminals pull delivery_order rows (safety net behind 
 |---|---|
 | Partner access and sandboxes | Apply early; calendar-time risk |
 | Different signature/retry schemes | Isolated per adapter; fixture-tested |
-| Order arrives while no terminal is connected | Auto-pause, manager alert, missed-orders banner (week 3) |
+| Order arrives while no terminal is connected | Watchdog pauses auto-accepting stores (built); manager alert, missed-orders banner (not yet) |
 | Menu drift | `sync_status`, reconcile job, unmapped-in-orders report |
-| Accept deadline missed | Auto-reject job, countdown, `auto_accept` for trusted outlets |
+| Accept deadline missed | Auto-reject 20 s before the deadline (built), countdown on the terminal (not yet), `auto_accept` for outlets with a live kitchen |
 | Totals disagree | Flag, never fix |
 | PDPA | Minimal customer data, role-restricted, purge after a retention window (not yet built) |
 | SST on delivery fees / platform-funded discounts | Confirm with an accountant before go-live |
