@@ -90,8 +90,6 @@ window.AllurusSeed = {
       e10: ['male', true], e11: ['female', true], e12: ['male', true], e13: ['female', false], e14: ['male', true], e15: ['female', false], e16: ['male', false], e17: ['female', true], e19: ['female', false], e18: ['male', false] };
     employees.forEach((e) => { [e.gender, e.married] = fam[e.id] || ['', false]; });
     employees[0].manager = '';
-    employees[0].email = 'admin@allurus.com';
-    employees[1].email = 'emp@allurus.com';
     employees.forEach((e) => { if (e.location !== 'Remote') e.location = 'Kuantan'; });
     // Statutory IDs and bank accounts (all fictional). IC numbers start with the birth date; 11 is Terengganu.
     // Hilmi has no tax number or bank account yet, so the statutory and bank files show what is missing.
@@ -543,11 +541,13 @@ window.AllurusSeed = {
     // Sign-in accounts. Passwords are stored as SHA-256 of "email:password", never in plain text.
     const accounts = [
       { email: 'superadmin@allurus.com', name: 'Allurus HQ', hash: '9ba7ad31f33beee93d53e6b5e6406e45779bbb11c955c6e10dd78c16569c9e40', roles: ['super', 'admin', 'employee', 'auditor'], tenantId: 't1', empId: 'e2' },
-      { email: 'admin@allurus.com', name: 'Aisyah Rahman', hash: '0924b217a20ccca3818ca0a6c768445f869cfbe2d40343c9af693fdc945b9be9', roles: ['admin', 'employee'], tenantId: 't1', empId: 'e1' },
-      { email: 'auditor@allurus.com', name: 'Tan Mei Ling', hash: 'a4abcb8c3b6a761ae31ba7c4c4ae62b4f9e60d05349d5fafcddaceeb4f1c34a8', roles: ['auditor'], tenantId: 't1', empId: '' },
+      { email: 'aisyah.rahman@serimaju.com.my', name: 'Aisyah Rahman', hash: '004a9551cf501e5a4d2e649e62ab469fc76c64dab9390b726329de185060c73c', roles: ['admin', 'employee'], perms: ['people', 'time', 'payroll', 'claims', 'talent', 'settings'], tenantId: 't1', empId: 'e1' },
+      { email: 'grace.ng@serimaju.com.my', name: 'Grace Ng', hash: '05359178e1919d066973f94cd4b341afe49778812f9740426a7f9239f749ead6', roles: ['admin', 'employee'], perms: ['finance', 'claims'], tenantId: 't1', empId: 'e11' },
+      { email: 'nurul.aina@serimaju.com.my', name: 'Nurul Aina', hash: '57ee0220028ef0add64e086f479484e002d985c4a3946631fb3cb891e36ac26c', roles: ['admin', 'employee'], perms: ['people', 'time', 'payroll', 'claims'], tenantId: 't1', empId: 'e19' },
+      { email: 'meiling@tanpartners.com.my', name: 'Tan Mei Ling', hash: '65b52aded82d2a6816eb1757d9cdfba7511478928215fb50d0e76bd446d91586', roles: ['auditor'], tenantId: 't1', empId: '' },
       // The manager who approves Daniel's requests, for showing approvals.
-      { email: 'manager@allurus.com', name: 'Arjun Pillai', hash: 'd301d58d3f34698039bfff021aee0185db6a3c6b1df32af0ce98a059615f7aba', roles: ['employee'], tenantId: 't1', empId: 'e4' },
-      { email: 'emp@allurus.com', name: 'Daniel Lim', hash: '77e0cec488b8862842418cc2f56e93996aaa60c33dafa80c1429694a75781c8a', roles: ['employee'], tenantId: 't1', empId: 'e2' },
+      { email: 'arjun.pillai@serimaju.com.my', name: 'Arjun Pillai', hash: 'ef33e85b218c90cdd3ad647f70b552ea41312e0cf7894469e54dc5a6681ca9d5', roles: ['employee'], tenantId: 't1', empId: 'e4' },
+      { email: 'daniel.lim@serimaju.com.my', name: 'Daniel Lim', hash: '0ec563b4c92bb815d9eabf31342f0966e0b47c8042d23b3d3386c3db3b02f37a', roles: ['employee'], tenantId: 't1', empId: 'e2' },
     ];
     const finance = AllurusFinance.seed({ employees, payroll, today: T, customers: AllurusSeed.clients });
     // e-Invoice: the company's details, customers and suppliers with TIN, ID and address, and invoices at every
@@ -866,7 +866,7 @@ window.AllurusSeed = {
     const tenants = rows.map(([name, city, industry, country, plan, seats, status, ago], i) => {
       const slug = name.toLowerCase().replace(/[^a-z]+/g, '');
       const c = U.city(city);
-      return { id: 't' + (i + 1), name, city, lat: c.lat, lng: c.lng, industry, country, hasWorkspace: i === 0, plan, seats, status, joined: U.addDays(T, -ago), admin: i === 0 ? 'admin@allurus.com' : 'hr@' + slug.slice(0, 12) + '.com', lastActive: U.addDays(T, -Math.floor(r() * (status === 'Suspended' ? 40 : 4))) };
+      return { id: 't' + (i + 1), name, city, lat: c.lat, lng: c.lng, industry, country, hasWorkspace: i === 0, plan, seats, status, joined: U.addDays(T, -ago), admin: i === 0 ? 'aisyah.rahman@serimaju.com.my' : 'hr@' + slug.slice(0, 12) + '.com', lastActive: U.addDays(T, -Math.floor(r() * (status === 'Suspended' ? 40 : 4))) };
     });
     const price = (t) => plans.find((p) => p.id === t.plan).price * t.seats;
     const cur = U.monthKey(T);

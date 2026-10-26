@@ -7,7 +7,7 @@
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
   const CLOUD_ON = !!(window.ALLURUS_FIREBASE && window.ALLURUS_FIREBASE.apiKey) && !/[?&]demo(\b|=)/.test(location.search);
-  const STORE_KEY = CLOUD_ON ? 'allurus-hr-cloud-v1' : 'allurus-hr-v8';
+  const STORE_KEY = CLOUD_ON ? 'allurus-hr-cloud-v1' : 'allurus-hr-v9';
   const esc = U.esc;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
@@ -156,7 +156,7 @@
   }
   // When the storage key changes, keep each company's saved check-in point from the previous version.
   function carryOverZones(s) {
-    for (let v = 7; v >= 1; v--) {
+    for (let v = 8; v >= 1; v--) {
       let old = null;
       try { old = JSON.parse(localStorage.getItem(`allurus-hr-v${v}`) || 'null'); } catch (e) { /* unreadable */ }
       if (!old) continue;
@@ -398,6 +398,40 @@
   const role = () => (state.session?.account && state.session.roles?.includes(state.session.role) ? state.session.role : null);
   const account = () => state.accounts.find((a) => a.email === state.session.account);
   const me = () => emp(state.session.empId) || activeEmployees()[0];
+
+  // ---------- Access: what each person may do in the company console ----------
+  // "Company Admin" is one view, but people get only the areas their role template gives them. An account with
+  // no `perms` (the founder, older accounts, the platform owner) has every area, like an Owner.
+  const AREAS = {
+    people: 'Staff records, onboarding, assets, org chart',
+    time: 'Attendance, schedules, leave and overtime',
+    payroll: 'Payroll, statutory files, pay changes, loans',
+    claims: 'Claims',
+    finance: 'Books, invoices, bills, budget, tax, audit',
+    talent: 'Hiring, appraisals, training, grievances',
+    settings: 'Company settings and team access',
+  };
+  const ALL_AREAS = Object.keys(AREAS);
+  const TEMPLATES = {
+    owner: { label: 'Owner', desc: 'Everything, including the books and who has access', perms: ALL_AREAS },
+    hr: { label: 'HR admin', desc: 'People, time, payroll, claims, hiring and settings. Sees salaries.', perms: ['people', 'time', 'payroll', 'claims', 'talent', 'settings'] },
+    payroll: { label: 'Payroll', desc: 'Staff records, attendance, payroll and claims', perms: ['people', 'time', 'payroll', 'claims'] },
+    finance: { label: 'Finance', desc: 'The books and claims. No staff records or payroll detail.', perms: ['finance', 'claims'] },
+  };
+  const templateOf = (perms) => (!perms ? 'owner' : Object.keys(TEMPLATES).find((k) => TEMPLATES[k].perms.length === perms.length && TEMPLATES[k].perms.every((x) => perms.includes(x))) || 'custom');
+  const ROUTE_AREA = {
+    employees: 'people', departments: 'people', onboarding: 'people', assets: 'people', 'org-chart': 'people', rooms: 'people', announcements: 'people', 'hr-reports': 'people',
+    attendance: 'time', schedule: 'time', leave: 'time',
+    payroll: 'payroll', claims: 'claims',
+    finance: 'finance', books: 'finance', invoices: 'finance', bills: 'finance', contacts: 'finance', budget: 'finance', tax: 'finance', reports: 'finance', projects: 'payroll',
+    recruitment: 'talent', performance: 'talent', training: 'talent', grievances: 'talent',
+  };
+  const myPerms = () => { const a = account(); return a && Array.isArray(a.perms) ? a.perms : null; };
+  // Whether the person may work in an area of the company console (only ever in Company Admin view).
+  const can = (area) => role() === 'admin' && (!myPerms() || myPerms().includes(area));
+  window.AllurusAccess = { can, AREAS, TEMPLATES, templateOf };
+  // "HR admin", "Finance", "Owner"… for the company console; the role's own name otherwise.
+  const roleLabel = (r) => (r === 'admin' && myPerms() ? TEMPLATES[templateOf(myPerms())]?.label || 'Company Admin' : ROLES[r]?.label || r);
   ROLE_ROUTES.admin = [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', group: 'Overview' },
     { id: 'employees', label: 'Employees', icon: 'people', group: 'Workforce' },
@@ -429,7 +463,7 @@
     { id: 'projects', label: 'Project costing', icon: 'layers', group: 'Insights' },
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
   ];
-  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()));
+  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()));
   const route = () => { const h = location.hash.replace('#', ''); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
   function renderNav() {
@@ -447,12 +481,13 @@
     });
     $('#nav').innerHTML = html;
     $('#company-name').textContent = role() === 'super' ? 'Platform console' : state.settings.company;
-    const who = role() === 'super' ? { name: 'You', sub: 'Super Admin' } : role() === 'admin' ? { name: fullName(state.employees.find((e) => e.id === 'e1')) , sub: `Admin · ${state.settings.company}` } : { name: fullName(me()), sub: me().role };
+    const who = role() === 'super' ? { name: 'You', sub: 'Super Admin' } : role() === 'admin' ? { name: fullName(me()), sub: `${roleLabel('admin')} · ${state.settings.company}` } : { name: fullName(me()), sub: me().role };
     const acct = account();
     if (role() === 'super') { who.name = acct?.name || 'Allurus HQ'; who.sub = 'Super Admin'; }
+    if (role() === 'admin' && acct?.roles.includes('super')) who.name = acct.name || who.name;
     if (role() === 'auditor') { who.name = acct?.name || 'Auditor'; who.sub = 'Auditor'; }
     $('#me-card').innerHTML = `<div class="me-row">${avatar(who.name, 'sm')}<div style="min-width:0;flex:1"><div class="me-name">${esc(who.name)}</div><div class="me-role">${esc(acct?.email || who.sub)}</div></div></div>
-      <div class="me-actions">${state.session.roles.length > 1 ? `<select class="select" id="role-switch" aria-label="Switch view">${state.session.roles.map((r) => `<option value="${r}" ${r === role() ? 'selected' : ''}>${ROLES[r].label} view</option>`).join('')}</select>` : `<span class="pill brand">${ROLES[role()].label}</span>`}<button class="btn btn-sm btn-ghost" data-act="logout">Sign out</button></div>`;
+      <div class="me-actions">${state.session.roles.length > 1 ? `<select class="select" id="role-switch" aria-label="Switch view">${state.session.roles.map((r) => `<option value="${r}" ${r === role() ? 'selected' : ''}>${roleLabel(r)} view</option>`).join('')}</select>` : `<span class="pill brand">${roleLabel(role())}</span>`}<button class="btn btn-sm btn-ghost" data-act="logout">Sign out</button></div>`;
     $('#role-switch')?.addEventListener('change', (ev) => switchRole(ev.target.value));
   }
 
@@ -511,34 +546,35 @@
     const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
     if (r === 'admin') {
       const pend = pendingLeaves();
-      if (pend.length) add('warn', 'calendar', `${plural(pend.length, 'time-off request', 'time-off requests')} waiting`, 'Decide soon so people can plan their break.', { label: 'Review', href: '#leave' }, 3);
+      if (pend.length && can('time')) add('warn', 'calendar', `${plural(pend.length, 'time-off request', 'time-off requests')} waiting`, 'Decide soon so people can plan their break.', { label: 'Review', href: '#leave' }, 3);
       const cl = claimsApi?.enabled() ? claimsApi.pendingCount() : 0;
-      if (cl) add('warn', 'receipt', `${plural(cl, 'claim', 'claims')} waiting for approval`, 'Approved claims are paid with the next payroll.', { label: 'Review', href: '#claims' }, 3);
+      if (cl && can('claims')) add('warn', 'receipt', `${plural(cl, 'claim', 'claims')} waiting for approval`, 'Approved claims are paid with the next payroll.', { label: 'Review', href: '#claims' }, 3);
       const sec = securityQueue().count;
-      if (sec) add('bad', 'shield', `${plural(sec, 'check-in needs', 'check-ins need')} a look`, 'A face mismatch, an uploaded photo or a new phone.', { label: 'Check', href: '#attendance' }, 4);
+      if (sec && can('time')) add('bad', 'shield', `${plural(sec, 'check-in needs', 'check-ins need')} a look`, 'A face mismatch, an uploaded photo or a new phone.', { label: 'Check', href: '#attendance' }, 4);
       const days = []; let d = U.addDays(T, -1);
       while (days.length < 7) { if (!U.isWeekend(d)) days.push(d); d = U.addDays(d, -1); }
       const rateOf = (day) => { const s = dayStats(day); return s.total ? ((s.present + s.remote) / s.total) * 100 : 0; };
       const avg = days.reduce((s, x) => s + rateOf(x), 0) / days.length;
-      if (!U.isWeekend(T)) {
+      if (!U.isWeekend(T) && can('time')) {
         const now = rateOf(T);
         if (h >= 11) add(now >= avg - 5 ? 'good' : 'warn', 'clock', `Attendance today is ${Math.round(now)}%`, `Your 7-day average is ${Math.round(avg)}%.`, { label: 'See who’s in', href: '#attendance' }, now >= avg - 5 ? 0 : 2);
         else add('info', 'clock', `${plural(dayStats(T).present + dayStats(T).remote, 'person has', 'people have')} checked in`, `By the end of the day ${Math.round(avg)}% are usually in.`, { label: 'Attendance', href: '#attendance' }, 0);
       }
       const mk = U.monthKey(T), run = state.payroll[mk], left = daysUntil(U.lastWorkday(U.monthEnd(mk)));
-      if (!run && left <= 10) add('warn', 'wallet', `${U.fmtMonth(mk, { month: 'long' })} payroll isn’t run yet`, `Payday is in ${plural(Math.max(0, left), 'day', 'days')}.`, { label: 'Run payroll', href: '#payroll' }, 3);
+      if (!can('payroll')) { /* payroll reminders are for payroll staff */ }
+      else if (!run && left <= 10) add('warn', 'wallet', `${U.fmtMonth(mk, { month: 'long' })} payroll isn’t run yet`, `Payday is in ${plural(Math.max(0, left), 'day', 'days')}.`, { label: 'Run payroll', href: '#payroll' }, 3);
       else if (run?.status === 'Draft') add('info', 'wallet', 'A payroll draft is waiting', 'Check bonuses, then approve and pay.', { label: 'Open', href: '#payroll' }, 2);
       const paid = Object.keys(state.payroll).filter((k) => state.payroll[k].status === 'Paid').sort();
-      if (paid.length >= 2) {
+      if (paid.length >= 2 && can('payroll')) {
         const a = payTotal(state.payroll[paid[paid.length - 2]]), b = payTotal(state.payroll[paid[paid.length - 1]]);
         const ca = a.gross + a.erCost, cb = b.gross + b.erCost, ch = ca ? ((cb - ca) / ca) * 100 : 0;
         add(Math.abs(ch) < 3 ? 'info' : ch > 0 ? 'warn' : 'good', 'trend', `Payroll cost ${ch >= 0 ? 'up' : 'down'} ${Math.abs(ch).toFixed(1)}%`, `${U.fmtMonth(paid[paid.length - 1], { month: 'long' })} cost ${money(cb)} with employer contributions.`, { label: 'Payroll', href: '#payroll' }, 0);
       }
       const od = (state.finance?.invoices || []).filter((i) => i.status === 'Sent' && i.due < T);
-      if (od.length) add('warn', 'doc', `${plural(od.length, 'invoice is', 'invoices are')} overdue`, `${money(od.reduce((s, i) => s + AllurusFinance.invoiceTotals(i).total, 0))} is owed to you.`, { label: 'Chase', href: '#invoices' }, 2);
+      if (od.length && can('finance')) add('warn', 'doc', `${plural(od.length, 'invoice is', 'invoices are')} overdue`, `${money(od.reduce((s, i) => s + AllurusFinance.invoiceTotals(i).total, 0))} is owed to you.`, { label: 'Chase', href: '#invoices' }, 2);
       const since = U.addDays(T, -183);
       const tired = activeEmployees().filter((e) => e.start < since && !state.leaves.some((l) => l.empId === e.id && l.status === 'Approved' && l.type === 'annual' && l.to >= since));
-      if (tired.length) add('info', 'heart', `${plural(tired.length, 'person hasn’t', 'people haven’t')} had a break in 6 months`, `${tired.slice(0, 3).map((e) => e.first).join(', ')}${tired.length > 3 ? ' and others' : ''}. A nudge to rest goes a long way.`, { label: 'Time off', href: '#leave' }, 1);
+      if (tired.length && can('time')) add('info', 'heart', `${plural(tired.length, 'person hasn’t', 'people haven’t')} had a break in 6 months`, `${tired.slice(0, 3).map((e) => e.first).join(', ')}${tired.length > 3 ? ' and others' : ''}. A nudge to rest goes a long way.`, { label: 'Time off', href: '#leave' }, 1);
       const bdays = activeEmployees().filter((e) => e.birthday && [0, 1, 2, 3, 4, 5, 6].some((i) => U.addDays(T, i).slice(5) === e.birthday.slice(5)));
       if (bdays.length) add('good', 'sparkle', bdays.length === 1 ? `${bdays[0].first}’s birthday is this week` : `${bdays.length} birthdays this week`, bdays.map((e) => fullName(e)).join(', '), null, 1);
     }
@@ -630,16 +666,16 @@
     const avg = prev.reduce((s, x) => { const st = dayStats(x); return s + (st.total ? ((st.present + st.remote) / st.total) * 100 : 0); }, 0) / prev.length;
     const out = active.filter((e) => onLeaveOn(e.id, T));
     const joined = active.filter((e) => e.start.slice(0, 7) === T.slice(0, 7)).length;
-    const pend = pendingLeaves(), pendC = (state.claims || []).filter((c) => c.status === 'Pending');
+    const pend = can('time') ? pendingLeaves().filter((l) => l.empId !== me()?.id) : [], pendC = can('claims') ? (state.claims || []).filter((c) => c.status === 'Pending' && c.empId !== me()?.id) : [];
     const paidMonths = Object.keys(state.payroll).filter((k) => state.payroll[k].status === 'Paid').sort();
     const lastPaid = paidMonths[paidMonths.length - 1];
     const ins = insights(), focus = ins.filter((x) => x.prio >= 2 && x.action).slice(0, 3);
     const nowIn = Object.values(state.attendance[T] || {}).filter((r) => r.in && !r.out).length;
     const W = [
       { id: 'today', title: 'Today', span: 12, fixed: true, render: () => hero({
-        title: greeting(emp('e1')?.first || 'there'),
+        title: greeting(me()?.first || 'there'),
         sub: `${U.isWeekend(T) ? 'It’s the weekend at' : `${nowIn} ${nowIn === 1 ? 'person is' : 'people are'} in at`} ${esc(state.settings.company)} right now. ${focus.length ? `${focus.length} ${focus.length === 1 ? 'thing needs' : 'things need'} you today.` : dayNote()}`,
-        actions: `<button class="btn btn-primary" data-act="add-emp">${icon('plus')}Add employee</button><button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button>`,
+        actions: `${can('people') ? `<button class="btn btn-primary" data-act="add-emp">${icon('plus')}Add employee</button>` : ''}${can('time') ? `<button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button>` : ''}`,
         focus, calm: 'You’re all caught up. Nothing needs your attention right now.' }) },
       { id: 'setup', title: 'Getting started', span: 12, fixed: true, render: () => AllurusUX.setupCard() },
       { id: 'kpis', title: 'Key numbers', span: 12, render: () => `<div class="grid g-4 keep-2">
@@ -647,22 +683,22 @@
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>Attendance</div><div class="kpi-value">${rate}%</div><div class="kpi-foot">${delta(rate - avg, ' pts')} vs 7-day average · ${wd === T ? 'today' : U.fmtDate(wd, { weekday: 'short' })}</div></div>
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>On leave today</div><div class="kpi-value">${out.length}</div><div class="kpi-foot">${out.length ? esc(out.map((e) => e.first).join(', ')) : 'Everyone is in'}</div></div>
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Open roles</div><div class="kpi-value">${state.jobs.length}</div><div class="kpi-foot">${state.candidates.filter((c) => c.stage !== 'Hired').length} candidates in the pipeline</div></div></div>` },
-      { id: 'attendance', title: 'Attendance trend', span: 8, render: () => `<div class="card"><div class="card-head"><h3>Attendance, last 7 workdays</h3><div class="legend"><span><i style="background:var(--brand)"></i>In office</span><span><i style="background:var(--gold)"></i>Remote</span></div></div>${attendanceChart(wd)}</div>` },
-      { id: 'live', title: 'Who’s in now', span: 4, render: liveWidget },
-      { id: 'off', title: 'Who’s off today', span: 4, render: () => leaveApi.whoOffCard() },
+      { id: 'attendance', area: 'time', title: 'Attendance trend', span: 8, render: () => `<div class="card"><div class="card-head"><h3>Attendance, last 7 workdays</h3><div class="legend"><span><i style="background:var(--brand)"></i>In office</span><span><i style="background:var(--gold)"></i>Remote</span></div></div>${attendanceChart(wd)}</div>` },
+      { id: 'live', area: 'time', title: 'Who’s in now', span: 4, render: liveWidget },
+      { id: 'off', area: 'time', title: 'Who’s off today', span: 4, render: () => leaveApi.whoOffCard() },
       { id: 'approvals', title: 'Waiting for approval', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Waiting for you</h3><span class="hint">${pend.length + pendC.length} open</span></div>
         ${pend.length || pendC.length ? `<div class="list">${pend.slice(0, 3).map((l) => { const e = emp(l.empId); return `<div class="list-item">${avatar(fullName(e), 'sm')}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">${esc(leaveApi.typeName(l.type))} leave · ${l.days} day${l.days > 1 ? 's' : ''} · ${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}</div></div>
             <button class="btn btn-sm btn-icon btn-ok" data-act="approve-leave" data-id="${l.id}" aria-label="Approve ${esc(fullName(e))}’s leave">${icon('check')}</button><button class="btn btn-sm btn-icon btn-danger" data-act="reject-leave" data-id="${l.id}" aria-label="Decline ${esc(fullName(e))}’s leave">${icon('x')}</button></div>`; }).join('')}
           ${pendC.slice(0, 3).map((c) => { const e = emp(c.empId); return e ? `<div class="list-item">${avatar(fullName(e), 'sm')}<div class="grow"><div class="person-name">${esc(fullName(e))}</div><div class="person-sub">${esc(c.title)} · ${money(AllurusClaimRules.claimTotal(c), 2)}</div></div><button class="btn btn-sm" data-act="cl-review" data-id="${c.id}">Review</button></div>` : ''; }).join('')}</div>`
           : '<div class="empty"><strong>All caught up</strong>New requests will show up here.</div>'}</div>` },
       { id: 'insights', title: 'Insights', span: 4, render: () => insightsCard(ins) },
-      { id: 'payroll', title: 'Payroll trend', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Net payroll</h3><span class="hint">${lastPaid ? 'Last paid ' + U.fmtMonth(lastPaid, { month: 'short' }) : ''}</span></div>${payrollChart()}</div>` },
+      { id: 'payroll', area: 'payroll', title: 'Payroll trend', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Net payroll</h3><span class="hint">${lastPaid ? 'Last paid ' + U.fmtMonth(lastPaid, { month: 'short' }) : ''}</span></div>${payrollChart()}</div>` },
       { id: 'headcount', title: 'Headcount by department', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Headcount by department</h3></div>${deptBars()}</div>` },
       { id: 'upcoming', title: 'Coming up', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Coming up</h3><span class="hint">Next 30 days</span></div>${upcomingList()}</div>` },
       { id: 'activity', title: 'Recent activity', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Recent activity</h3></div>
         <div class="list">${state.activity.slice(0, 6).map((a) => `<div class="list-item"><div class="grow" style="font-size:13.5px">${esc(a.text)}</div><span class="faint" style="white-space:nowrap;font-size:12.5px">${timeAgo(a.t)}</span></div>`).join('') || '<div class="empty">No activity yet.</div>'}</div></div>` },
     ];
-    return AllurusUX.board('admin', W);
+    return AllurusUX.board('admin', W.filter((w) => !w.area || can(w.area)));
   };
 
   function attendanceChart(endDay) {
@@ -1221,7 +1257,7 @@
   }
   VIEWS.settings = () => {
     const s = state.settings;
-    if (role() !== 'admin') return `
+    if (role() !== 'admin' || !can('settings')) return `
       <div class="page-head"><div><h1>Settings</h1><p class="sub">Appearance and demo data for this browser.</p></div></div>
       ${AllurusUX.appearanceCard()}
       ${notifyApi.prefsCard()}
@@ -1276,7 +1312,7 @@
   AFTER.settings = () => {
     bindAccountCard();
     notifyApi.bindSettings();
-    if (role() !== 'admin') return;
+    if (role() !== 'admin' || !can('settings')) return;
     if (CLOUD) teamAccess.mount();
     const bind = (id, key, num) => $(id).addEventListener('change', (ev) => { state.settings[key] = num ? Math.max(0, Number(ev.target.value) || 0) : ev.target.value.trim() || state.settings[key]; commit('Settings saved'); });
     bindCheckinCard();
@@ -1309,7 +1345,7 @@
         ${CLOUD ? '<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px"><button type="button" class="link-btn" data-act="cloud-reset">Forgot password?</button><button type="button" class="link-btn" data-act="cloud-activate">First time here? Set up your account</button></div>' : ''}
       </form>
       ${CLOUD ? '' : `<div class="card demo-pick" style="width:100%;max-width:440px;margin:0 auto 16px;padding:18px 20px"><div style="font-weight:600;margin-bottom:4px">Explore the demo company</div><p class="muted" style="font-size:13.5px;margin-bottom:12px">${esc(state.settings.company)}, a sample business. Changes stay in this browser.</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${[['admin@allurus.com', 'HR admin', 'Payroll, leave, hiring'], ['manager@allurus.com', 'Manager', 'Approves the team'], ['emp@allurus.com', 'Employee', 'Check in, leave, payslips'], ['auditor@allurus.com', 'Auditor', 'Verifies the books']].filter(([e]) => state.accounts.some((a) => a.email === e)).map(([e, label, sub]) => `<button type="button" class="btn" style="flex-direction:column;align-items:flex-start;height:auto;padding:10px 12px;text-align:left" data-act="demo-as" data-v="${e}"><span style="font-weight:600">${label}</span><span class="muted" style="font-size:12px;font-weight:400">${sub}</span></button>`).join('')}</div></div>`}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${[['aisyah.rahman@serimaju.com.my', 'HR admin', 'Aisyah · people, payroll, leave'], ['grace.ng@serimaju.com.my', 'Finance', 'Grace · books and claims'], ['nurul.aina@serimaju.com.my', 'Payroll', 'Nurul · payroll and records'], ['arjun.pillai@serimaju.com.my', 'Manager', 'Arjun · approves his team'], ['daniel.lim@serimaju.com.my', 'Employee', 'Daniel · check in, leave, pay'], ['meiling@tanpartners.com.my', 'Auditor', 'Mei Ling · verifies the books']].filter(([e]) => state.accounts.some((a) => a.email === e)).map(([e, label, sub]) => `<button type="button" class="btn" style="flex-direction:column;align-items:flex-start;height:auto;padding:10px 12px;text-align:left" data-act="demo-as" data-v="${e}"><span style="font-weight:600">${label}</span><span class="muted" style="font-size:12px;font-weight:400">${sub}</span></button>`).join('')}</div></div>`}
       <div class="register-cta"><div><strong>New to Allurus?</strong><span class="muted"> Register your company and start a free trial.</span></div><button class="btn btn-primary" data-act="register">${icon('plus')}Register company</button></div>
       <p class="faint" style="font-size:12.5px">${CLOUD ? 'Your company’s data is kept securely in the cloud and shared live with your team. <a href="?demo">Try the demo company instead</a>.' : CAN_CLOUD ? `Demo company, saved in this browser only. <a href="${location.pathname}">Sign in to your real workspace</a>.` : `Demo mode. Your workspace is saved in this browser${cloud.db ? '; company sign-ups and check-ins are also shared with the Allurus team' : ''}.`} Version ${APP_VERSION}</p>
     </div>`;
@@ -1341,9 +1377,17 @@
       startSession(acct);
     });
   }
+  // People with both an HR role and an employee role start in Employee view on a phone and in the company
+  // console on a computer. They can still switch views from the menu.
+  const onPhone = () => { try { return matchMedia('(max-width: 760px)').matches || (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 600); } catch (e) { return false; } };
+  function preferredRole(roles) {
+    if (onPhone() && roles.includes('employee')) return 'employee';
+    if (!roles.includes('super') && roles.includes('admin')) return 'admin';
+    return roles[0];
+  }
   function startSession(acct) {
     if (acct.tenantId && acct.tenantId !== state.session.tenantId && state.workspaces[acct.tenantId]) switchWorkspace(acct.tenantId);
-    Object.assign(state.session, { account: acct.email, roles: acct.roles.slice(), role: acct.roles[0], empId: acct.empId });
+    Object.assign(state.session, { account: acct.email, roles: acct.roles.slice(), role: preferredRole(acct.roles), empId: acct.empId });
     save();
     // Pick up where this person left off last time.
     const last = AllurusUX.prefs().lastRoute?.[state.session.role];
@@ -2515,9 +2559,10 @@
     status(e) {
       const email = (e.email || '').toLowerCase(), d = this.data || { invites: [], users: [] };
       const user = d.users.find((u) => u.empId === e.id), inv = d.invites.find((i) => i.email === email);
-      if (user) return { key: 'joined', label: 'Signed in', pill: 'ok', admin: (user.roles || []).includes('admin'), uid: user.uid, email: user.email };
-      if (inv) return { key: 'invited', label: 'Invited', pill: 'info', admin: (inv.roles || []).includes('admin'), email: inv.email };
-      return { key: 'none', label: 'No access', pill: '', admin: false };
+      const tpl = (x) => ((x.roles || []).includes('admin') ? templateOf(Array.isArray(x.perms) ? x.perms : null) : 'employee');
+      if (user) return { key: 'joined', label: 'Signed in', pill: 'ok', template: tpl(user), uid: user.uid, email: user.email };
+      if (inv) return { key: 'invited', label: 'Invited', pill: 'info', template: tpl(inv), email: inv.email };
+      return { key: 'none', label: 'No access', pill: '', template: 'employee' };
     },
     draw() {
       const el = $('#team-access'); if (!el) return;
@@ -2526,19 +2571,29 @@
         const st = this.status(e), isMe = e.id === self.empId;
         return `<tr><td>${person(e)}</td><td class="muted">${esc(e.email || 'No email')}</td>
           <td><span class="pill ${st.pill}">${st.label}</span></td>
-          <td>${isMe ? '<span class="muted">You · Admin</span>' : `<select class="select" data-acc-role="${e.id}" aria-label="Access for ${esc(fullName(e))}"><option value="employee" ${st.admin ? '' : 'selected'}>Employee</option><option value="admin" ${st.admin ? 'selected' : ''}>Company Admin</option></select>`}</td>
+          <td>${isMe ? `<span class="muted">You · ${esc(roleLabel('admin'))}</span>` : `<select class="select" data-acc-role="${e.id}" aria-label="Access for ${esc(fullName(e))}">${this.options(st.template)}</select>`}</td>
           <td class="r">${isMe ? '' : st.key === 'none' ? `<button class="btn btn-sm btn-primary" data-act="acc-invite" data-id="${e.id}" ${e.email ? '' : 'disabled'}>Invite</button>` : `<button class="btn btn-sm" data-act="acc-revoke" data-id="${esc(st.email || e.email)}">Remove access</button>`}</td></tr>`;
       }).join('');
       const waiting = people.filter((e) => e.email && this.status(e).key === 'none').length;
       el.innerHTML = `<div class="card-head"><h3>Team access</h3>${waiting ? `<button class="btn btn-sm" data-act="acc-invite-all">Invite all ${waiting}</button>` : ''}</div>
-        <p class="muted" style="margin-bottom:12px">Invite people by their work email. They open Allurus, choose <b>First time here? Set up your account</b>, confirm their email and sign in. Employees see their own pay and records, and colleagues’ names and contact details only.</p>
+        <p class="muted" style="margin-bottom:12px">Invite people by their work email. They open Allurus, choose <b>First time here? Set up your account</b>, confirm their email and sign in. Everyone gets the employee app; a role adds parts of the company console. Managers need no role: being an approver in the leave settings is enough.</p>
+        <div class="chips" style="margin-bottom:12px;flex-wrap:wrap">${Object.entries(TEMPLATES).map(([, t]) => `<span class="tag" title="${esc(t.desc)}"><b>${esc(t.label)}</b>: ${esc(t.desc)}</span>`).join('')}</div>
         <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
-      $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value === 'admin')));
+      $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value)));
+    },
+    // The templates this person may give: only ones within their own areas; Owner only by an Owner.
+    options(current) {
+      const mine = myPerms(), ok = (k) => k === 'employee' || (k === 'owner' ? !mine : !mine || TEMPLATES[k].perms.every((a) => mine.includes(a)));
+      const list = [['employee', 'Employee'], ...Object.entries(TEMPLATES).map(([k, t]) => [k, t.label])];
+      if (current === 'custom') list.push(['custom', 'Custom']);
+      return list.map(([k, label]) => `<option value="${k}" ${k === current ? 'selected' : ''} ${ok(k) || k === current ? '' : 'disabled'}>${label}</option>`).join('');
     },
     async invite(empId, quiet) {
       const e = emp(empId); if (!e) return;
       const st = this.status(e);
-      const r = await fire().invite(e, st.admin);
+      const chosen = this.pending?.[empId] || (st.template === 'custom' ? 'employee' : st.template);
+      const r = await fire().invite(e, chosen);
+      if (r.ok && this.pending) delete this.pending[empId];
       if (!quiet) toast(r.ok ? `${e.first} is invited. Ask them to choose “First time here?” on the sign-in screen with ${e.email}.` : r.error, r.ok ? '' : 'error');
       if (!quiet) await this.mount();
       return r.ok;
@@ -2548,10 +2603,11 @@
       let n = 0; for (const e of list) if (await this.invite(e.id, true)) n++;
       toast(`${n} ${n === 1 ? 'person' : 'people'} invited`); await this.mount();
     },
-    async setRole(empId, admin) {
+    async setRole(empId, template) {
       const e = emp(empId), st = this.status(e);
-      const r = st.key === 'joined' ? await fire().setRole(st.uid, admin) : await fire().invite(e, admin);
-      toast(r.ok ? `${e.first} is now ${admin ? 'a Company Admin' : 'an Employee'}${st.key === 'joined' ? '. It applies the next time they sign in.' : ''}` : r.error, r.ok ? '' : 'error');
+      if (st.key === 'none') { this.pending = { ...(this.pending || {}), [empId]: template }; toast(`${e.first} will be invited as ${template === 'employee' ? 'an Employee' : TEMPLATES[template].label}. Choose Invite.`); return; }
+      const r = st.key === 'joined' ? await fire().setRole(st.uid, template) : await fire().invite(e, template);
+      toast(r.ok ? `${e.first} is now ${template === 'employee' ? 'an Employee' : TEMPLATES[template].label}${st.key === 'joined' ? '. It applies the next time they sign in.' : ''}` : r.error, r.ok ? '' : 'error');
       await this.mount();
     },
     async revoke(email) {
@@ -2580,8 +2636,8 @@
       s.plans = ws.plans || {}; s.reliefs = ws.reliefs || {}; s.taxProfiles = ws.taxProfiles || {};
       s.workspaces = {};
       if (theme) s.settings.theme = theme;
-      s.accounts = [{ email: p.email, name: p.name, hash: '', roles: p.roles.slice(), tenantId: p.tenantId, empId: p.empId, cloud: true }];
-      const keep = state.session.account === p.email && p.roles.includes(state.session.role) ? state.session.role : p.roles[0];
+      s.accounts = [{ email: p.email, name: p.name, hash: '', roles: p.roles.slice(), perms: Array.isArray(p.perms) ? p.perms.slice() : null, tenantId: p.tenantId, empId: p.empId, cloud: true }];
+      const keep = state.session.account === p.email && p.roles.includes(state.session.role) ? state.session.role : preferredRole(p.roles);
       s.session = { account: state.session.account === p.email ? p.email : null, roles: p.roles.slice(), role: keep, empId: p.empId, tenantId: p.tenantId, cloud: { uid: p.uid } };
       try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) { /* storage full or unavailable */ }
       state = load();
@@ -2603,6 +2659,7 @@
   };
 
   // ---------- Boot ----------
+  if (state.session.account && state.session.roles?.length > 1) state.session.role = preferredRole(state.session.roles);
   $('#today').textContent = U.fmtDate(U.today(), { weekday: 'short', month: 'short', day: 'numeric' });
   $('#brand-mark').innerHTML = LOGO_MARK;
   captureSetupLink();

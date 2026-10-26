@@ -110,11 +110,12 @@ window.AllurusClaims = (function () {
     const leaveCfg = () => st().settings.leave;
     const actor = () => (ctx.role() === 'admin' ? ctx.account()?.empId || 'e1' : ctx.me()?.id);
     const isAway = (id) => !!ctx.leave?.onLeave(id, T());
+    // Nobody decides their own claim, in any view; HR's override needs access to claims.
     function canActOn(c) {
-      if (c.status !== 'Pending') return '';
+      if (c.status !== 'Pending' || c.empId === actor()) return '';
       const step = LR.nextStep(c.chain);
       const as = step ? LR.canAct(step, actor(), isAway) : '';
-      return as || (ctx.role() === 'admin' ? 'override' : '');
+      return as || (ctx.role() === 'admin' && (window.AllurusAccess ? window.AllurusAccess.can('claims') : true) ? 'override' : '');
     }
     const forMe = (empId) => list().filter((c) => c.status === 'Pending' && LR.canAct(LR.nextStep(c.chain), empId, isAway));
     const chainFor = (e) => LR.buildChain({ applicant: e.id, chain: leaveCfg().chains?.[e.dept], hr: leaveCfg().hr, hrBackup: leaveCfg().hrBackup });
@@ -308,7 +309,7 @@ window.AllurusClaims = (function () {
     function decide(id, approve) {
       const c = find(id); if (!c) return;
       const as = canActOn(c);
-      if (!as) { toast('This claim is waiting for someone else.', 'error'); return; }
+      if (!as) { toast(c.empId === actor() ? 'You can’t decide your own claim. It goes to your approver.' : 'This claim is waiting for someone else.', 'error'); return; }
       const note = ctx.$('#cl-note')?.value.trim() || '';
       if (!approve && !note) { toast('Give a reason, so they know what to fix', 'error'); ctx.$('#cl-note')?.focus(); return; }
       if (approve) {

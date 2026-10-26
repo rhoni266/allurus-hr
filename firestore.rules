@@ -5,9 +5,14 @@ rules_version = '2';
 //   users/{uid}            Each person's link to their company: tenantId, roles, empId.
 //   invites/{email}        HR's invitation for a work email. Joining needs that email, confirmed.
 //   tenants/{t}            The company. Members read; admins update.
-//     buckets/{id}         Shared records. Field r: 'm' = every member reads, 'a' = admins only.
-//     people/{empId}       Full employee record: admins, and the person (who may change only their phones and face).
-//     payslips/{empId}     Admins write; admins and the person read.
+//     buckets/{id}         Shared records. Field r says who reads: 'm' every member, 'a' any Company Admin,
+//                          'p' admins with the payroll area, 'f' admins with the finance area.
+//     people/{empId}       Full employee record: admins with the people or payroll area, and the person (who may
+//                          change only their phones and face).
+//     payslips/{empId}     Admins with the payroll area write and read; the person reads their own.
+//
+// Company Admins have role templates: a `perms` list of areas (people, time, payroll, claims, finance, talent,
+// settings) on their profile. No list means every area (Owner). Nobody can give access they don't have.
 //     personal/{empId}     The person's own financial plan and tax reliefs. Only them.
 //     blobs/{id}           Photos and files. Members read and add; nobody overwrites.
 service cloud.firestore {
@@ -22,13 +27,28 @@ service cloud.firestore {
     function verified() { return request.auth.token.email_verified == true; }
     function inviteFor(email) { return get(/databases/$(database)/documents/invites/$(email)).data; }
 
-    function adminReadBucket(b) { return b in ['payroll', 'payChanges', 'loans', 'insurance', 'savedReports'] || b == 'finance' || b.matches('finance[.].*'); }
-    function adminWriteBucket(b) { return adminReadBucket(b) || b in ['settings', 'departments', 'statutory', 'directory', 'cycles']; }
-    function bucketClass(b) { return adminReadBucket(b) ? 'a' : 'm'; }
+    // Areas of the company console (see AREAS in js/app.js and js/cloud-map.js).
+    function owner() { return !('perms' in me()); }
+    function hasArea(t, a) { return admin(t) && (owner() || a in me().perms); }
+    function seesPeople(t) { return hasArea(t, 'people') || hasArea(t, 'payroll'); }
+    function isFinance(b) { return b == 'finance' || b.matches('finance[.].*'); }
+    function bucketClass(b) { return b in ['payroll', 'payChanges', 'loans', 'insurance'] ? 'p' : (isFinance(b) ? 'f' : (b == 'savedReports' ? 'a' : 'm')); }
+    function readsClass(t, r) { return r == 'm' || (r == 'a' && admin(t)) || (r == 'p' && hasArea(t, 'payroll')) || (r == 'f' && hasArea(t, 'finance')); }
+    function bucketArea(b) {
+      return b in ['payroll', 'payChanges', 'loans', 'insurance', 'statutory'] ? 'payroll'
+        : (isFinance(b) ? 'finance' : (b == 'settings' ? 'settings' : (b in ['departments', 'directory'] ? 'people'
+        : (b == 'cycles' ? 'talent' : (b == 'savedReports' ? 'admin' : '')))));
+    }
+    function writesBucket(t, b) { return bucketArea(b) == '' ? member(t) : (bucketArea(b) == 'admin' ? admin(t) : hasArea(t, bucketArea(b))); }
+    // Access d (an invite or profile) gives no more than the giver has: an Owner may give anything; anyone else only
+    // a list of their own areas, never Owner (an admin with no list).
+    function grantable(d) { return !('admin' in d.roles) || owner() || ('perms' in d && d.perms.hasOnly(me().perms)); }
+    function validRoles(d) { return d.roles in [['employee'], ['admin', 'employee']] && (!('perms' in d) || d.perms is list); }
+    function samePerms(d, inv) { return ('perms' in inv) ? ('perms' in d && d.perms == inv.perms) : !('perms' in d); }
 
     match /users/{uid} {
-      allow get: if signedIn() && (request.auth.uid == uid || admin(resource.data.tenantId));
-      allow list: if hasProfile() && resource.data.tenantId == me().tenantId && ('admin' in me().roles);
+      allow get: if signedIn() && (request.auth.uid == uid || hasArea(resource.data.tenantId, 'settings'));
+      allow list: if hasProfile() && resource.data.tenantId == me().tenantId && hasArea(me().tenantId, 'settings');
       // Joining from an invite (email confirmed), or the founder of a company they just created.
       allow create: if signedIn() && request.auth.uid == uid && !hasProfile()
         && request.resource.data.email == myEmail()
@@ -36,44 +56,46 @@ service cloud.firestore {
           (verified() && exists(/databases/$(database)/documents/invites/$(myEmail()))
             && inviteFor(myEmail()).tenantId == request.resource.data.tenantId
             && inviteFor(myEmail()).roles == request.resource.data.roles
-            && inviteFor(myEmail()).empId == request.resource.data.empId)
+            && inviteFor(myEmail()).empId == request.resource.data.empId
+            && samePerms(request.resource.data, inviteFor(myEmail())))
           || (get(/databases/$(database)/documents/tenants/$(request.resource.data.tenantId)).data.owner == uid
-            && request.resource.data.roles == ['admin', 'employee'] && request.resource.data.empId == 'e1')
+            && request.resource.data.roles == ['admin', 'employee'] && request.resource.data.empId == 'e1'
+            && !('perms' in request.resource.data))
         );
-      // Admins change someone else's access in their company; nobody changes their own.
-      allow update: if signedIn() && request.auth.uid != uid && admin(resource.data.tenantId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles'])
-        && request.resource.data.roles in [['employee'], ['admin', 'employee']];
-      allow delete: if signedIn() && request.auth.uid != uid && admin(resource.data.tenantId);
+      // Admins with the settings area change someone else's access in their company; nobody changes their own.
+      allow update: if signedIn() && request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings')
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms'])
+        && validRoles(request.resource.data) && grantable(request.resource.data) && grantable(resource.data);
+      allow delete: if signedIn() && request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings') && grantable(resource.data);
     }
 
     match /invites/{email} {
-      allow get: if signedIn() && (myEmail() == email || admin(resource.data.tenantId));
-      allow list: if hasProfile() && resource.data.tenantId == me().tenantId && ('admin' in me().roles);
-      allow create, update: if email == email.lower() && admin(request.resource.data.tenantId)
-        && request.resource.data.roles in [['employee'], ['admin', 'employee']];
-      allow delete: if admin(resource.data.tenantId);
+      allow get: if signedIn() && (myEmail() == email || hasArea(resource.data.tenantId, 'settings'));
+      allow list: if hasProfile() && resource.data.tenantId == me().tenantId && hasArea(me().tenantId, 'settings');
+      allow create, update: if email == email.lower() && hasArea(request.resource.data.tenantId, 'settings')
+        && validRoles(request.resource.data) && grantable(request.resource.data);
+      allow delete: if hasArea(resource.data.tenantId, 'settings');
     }
 
     match /tenants/{t} {
       allow read: if member(t);
       allow create: if signedIn() && !hasProfile() && request.resource.data.owner == request.auth.uid;
-      allow update: if admin(t) && request.resource.data.owner == resource.data.owner;
+      allow update: if hasArea(t, 'settings') && request.resource.data.owner == resource.data.owner;
 
       match /buckets/{b} {
-        allow read: if member(t) && (resource.data.r == 'm' || admin(t));
-        allow create, update: if member(t) && (admin(t) || !adminWriteBucket(b)) && request.resource.data.r == bucketClass(b);
-        allow delete: if admin(t);
+        allow read: if member(t) && readsClass(t, resource.data.r);
+        allow create, update: if writesBucket(t, b) && request.resource.data.r == bucketClass(b);
+        allow delete: if writesBucket(t, b) && admin(t);
       }
       match /people/{e} {
-        allow read: if admin(t) || (member(t) && me().empId == e);
-        allow create, delete: if admin(t);
-        allow update: if admin(t) || (member(t) && me().empId == e
+        allow read: if seesPeople(t) || (member(t) && me().empId == e);
+        allow create, delete: if seesPeople(t);
+        allow update: if seesPeople(t) || (member(t) && me().empId == e
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['devices', 'face']));
       }
       match /payslips/{e} {
-        allow read: if admin(t) || (member(t) && me().empId == e);
-        allow write: if admin(t);
+        allow read: if hasArea(t, 'payroll') || (member(t) && me().empId == e);
+        allow write: if hasArea(t, 'payroll');
       }
       match /personal/{e} {
         allow read, write: if member(t) && me().empId == e;
