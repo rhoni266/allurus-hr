@@ -84,7 +84,7 @@ code{background:var(--tile);padding:1px 5px;border-radius:5px;font-size:13px}
         <h1>Pair this browser as a till</h1>
         <p>Get a one-time code on the server:<br><code>php artisan pos:pairing-code demo-cafe</code> (lists outlets), then <code>php artisan pos:pairing-code demo-cafe &lt;outlet-id&gt;</code></p>
         <label for="code">Pairing code</label>
-        <input class="in" id="code" autocomplete="off" maxlength="16" placeholder="e.g. 7KQ2M9XA" required>
+        <input class="in" id="code" autocomplete="off" maxlength="16" placeholder="e.g. BXJ9-HFH5 (not your PIN)" required>
         <label for="tname">Till name</label>
         <input class="in" id="tname" maxlength="40" placeholder="Web till" value="Web till">
         <button class="btn primary block" id="pairBtn">Pair</button>
@@ -168,7 +168,7 @@ async function post(url, body) {
     return { ok: r.ok, status: r.status, body: j };
 }
 const errText = b => ({
-    invalid_code: 'That code is wrong, used or expired. Get a new one.', code_expired: 'That code has expired.', attestation_failed: 'This server requires device attestation, which a browser cannot do.',
+    invalid_or_expired_code: 'That code is wrong, already used or expired. It is 8 letters and numbers (e.g. BXJ9-HFH5) from php artisan pos:pairing-code, not a staff PIN.', attestation_failed: 'This server requires device attestation, which a browser cannot do.',
     not_a_till_code: 'That is a kitchen-device code. Issue a terminal code instead.', invalid_credentials: 'Wrong PIN.', too_many_attempts: 'Too many wrong PINs. Try again in ' + Math.ceil((b.retry_after || 900) / 60) + ' min.',
     pin_change_required: 'Managers and owners need a 6-digit PIN. Set one with php artisan pos:staff-pin.', staff_signed_out: 'Your sign-in expired. Sign in again.',
     not_enough_cash: 'Cash received is less than the total.', sale_not_stored: 'The server did not store the sale.',
