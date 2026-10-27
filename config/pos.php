@@ -39,6 +39,11 @@ return [
         'enabled' => (bool) env('POS_DASHBOARD_ENABLED', env('APP_ENV') !== 'production'),
     ],
 
+    // Web till at /till: a browser as one paired terminal, for demos and testing (online only).
+    'web_till' => [
+        'enabled' => (bool) env('POS_WEB_TILL_ENABLED', env('APP_ENV') !== 'production'),
+    ],
+
     // Delivery week 3 (docs/delivery-integration.md).
     'delivery' => [
         // Seconds to wait before each retry of a status the platform didn't take; after the

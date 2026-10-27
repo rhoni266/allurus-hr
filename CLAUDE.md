@@ -86,6 +86,7 @@ php spec/time-billing/run.php         # time-billing vectors
 php artisan test                      # Pest suite (needs Postgres, see below)
 php artisan migrate:fresh --seed --seeder=DemoSeeder   # demo data (never in production)
 php artisan sim:run                   # 20 chaos scenarios against real API server processes
+php artisan serve                     # then /till: the web till (pair with a pos:pairing-code terminal code, sign in by PIN, sell)
 php artisan pos:dashboard-link demo-cafe   # signed 12 h link to the read-only dashboard (then php artisan serve)
 php artisan schedule:work             # runs delivery:tick every 15 s (status retries, auto-reject, watchdog)
 php artisan reverb:start              # the kitchen doorbell, locally (tests and the simulator don't need it)
@@ -127,6 +128,7 @@ app/Console/Commands/DeliveryTick  delivery:tick (scheduled in routes/console.ph
 app/Http/Middleware/Idempotent  Idempotency-Key for non-sync POSTs (alias `idempotent`)
 app/Kitchen/                    Kitchen (fire / cancel / advance), KitchenPresence, KitchenTicketChanged (the doorbell)
 routes/channels.php             private broadcast channels (outlet.{id}.kitchen)
+app/Till/                       TillApi (in-process client through the real API stack), TillSale (catalogue, pricing, order.create); TillController + resources/views/till.blade.php
 app/Dashboard/DashboardData.php read-only dashboard figures (DashboardController + resources/views/dashboard.blade.php)
 app/Simulator/PrintNode.php     reference print node (+ Paper, NodeCrashed)
 tests/Fixtures/delivery/        one recorded payload per provider and event type
@@ -188,6 +190,7 @@ Known gaps:
 * `unknown_staff` also fires for a sale by someone deactivated *after* the sale but before it synced (the server checks today's status, not status at the time of sale).
 * A retiring device's cutoff uses its *device* clock, so a tampered clock could backdate sales. That's why lost/stolen devices are revoked, never retired.
 * `order.create` doesn't yet check that `staff_id` is a real, active staff member of the tenant (it should flag a conflict, never reject a sale).
+* **The web till (`/till`) is a browser working as one paired terminal**, online only, for demos and testing until the tablet app exists. The browser never holds the device token or prices anything: `TillController` keeps the token in the server session and calls `devices/register`, `auth/login`, `auth/me` and `sync/push` through `TillApi` (full middleware stack), pricing with `PricingEngine`. Can't pair while attestation is required; off in production unless `POS_WEB_TILL_ENABLED`. No voids, refunds, discounts or modifiers yet.
 * No HQ users yet: the dashboard (`/dashboard/{tenant}`) is reached by a signed, expiring link from `pos:dashboard-link` (anyone holding it can read that tenant until it expires; off in production unless `POS_DASHBOARD_ENABLED`). Pairing codes come from the CLI or from an owner/manager on an already-paired terminal. The first device per tenant needs the CLI.
 
 * The server doesn't recompute or check terminal pricing against `PricingEngine` yet (it should flag, never rewrite — rule 4). The payload doesn't yet carry the full engine input (line discounts, order discount, service-charge policy) needed to do that.
