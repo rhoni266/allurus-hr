@@ -105,7 +105,7 @@ class OrderAutoAcceptedToKitchen implements ShouldBroadcast, ShouldDispatchAfter
 - **`ShouldDispatchAfterCommit`:** if the event were broadcast inside the transaction, a KDS could pull before the row is visible, find nothing and wait for a bell that never rings again.
 - **Queued, not `ShouldBroadcastNow`:** a slow or down Reverb must not slow ingestion or fail the job. Reverb on the same host adds milliseconds.
 - **Channel authorisation:** `routes/channels.php` authorises `outlet.{id}.kitchen` only for a device token whose terminal or device belongs to that outlet. It uses `ResolveTenant` from the token, never a header. Kitchen devices (KDS screens, print nodes) are paired devices with ability `pos:kitchen`.
-- **The KDS client** (Flutter or a web KDS) uses Echo or `pusher_channels`. On `ticket.new` it calls the feed pull, the same `GET sync/pull` with entity `kitchen_ticket`, and renders. It also pulls on a timer (e.g. 15 s) and on every reconnect, so a missed bell costs seconds, not a lost order. Bumping a ticket is a mutation (`ticket.bump`), and that is how KDS status reaches the platform as preparing/ready.
+- **The KDS client** (Flutter or a web KDS) uses Echo or `pusher_channels`. On `ticket.new` it calls the feed pull, the same `GET sync/pull` with entity `kitchen_ticket`, and renders. It also pulls on a timer (e.g. 15 s) and on every reconnect, so a missed bell costs seconds, not a lost order. Bumping a ticket is a sync mutation (`ticket.status`, built: `docs/delivery-integration.md` §6a), and that is how KDS status reaches the platform as preparing/ready.
 
 ```js
 echo.private(`outlet.${outletId}.kitchen`)
@@ -170,4 +170,4 @@ Print jobs, whichever option:
 
 Endpoints: `POST kitchen/heartbeat`, `POST kitchen/print-jobs/{id}/ack`, `POST broadcasting/auth` (all under `/api/v1`, device token). Simulator: `print-node` (crashes at every point, lost acks, no doorbell, kitchen going quiet).
 
-Not done in step 1: stations and routing by station, ticket bump/status mutations from the KDS, reprint, "job not printed within N seconds" alerts, a real Reverb server in the simulator, manual accept for non-auto-accepted delivery orders (delivery week 3). Installing Reverb downgraded Guzzle 8 → 7 (Reverb 1.12 needs `guzzlehttp/psr7` 2.x).
+Not done in step 1: stations and routing by station, ticket bump/status mutations from the KDS (since built: `ticket.status`), reprint, "job not printed within N seconds" alerts, a real Reverb server in the simulator, manual accept for non-auto-accepted delivery orders (delivery week 3). Installing Reverb downgraded Guzzle 8 → 7 (Reverb 1.12 needs `guzzlehttp/psr7` 2.x).

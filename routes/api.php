@@ -17,9 +17,11 @@ Route::prefix('v1')->group(function () {
 
     // Any paired device: tills (pos:terminal) and kitchen devices (pos:kitchen). Order
     // matters: authenticate, derive the tenant from the token, then refuse retired/revoked
-    // devices. The pull is filtered by device kind (SyncPullController).
+    // devices. Pull is filtered by device kind (SyncPullController); a kitchen device may
+    // only push ticket.status (SyncPushController).
     Route::middleware(['auth:sanctum', 'ability:pos:terminal,pos:kitchen', ResolveTenant::class, EnsureDeviceActive::class])->group(function () {
         Route::get('sync/pull', SyncPullController::class)->name('sync.pull');
+        Route::post('sync/push', SyncPushController::class)->name('sync.push');
         Route::post('devices/wipe-confirm', [DeviceSelfController::class, 'wipeConfirm'])->name('devices.wipe-confirm');
         Route::post('devices/retired', [DeviceSelfController::class, 'retired'])->name('devices.retired');
 
@@ -27,10 +29,8 @@ Route::prefix('v1')->group(function () {
         Route::post('kitchen/print-jobs/{id}/ack', [KitchenDeviceController::class, 'ack'])->whereUuid('id')->name('kitchen.ack');
     });
 
-    // Tills only: sales and staff.
+    // Tills only: staff and everything they do online.
     Route::middleware(['auth:sanctum', 'abilities:pos:terminal', ResolveTenant::class, EnsureDeviceActive::class])->group(function () {
-        Route::post('sync/push', SyncPushController::class)->name('sync.push');
-
         Route::post('auth/login', [StaffAuthController::class, 'login'])->name('auth.login');
 
         Route::middleware('staff')->group(function () {

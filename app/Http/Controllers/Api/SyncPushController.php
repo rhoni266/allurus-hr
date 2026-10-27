@@ -24,6 +24,8 @@ class SyncPushController
     // Default Laravel name for unique(['terminal_id', 'client_seq']).
     private const QUEUE_UNIQUE = 'offline_sync_queues_terminal_id_client_seq_unique';
 
+    private const KITCHEN_TYPES = ['ticket.status'];
+
     public function __construct(private MutationHandlerRegistry $handlers) {}
 
     public function __invoke(Request $request)
@@ -65,6 +67,11 @@ class SyncPushController
         // Idempotent replay: anything stored is final.
         if ($stored = $this->stored($terminal, $m)) {
             return $stored;
+        }
+
+        // Kitchen devices (pos:kitchen) can bump tickets and nothing else: no sales, no stock.
+        if ($terminal->kind === Terminal::KIND_KITCHEN && ! in_array($m['type'], self::KITCHEN_TYPES, true)) {
+            return $this->reject($terminal, $m, 'not_allowed_for_device', ['type' => $m['type'], 'kind' => $terminal->kind]);
         }
 
         // A retiring device may sync its backlog, but nothing it did after the cutoff.

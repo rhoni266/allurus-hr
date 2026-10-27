@@ -31,4 +31,32 @@ final class DeliveryStatusOutbox
 
         return $id;
     }
+
+    /**
+     * The kitchen moved a delivery order's ticket from $from to $to: queue what the platform
+     * must hear. `preparing` only if the kitchen actually said so; `ready` once the ticket
+     * reaches ready or is bumped straight past it. Only for an order we accepted and the
+     * platform hasn't cancelled. Caller holds the per-order delivery lock.
+     *
+     * @return list<string> the statuses queued
+     */
+    public static function kitchen(DeliveryOrder $order, string $from, string $to, array $context = []): array
+    {
+        if ($order->status !== 'accepted') {
+            return [];
+        }
+        $rank = \App\Kitchen\Kitchen::RANK;
+        $queued = [];
+        if ($to === 'preparing') {
+            $queued[] = 'preparing';
+        }
+        if ($rank[$from] < $rank['ready'] && $rank[$to] >= $rank['ready']) {
+            $queued[] = 'ready';
+        }
+        foreach ($queued as $status) {
+            self::queue($order, $status, $context);
+        }
+
+        return $queued;
+    }
 }

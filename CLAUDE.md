@@ -53,6 +53,7 @@ Multi-tenant, offline-first, omnichannel POS for the Malaysian market (F&B, reta
 | `session.end` | `time_sessions` row with the terminal's charge **and** `server_amount_sen` from `TimeBilling` | `session_amount_mismatch` |
 | `order.refund` | `order_refunds` + lines, negative `refunded` payments, `refund` movements for restocked lines; amount from `PricingEngine::refund` (spec v2, cumulative so pieces sum to the sale exactly); status `partially_refunded` / `refunded`. Rejected for voided orders | `refund_amount_mismatch`, `over_refund`, `unauthorized_refund` |
 | `stock.count` | a count anchor; `stocktake` movement = counted − books at count time. Later-synced movements dated before a count are cancelled (`count_absorbed`) | `unauthorized_stocktake` |
+| `ticket.status` | `kitchen_ticket_events` row (event id = domain key); `kitchen_tickets.status` is a forward-only projection (`new → preparing → ready → bumped`, steps may be skipped; a stale or cancelled-ticket tap is stored with `applied = false`, not flagged). For an accepted delivery order, queues `preparing` (only if the kitchen said so) and `ready` (on reaching ready, or bumping past it) to the status outbox. Rejected: unknown ticket, another outlet's ticket | `unknown_staff` (only if a `staff_id` is sent) |
 
 All stock changes go through `App\Sync\StockLedger::move()`; order lookups through `App\Sync\Facts::order()` (partition-pruned, locked); voids (terminal or platform cancellation) through `App\Sync\Voids::apply()`.
 
@@ -72,8 +73,8 @@ All stock changes go through `App\Sync\StockLedger::move()`; order lookups throu
 ### Kitchen (`docs/web-ordering-and-auto-accept.md` §7)
 
 * **Rows are the delivery, the WebSocket is a doorbell.** `kitchen_tickets` (one per order) and `print_jobs` (one per active kitchen printer) are feed rows. `KitchenTicketChanged` on `private-outlet.{id}.kitchen` carries only the ticket id and is sent after commit inside `rescue()`; devices render from what they pull and pull on reconnect. Never put order data in the broadcast or let a broadcast failure fail an order.
-* Everything goes through `App\Kitchen\Kitchen::fire()` / `cancel()`. `Voids::apply` cancels the ticket (CANCELLED slip).
-* Kitchen devices (KDS, print nodes) pair with a `kind=kitchen` code (`pos:pairing-code … --kind=kitchen`, or `kind` on `devices/pairing-codes`), get only `pos:kitchen`, can't push or sign staff in, pull only kitchen entities, and skip attestation unless `pos.attestation.kitchen_required`.
+* Everything goes through `App\Kitchen\Kitchen::fire()` / `cancel()` / `advance()` (KDS bumps). `Voids::apply` cancels the ticket (CANCELLED slip).
+* Kitchen devices (KDS, print nodes) pair with a `kind=kitchen` code (`pos:pairing-code … --kind=kitchen`, or `kind` on `devices/pairing-codes`), get only `pos:kitchen`, may push only `ticket.status` (anything else is rejected `not_allowed_for_device`), can't sign staff in, pull only kitchen entities, and skip attestation unless `pos.attestation.kitchen_required`.
 * Print nodes ack each job (`kitchen/print-jobs/{id}/ack`, idempotent; a late `failed` can't undo `printed`). A power cut mid-print is reported `failed: print_uncertain` and never reprinted automatically.
 * Channel auth is `POST /api/v1/broadcasting/auth` with the device token, after `ResolveTenant` and `EnsureDeviceActive` (`routes/channels.php`).
 
@@ -84,7 +85,7 @@ php spec/pricing/run.php              # pricing vectors, no framework needed
 php spec/time-billing/run.php         # time-billing vectors
 php artisan test                      # Pest suite (needs Postgres, see below)
 php artisan migrate:fresh --seed --seeder=DemoSeeder   # demo data (never in production)
-php artisan sim:run                   # 19 chaos scenarios against real API server processes
+php artisan sim:run                   # 20 chaos scenarios against real API server processes
 php artisan schedule:work             # runs delivery:tick every 15 s (status retries, auto-reject, watchdog)
 php artisan reverb:start              # the kitchen doorbell, locally (tests and the simulator don't need it)
 php artisan sim:run crash-mid-sync --orders=5000
@@ -113,7 +114,7 @@ app/Database/                   Rls, Timestamps
 app/Tenancy/                    TenantContext, TenantScope, BelongsToTenant
 app/Pricing/PriceResolver.php   server-side price lookup (outlet override > region > base)
 app/Sync/                       MutationHandler, MutationHandlerRegistry, Outcome, MutationRejected, DependencyMissing, DbErrors, StockLedger, Facts
-app/Sync/Handlers/              OrderCreate, OrderVoid, PaymentAdd, StockAdjust, SessionEnd
+app/Sync/Handlers/              OrderCreate, OrderVoid, PaymentAdd, StockAdjust, SessionEnd, OrderRefund, StockCount, TicketStatus
 app/Devices/                    PairingService (issue / redeem one-time codes), DeviceLifecycle (retire / revoke / wipe)
 app/Devices/Attestation/        Attestation (challenge + check), PlayIntegrity, AppAttest (stub), Dev
 app/Sync/OfflineAuth.php        flags for mutations signed in offline
@@ -123,7 +124,7 @@ app/Jobs/ProcessDeliveryEvent   queue "delivery"; enters the tenant, ingests or 
 app/Jobs/PushDeliveryStatus     queue "delivery"; sends an order's queued statuses after commit
 app/Console/Commands/DeliveryTick  delivery:tick (scheduled in routes/console.php)
 app/Http/Middleware/Idempotent  Idempotency-Key for non-sync POSTs (alias `idempotent`)
-app/Kitchen/                    Kitchen (fire / cancel), KitchenPresence, KitchenTicketChanged (the doorbell)
+app/Kitchen/                    Kitchen (fire / cancel / advance), KitchenPresence, KitchenTicketChanged (the doorbell)
 routes/channels.php             private broadcast channels (outlet.{id}.kitchen)
 app/Simulator/PrintNode.php     reference print node (+ Paper, NodeCrashed)
 tests/Fixtures/delivery/        one recorded payload per provider and event type
@@ -131,7 +132,7 @@ app/Http/Controllers/Api/       SyncPull, SyncPush, DeviceRegister, PairingCode,
 app/Http/Middleware/            ResolveTenant (after auth:sanctum), EnsureDeviceActive, RequireStaffSession (alias `staff`)
 docs/                           offline-pin-signin.md (decided: option C), delivery-integration.md (weeks 1 and 3 built), web-ordering-and-auto-accept.md (step 1 built)
 config/pos.php                  pairing rate limit, attestation (POS_ATTESTATION_*)
-app/Simulator/                  reference terminal: LocalStore (SQLite outbox), SyncClient, Chaos, Scenarios
+app/Simulator/                  reference terminal: LocalStore (SQLite outbox), SyncClient, Chaos, Scenarios; PrintNode, Kds (reference kitchen devices)
 app/Console/Commands/           sim:run, sim:terminal, sim:churn, pos:pairing-code, pos:unpair, pos:staff-pin
 tests/Feature                   Pest, RefreshDatabase
 tests/Integration               Pest, DatabaseTruncation (needs real top-level transactions)
@@ -171,7 +172,7 @@ Done (branch `allurus-pos` on rhoni266/allurus-hr):
 
 Known gaps:
 
-* Delivery integration weeks 1 and 3 done (fixture provider; 281 Pest tests; `delivery-status` scenario), and kitchen step 1 (`print-node` scenario). Not yet: preparing/ready from the KDS (needs a bump mutation), stations, reprint, unprinted-job alerts, a manager alert / missed-orders banner when a store is paused, pruning `idempotency_keys`, menu sync (week 4), real adapters (need partner sandbox access), BYOD and table-QR web ordering (design steps 3–4).
+* Delivery integration weeks 1 and 3 done (fixture provider; `delivery-status` scenario), kitchen step 1 (`print-node` scenario) and KDS bumps with preparing/ready to the platform (`ticket.status`, `kds-bump` scenario); 295 Pest tests. Not yet: recall (un-bump) on the KDS, stations, reprint, unprinted-job alerts, a manager alert / missed-orders banner when a store is paused, pruning `idempotency_keys`, menu sync (week 4), real adapters (need partner sandbox access), BYOD and table-QR web ordering (design steps 3–4).
 * The watchdog only covers stores that auto-accept (or opt in): terminals don't heartbeat, so a manual-accept store can't tell that nobody is at the till.
 * `delivery:tick` walks every tenant with a delivery store each 15 s, one query set per tenant. Fine for now; shard or queue it per tenant before it gets slow.
 * Installing Reverb downgraded Guzzle 8 → 7 (Reverb 1.12 needs `guzzlehttp/psr7` 2.x).

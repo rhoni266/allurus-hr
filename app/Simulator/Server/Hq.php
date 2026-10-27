@@ -111,6 +111,14 @@ final class Hq
         });
     }
 
+    /** Another one-time code for a kitchen device at the world's outlet (codes are single use). */
+    public static function kitchenCode(World $world): string
+    {
+        self::enter($world->tenantId);
+
+        return self::write(fn () => app(PairingService::class)->issue(Outlet::findOrFail($world->outletId), kind: 'kitchen')['code']);
+    }
+
     public const CASHIER_PIN = '2222';
     public const MANAGER_PIN = '111111';
     public const SNOOKER_RATE = ['rate_sen' => 1500, 'unit_minutes' => 60, 'min_minutes' => 30, 'round_to' => 15, 'round' => 'up'];

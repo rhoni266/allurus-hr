@@ -2,7 +2,7 @@
 
 Addendum to `allurus-pos-architecture.md`. Goal: no more "tablet hell". A delivery order reaches the cloud, becomes a normal Allurus order, and appears on the terminal and KDS within seconds; kitchen status flows back to the platform.
 
-Status: **week 1 built** against a fixture provider (schema, provider contract, webhook, ingestion, cancellation). **Week 2's kitchen half is built** (auto-accept gated on kitchen presence, kitchen tickets, print jobs, Reverb doorbell: `docs/web-ordering-and-auto-accept.md` §7); **week 3 is built** except KDS-driven preparing/ready (see §6a). The terminal "new order" UI and weeks 4–5 are not started. This is the original addendum, corrected to match the codebase; the corrections are listed at the end.
+Status: **week 1 built** against a fixture provider (schema, provider contract, webhook, ingestion, cancellation). **Week 2's kitchen half is built** (auto-accept gated on kitchen presence, kitchen tickets, print jobs, Reverb doorbell: `docs/web-ordering-and-auto-accept.md` §7); **week 3 is built**, including preparing/ready from the KDS (see §6a). The terminal "new order" UI and weeks 4–5 are not started. This is the original addendum, corrected to match the codebase; the corrections are listed at the end.
 
 > **Verify before building adapters.** No platform's current API, partner terms, fees or Malaysian availability has been checked. Grab, Foodpanda and ShopeeFood APIs are partner-gated; aggregators (Deliverect, Klikit, Otter) have their own onboarding. Partner/sandbox access is the critical path, not engineering.
 
@@ -65,7 +65,7 @@ change feed (trigger) → terminals pull delivery_order rows (safety net behind 
 ## 6. Remaining plan
 
 1. **Week 2 — real-time:** Reverb (`ShouldBroadcastNow` on `private-outlet.{id}.delivery`), terminal "new delivery order" UI, KDS tickets through the same path as dine-in. *Depends on the F&B module (KDS) and Reverb, neither built yet.* The terminal's cursor pull of `delivery_order` is already the safety net.
-2. **Week 3 — status back to the platform:** built, see §6a. Still open: KDS status → preparing/ready (needs the KDS bump mutation), a manager alert and missed-orders banner when the store is paused.
+2. **Week 3 — status back to the platform:** built, see §6a. Still open: a manager alert and missed-orders banner when the store is paused.
 3. **Week 4 — menu:** mapping UI (HQ), push menu/price/availability, availability off when `stock_levels.on_hand_milli` hits zero, "unmapped items seen in orders" report from `attention_reasons`.
 4. **Weeks 5–6:** aggregator adapter against its sandbox, pilot one merchant on one platform; then a second platform or direct Grab.
 
@@ -96,6 +96,11 @@ change feed (trigger) → terminals pull delivery_order rows (safety net behind 
   * A failed platform call changes nothing; the next tick retries.
   * Manual-accept stores without kitchen devices aren't watched, because terminals don't heartbeat yet.
 * Simulator: `delivery-status`. The platform fails 30% of calls, half of them after taking effect. The scenario covers auto and manual decisions, replayed requests, auto-reject and pause/reopen.
+* **Preparing / ready from the kitchen** (sync mutation `ticket.status`, pushed by KDS screens or tills; `TicketStatusHandler`):
+  * Each tap is a `kitchen_ticket_events` row; `kitchen_tickets.status` only moves forward (`new → preparing → ready → bumped`), so a second screen or a screen syncing late can't send a ticket back. Steps may be skipped.
+  * For a delivery order we accepted (and the platform hasn't cancelled), the move queues `preparing` (only if the kitchen actually said preparing) and `ready` (on reaching ready, or bumping straight past it) in the same transaction, through the same outbox and ordering as accept/reject. `bumped` is ours; the driver pickup is the platform's to report.
+  * The handler takes the per-order delivery lock before the ticket lock, the same order as ingest, cancel and accept.
+  * Simulator: `kds-bump`. Two screens on different servers lose 20% of requests and responses; one is offline for half its taps; the platform cancels an order. Every tap is stored once, no ticket moves backwards, and each order is told accepted → (preparing) → ready exactly.
 
 ## 7. Risks
 

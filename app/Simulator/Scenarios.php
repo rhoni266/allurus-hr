@@ -18,7 +18,7 @@ final class Scenarios
         'stale-price', 'concurrent-terminals', 'duplicate-race', 'cursor-race',
         'void-storm', 'open-tabs', 'stock-adjust', 'snooker-sessions',
         'lost-device', 'retire-device', 'offline-signin', 'refunds', 'stocktake',
-        'print-node', 'delivery-status',
+        'print-node', 'delivery-status', 'kds-bump',
     ];
 
     public function __construct(
@@ -846,6 +846,156 @@ final class Scenarios
                 $told->count().' orders told')
             ->check('watchdog paused the store and reopened it', $paused && $resumed && $store !== [] && end($store) === true && in_array(false, $store, true),
                 json_encode($store));
+    }
+
+    /**
+     * KDS bumps (ticket.status) under chaos. Two screens at one outlet, on different API
+     * servers, both losing 20% of requests and 20% of responses: the line marks tickets
+     * preparing, the pass marks every third one ready and bumps them all. 20 till sales and
+     * 10 auto-accepted platform orders reach the kitchen; the platform cancels one before
+     * anyone touches it. The line's screen is offline for half its taps and syncs them after
+     * the pass has bumped those tickets.
+     *
+     * Every tap must be stored exactly once, no ticket may move backwards, and the platform
+     * must hear accepted, preparing (only where the line said so in time) and ready, once
+     * each and in order, through a platform that fails 30% of calls.
+     */
+    private function kdsBump(string $name): Verifier
+    {
+        $world = $this->world($name);
+        $k = Hq::kitchen($world);
+        $url = $this->pool->url(0);
+        $dir = dirname($this->worldPath($name));
+        $log = \App\Console\Commands\SimRun::platformLog();
+        config(['services.fixture_delivery.fail_rate' => 0.3, 'services.fixture_delivery.log' => $log,
+            'pos.delivery.push_backoff' => array_fill(0, 12, 1), 'pos.kitchen.presence_seconds' => 2]);
+        $tick = fn () => \Illuminate\Support\Facades\Artisan::call('delivery:tick');
+
+        $pair = function (string $code, string $label) use ($url, $world): array {
+            $reg = Http::baseUrl($url)->acceptJson()->post('/api/v1/devices/register',
+                ['code' => $code, 'device_fingerprint' => "sim:{$world->tenantId}:{$label}", 'name' => $label]);
+            if ($reg->status() !== 201) {
+                throw new \RuntimeException("{$label} pairing failed: HTTP {$reg->status()} ".$reg->body());
+            }
+
+            return $reg->json();
+        };
+        $lineDev = $pair($k['code'], 'line');
+        $passDev = $pair(Hq::kitchenCode($world), 'pass');
+        $kds = fn (array $dev, int $server, int $seed, string $file) => new Kds(
+            new SyncClient($this->pool->url($server), $dev['token'], new Chaos(dropRequest: 0.2, dropResponse: 0.2, seed: $this->seed + $seed)),
+            "{$dir}/{$file}");
+        $line = $kds($lineDev, 0, 1, 'kds-line.sqlite');
+        $pass = $kds($passDev, 1, 2, 'kds-pass.sqlite');
+        $heartbeat = fn () => Http::baseUrl($url)->withToken($passDev['token'])->acceptJson()->post('/api/v1/kitchen/heartbeat', ['kds' => true])->throw();
+
+        // the kitchen's orders: till sales, platform orders, one cancelled by the platform
+        $t = $this->terminal($world, 'T1');
+        $t->sendToKitchen = true;
+        $t->pull();
+        $t->sell(20);
+        $t->sync();
+        $v = (new Verifier($world, ['T1' => $t->store]))->salesLedger();
+        $failures = 0;
+        foreach (range(1, 10) as $n) {
+            $heartbeat();
+            $failures += $this->platformOrder($url, $k, $world, $n) === 200 ? 0 : 1;
+        }
+        $failures += $this->platformCancel($url, $k, $world, 'SIM-10') === 200 ? 0 : 1;
+
+        $pullBoth = function () use ($line, $pass): bool {
+            for ($i = 0; $i < 50; $i++) {
+                if ($line->pull() && $pass->pull()) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
+        $pulled = $pullBoth();
+        $tickets = $line->tickets();
+        $ids = array_column($tickets, 'id');
+        $early = array_values(array_filter($ids, fn ($i) => $i % 2 === 0, ARRAY_FILTER_USE_KEY));   // till and platform alike
+        $late = array_values(array_diff($ids, $early));
+
+        foreach ($early as $id) {   // line, online
+            $line->tap($id, 'preparing');
+        }
+        $lineEarly = $line->drain();
+        foreach ($late as $id) {   // line, offline: queued on the screen only
+            $line->tap($id, 'preparing');
+        }
+        foreach ($pass->tickets() as $i => $tk) {
+            if ($i % 3 === 0) {
+                $pass->tap($tk['id'], 'ready');
+            }
+            $pass->tap($tk['id'], 'bumped');
+        }
+        $drained = $pass->drain() && $line->drain() && $lineEarly;   // the line comes back last
+        $pulled = $pullBoth() && $pulled;
+
+        $deadline = microtime(true) + 30;
+        do {
+            $tick();
+            Hq::enter($world->tenantId);
+            $open = DB::table('delivery_status_outbox')->whereNull('sent_at')->whereNull('gave_up_at')->count();
+            usleep(300_000);
+        } while ($open > 0 && microtime(true) < $deadline);
+
+        Hq::enter($world->tenantId);
+        $server = DB::table('kitchen_tickets')->get(['id', 'order_id', 'status', 'ready_at'])->keyBy('id');
+        $events = DB::table('kitchen_ticket_events')->orderBy('created_at')->get();
+        $mine = [...$line->eventIds(), ...$pass->eventIds()];
+        $rank = \App\Kitchen\Kitchen::RANK;
+        $backwards = $events->where('applied', true)->groupBy('ticket_id')
+            ->filter(function ($g) use ($rank) {
+                $ranks = $g->map(fn ($e) => $rank[$e->status])->values()->all();
+                $sorted = $ranks;
+                sort($sorted);
+
+                return $ranks !== $sorted || count(array_unique($ranks)) !== count($ranks);
+            })->count();
+        $staleLine = $events->where('device_id', $lineDev['terminal']['id'])->whereNotIn('ticket_id', $early);
+        $deliveries = DB::table('delivery_orders')->get(['external_order_id', 'status', 'order_id'])->keyBy('order_id');
+        $ticketOf = $server->pluck('id', 'order_id');
+        $expected = $deliveries->mapWithKeys(fn ($d) => [$d->external_order_id => $d->status === 'cancelled' ? ['accepted']
+            : ['accepted', ...(in_array($ticketOf[$d->order_id], $early, true) ? ['preparing'] : []), 'ready']]);
+        $calls = collect(file($log, FILE_IGNORE_NEW_LINES))->map(fn ($l) => json_decode($l, true))->where('store', $k['store_id'])->where('call.0', 'status');
+        $told = $calls->groupBy(fn ($c) => $c['call'][1])->map(fn ($g) => $g->pluck('call.2')->unique()->values()->all());
+        $outbox = DB::table('delivery_status_outbox')->get();
+        $cancelled = $server->where('status', 'cancelled');
+        $local = array_merge_recursive($line->outbox(), $pass->outbox());
+        $lost = $line->transportFailures + $pass->transportFailures;
+        $this->say(sprintf('%d taps (%d moved a ticket); %d lost requests/responses; %d status calls for %d outbox rows',
+            $events->count(), $events->where('applied', true)->count(), $lost, $calls->count(), $outbox->count()));
+
+        return $v
+            ->check('both screens paired as kitchen devices', $lineDev['terminal']['kind'] === 'kitchen' && $passDev['terminal']['kind'] === 'kitchen')
+            ->check('webhooks all acknowledged', $failures === 0, "{$failures} failed")
+            ->check('both screens saw all 30 tickets', $pulled && count($tickets) === 30 && count($pass->tickets()) === 30, count($tickets).' tickets')
+            ->check('chaos fired', $lost >= 5, "{$lost} lost")
+            ->check('both outboxes drained, nothing rejected', $drained && array_keys($local) === ['acked'], json_encode($local))
+            ->check('every tap stored exactly once', $events->count() === count($mine) && $events->pluck('id')->sort()->values()->all() === collect($mine)->sort()->values()->all(),
+                "{$events->count()} stored, ".count($mine).' tapped')
+            ->check('no ticket moved backwards', $backwards === 0, "{$backwards} tickets")
+            ->check("the line's offline taps changed nothing", $staleLine->count() === count($late) && $staleLine->every(fn ($e) => ! $e->applied),
+                $staleLine->where('applied', true)->count().' applied')
+            ->check('every live ticket bumped; the cancelled one stays cancelled', $cancelled->count() === 1
+                && $server->where('status', 'bumped')->count() === 29, json_encode($server->countBy('status')))
+            ->check('every status reached the platform, none given up', $outbox->whereNull('sent_at')->isEmpty() && $outbox->whereNotNull('gave_up_at')->isEmpty(),
+                $outbox->whereNotNull('sent_at')->count().' of '.$outbox->count().' sent')
+            ->check('the platform heard accepted, preparing, ready in order', $told->sortKeys()->toArray() == $expected->sortKeys()->toArray(),
+                $told->count().' orders told');
+    }
+
+    /** The fixture platform cancels one of its orders; returns the webhook's HTTP status. */
+    private function platformCancel(string $url, array $k, World $world, string $externalId): int
+    {
+        $raw = json_encode(['event_id' => "evt-{$world->tenantId}-cancel-{$externalId}", 'type' => 'order.cancelled', 'store_id' => $k['store_id'],
+            'order' => ['id' => $externalId, 'reason' => 'customer_cancelled']]);
+
+        return Http::baseUrl($url)->acceptJson()->withHeaders(['X-Fixture-Signature' => hash_hmac('sha256', $raw, $k['secret'])])
+            ->withBody($raw, 'application/json')->post('/api/v1/webhooks/delivery/fixture')->status();
     }
 
     /** One signed fixture-platform order for $k's store; returns the webhook's HTTP status. */

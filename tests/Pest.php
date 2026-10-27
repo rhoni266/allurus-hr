@@ -1,7 +1,8 @@
 <?php
 
 use App\Billing\PricingEngine;
-use App\Models\{DeliveryConnection, DeliveryMenuMapping, DeliveryModifierMapping, Modifier, Outlet, Product, ProductVariant, TaxRule, Tenant, Terminal};
+use App\Delivery\ProviderRegistry;
+use App\Models\{DeliveryConnection, DeliveryMenuMapping, DeliveryModifierMapping, Modifier, Outlet, Printer, Product, ProductVariant, TaxRule, Tenant, Terminal};
 use App\Tenancy\TenantContext;
 use Illuminate\Foundation\Testing\{DatabaseTruncation, RefreshDatabase};
 use Illuminate\Support\Facades\DB;
@@ -199,3 +200,68 @@ function deliveryWorld(): object
     return $w;
 }
 
+// ---- kitchen devices and the platform status outbox
+
+/** A paired kitchen device (KDS / print node) at $outlet, with a real pos:kitchen token. */
+function kitchenDevice(object $w, ?Outlet $outlet = null, string $name = 'Pass'): array
+{
+    asTenant($w->tenant->id);
+    $d = Terminal::create(['tenant_id' => $w->tenant->id, 'outlet_id' => ($outlet ?? $w->outlet)->id, 'name' => $name,
+        'device_fingerprint' => Str::random(20), 'kind' => Terminal::KIND_KITCHEN]);
+
+    return [$d, $d->createToken('device', ['pos:kitchen'])->plainTextToken];
+}
+
+function printerAt(object $w, string $role = 'kitchen', ?Outlet $outlet = null): Printer
+{
+    asTenant($w->tenant->id);
+
+    return Printer::create(['outlet_id' => ($outlet ?? $w->outlet)->id, 'name' => ucfirst($role), 'role' => $role,
+        'connection' => ['type' => 'tcp', 'host' => '192.168.1.50', 'port' => 9100]]);
+}
+
+function heartbeat(string $token, array $body): \Illuminate\Testing\TestResponse
+{
+    return asDevice($token)->postJson('/api/v1/kitchen/heartbeat', $body);
+}
+
+/** A kitchen at $w's outlet that is listening: a print node reporting an ok kitchen printer. */
+function liveKitchen(object $w): object
+{
+    $w->printer = printerAt($w);
+    [$w->node, $w->nodeToken] = kitchenDevice($w);
+    heartbeat($w->nodeToken, ['printers' => [['id' => $w->printer->id, 'status' => 'ok']]])->assertOk();
+    asTenant($w->tenant->id);
+
+    return $w;
+}
+
+function fixtureProvider(): App\Delivery\Providers\FixtureProvider
+{
+    return app(ProviderRegistry::class)->get('fixture');
+}
+
+/** Status calls the "platform" received, as [external order id, status, context]. */
+function pushedStatuses(): array
+{
+    return array_values(array_map(fn ($s) => array_slice($s, 1), array_filter(fixtureProvider()->sent, fn ($s) => $s[0] === 'status')));
+}
+
+function outbox(): \Illuminate\Support\Collection
+{
+    return DB::table('delivery_status_outbox')->orderBy('created_at')->get();
+}
+
+/** A KDS at $w's outlet that heartbeats right now. */
+function kdsListening(object $w): Terminal
+{
+    asTenant($w->tenant->id);
+
+    return Terminal::create(['tenant_id' => $w->tenant->id, 'outlet_id' => $w->outlet->id, 'name' => 'KDS', 'kind' => 'kitchen',
+        'device_fingerprint' => Str::random(20), 'last_heartbeat_at' => now(), 'heartbeat' => ['kds' => true, 'printers' => []]]);
+}
+
+function tick(): void
+{
+    test()->artisan('delivery:tick')->assertSuccessful();
+}

@@ -61,6 +61,28 @@ final class Kitchen
         return $ticket;
     }
 
+    /** How far along a ticket is. A late ticket wasn't printed, but the kitchen may still make it. */
+    public const RANK = ['new' => 0, 'late' => 0, 'preparing' => 1, 'ready' => 2, 'bumped' => 3];
+
+    /**
+     * A KDS tap (ticket.status). $ticket must be row-locked by the caller. The status only
+     * moves forward: two screens, or an offline screen syncing late, can't send a ready
+     * ticket back to preparing. Skipping steps is fine (new -> bumped on a busy pass).
+     *
+     * @return bool whether the ticket moved
+     */
+    public static function advance(KitchenTicket $ticket, string $status): bool
+    {
+        if ($ticket->status === 'cancelled' || self::RANK[$status] <= self::RANK[$ticket->status]) {
+            return false;
+        }
+
+        $ticket->update(['status' => $status, "{$status}_at" => now()]);
+        self::ring($ticket, $status);
+
+        return true;
+    }
+
     private static function print(KitchenTicket $ticket, string $kind): void
     {
         $printers = Printer::where('outlet_id', $ticket->outlet_id)->where('role', 'kitchen')->where('is_active', true)->get();

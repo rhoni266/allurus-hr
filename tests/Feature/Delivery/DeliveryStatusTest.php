@@ -6,31 +6,6 @@ use App\Tenancy\TenantContext;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
-function fixtureProvider(): App\Delivery\Providers\FixtureProvider
-{
-    return app(ProviderRegistry::class)->get('fixture');
-}
-
-/** Status calls the "platform" received, as [external order id, status, context]. */
-function pushedStatuses(): array
-{
-    return array_values(array_map(fn ($s) => array_slice($s, 1), array_filter(fixtureProvider()->sent, fn ($s) => $s[0] === 'status')));
-}
-
-function outbox(): \Illuminate\Support\Collection
-{
-    return DB::table('delivery_status_outbox')->orderBy('created_at')->get();
-}
-
-/** A KDS at $w's outlet that heartbeats right now. */
-function kdsListening(object $w): Terminal
-{
-    asTenant($w->tenant->id);
-
-    return Terminal::create(['tenant_id' => $w->tenant->id, 'outlet_id' => $w->outlet->id, 'name' => 'KDS', 'kind' => 'kitchen',
-        'device_fingerprint' => Str::random(20), 'last_heartbeat_at' => now(), 'heartbeat' => ['kds' => true, 'printers' => []]]);
-}
-
 /** The fixture order, due for acceptance $seconds from now (null: no accept_by at all). */
 function orderDueIn(object $w, ?int $seconds = 180, string $id = 'FX-ORDER-1001'): array
 {
@@ -41,11 +16,6 @@ function orderDueIn(object $w, ?int $seconds = 180, string $id = 'FX-ORDER-1001'
         $p['order']['accept_by'] = $seconds === null ? null : now()->addSeconds($seconds)->toIso8601ZuluString('microsecond');
         return $p;
     });
-}
-
-function tick(): void
-{
-    test()->artisan('delivery:tick')->assertSuccessful();
 }
 
 /** POST as a signed-in cashier on $w's terminal. */

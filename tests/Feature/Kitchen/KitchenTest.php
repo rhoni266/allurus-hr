@@ -6,40 +6,6 @@ use App\Models\{DeliveryOrder, KitchenTicket, Outlet, Printer, PrintJob, SyncCon
 use Illuminate\Support\Facades\{DB, Event};
 use Illuminate\Support\Str;
 
-/** A paired kitchen device (KDS / print node) at $outlet, with a real pos:kitchen token. */
-function kitchenDevice(object $w, ?Outlet $outlet = null, string $name = 'Pass'): array
-{
-    asTenant($w->tenant->id);
-    $d = Terminal::create(['tenant_id' => $w->tenant->id, 'outlet_id' => ($outlet ?? $w->outlet)->id, 'name' => $name,
-        'device_fingerprint' => Str::random(20), 'kind' => Terminal::KIND_KITCHEN]);
-
-    return [$d, $d->createToken('device', ['pos:kitchen'])->plainTextToken];
-}
-
-function printerAt(object $w, string $role = 'kitchen', ?Outlet $outlet = null): Printer
-{
-    asTenant($w->tenant->id);
-
-    return Printer::create(['outlet_id' => ($outlet ?? $w->outlet)->id, 'name' => ucfirst($role), 'role' => $role,
-        'connection' => ['type' => 'tcp', 'host' => '192.168.1.50', 'port' => 9100]]);
-}
-
-function heartbeat(string $token, array $body): \Illuminate\Testing\TestResponse
-{
-    return asDevice($token)->postJson('/api/v1/kitchen/heartbeat', $body);
-}
-
-/** A kitchen at $w's outlet that is listening: a print node reporting an ok kitchen printer. */
-function liveKitchen(object $w): object
-{
-    $w->printer = printerAt($w);
-    [$w->node, $w->nodeToken] = kitchenDevice($w);
-    heartbeat($w->nodeToken, ['printers' => [['id' => $w->printer->id, 'status' => 'ok']]])->assertOk();
-    asTenant($w->tenant->id);
-
-    return $w;
-}
-
 function channelAuth(string $token, string $outletId): \Illuminate\Testing\TestResponse
 {
     return asDevice($token)->postJson('/api/v1/broadcasting/auth', ['socket_id' => '1234.5678', 'channel_name' => "private-outlet.{$outletId}.kitchen"]);
@@ -58,7 +24,10 @@ describe('kitchen devices', function () {
 
         expect(DB::table('personal_access_tokens')->where('tokenable_id', $res->json('terminal.id'))->value('abilities'))->toBe('["pos:kitchen"]');
         // a kitchen device can't sell, sign staff in or issue codes
-        asDevice($token)->postJson('/api/v1/sync/push', ['mutations' => []])->assertForbidden();
+        asDevice($token)->postJson('/api/v1/sync/push', ['mutations' => [orderMutation($w)]])
+            ->assertOk()->assertJsonPath('results.0.status', 'rejected')->assertJsonPath('results.0.result.error', 'not_allowed_for_device');
+        asTenant($w->tenant->id);
+        expect(DB::table('orders')->count())->toBe(0);
         asDevice($token)->postJson('/api/v1/auth/login', ['staff_id' => (string) Str::uuid7(), 'pin' => '1111'])->assertForbidden();
         asDevice($token)->getJson('/api/v1/sync/pull')->assertOk();
     });

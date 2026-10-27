@@ -13,7 +13,8 @@ class KitchenTicket extends Model
     use BelongsToTenant, UuidModel;
 
     protected $guarded = [];
-    protected $casts = ['lines' => 'array', 'fired_at' => 'immutable_datetime', 'cancelled_at' => 'immutable_datetime'];
+    protected $casts = ['lines' => 'array', 'fired_at' => 'immutable_datetime', 'cancelled_at' => 'immutable_datetime',
+        'preparing_at' => 'immutable_datetime', 'ready_at' => 'immutable_datetime', 'bumped_at' => 'immutable_datetime'];
 
     public function printJobs(): HasMany { return $this->hasMany(PrintJob::class, 'ticket_id'); }
 }
