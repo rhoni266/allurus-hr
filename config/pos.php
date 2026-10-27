@@ -34,6 +34,11 @@ return [
         'fresh_seconds' => (int) env('POS_KITCHEN_FRESH_SECONDS', 900),
     ],
 
+    // Back-office dashboard (signed links from pos:dashboard-link until HQ users exist).
+    'dashboard' => [
+        'enabled' => (bool) env('POS_DASHBOARD_ENABLED', env('APP_ENV') !== 'production'),
+    ],
+
     // Delivery week 3 (docs/delivery-integration.md).
     'delivery' => [
         // Seconds to wait before each retry of a status the platform didn't take; after the

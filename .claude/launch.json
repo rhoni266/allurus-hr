@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dashboard-sim",
+      "runtimeExecutable": "php",
+      "runtimeArgs": ["artisan", "serve", "--port=8010"],
+      "env": { "DB_DATABASE": "allurus_sim", "APP_URL": "http://localhost:8010" },
+      "port": 8010
+    }
+  ]
+}
