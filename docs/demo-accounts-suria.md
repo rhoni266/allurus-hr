@@ -1,6 +1,6 @@
 # Demo accounts: Suria Enterprise
 
-Open **https://rhoni266.github.io/allurus-hr/?demo=suria**. You can also open `?demo` and choose **Suria Enterprise** on the sign-in card. Either click a role under **Explore the demo company**, or type an email below with the demo password.
+Open **https://allurus.my/app?demo=suria**. You can also open `?demo` and choose **Suria Enterprise** on the sign-in card. Either click a role under **Explore the demo company**, or type an email below with the demo password.
 
 **Demo password:** the same one as the Seri Maju demo, given in [`demo-accounts.md`](demo-accounts.md). It is stored only as a hash.
 

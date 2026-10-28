@@ -1,6 +1,6 @@
 # Demo accounts: Seri Maju Digital Sdn Bhd
 
-Open **https://rhoni266.github.io/allurus-hr/?demo** (the `?demo` matters). Either click a role under **Explore the demo company**, or type an email below with the demo password.
+Open **https://allurus.my/app?demo** (the `?demo` matters). Either click a role under **Explore the demo company**, or type an email below with the demo password.
 
 **Demo password for every account: `SeriMaju@2026`**
 

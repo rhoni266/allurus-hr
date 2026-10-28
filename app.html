@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Allurus HR</title>
+<meta name="description" content="Allurus — people operations for growing companies.">
+<link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg">
+<link rel="stylesheet" href="css/styles.css?v=3.7">
+</head>
+<body>
+<!--app:start-->
+<button type="button" class="skip-link" data-act="ux-skip">Skip to content</button>
+<div id="login" class="login" hidden></div>
+<div id="kiosk-root" class="kiosk" hidden></div>
+
+<div class="app" hidden>
+  <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+    <div class="brand">
+      <span id="brand-mark"></span>
+      <div><div class="brand-word">ALLURUS</div><div class="brand-sub" id="company-name"></div></div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="side-foot">
+      <a class="btn btn-ghost btn-sm" href="brand.html" style="justify-content:flex-start;gap:10px;color:var(--fg-2)"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-1.1-.9-1.5-.9-2.6 0-1 .8-1.7 1.8-1.7H17a4 4 0 0 0 4-4C21 6.5 17 3 12 3z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="11" cy="7.5" r="1.2"/><circle cx="15.5" cy="8.5" r="1.2"/></svg>Brand kit</a>
+      <div class="me" id="me-card"></div>
+    </div>
+  </aside>
+
+  <div class="main-wrap">
+    <header class="topbar">
+      <button class="btn btn-icon btn-ghost menu-btn" data-act="menu" aria-label="Open menu"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <button type="button" class="cmdk-trigger" data-act="ux-palette" aria-label="Search or jump to" aria-keyshortcuts="Meta+K Control+K"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><span>Search or jump to…</span><kbd>⌘K</kbd></button>
+      <div class="top-spacer"></div>
+      <span class="live-pill" id="live-pill" hidden><i aria-hidden="true"></i><span>Live</span></span>
+      <span class="today" id="today"></span>
+      <button type="button" class="btn btn-icon btn-ghost bell" id="nt-bell" data-act="nt-open" aria-label="Notifications" aria-haspopup="dialog" hidden><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><span class="bell-count" hidden></span></button>
+      <button type="button" class="btn btn-icon btn-ghost" id="theme-btn" data-act="ux-theme" aria-label="Switch theme"></button>
+      <button type="button" class="btn btn-icon btn-ghost" data-act="ux-help" aria-label="Help" aria-keyshortcuts="Shift+Slash" title="Help (?)"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.8M12 17.2v.1"/></svg></button>
+      <button type="button" class="btn btn-sm top-signout" data-act="logout" aria-label="Sign out" title="Sign out"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M10 16l-4-4 4-4M6 12h10"/></svg><span>Sign out</span></button>
+    </header>
+    <main class="view" id="view" tabindex="-1"></main>
+  </div>
+</div>
+
+<nav class="tabbar" id="tabbar" aria-label="Quick navigation"></nav>
+
+<div id="overlay-root"></div>
+<div id="cmdk-root"></div>
+<div id="tour-root"></div>
+<div class="toast-root" id="toast-root" aria-live="polite"></div>
+
+<script src="js/vendor/jsvectormap.min.js?v=3.7"></script>
+<script src="js/vendor/world.js?v=3.7"></script>
+<script src="js/utils.js?v=3.7"></script>
+<script src="js/leave-rules.js?v=3.7"></script>
+<script src="js/attendance-rules.js?v=3.7"></script>
+<script src="js/statutory.js?v=3.7"></script>
+<script src="js/claims-rules.js?v=3.7"></script>
+<script src="js/checkin-rules.js?v=3.7"></script>
+<script src="js/notify-rules.js?v=3.7"></script>
+<script src="js/appraisal-rules.js?v=3.7"></script>
+<script src="js/hr-rules.js?v=3.7"></script>
+<script src="js/report-rules.js?v=3.7"></script>
+<script src="js/costing-rules.js?v=3.7"></script>
+<script src="js/einvoice-rules.js?v=3.7"></script>
+<script src="js/myinvois.js?v=3.7"></script>
+<script src="js/talent-rules.js?v=3.7"></script>
+<script src="js/seed.js?v=3.7"></script>
+<script src="js/ops-rules.js?v=3.7"></script>
+<script src="js/seed-suria.js?v=3.7"></script>
+<script src="js/seed-majorfe.js?v=3.7"></script>
+<script src="js/finance.js?v=3.7"></script>
+<script src="js/tax.js?v=3.7"></script>
+<script src="js/guide.js?v=3.7"></script>
+<script src="js/face.js?v=3.7"></script>
+<script src="js/receipt.js?v=3.7"></script>
+<script src="js/claims.js?v=3.7"></script>
+<script src="js/planner.js?v=3.7"></script>
+<script src="js/leave.js?v=3.7"></script>
+<script src="js/roster.js?v=3.7"></script>
+<script src="js/payroll-docs.js?v=3.7"></script>
+<script src="js/notify.js?v=3.7"></script>
+<script src="js/hr.js?v=3.7"></script>
+<script src="js/reports.js?v=3.7"></script>
+<script src="js/costing.js?v=3.7"></script>
+<script src="js/einvoice.js?v=3.7"></script>
+<script src="js/recruit.js?v=3.7"></script>
+<script src="js/lms.js?v=3.7"></script>
+<script src="js/grievance.js?v=3.7"></script>
+<script src="js/rooms.js?v=3.7"></script>
+<script src="js/ops.js?v=3.7"></script>
+<script src="js/appraisal.js?v=3.7"></script>
+<script src="js/kiosk.js?v=3.7"></script>
+<script src="js/geo-map.js?v=3.7"></script>
+<script src="js/experience.js?v=3.7"></script>
+<script src="js/firebase-config.js?v=3.7"></script>
+<script src="js/cloud-map.js?v=3.7"></script>
+<script src="js/app.js?v=3.7"></script>
+<!--app:end-->
+</body>
+</html>

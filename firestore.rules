@@ -53,7 +53,7 @@ service cloud.firestore {
     function bucketArea(b) {
       return b in ['payroll', 'payChanges', 'loans', 'insurance', 'statutory'] ? 'payroll'
         : (isFinance(b) ? 'finance' : (b == 'settings' ? 'settings' : (b in ['departments', 'directory'] ? 'people'
-        : (b == 'cycles' ? 'talent' : (b == 'savedReports' ? 'admin' : (isOps(b) && b != 'ops.breakdowns' ? 'operations' : '')))))));
+        : (b == 'cycles' ? 'talent' : (b == 'savedReports' ? 'admin' : (isOps(b) && b != 'ops.breakdowns' ? 'operations' : ''))))));
     }
     // A breakdown report added by someone without the operations area: new records only, nothing changed or removed.
     function onlyAdds() {
@@ -100,6 +100,16 @@ service cloud.firestore {
       allow create, update: if email == email.lower() && hasArea(request.resource.data.tenantId, 'settings')
         && validRoles(request.resource.data) && grantable(request.resource.data);
       allow delete: if hasArea(resource.data.tenantId, 'settings');
+    }
+
+    // Enquiries from the contact form on allurus.my: anyone may add one with these fields only; nobody can read,
+    // change or delete them from a browser. They are read in the Firebase console.
+    match /enquiries/{id} {
+      allow create: if request.resource.data.keys().hasOnly(['name','company','email','phone','staff','message','at'])
+        && request.resource.data.name is string && request.resource.data.name.size() < 100
+        && request.resource.data.email is string && request.resource.data.email.size() < 200
+        && (!('message' in request.resource.data) || (request.resource.data.message is string && request.resource.data.message.size() < 2000));
+      allow read, update, delete: if false;
     }
 
     // The public demo (?demo, ?demo=suria, ?demo=majorfe): the check-in point its admin set, so every phone trying the

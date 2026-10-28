@@ -420,6 +420,12 @@ function access(template, update) {
 // A returning visitor whose sign-in is still valid: reconnect to their workspace.
 let firstAuth = true;
 Auth.onAuthStateChanged(auth, async (user) => {
+  // "Log out" on the landing page (allurus.my) links to /app?signout: sign out here, then go back to the landing page.
+  if (/[?&]signout\b/.test(location.search)) {
+    try { await Auth.signOut(auth); } catch (e) { /* already signed out */ }
+    try { localStorage.removeItem('allurus-hr-cloud-v1'); } catch (e) { /* storage unavailable */ }
+    location.replace('/'); return;
+  }
   const sess = app.state.session;
   if (!firstAuth) return;
   firstAuth = false;

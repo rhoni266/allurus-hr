@@ -11,8 +11,8 @@ const root = path.join(__dirname, '..');
 const sandbox = { console, Intl, Date, Math, JSON };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
-// The demo workspace needs the rule modules the seed uses; load everything index.html loads that has no DOM.
-const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+// The demo workspace needs the rule modules the seed uses; load everything app.html loads that has no DOM.
+const html = fs.readFileSync(path.join(root, 'app.html'), 'utf8');
 const scripts = [...html.matchAll(/<script src="([^"?]+)/g)].map((m) => m[1]).filter((s) => !/vendor|app\.js|experience|geo-map|face\.js|kiosk|receipt|cloud\.js|firebase-config/.test(s));
 if (!scripts.includes('js/cloud-map.js')) scripts.push('js/cloud-map.js');
 scripts.forEach((s) => { try { vm.runInContext(fs.readFileSync(path.join(root, s), 'utf8'), sandbox, { filename: s }); } catch (e) { /* modules that need a browser */ } });

@@ -2,101 +2,370 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script>/* Old addresses (GitHub Pages, *.web.app, *.firebaseapp.com) forward to the one live domain. */
+(function(){var h=location.hostname;if(/github\.io$|\.web\.app$|\.firebaseapp\.com$/.test(h)&&h.indexOf("--")<0){var gh=/github\.io$/.test(h),demo=/[?&]demo/.test(location.search);location.replace("https://allurus.my"+((gh&&demo)?"/app":"/")+location.search+location.hash);}})();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Allurus HR</title>
-<meta name="description" content="Allurus — people operations for growing companies.">
-<link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg">
-<link rel="stylesheet" href="css/styles.css?v=3.7">
+<title>Allurus | One system for your whole business</title>
+<meta name="description" content="Allurus runs HR, payroll, finance and operations for Malaysian SMEs in one connected system: leave, attendance, claims, EPF/SOCSO/EIS/PCB payroll, stock, production, sales and delivery.">
+<meta name="theme-color" content="#ffffff">
+<link rel="canonical" href="https://allurus.my/">
+<link rel="alternate" hreflang="en" href="https://allurus.my/">
+<link rel="alternate" hreflang="ms" href="https://allurus.my/">
+
+<!-- Open Graph / social -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Allurus Enterprise">
+<meta property="og:title" content="Allurus | One system for your whole business">
+<meta property="og:description" content="HR, payroll, finance and operations, connected. Built for Malaysian SMEs.">
+<meta property="og:url" content="https://allurus.my/">
+<meta property="og:image" content="https://allurus.my/site/assets/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="en_MY">
+<meta property="og:locale:alternate" content="ms_MY">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Allurus | One system for your whole business">
+<meta name="twitter:description" content="HR, payroll, finance and operations, connected. Built for Malaysian SMEs.">
+<meta name="twitter:image" content="https://allurus.my/site/assets/og-image.png">
+
+<link rel="icon" href="/site/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/site/assets/apple-touch-icon.png">
+
+<!-- Font: Inter (brand guide), swap so text is never invisible -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+
+<link rel="stylesheet" href="/site/css/tokens.css?v=20261028b">
+<link rel="stylesheet" href="/site/css/site.css?v=20261028b">
+<link rel="modulepreload" href="/site/js/main.js?v=20261028b">
+<link rel="preload" as="image" href="/site/assets/shots/01-hr-dashboard.jpg" fetchpriority="high">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Allurus Enterprise",
+  "url": "https://allurus.my/",
+  "logo": "https://allurus.my/site/assets/apple-touch-icon.png",
+  "description": "One connected platform for HR, payroll, finance and operations for Malaysian SMEs.",
+  "email": "admin@allurus.my",
+  "telephone": "+60105092660",
+  "address": { "@type": "PostalAddress", "addressLocality": "Kemaman", "addressRegion": "Terengganu", "addressCountry": "MY" },
+  "areaServed": "MY",
+  "contactPoint": [{ "@type": "ContactPoint", "contactType": "sales", "email": "admin@allurus.my", "telephone": "+60105092660", "availableLanguage": ["en", "ms"] }]
+}
+</script>
 </head>
 <body>
-<!--app:start-->
-<button type="button" class="skip-link" data-act="ux-skip">Skip to content</button>
-<div id="login" class="login" hidden></div>
-<div id="kiosk-root" class="kiosk" hidden></div>
+<a class="skip" href="#main" data-i18n="skip">Skip to content</a>
 
-<div class="app" hidden>
-  <aside class="sidebar" id="sidebar" aria-label="Main navigation">
-    <div class="brand">
-      <span id="brand-mark"></span>
-      <div><div class="brand-word">ALLURUS</div><div class="brand-sub" id="company-name"></div></div>
-    </div>
-    <nav class="nav" id="nav"></nav>
-    <div class="side-foot">
-      <a class="btn btn-ghost btn-sm" href="brand.html" style="justify-content:flex-start;gap:10px;color:var(--fg-2)"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-1.1-.9-1.5-.9-2.6 0-1 .8-1.7 1.8-1.7H17a4 4 0 0 0 4-4C21 6.5 17 3 12 3z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="11" cy="7.5" r="1.2"/><circle cx="15.5" cy="8.5" r="1.2"/></svg>Brand kit</a>
-      <div class="me" id="me-card"></div>
-    </div>
-  </aside>
+<!-- Logo mark, from the brand guide (assets/logo-mark.svg) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="allurusMark" viewBox="0 0 64 64">
+      <rect width="64" height="64" rx="16" fill="#0F766E"/>
+      <path d="M19 47 L32 17 L45 47" fill="none" stroke="#FFFFFF" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M23.5 37.5 Q32 32 40.5 37.5" fill="none" stroke="#D9B66F" stroke-width="4.5" stroke-linecap="round"/>
+    </symbol>
+  </defs>
+</svg>
 
-  <div class="main-wrap">
-    <header class="topbar">
-      <button class="btn btn-icon btn-ghost menu-btn" data-act="menu" aria-label="Open menu"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-      <button type="button" class="cmdk-trigger" data-act="ux-palette" aria-label="Search or jump to" aria-keyshortcuts="Meta+K Control+K"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><span>Search or jump to…</span><kbd>⌘K</kbd></button>
-      <div class="top-spacer"></div>
-      <span class="live-pill" id="live-pill" hidden><i aria-hidden="true"></i><span>Live</span></span>
-      <span class="today" id="today"></span>
-      <button type="button" class="btn btn-icon btn-ghost bell" id="nt-bell" data-act="nt-open" aria-label="Notifications" aria-haspopup="dialog" hidden><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><span class="bell-count" hidden></span></button>
-      <button type="button" class="btn btn-icon btn-ghost" id="theme-btn" data-act="ux-theme" aria-label="Switch theme"></button>
-      <button type="button" class="btn btn-icon btn-ghost" data-act="ux-help" aria-label="Help" aria-keyshortcuts="Shift+Slash" title="Help (?)"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.8M12 17.2v.1"/></svg></button>
-      <button type="button" class="btn btn-sm top-signout" data-act="logout" aria-label="Sign out" title="Sign out"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M10 16l-4-4 4-4M6 12h10"/></svg><span>Sign out</span></button>
-    </header>
-    <main class="view" id="view" tabindex="-1"></main>
+<!-- ================= Nav ================= -->
+<header class="nav" id="nav">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Allurus, home"><svg aria-hidden="true"><use href="#allurusMark"/></svg><span>Allurus</span></a>
+    <nav class="nav-links" id="navLinks" aria-label="Main" hidden>
+      <a href="#problem" data-i18n="nav_platform">Platform</a>
+      <a href="#modules" data-i18n="nav_modules">Modules</a>
+      <a href="#connect" data-i18n="nav_connect">How it connects</a>
+      <a href="#owners" data-i18n="nav_owners">For owners</a>
+      <a href="#industries" data-i18n="nav_industries">Industries</a>
+      <a href="#contact" data-i18n="nav_contact">Pricing &amp; contact</a>
+    </nav>
+    <div class="nav-right">
+      <div class="lang" role="group" aria-label="Language / Bahasa">
+        <button type="button" data-lang="en" aria-pressed="true">EN</button>
+        <button type="button" data-lang="ms" aria-pressed="false">BM</button>
+      </div>
+      <div class="acct" id="acct"><a class="nav-login" href="/login" data-i18n="nav_login">Log in</a></div>
+      <a class="btn btn-primary btn-sm nav-cta" href="#contact" data-i18n="nav_demo">Book a demo</a>
+      <button type="button" class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="navLinks" data-i18n-aria="menu" aria-label="Menu">
+        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </div>
   </div>
-</div>
+</header>
 
-<nav class="tabbar" id="tabbar" aria-label="Quick navigation"></nav>
+<main id="main">
+  <!-- ================= Hero ================= -->
+  <section class="hero" id="top" aria-labelledby="heroTitle">
+    <div class="wrap hero-center">
+      <p class="eyebrow" data-i18n="hero_eyebrow">The operating system for Malaysian SMEs</p>
+      <h1 id="heroTitle"><span data-i18n="hero_title_a">Run your whole business</span> <em data-i18n="hero_title_b">from one place.</em></h1>
+      <p class="lead" data-i18n="hero_lead">People, payroll, finance and operations, connected. Leave, attendance and claims flow into payroll; stock, production and deliveries flow into the books. Enter it once, and every department sees it.</p>
+      <div class="ctas">
+        <a class="btn btn-primary" href="#contact" data-i18n="cta_demo">Book a demo</a>
+        <a class="link-more" href="#connect" data-i18n="cta_connect">See how it connects</a>
+      </div>
+    </div>
+    <div class="wrap hero-media" id="heroSwitch"><!-- HeroSwitcher: department tabs + device frames --></div>
+  </section>
 
-<div id="overlay-root"></div>
-<div id="cmdk-root"></div>
-<div id="tour-root"></div>
-<div class="toast-root" id="toast-root" aria-live="polite"></div>
+  <!-- ================= Highlight tiles ================= -->
+  <section class="tiles" aria-label="Highlights" data-i18n-aria="tiles_label">
+    <div class="tile-grid">
+      <article class="tile tile-full">
+        <h2 data-i18n="tile_ops_t">Operations today.</h2>
+        <p data-i18n="tile_ops_d">Manpower, stock, production, deliveries and cash. All on one page.</p>
+        <div class="tile-links"><a class="link-more" href="#modules" data-i18n="learn_more">Learn more</a><a class="link-more" href="#contact" data-i18n="cta_demo">Book a demo</a></div>
+        <img class="tile-shot" src="/site/assets/shots/06-operations-today.jpg" width="1440" height="900" loading="lazy" decoding="async" alt="Operations today: manpower, stock, production, deliveries and cash on one page" data-i18n-alt="shot_ops">
+      </article>
+      <article class="tile">
+        <h2 data-i18n="tile_app_t">Employee app.</h2>
+        <p data-i18n="tile_app_d">Payslips, leave and claims. Right in their pocket.</p>
+        <div class="tile-links"><a class="link-more" href="#modules" data-i18n="learn_more">Learn more</a></div>
+        <div class="tile-phones"><img src="/site/assets/shots/10-phone-payslips.jpg" width="560" height="953" loading="lazy" decoding="async" alt="Employee app list of payslips" data-i18n-alt="shot_p_slips"><img src="/site/assets/shots/11-phone-time-off.jpg" width="560" height="953" loading="lazy" decoding="async" alt="Employee app time off screen" data-i18n-alt="shot_p_leave"></div>
+      </article>
+      <article class="tile">
+        <h2 data-i18n="tile_pay_t">Payroll.</h2>
+        <p data-i18n="tile_pay_d">EPF, SOCSO, EIS and zakat, worked out every run.</p>
+        <div class="tile-links"><a class="link-more" href="#modules" data-i18n="learn_more">Learn more</a></div>
+        <img class="tile-shot" src="/site/assets/shots/03-payroll.jpg" width="1440" height="900" loading="lazy" decoding="async" alt="Payroll run with statutory deductions for each employee" data-i18n-alt="shot_payroll">
+      </article>
+      <article class="tile">
+        <h2 data-i18n="tile_claims_t">Claims.</h2>
+        <p data-i18n="tile_claims_d">Snap the receipt. Approved, then paid with payroll.</p>
+        <div class="tile-links"><a class="link-more" href="#modules" data-i18n="learn_more">Learn more</a></div>
+        <img class="tile-shot" src="/site/assets/shots/05-claims.jpg" width="1440" height="900" loading="lazy" decoding="async" alt="Claims screen with receipts and approval status" data-i18n-alt="shot_claims">
+      </article>
+      <article class="tile">
+        <h2 data-i18n="tile_drv_t">Driver app.</h2>
+        <p data-i18n="tile_drv_d">Today's deliveries, tracked to the door.</p>
+        <div class="tile-links"><a class="link-more" href="#modules" data-i18n="learn_more">Learn more</a></div>
+        <div class="tile-phones one"><img src="/site/assets/shots/12-phone-driver-deliveries.jpg" width="560" height="953" loading="lazy" decoding="async" alt="Driver app showing today's deliveries" data-i18n-alt="shot_p_driver"></div>
+      </article>
+    </div>
+  </section>
+  <!-- ================= Trust strip ================= -->
+  <div class="trust theme-dark" role="region" aria-labelledby="trustLabel">
+    <div class="wrap">
+      <p class="trust-label" id="trustLabel" data-i18n="trust_label">Built around Malaysian requirements</p>
+      <ul class="badges">
+        <li class="badge"><b>EPF</b><small>KWSP</small></li>
+        <li class="badge"><b>SOCSO</b><small>PERKESO</small></li>
+        <li class="badge"><b>EIS</b><small>SIP</small></li>
+        <li class="badge"><b>PCB</b><small data-i18n="badge_pcb_s">MTD</small></li>
+        <li class="badge"><b>HRD Corp</b><small data-i18n="badge_hrd_s">Levy</small></li>
+        <li class="badge"><b>Zakat</b><small data-i18n="badge_zakat_s">Salary deduction</small></li>
+        <li class="badge"><b data-i18n="badge_ea">Employment Act 1955</b><small>Act 265</small></li>
+        <li class="badge soft"><b data-i18n="badge_einv">LHDN e-Invoice</b><small data-i18n="badge_einv_s">Invoices ready · MyInvois link coming</small></li>
+      </ul>
+    </div>
+  </div>
 
-<script src="js/vendor/jsvectormap.min.js?v=3.7"></script>
-<script src="js/vendor/world.js?v=3.7"></script>
-<script src="js/utils.js?v=3.7"></script>
-<script src="js/leave-rules.js?v=3.7"></script>
-<script src="js/attendance-rules.js?v=3.7"></script>
-<script src="js/statutory.js?v=3.7"></script>
-<script src="js/claims-rules.js?v=3.7"></script>
-<script src="js/checkin-rules.js?v=3.7"></script>
-<script src="js/notify-rules.js?v=3.7"></script>
-<script src="js/appraisal-rules.js?v=3.7"></script>
-<script src="js/hr-rules.js?v=3.7"></script>
-<script src="js/report-rules.js?v=3.7"></script>
-<script src="js/costing-rules.js?v=3.7"></script>
-<script src="js/einvoice-rules.js?v=3.7"></script>
-<script src="js/myinvois.js?v=3.7"></script>
-<script src="js/talent-rules.js?v=3.7"></script>
-<script src="js/seed.js?v=3.7"></script>
-<script src="js/ops-rules.js?v=3.7"></script>
-<script src="js/seed-suria.js?v=3.7"></script>
-<script src="js/seed-majorfe.js?v=3.7"></script>
-<script src="js/finance.js?v=3.7"></script>
-<script src="js/tax.js?v=3.7"></script>
-<script src="js/guide.js?v=3.7"></script>
-<script src="js/face.js?v=3.7"></script>
-<script src="js/receipt.js?v=3.7"></script>
-<script src="js/claims.js?v=3.7"></script>
-<script src="js/planner.js?v=3.7"></script>
-<script src="js/leave.js?v=3.7"></script>
-<script src="js/roster.js?v=3.7"></script>
-<script src="js/payroll-docs.js?v=3.7"></script>
-<script src="js/notify.js?v=3.7"></script>
-<script src="js/hr.js?v=3.7"></script>
-<script src="js/reports.js?v=3.7"></script>
-<script src="js/costing.js?v=3.7"></script>
-<script src="js/einvoice.js?v=3.7"></script>
-<script src="js/recruit.js?v=3.7"></script>
-<script src="js/lms.js?v=3.7"></script>
-<script src="js/grievance.js?v=3.7"></script>
-<script src="js/rooms.js?v=3.7"></script>
-<script src="js/ops.js?v=3.7"></script>
-<script src="js/appraisal.js?v=3.7"></script>
-<script src="js/kiosk.js?v=3.7"></script>
-<script src="js/geo-map.js?v=3.7"></script>
-<script src="js/experience.js?v=3.7"></script>
-<script src="js/firebase-config.js?v=3.7"></script>
-<script src="js/cloud-map.js?v=3.7"></script>
-<script src="js/app.js?v=3.7"></script>
-<!--app:end-->
+  <!-- ================= Problem ================= -->
+  <section class="theme-light" id="problem" aria-labelledby="problemTitle">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow" data-i18n="problem_eyebrow">The problem</p>
+        <h2 id="problemTitle" data-i18n="problem_title">Five tools. Five spreadsheets. Nobody sees the same numbers.</h2>
+        <p data-i18n="problem_lead">Most growing SMEs run on a patchwork. Each department keeps its own records, and the owner spends month-end stitching them together.</p>
+      </div>
+      <div class="problem-grid">
+        <article class="p-card before reveal">
+          <p class="p-kicker" data-i18n="before_k">Today</p>
+          <h3 data-i18n="before_t">Every department keeps its own version.</h3>
+          <div class="scatter" aria-hidden="true">
+            <span style="left:2%;top:6%;transform:rotate(-4deg)" data-i18n="sc_1">payroll_final_v3.xlsx</span>
+            <span style="left:52%;top:0;transform:rotate(3deg)" data-i18n="sc_2">Stock book</span>
+            <span style="left:18%;top:42%;transform:rotate(2deg)" data-i18n="sc_3">WhatsApp approvals</span>
+            <span style="left:58%;top:46%;transform:rotate(-3deg)" data-i18n="sc_4">Accounting software</span>
+            <span style="left:6%;top:76%;transform:rotate(-2deg)" data-i18n="sc_5">Sales notebook</span>
+          </div>
+          <ul>
+            <li data-i18n="before_1">Payroll is rebuilt from timesheets and WhatsApp messages every month.</li>
+            <li data-i18n="before_2">Stock is counted in one book, ordered from another, paid from a third.</li>
+            <li data-i18n="before_3">Sales, cash and costs only meet in a spreadsheet, weeks later.</li>
+          </ul>
+        </article>
+        <article class="p-card after reveal">
+          <p class="p-kicker" data-i18n="after_k">With Allurus</p>
+          <h3 data-i18n="after_t">One source of truth.</h3>
+          <div class="one-hub" aria-hidden="true">
+            <span class="orbit"></span>
+            <span class="hub"><svg><use href="#allurusMark"/></svg></span>
+          </div>
+          <ul>
+            <li data-i18n="after_1">A number is entered once and reaches every department that needs it.</li>
+            <li data-i18n="after_2">Purchases, stock, jobs, payroll and invoices are linked end to end.</li>
+            <li data-i18n="after_3">You see cash, sales and costs as they happen, not at month-end.</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Signature: connected flow ================= -->
+  <section class="flow-section theme-dark" id="connect" aria-labelledby="flowTitle">
+    <div class="wrap">
+      <div class="head center">
+        <p class="eyebrow" data-i18n="flow_eyebrow">How it connects</p>
+        <h2 id="flowTitle" data-i18n="flow_title">One business. One system. Every department connected.</h2>
+        <p data-i18n="flow_lead">Data moves between departments on its own. No re-typing, no spreadsheets passed around. Tap a department to see what feeds it and what it feeds.</p>
+      </div>
+      <div id="flowDiagram" class="flow-shell"><!-- FlowDiagram --></div>
+    </div>
+  </section>
+
+  <!-- ================= Modules ================= -->
+  <section class="theme-light section-alt" id="modules" aria-labelledby="modulesTitle">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow" data-i18n="modules_eyebrow">Modules</p>
+        <h2 id="modulesTitle" data-i18n="modules_title">One platform. Every department.</h2>
+        <p data-i18n="modules_lead">Everything marked Live works today in our demo, and you can try it in a guided pilot. Where something needs a caveat, we say so.</p>
+      </div>
+      <div id="moduleShowcase"><!-- ModuleShowcase --></div>
+    </div>
+  </section>
+
+  <!-- ================= For owners ================= -->
+  <section class="theme-light" id="owners" aria-labelledby="ownersTitle">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow" data-i18n="owners_eyebrow">For the owner and top management</p>
+        <h2 id="ownersTitle" data-i18n="owners_title">See the whole business. Approve from your phone.</h2>
+        <p data-i18n="owners_lead">Revenue, cash, margins and what's waiting for you, in real time. Click any number to see what's behind it.</p>
+      </div>
+      <div id="ownerDashboard"><!-- OwnerDashboard --></div>
+    </div>
+  </section>
+
+  <!-- ================= Commission spotlight ================= -->
+  <section class="theme-light section-alt" id="commission" aria-labelledby="commTitle">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow" data-i18n="comm_eyebrow">Productivity &amp; commission</p>
+        <h2 id="commTitle" data-i18n="comm_title">From the factory floor to the payslip, automatically.</h2>
+        <p data-i18n="comm_lead">Output recorded in Operations becomes commission, and commission becomes pay, with every step shown. Staff can see exactly how their pay was worked out.</p>
+      </div>
+      <div id="commissionFlow"><!-- CommissionFlow --></div>
+    </div>
+  </section>
+
+  <!-- ================= Industry packs (planned) ================= -->
+  <section class="theme-light" id="industries" aria-labelledby="indTitle">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow" data-i18n="ind_eyebrow">Industry packs</p>
+        <h2 id="indTitle" data-i18n="ind_title">Built for how your trade works.</h2>
+        <p data-i18n="ind_lead">The core is the same for every business. Industry packs add what your trade needs on top. They are planned, not available yet, and we build them in the order customers ask for them.</p>
+      </div>
+      <div id="industryPacks"><!-- Industries --></div>
+    </div>
+  </section>
+
+  <!-- ================= How it works ================= -->
+  <section class="theme-light section-alt" id="how" aria-labelledby="howTitle">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow" data-i18n="how_eyebrow">How it works</p>
+        <h2 id="howTitle" data-i18n="how_title">We set it up with you, and we stay on hand.</h2>
+        <p data-i18n="how_lead">A local team in Terengganu, not a login and a help article.</p>
+      </div>
+      <ol class="steps">
+        <li class="step reveal"><span class="n" data-i18n="step1">Step 1</span><h3 data-i18n="how_1_t">Discover</h3><p data-i18n="how_1_d">We sit down with you and map how your departments work today.</p></li>
+        <li class="step reveal"><span class="n" data-i18n="step2">Step 2</span><h3 data-i18n="how_2_t">Pilot</h3><p data-i18n="how_2_d">We set up a guided pilot that mirrors your staff, products and processes, using sample data.</p></li>
+        <li class="step reveal"><span class="n" data-i18n="step3">Step 3</span><h3 data-i18n="how_3_t">Connect your departments</h3><p data-i18n="how_3_d">We switch on the links module by module, starting with HR and Finance.</p></li>
+        <li class="step highlight reveal"><span class="n" data-i18n="step4">Step 4</span><h3 data-i18n="how_4_t">Grow, with us on hand</h3><p data-i18n="how_4_d">We stay on hand for payroll runs, month-end and new modules as you grow.</p></li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ================= Outcomes ================= -->
+  <section class="theme-light" id="outcomes" aria-labelledby="outTitle">
+    <div class="wrap">
+      <div class="head">
+        <p class="eyebrow" data-i18n="out_eyebrow">Outcomes</p>
+        <h2 id="outTitle" data-i18n="out_title">What changes when everyone works from one system</h2>
+        <p data-i18n="out_lead">The kind of results we design for. Figures below are illustrative, not customer results.</p>
+      </div>
+      <ul class="outcomes">
+        <li class="outcome reveal"><span class="o-fig" data-i18n="out_1_f">Hours, not days</span><p data-i18n="out_1_d">Month-end close, because the numbers are already joined up.</p><span class="example-tag" data-i18n="out_tag">Illustrative example</span></li>
+        <li class="outcome reveal"><span class="o-fig" data-i18n="out_2_f">Typed once</span><p data-i18n="out_2_d">Fewer errors when nothing is re-entered between departments.</p><span class="example-tag" data-i18n="out_tag">Illustrative example</span></li>
+        <li class="outcome reveal"><span class="o-fig money" data-i18n="out_3_f">Same day</span><p data-i18n="out_3_d">Payroll with commission included, ready for approval.</p><span class="example-tag" data-i18n="out_tag">Illustrative example</span></li>
+        <li class="outcome reveal"><span class="o-fig" data-i18n="out_4_f">One version</span><p data-i18n="out_4_d">Of revenue, cash and stock, seen by everyone who needs it.</p><span class="example-tag" data-i18n="out_tag">Illustrative example</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= Roadmap ================= -->
+  <section class="roadmap theme-dark" id="roadmap" aria-labelledby="roadTitle">
+    <div class="wrap">
+      <h2 id="roadTitle" class="sr-only" data-i18n="road_title">Where we are today</h2>
+      <div id="roadmapStrip"><!-- Roadmap --></div>
+    </div>
+  </section>
+
+  <!-- ================= Contact ================= -->
+  <section class="contact-section theme-dark" id="contact" aria-labelledby="contactTitle">
+    <div class="wrap contact-grid">
+      <div>
+        <p class="eyebrow" data-i18n="contact_eyebrow">Get started</p>
+        <h2 id="contactTitle" data-i18n="contact_title">See your business connected.</h2>
+        <p class="lead" data-i18n="contact_lead">Tell us a little about your company. We'll walk you through the demo and set up a pilot around your own departments.</p>
+        <div class="direct">
+          <p class="trust-label" data-i18n="direct_title">Or reach us directly</p>
+          <a id="directEmail" href="mailto:admin@allurus.my">admin@allurus.my</a>
+          <a id="directWa" href="https://wa.me/60105092660" target="_blank" rel="noopener">+60 10-509 2660 (WhatsApp)</a>
+        </div>
+      </div>
+      <div id="contactForm"><!-- ContactForm --></div>
+    </div>
+  </section>
+</main>
+
+<!-- ================= Footer ================= -->
+<footer class="footer">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div>
+        <a class="brand" href="#top" aria-label="Allurus, back to top"><svg aria-hidden="true"><use href="#allurusMark"/></svg><span>Allurus</span></a>
+        <p style="margin-top:12px;max-width:34ch" data-i18n="footer_tagline">One connected platform for HR, payroll, finance and operations.</p>
+      </div>
+      <div>
+        <h2 data-i18n="footer_platform">Platform</h2>
+        <ul>
+          <li><a href="#connect" data-i18n="nav_connect">How it connects</a></li>
+          <li><a href="#modules" data-i18n="nav_modules">Modules</a></li>
+          <li><a href="#owners" data-i18n="nav_owners">For owners</a></li>
+          <li><a href="#industries" data-i18n="nav_industries">Industries</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2 data-i18n="footer_contact">Contact</h2>
+        <ul>
+          <li><a href="mailto:admin@allurus.my">admin@allurus.my</a></li>
+          <li><a href="https://wa.me/60105092660" target="_blank" rel="noopener">+60 10-509 2660</a></li>
+          <li>Kemaman, Terengganu</li>
+        </ul>
+      </div>
+      <div>
+        <div class="lang" role="group" aria-label="Language / Bahasa">
+          <button type="button" data-lang="en" aria-pressed="true">EN</button>
+          <button type="button" data-lang="ms" aria-pressed="false">BM</button>
+        </div>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span data-i18n="footer_copy">© 2026 Allurus Enterprise. Kemaman, Terengganu, Malaysia.</span>
+      <span data-i18n="footer_note">All figures, names and companies shown on this page are fictional examples.</span>
+    </div>
+  </div>
+</footer>
+
+<script type="module" src="/site/js/main.js?v=20261028b"></script>
 </body>
 </html>

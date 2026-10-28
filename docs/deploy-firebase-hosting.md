@@ -17,7 +17,7 @@ npm test
 firebase deploy --only hosting     # project allurus-hr comes from .firebaserc
 ```
 
-Then open **https://allurus-hr.web.app**. The sign-in screen should load, and `?demo` should open the demo company.
+Then open **https://allurus.my/app**. The sign-in screen should load, and `?demo` should open the demo company.
 
 ## 2. Connect allurus.my
 
@@ -58,7 +58,7 @@ To check from a terminal: `dig +short allurus.my A` should show only Firebase's 
   redirect URIs to add.
 - **API key restrictions:** in Google Cloud console → **APIs & Services → Credentials**, open the *Browser key*
   for allurus-hr. If **Application restrictions** is set to *HTTP referrers*, add `https://allurus.my/*` and
-  `https://www.allurus.my/*`, and keep `https://allurus-hr.web.app/*` and `https://rhoni266.github.io/*`. If it says
+  `https://www.allurus.my/*`, and keep `https://allurus.my/app/*` and `https://rhoni266.github.io/*`. If it says
   *None*, there is nothing to change.
 
 ## 4. Firestore security rules

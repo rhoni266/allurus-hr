@@ -1,83 +1,66 @@
 {
-  "hosting": {
-    "public": ".",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      ".firebase/**",
-      ".github/**",
-      "**/.git/**",
-      ".git/**",
-      "**/node_modules/**",
-      "docs/**",
-      "tests/**",
-      "**/*.md",
-      "**/*.zip",
-      "package.json",
-      "package-lock.json",
-      "firestore.rules",
-      "firebase-debug.log"
-    ],
-    "headers": [
-      {
-        "source": "**",
-        "headers": [
-          {
-            "key": "X-Content-Type-Options",
-            "value": "nosniff"
-          },
-          {
-            "key": "Referrer-Policy",
-            "value": "strict-origin-when-cross-origin"
-          },
-          {
-            "key": "Strict-Transport-Security",
-            "value": "max-age=31536000"
-          },
-          {
-            "key": "Permissions-Policy",
-            "value": "geolocation=(self), camera=(self), microphone=()"
-          }
-        ]
-      },
-      {
-        "source": "**/*.@(js|css)",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "public, max-age=3600"
-          }
-        ]
-      },
-      {
-        "source": "**/*.@(svg|png|jpg|webp|woff2|json)",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "public, max-age=86400"
-          }
-        ]
-      },
-      {
-        "source": "**/*.html",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache"
-          }
-        ]
-      },
-      {
-        "source": "sw.js",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache"
-          }
-        ]
-      }
-    ]
-  },
+  "hosting": [
+    {
+      "target": "main",
+      "public": ".",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        ".firebase/**",
+        ".github/**",
+        "**/.git/**",
+        ".git/**",
+        "**/node_modules/**",
+        "docs/**",
+        "tests/**",
+        "redirect/**",
+        "**/*.md",
+        "**/*.zip",
+        "package.json",
+        "package-lock.json",
+        "firestore.rules",
+        "firebase-debug.log"
+      ],
+      "cleanUrls": true,
+      "trailingSlash": false,
+      "redirects": [
+        { "source": "/index.html", "destination": "/", "type": 301 },
+        { "source": "/app.html", "destination": "/app", "type": 301 },
+        { "source": "/login", "destination": "/app", "type": 302 },
+        { "source": "/signin", "destination": "/app", "type": 302 },
+        { "source": "/dashboard", "destination": "/app", "type": 302 },
+        { "source": "/admin", "destination": "/app", "type": 302 },
+        { "source": "/register", "destination": "/app#register", "type": 302 },
+        { "source": "/careers/:company", "destination": "/app#careers/:company", "type": 302 }
+      ],
+      "headers": [
+        {
+          "source": "**",
+          "headers": [
+            { "key": "X-Content-Type-Options", "value": "nosniff" },
+            { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+            { "key": "Strict-Transport-Security", "value": "max-age=31536000" },
+            { "key": "Permissions-Policy", "value": "geolocation=(self), camera=(self), microphone=()" }
+          ]
+        },
+        { "source": "**/*.@(js|css)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+        { "source": "**/*.@(svg|png|jpg|webp|woff2|json|bin|gz|wasm)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }] },
+        { "source": "**/*.html", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+        { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+        { "source": "/app", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+        { "source": "sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+      ]
+    },
+    {
+      "target": "legacy",
+      "public": "redirect",
+      "redirects": [
+        { "source": "/", "destination": "https://allurus.my/app", "type": 301 },
+        { "source": "/index.html", "destination": "https://allurus.my/app", "type": 301 },
+        { "source": "/:path*", "destination": "https://allurus.my/:path", "type": 301 }
+      ]
+    }
+  ],
   "firestore": {
     "rules": "firestore.rules"
   }

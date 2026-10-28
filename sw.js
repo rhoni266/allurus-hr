@@ -2,8 +2,8 @@
 // Pages are fetched from the network first (falling back to the saved copy offline); scripts, styles, images and
 // the face-check models are served from the saved copy and refreshed in the background. Check-ins taken offline
 // wait in the app's outbox (js/kiosk.js) and sync when the phone is back online.
-const CACHE = 'allurus-v3.7';
-const SHELL = ['./', 'index.html', 'assets/logo-mark.svg'];
+const CACHE = 'allurus-v3.8';
+const SHELL = ['app.html', 'assets/logo-mark.svg'];   // the app lives at /app (app.html); / is the landing page
 
 self.addEventListener('install', (ev) => {
   ev.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -15,8 +15,8 @@ self.addEventListener('fetch', (ev) => {
   const req = ev.request, url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
   if (req.mode === 'navigate') {
-    ev.respondWith(fetch(req).then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put('index.html', copy)); return res; })
-      .catch(() => caches.match('index.html').then((r) => r || caches.match('./'))));
+    ev.respondWith(fetch(req).then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(url.pathname === '/' ? '/' : 'app.html', copy)); return res; })
+      .catch(() => caches.match(url.pathname === '/' ? '/' : 'app.html').then((r) => r || caches.match('app.html'))));
     return;
   }
   ev.respondWith(caches.open(CACHE).then(async (c) => {
@@ -32,6 +32,6 @@ self.addEventListener('notificationclick', (ev) => {
   ev.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
     const c = list[0];
     if (c) { c.postMessage({ href }); return c.focus(); }
-    return self.clients.openWindow(`./index.html${href}`);
+    return self.clients.openWindow(`/app${href}`);
   }));
 });

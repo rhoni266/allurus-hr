@@ -1,5 +1,13 @@
 {
   "projects": {
     "default": "allurus-hr"
+  },
+  "targets": {
+    "allurus-hr": {
+      "hosting": {
+        "main": ["allurus-enterprise"],
+        "legacy": ["allurus-hr"]
+      }
+    }
   }
 }
