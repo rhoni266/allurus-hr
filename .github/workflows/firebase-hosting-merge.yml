@@ -1,0 +1,31 @@
+# Deploys the app to Firebase Hosting (allurus.my) on every push to main, after the tests pass.
+# Needs the repository secret FIREBASE_SERVICE_ACCOUNT_ALLURUS_HR (a service-account key for project allurus-hr with
+# the Firebase Hosting Admin role). Until it is added, the tests still run and the deploy step is skipped.
+name: Deploy to Firebase Hosting on merge
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  test_and_deploy:
+    runs-on: ubuntu-latest
+    env:
+      HAS_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ALLURUS_HR != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      - name: Deploy (live channel)
+        if: env.HAS_SA == 'true'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ALLURUS_HR }}
+          channelId: live
+          projectId: allurus-hr
+      - name: Deploy skipped
+        if: env.HAS_SA != 'true'
+        run: echo "::notice::FIREBASE_SERVICE_ACCOUNT_ALLURUS_HR is not set, so nothing was deployed."

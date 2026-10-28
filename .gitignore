@@ -1,2 +1,11 @@
 allurus-hr.zip
 .DS_Store
+# Never commit secrets or local tooling state.
+.env
+.env.*
+node_modules/
+.firebase/
+firebase-debug.log
+*-debug.log
+*service-account*.json
+*serviceAccount*.json
