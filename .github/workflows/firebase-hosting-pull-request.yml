@@ -1,0 +1,28 @@
+# Builds a temporary preview site for each pull request (a *.web.app link posted on the PR), after the tests pass.
+# Same secret as the merge workflow; skipped for pull requests from forks, which can't read secrets.
+name: Deploy to Firebase Hosting on PR
+on: pull_request
+permissions:
+  checks: write
+  contents: read
+  pull-requests: write
+jobs:
+  test_and_preview:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    env:
+      HAS_SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ALLURUS_HR != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      - name: Preview channel
+        if: env.HAS_SA == 'true'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ALLURUS_HR }}
+          projectId: allurus-hr
+          expires: 7d

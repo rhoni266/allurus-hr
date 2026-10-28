@@ -402,6 +402,8 @@ To run it on your own computer, open a terminal in this folder and run `npx serv
 
 ## Put it online for clients
 
+To publish it on its own domain (https://allurus.my) with Firebase Hosting, follow [`docs/deploy-firebase-hosting.md`](docs/deploy-firebase-hosting.md): `firebase.json` and `.firebaserc` are set up, and pushes to `main` deploy automatically once the GitHub secret is added.
+
 - **GitHub Pages:** Repo → Settings → Pages → Deploy from branch `main` / root. Netlify or Vercel also work: drag the folder in.
 - Over HTTPS, check-in uses the device's real GPS location. The browser asks for permission first. If permission is refused, the app falls back to the city implied by the device's time zone and labels the location "approx.".
 
