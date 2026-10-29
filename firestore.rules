@@ -57,7 +57,7 @@ service cloud.firestore {
     function driverOf(b) { return b.split('~')[1]; }
     function opsShared(b) { return b in ['ops.machines', 'ops.products', 'ops.breakdowns']; }
     function bucketClass(b) {
-      return b in ['payroll', 'payChanges', 'loans', 'insurance'] ? 'p' : (isFinance(b) ? 'f' : (b == 'savedReports' ? 'a'
+      return b in ['payroll', 'payChanges', 'loans', 'insurance'] ? 'p' : (isFinance(b) ? 'f' : (b in ['savedReports', 'importData'] ? 'a'
         : (isDriverBucket(b) ? 'd:' + driverOf(b) : (isOps(b) && !opsShared(b) ? 'o' : 'm'))));
     }
     function readsClass(t, r) {
@@ -68,7 +68,7 @@ service cloud.firestore {
     }
     function bucketArea(b) {
       return b in ['payroll', 'payChanges', 'loans', 'insurance', 'statutory'] ? 'payroll'
-        : (isFinance(b) ? 'finance' : (b == 'settings' ? 'settings' : (b in ['departments', 'directory'] ? 'people'
+        : (isFinance(b) ? 'finance' : (b == 'settings' ? 'settings' : (b in ['departments', 'directory', 'importData'] ? 'people'
         : (b == 'cycles' ? 'talent' : (b == 'savedReports' ? 'admin' : (isOps(b) && b != 'ops.breakdowns' ? 'operations' : ''))))));
     }
     // A breakdown report added by someone without the operations area: new records only, nothing changed or removed.

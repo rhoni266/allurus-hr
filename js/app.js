@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.11';
+  const APP_VERSION = '3.12';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -58,6 +58,8 @@
     [s, ...Object.values(s.workspaces || {})].forEach(migrateEInvoice);
     [s, ...Object.values(s.workspaces || {})].forEach(migrateTalent);
     s.reliefs = s.reliefs || {}; s.taxProfiles = s.taxProfiles || {};
+    // Employee imports: the log (with what undo needs) and remembered column mappings. Admins only.
+    [s, ...Object.values(s.workspaces || {})].forEach((w) => { w.importData = w.importData || { logs: [], mappings: [] }; });
     [s, ...Object.values(s.workspaces || {})].forEach((w) => { w.claims = w.claims || []; w.plans = w.plans || {}; });
     return s;
   }
@@ -808,7 +810,7 @@
     return `
       <div class="page-head">
         <div><h1>Employees</h1><p class="sub">${activeEmployees().length} active people across ${state.departments.length} departments.</p></div>
-        <div class="actions"><button class="btn" data-act="export-emps">${icon('download')}Export CSV</button><button class="btn btn-primary" data-act="add-emp">${icon('plus')}Add employee</button></div>
+        <div class="actions">${can('people') ? `<button class="btn" data-act="import-emps">${icon('doc')}Import</button>` : ''}<button class="btn" data-act="export-emps">${icon('download')}Export CSV</button><button class="btn btn-primary" data-act="add-emp">${icon('plus')}Add employee</button></div>
       </div>
       ${hrApi.requestsCard()}
       <div class="card card-flush">
@@ -2565,8 +2567,7 @@
       closeOverlay(); commit(`${n} removed`, `${n} was removed from the directory`);
     },
     'emp-status': (_, v) => { ui.empStatus = v; render(); },
-    'export-emps': () => downloadCSV('employees.csv', [['Name', 'Email', 'Phone', 'Role', 'Department', 'Status', 'Type', 'Location', 'Start date', 'Salary'],
-      ...state.employees.map((e) => [fullName(e), e.email, e.phone, e.role, dept(e.dept)?.name, empStatus(e), e.type, e.location, e.start, e.salary])]),
+    // 'export-emps' and 'import-emps' are in js/import/import.js (the export uses the import's headers, so it round-trips).
     'add-dept': () => openDeptModal(),
     'edit-dept': (id) => openDeptModal(id),
     'del-dept': (id) => {
@@ -2696,6 +2697,7 @@
   grievApi = AllurusGrievance.install(moduleCtx);
   roomsApi = AllurusRooms.install(moduleCtx);
   opsApi = AllurusOps.install(moduleCtx);
+  AllurusImport.install(moduleCtx);
   kioskApi = AllurusKiosk.install(moduleCtx, { write: writeCheckin, zone, deviceId, deviceName, squareCanvas, nowHM, isField, selfieThumb, cloudWrite: (p, d) => cloudWrite(p, d), cloudOn: () => !!cloud.db });
   // Approvers see their team's claims under Approvals, after leave and attendance requests.
   const approvalsBase = VIEWS['my-approvals'];

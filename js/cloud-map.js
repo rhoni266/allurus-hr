@@ -25,8 +25,8 @@
   // with the operations area. Writing needs an admin with the bucket's area; other buckets are for every member
   // (leave, claims, attendance…). `perms` is a person's list of areas; null means every area (Owner).
   const PAYROLL = ['payroll', 'payChanges', 'loans', 'insurance'];
-  const ADMIN_ONLY = ['savedReports'];
-  const WRITE_AREA = { settings: 'settings', departments: 'people', directory: 'people', statutory: 'payroll', cycles: 'talent' };
+  const ADMIN_ONLY = ['savedReports', 'importData'];
+  const WRITE_AREA = { settings: 'settings', departments: 'people', directory: 'people', statutory: 'payroll', cycles: 'talent', importData: 'people' };
   const isFinance = (b) => b === 'finance' || b.startsWith('finance.');
   const isOps = (b) => b === 'ops' || b.startsWith('ops.');
   const OPS_SHARED = ['ops.machines', 'ops.products', 'ops.breakdowns'];
