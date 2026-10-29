@@ -309,10 +309,11 @@ function tenants() {
   return `<div class="sa-head"><h1>Companies</h1><div class="sa-tools"><button type="button" class="sa-btn primary" data-new-tenant>New company</button></div></div>
     <p class="sa-muted">Companies can’t sign themselves up. Open one here: its first admin gets an invitation email and activates at allurus.my/activate.</p>
     <div class="sa-table-wrap"><table class="sa-table"><thead><tr><th>Company</th><th>Admin</th><th>Plan</th><th>Industries</th><th>Overrides</th><th></th></tr></thead><tbody>
-    ${S.tenants.map((t) => `<tr><td><b>${esc(t.name || t.id)}</b><br><span class="sa-muted">${esc(t.industry || "")}</span></td><td>${esc(t.admin || "")}</td><td>${esc(t.plan || "")}</td>
+    ${S.tenants.map((t) => `<tr><td><b>${esc(t.name || t.id)}</b><br><span class="sa-muted">${esc(t.industry || "")}</span>
+      ${t.owner ? "" : t.inviteStatus === "failed" ? '<br><span class="sa-src removed">Invite failed</span>' : `<br><span class="sa-src dependency">Not activated yet${t.inviteSentAt ? ` · invited ${esc(fmtTime(t.inviteSentAt))}` : ""}</span>`}</td><td>${esc(t.admin || "")}</td><td>${esc(t.plan || "")}</td>
       <td>${(t.industryIds || []).map((s) => `<span class="sa-chip">${esc(indBySlug(s)?.name || s)}</span>`).join(" ") || '<span class="sa-muted">None (every area on)</span>'}</td>
       <td>${S.overrides.filter((o) => o.tenantId === t.id && o.mode !== "none").length}</td>
-      <td class="sa-actions"><button type="button" class="sa-btn" data-tenant="${esc(t.id)}">Features</button> <button type="button" class="sa-btn primary" data-view-co="${esc(t.id)}">Open company</button></td></tr>`).join("") || '<tr><td colspan="6" class="sa-muted">No companies yet.</td></tr>'}</tbody></table></div>`;
+      <td class="sa-actions"><button type="button" class="sa-btn" data-tenant="${esc(t.id)}">Features</button> <button type="button" class="sa-btn primary" data-view-co="${esc(t.id)}">Open company</button>${t.owner ? "" : ` <button type="button" class="sa-btn" data-retry-invite="${esc(t.id)}">Retry invite</button>`}</td></tr>`).join("") || '<tr><td colspan="6" class="sa-muted">No companies yet.</td></tr>'}</tbody></table></div>`;
 }
 // A new company, with no owner until its first admin activates their invitation (an Owner: every area).
 async function newTenant() {
@@ -326,14 +327,48 @@ async function newTenant() {
   if (!fd) return;
   const name = String(fd.get("name")).trim(), email = String(fd.get("email")).trim().toLowerCase(), adminName = String(fd.get("adminName")).trim();
   if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast("Enter a company name and a valid email.", true);
+  // Same name or same first admin as an existing company: ask before making another.
+  const dup = S.tenants.filter((t) => (t.name || "").trim().toLowerCase() === name.toLowerCase() || (t.admin || "").toLowerCase() === email);
+  if (dup.length) {
+    const ok = await ask("This company may already exist", `<p>${dup.map((t) => `<b>${esc(t.name)}</b> (admin ${esc(t.admin || "none")}${t.owner ? "" : ", not activated yet"})`).join("<br>")}</p>
+      <p class="sa-muted">${dup.some((t) => !t.owner) ? "To send its invitation again, use <b>Retry invite</b> on the Companies list instead." : "Create another company anyway?"}</p>`, "Create another anyway");
+    if (!ok) return;
+  }
   const tref = doc(collection(db, "tenants"));
+  // 1. The email first: if Firebase can't send it, nothing is created.
+  try { await sendInvite(email, tref.id); }
+  catch (e) { return toast(authError(e), true); }
+  // 2. The company, then the invitation. If the invitation can't be saved, the company is marked so it can be retried.
   try {
-    await save([{ type: "tenant", path: `tenants/${tref.id}`, data: { owner: null, name, admin: email, city: String(fd.get("city") || "").trim(), industry: "", plan: "growth", seats: 0, createdAt: serverTimestamp() }, before: null, action: "create-company", plain: true }]);
-    const expiresAt = new Date(Date.now() + 7 * 864e5);
-    await FS.setDoc(doc(db, `invites/${email}`), { tenantId: tref.id, empId: "e1", name: adminName, company: name, roles: ["admin", "employee"], invitedBy: S.user.email || "", invitedAt: serverTimestamp(), sentAt: serverTimestamp(), expiresAt: FS.Timestamp.fromDate(expiresAt) });
-    await AU.sendSignInLinkToEmail(auth, email, { url: `${location.origin}/activate?c=${encodeURIComponent(tref.id)}`, handleCodeInApp: true });
-    toast(`${name} created. Invitation sent to ${email}.`);
-  } catch (e) { console.error(e?.code); toast(`Not finished: ${e.code === "permission-denied" ? "permission denied" : e.code || e.message}`, true); }
+    await save([{ type: "tenant", path: `tenants/${tref.id}`, data: { owner: null, name, admin: email, adminName, city: String(fd.get("city") || "").trim(), industry: "", plan: "growth", seats: 0, createdAt: serverTimestamp(), inviteStatus: "sent", inviteSentAt: serverTimestamp() }, before: null, action: "create-company", plain: true }]);
+  } catch (e) { console.error(e?.code); await load(); render(); return toast(`The company wasn’t created (${e.code === "permission-denied" ? "permission denied: are you still a superadmin?" : "connection problem"}). The email that went out won’t work; try again.`, true); }
+  try { await writeInvite(email, tref.id, adminName, name); toast(`${name} created. Invitation sent to ${email}, valid 7 days.`); }
+  catch (e) { console.error(e?.code); await markInvite(tref.id, "failed"); toast(`${name} was created, but its invitation couldn’t be saved. Use Retry invite.`, true); }
+  await load(); render();
+}
+// Firebase Auth error codes as plain sentences.
+function authError(e) {
+  const m = {
+    "auth/operation-not-allowed": "Email sign-in links aren’t turned on in Firebase. Turn on Authentication → Sign-in method → Email/Password → Email link (passwordless sign-in), then try again.",
+    "auth/unauthorized-continue-uri": "This website’s address isn’t on Firebase’s authorised domains list (Authentication → Settings → Authorised domains).",
+    "auth/invalid-email": "That email address isn’t valid.",
+    "auth/quota-exceeded": "Firebase’s daily limit for sign-in emails is used up. Try again tomorrow.",
+    "auth/too-many-requests": "Too many emails sent just now. Wait a few minutes and try again.",
+    "auth/network-request-failed": "You seem to be offline. Check your connection and try again.",
+  };
+  console.warn("[superadmin] auth", e?.code);
+  return m[e?.code] || "The invitation email couldn’t be sent. Try again in a moment.";
+}
+const sendInvite = (email, tenantId) => AU.sendSignInLinkToEmail(auth, email, { url: `${location.origin}/activate?c=${encodeURIComponent(tenantId)}`, handleCodeInApp: true });
+const writeInvite = (email, tenantId, adminName, company) => FS.setDoc(doc(db, `invites/${email}`), { tenantId, empId: "e1", name: adminName, company, roles: ["admin", "employee"], invitedBy: S.user.email || "", invitedAt: serverTimestamp(), sentAt: serverTimestamp(), expiresAt: FS.Timestamp.fromDate(new Date(Date.now() + 7 * 864e5)) });
+const markInvite = (id, status) => save([{ type: "tenant", path: `tenants/${id}`, data: { inviteStatus: status, ...(status === "sent" ? { inviteSentAt: serverTimestamp() } : {}) }, before: { inviteStatus: S.tenants.find((t) => t.id === id)?.inviteStatus || null }, action: `invite-${status}`, plain: true }]).catch(() => {});
+// Send the first admin's invitation again (a company that isn't activated yet).
+async function retryInvite(id) {
+  const t = S.tenants.find((x) => x.id === id); if (!t || t.owner) return;
+  try { await sendInvite(t.admin, id); } catch (e) { await markInvite(id, "failed"); await load(); render(); return toast(authError(e), true); }
+  const old = await FS.getDoc(doc(db, `invites/${t.admin}`)).catch(() => null);
+  try { await writeInvite(t.admin, id, t.adminName || old?.data()?.name || t.admin, t.name); await markInvite(id, "sent"); toast(`Invitation sent again to ${t.admin}, valid 7 days.`); }
+  catch (e) { await markInvite(id, "failed"); toast("The email went out, but the invitation couldn’t be saved. Try again.", true); }
   await load(); render();
 }
 async function openTenant(id) {
@@ -462,6 +497,7 @@ main.addEventListener("click", async (e) => {
   else if ("copyLinks" in d) copyLinks();
   else if (d.tenant) openTenant(d.tenant);
   else if ("newTenant" in d) newTenant();
+  else if (d.retryInvite) { el.disabled = true; await retryInvite(d.retryInvite); }
   else if (d.viewCo) {
     // Viewing a company's data is recorded before it opens (who, which company, when).
     const t = S.tenants.find((x) => x.id === d.viewCo);

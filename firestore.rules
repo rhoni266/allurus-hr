@@ -220,7 +220,7 @@ service cloud.firestore {
       // Only the superadmin opens a company (with an audit entry). It has no owner until its first admin
       // activates their invitation and claims it, once.
       allow create: if audited('tenant', t) && request.resource.data.owner == null
-        && request.resource.data.keys().hasOnly(['owner', 'name', 'admin', 'industry', 'city', 'country', 'plan', 'seats', 'createdAt', 'lastAuditId'])
+        && request.resource.data.keys().hasOnly(['owner', 'name', 'admin', 'adminName', 'industry', 'city', 'country', 'plan', 'seats', 'createdAt', 'inviteStatus', 'inviteSentAt', 'lastAuditId'])
         && request.resource.data.admin is string && request.resource.data.admin == request.resource.data.admin.lower();
       allow update: if member(t) && resource.data.owner == null && myEmail() == resource.data.admin && owner() && 'admin' in me().roles
         && request.resource.data.owner == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['owner']);
@@ -235,6 +235,9 @@ service cloud.firestore {
       }
       allow update: if audited('tenant', t) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['industryIds', 'lastAuditId'])
         && request.resource.data.industryIds is list && request.resource.data.industryIds.size() <= 12;
+      // ...and records whether the first admin's invitation went out ("sent" or "failed"), for Retry invite.
+      allow update: if audited('tenant', t) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['inviteStatus', 'inviteSentAt', 'lastAuditId'])
+        && request.resource.data.inviteStatus in ['sent', 'failed'];
 
       match /buckets/{b} {
         allow read: if member(t) && readsClass(t, resource.data.r);

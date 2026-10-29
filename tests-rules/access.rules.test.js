@@ -126,6 +126,13 @@ test('superadmin opens a company (audited) and invites its first admin, who clai
   b.set(doc(sup, 'tenants/tC'), { owner: null, name: 'Syarikat C', admin: 'first@c.my', lastAuditId: a.id });
   await assertSucceeds(b.commit());
   await assertSucceeds(setDoc(doc(sup, 'invites/first@c.my'), { tenantId: 'tC', empId: 'e1', name: 'Puan C', roles: ['admin', 'employee'], expiresAt: days(7) }));
+  // Invitation status for Retry invite: audited, and only "sent" or "failed".
+  const mark = async (status, audited = true) => { const bb = writeBatch(sup), aa = doc(collection(sup, 'auditLog'));
+    if (audited) bb.set(aa, { actorUid: 'super1', actorEmail: 'boss@allurus.my', action: 'invite-' + status, entityType: 'tenant', entityId: 'tC', before: null, after: {}, createdAt: serverTimestamp() });
+    bb.set(doc(sup, 'tenants/tC'), { inviteStatus: status, lastAuditId: aa.id }, { merge: true }); return bb.commit(); };
+  await assertSucceeds(mark('failed'));
+  await assertFails(mark('hacked'));
+  await assertFails(mark('sent', false));
   const first = as('firstUid', { email: 'first@c.my', email_verified: true });
   await assertSucceeds(setDoc(doc(first, 'users/firstUid'), { email: 'first@c.my', name: 'Puan C', tenantId: 'tC', roles: ['admin', 'employee'], empId: 'e1' }));
   await assertSucceeds(updateDoc(doc(first, 'tenants/tC'), { owner: 'firstUid' }));
