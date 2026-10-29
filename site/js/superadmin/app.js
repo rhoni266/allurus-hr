@@ -312,7 +312,7 @@ function tenants() {
     ${S.tenants.map((t) => `<tr><td><b>${esc(t.name || t.id)}</b><br><span class="sa-muted">${esc(t.industry || "")}</span></td><td>${esc(t.admin || "")}</td><td>${esc(t.plan || "")}</td>
       <td>${(t.industryIds || []).map((s) => `<span class="sa-chip">${esc(indBySlug(s)?.name || s)}</span>`).join(" ") || '<span class="sa-muted">None (every area on)</span>'}</td>
       <td>${S.overrides.filter((o) => o.tenantId === t.id && o.mode !== "none").length}</td>
-      <td><button type="button" class="sa-btn" data-tenant="${esc(t.id)}">Open</button></td></tr>`).join("") || '<tr><td colspan="6" class="sa-muted">No companies yet.</td></tr>'}</tbody></table></div>`;
+      <td class="sa-actions"><button type="button" class="sa-btn" data-tenant="${esc(t.id)}">Features</button> <button type="button" class="sa-btn primary" data-view-co="${esc(t.id)}">Open company</button></td></tr>`).join("") || '<tr><td colspan="6" class="sa-muted">No companies yet.</td></tr>'}</tbody></table></div>`;
 }
 // A new company, with no owner until its first admin activates their invitation (an Owner: every area).
 async function newTenant() {
@@ -462,6 +462,13 @@ main.addEventListener("click", async (e) => {
   else if ("copyLinks" in d) copyLinks();
   else if (d.tenant) openTenant(d.tenant);
   else if ("newTenant" in d) newTenant();
+  else if (d.viewCo) {
+    // Viewing a company's data is recorded before it opens (who, which company, when).
+    const t = S.tenants.find((x) => x.id === d.viewCo);
+    try { await FS.addDoc(collection(db, "auditLog"), { actorUid: S.user.uid, actorEmail: S.user.email || "", action: "view-company", entityType: "tenant", entityId: d.viewCo, before: null, after: { name: t?.name || "" }, createdAt: serverTimestamp() }); }
+    catch (e) { toast("Couldn’t record the audit entry, so the company wasn’t opened.", true); return; }
+    window.open(`/app?view=${encodeURIComponent(d.viewCo)}`, "_blank", "noopener");
+  }
   else if ("csv" in d) exportCsv();
 });
 main.addEventListener("change", async (e) => {

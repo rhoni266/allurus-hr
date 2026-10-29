@@ -188,7 +188,7 @@ function changed() {
   clearTimeout(S.timer); S.timer = setTimeout(push, 500);
 }
 async function push() {
-  if (!S.live) return;
+  if (!S.live || S.profile?.viewOnly) return;   // superadmin viewing a company: nothing is ever sent
   if (S.pushing) { S.again = true; return; }
   S.pushing = true;
   try {
@@ -463,6 +463,21 @@ Auth.onAuthStateChanged(auth, async (user) => {
   const sess = app.state.session;
   if (!firstAuth) return;
   firstAuth = false;
+  // Superadmin opening a company from allurus.my/superadmin (/app?view=<company>): read-only, nothing is sent.
+  const viewId = new URLSearchParams(location.search).get('view');
+  if (user && viewId) {
+    try {
+      const tok = await user.getIdTokenResult(true);
+      if (tok.claims.role === 'superadmin') {
+        const t = await getDoc(doc(db, `tenants/${viewId}`));
+        if (t.exists()) {
+          const prof = { uid: user.uid, email: lower(user.email), name: 'Allurus superadmin', tenantId: viewId, roles: ['admin', 'employee'], empId: 'e1', viewOnly: true };
+          await start(prof); app.cloudViewOnly(t.data().name || viewId); return;
+        }
+      }
+    } catch (e) { console.warn('[Allurus cloud] superadmin view', e?.code); }
+    app.toast('You can’t view that company.', 'error');
+  }
   // Straight from allurus.my/activate: they're signed in with their new password; open their workspace.
   if (user && /[?&]activated\b/.test(location.search)) {
     history.replaceState(null, '', location.pathname + location.hash);

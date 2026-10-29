@@ -109,6 +109,16 @@ test('employees can’t change their own role, company, status or link', async (
   for (const patch of [{ roles: ['admin', 'employee'] }, { tenantId: 'tB' }, { disabled: false }, { empId: 'e1' }]) await assertFails(updateDoc(doc(staffA(), 'users/staffA'), patch));
 });
 
+test('superadmin views every company’s data but can’t change it; other admins can’t view other companies', async () => {
+  const sup = as('super1', { role: 'superadmin', email: 'boss@allurus.my', email_verified: true });
+  for (const p of ['tenants/tA/buckets/leaves', 'tenants/tB/buckets/leaves', 'tenants/tA/people/e7', 'users/staffA', 'invites/siti@a.my']) await assertSucceeds(getDoc(doc(sup, p)));
+  await assertFails(setDoc(doc(sup, 'tenants/tA/buckets/leaves'), { t: 'a', r: 'm', f: { x: '1' } }));
+  await assertFails(setDoc(doc(sup, 'tenants/tA/people/e7'), { first: 'Changed' }));
+  await assertFails(deleteDoc(doc(sup, 'tenants/tB/buckets/leaves')));
+  await assertFails(getDoc(doc(ownerA(), 'tenants/tB/people/e7')));
+  await assertFails(getDoc(doc(as('fake', { role: 'admin', email: 'x@x.my', email_verified: true }), 'tenants/tA/buckets/leaves')));
+});
+
 test('superadmin opens a company (audited) and invites its first admin, who claims it once', async () => {
   const sup = as('super1', { role: 'superadmin', email: 'boss@allurus.my', email_verified: true });
   const b = writeBatch(sup), a = doc(collection(sup, 'auditLog'));

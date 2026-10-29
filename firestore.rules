@@ -91,6 +91,7 @@ service cloud.firestore {
     match /users/{uid} {
       allow get: if signedIn() && (request.auth.uid == uid || hasArea(resource.data.tenantId, 'settings'));
       allow list: if hasProfile() && resource.data.tenantId == me().tenantId && hasArea(me().tenantId, 'settings');
+      allow read: if isSuperadmin();
       // The only way into a company: activating an admin's invitation (allurus.my/activate) with that email
       // confirmed, before the invitation expires. Company, roles, areas and employee come from the invitation,
       // never from the browser. Nobody signs a company up themselves; the superadmin creates companies.
@@ -119,8 +120,8 @@ service cloud.firestore {
       allow create, update: if email == email.lower() && hasArea(request.resource.data.tenantId, 'settings')
         && validRoles(request.resource.data) && grantable(request.resource.data) && validExpiry();
       allow delete: if hasArea(resource.data.tenantId, 'settings');
-      // The superadmin invites a new company's first admin (an Owner: every area).
-      allow get: if isSuperadmin();
+      // The superadmin invites a new company's first admin (an Owner: every area), and sees every invitation.
+      allow read: if isSuperadmin();
       allow create, update: if isSuperadmin() && email == email.lower() && request.resource.data.roles == ['admin', 'employee']
         && request.resource.data.empId == 'e1' && !('perms' in request.resource.data) && validExpiry()
         && exists(/databases/$(database)/documents/tenants/$(request.resource.data.tenantId));
@@ -227,6 +228,11 @@ service cloud.firestore {
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['industryIds', 'lastAuditId']);
       // Superadmin: sees every company, and sets only which industries it belongs to (with an audit entry).
       allow read: if isSuperadmin();
+      // ...and can view (never change) everything inside one, for support. Opening a company from /superadmin
+      // writes an audit entry first (action view-company).
+      match /{inside=**} {
+        allow read: if isSuperadmin();
+      }
       allow update: if audited('tenant', t) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['industryIds', 'lastAuditId'])
         && request.resource.data.industryIds is list && request.resource.data.industryIds.size() <= 12;
 

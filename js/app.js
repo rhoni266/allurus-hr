@@ -2869,6 +2869,13 @@
     // The cloud finished reconnecting (or the sign-in had expired).
     // A company the superadmin opened, set up by its first admin when they activate: empty, with them as e1.
     firstWorkspace(d) { return newWorkspace({ currency: 'MYR', plan: 'growth', city: 'Kuala Lumpur', ...d }, false); },
+    // Superadmin viewing a company: open it as its Owner would see it, with a banner; changes are never saved.
+    cloudViewOnly(name) {
+      cloudWaiting = false; startSession(state.accounts[0]);
+      let bar = document.getElementById('view-only-bar');
+      if (!bar) { bar = document.createElement('div'); bar.id = 'view-only-bar'; bar.setAttribute('role', 'status'); bar.style.cssText = 'position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:90;background:#16181D;color:#fff;padding:8px 14px;border-radius:999px;font:600 13px/1.3 var(--font);box-shadow:var(--shadow-lg);display:flex;gap:12px;align-items:center;max-width:calc(100vw - 24px)'; document.body.appendChild(bar); }
+      bar.innerHTML = `<span>Viewing ${esc(name)} as superadmin · read-only, nothing you change is saved</span><a href="/superadmin" style="color:#D9B66F">Back to superadmin</a>`;
+    },
     // Just activated on /activate and already signed in: open the app as them.
     cloudSignedIn() { cloudWaiting = false; startSession(state.accounts[0]); toast('Your account is ready. Welcome to Allurus.'); },
     cloudReady(reason) {
