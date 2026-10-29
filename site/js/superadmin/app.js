@@ -329,6 +329,10 @@ async function newTenant() {
   if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast("Enter a company name and a valid email.", true);
   // Same name or same first admin as an existing company: ask before making another.
   const dup = S.tenants.filter((t) => (t.name || "").trim().toLowerCase() === name.toLowerCase() || (t.admin || "").toLowerCase() === email);
+  // The email may also be invited to, or already in, a company under another admin.
+  const [inv, users] = await Promise.all([FS.getDoc(doc(db, `invites/${email}`)).catch(() => null), getDocs(query(collection(db, "users"), FS.where("email", "==", email))).catch(() => null)]);
+  const other = [...(inv?.exists() ? [inv.data().tenantId] : []), ...(users?.docs || []).map((d) => d.data().tenantId)].filter((id) => !dup.some((t) => t.id === id));
+  other.forEach((id) => { const t = S.tenants.find((x) => x.id === id); if (t) dup.push(t); });
   if (dup.length) {
     const ok = await ask("This company may already exist", `<p>${dup.map((t) => `<b>${esc(t.name)}</b> (admin ${esc(t.admin || "none")}${t.owner ? "" : ", not activated yet"})`).join("<br>")}</p>
       <p class="sa-muted">${dup.some((t) => !t.owner) ? "To send its invitation again, use <b>Retry invite</b> on the Companies list instead." : "Create another company anyway?"}</p>`, "Create another anyway");

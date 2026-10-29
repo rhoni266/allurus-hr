@@ -71,20 +71,20 @@ function sentScreen() {
 
 // ---------- Screen 2: the link was opened ----------
 async function fromLink() {
-  let email = store.get(EMAIL_KEY);
-  if (!email) {
-    // Opened on a different device: confirm which email the link was sent to.
-    page('Confirm your email', 'For your security, type the work email this link was sent to.', `<form id="f" novalidate class="login-card" style="padding:0;box-shadow:none;max-width:none">
-      <div class="field"><label for="em">Work email</label><input class="input" id="em" name="email" type="email" autocomplete="username" inputmode="email" required></div>
-      <button class="btn btn-primary login-submit" type="submit">Continue</button></form>`);
-    email = await new Promise((ok) => document.getElementById('f').addEventListener('submit', (ev) => { ev.preventDefault(); ok(lower(ev.target.email.value)); }));
-  }
+  // Nothing is used up until the person presses Continue, so an email scanner opening the link first does no harm.
+  // On another device they type the email the link was sent to.
+  const known = store.get(EMAIL_KEY) || '';
+  page('Activate your account', known ? 'Press Continue to set up your account.' : 'For your security, type the work email this invitation was sent to.', `<form id="f" novalidate class="login-card" style="padding:0;box-shadow:none;max-width:none">
+    <p class="ac-step">Step 2 of 3</p>
+    <div class="field"><label for="em">Work email</label><input class="input" id="em" name="email" type="email" autocomplete="username" inputmode="email" required value="${esc(known)}"></div>
+    <button class="btn btn-primary login-submit" type="submit">Continue</button></form>`);
+  const email = await new Promise((ok) => document.getElementById('f').addEventListener('submit', (ev) => { ev.preventDefault(); ok(lower(ev.target.email.value)); }));
   page('Checking your invitation', '', '<div class="ci-status"><span class="spinner" aria-hidden="true"></span><div><strong>One moment…</strong></div></div>');
   let cred;
   try { cred = await Auth.signInWithEmailLink(auth, email, location.href); }
   catch (e) {
     const expired = e?.code === 'auth/invalid-action-code' || e?.code === 'auth/expired-action-code';
-    problem(expired ? 'This link has expired' : 'This link didn’t work', expired ? 'Sign-in links work once and expire after a while. Request a new one.' : 'Check that you typed the same email the link was sent to, or request a new link.', '<a class="btn btn-primary login-submit" href="/activate">Send a new link</a>');
+    problem(expired ? 'This link has expired or was already used' : 'This link didn’t work', expired ? 'Ask your admin to resend the invitation, or enter your email below to get a new link.' : 'Check that you typed the same email the invitation was sent to, or get a new link.', '<a class="btn btn-primary login-submit" href="/activate">Get a new link</a>');
     return;
   }
   history.replaceState(null, '', `/activate${company ? `?c=${encodeURIComponent(company)}` : ''}`);
