@@ -28,6 +28,22 @@ service cloud.firestore {
     function member(t) { return hasProfile() && me().tenantId == t; }
     function admin(t) { return member(t) && ('admin' in me().roles); }
     function myEmail() { return request.auth.token.email.lower(); }
+
+    // ---- Industries and features (allurus.my/superadmin) ----
+    // Superadmin comes only from the Firebase custom claim role == 'superadmin' (scripts/set-superadmin.js), never
+    // from a field a browser can write.
+    function isSuperadmin() { return request.auth != null && request.auth.token.role == 'superadmin'; }
+    function auditDoc(id) { return /databases/$(database)/documents/auditLog/$(id); }
+    // Every superadmin change carries lastAuditId: the audit entry written in the same batch, about this very
+    // document. Without it the write is refused, so nothing changes without a record of who, what and when.
+    function audited(entityType, id) {
+      return isSuperadmin() && request.resource.data.lastAuditId is string
+        && existsAfter(auditDoc(request.resource.data.lastAuditId))
+        && getAfter(auditDoc(request.resource.data.lastAuditId)).data.entityType == entityType
+        && getAfter(auditDoc(request.resource.data.lastAuditId)).data.entityId == id
+        && getAfter(auditDoc(request.resource.data.lastAuditId)).data.actorUid == request.auth.uid;
+    }
+    function shortText(v, n) { return v is string && v.size() <= n; }
     function verified() { return request.auth.token.email_verified == true; }
     function inviteFor(email) { return get(/databases/$(database)/documents/invites/$(email)).data; }
 
@@ -112,6 +128,66 @@ service cloud.firestore {
       allow read, update, delete: if false;
     }
 
+    // Catalogue: the public site reads it; only an audited superadmin change writes it. Nothing is ever deleted:
+    // archive (archived: true), unlink (linked: false) and clear an override (mode: 'none') instead.
+    match /modules/{id} {
+      allow read: if true;
+      allow create, update: if audited('module', id);
+    }
+    match /features/{id} {
+      allow read: if true;
+      allow create, update: if audited('feature', id);
+    }
+    match /industries/{id} {
+      // The public page lists with where('visible', '==', true); hidden ones are for superadmin only.
+      allow read: if resource.data.visible == true || isSuperadmin();
+      allow create, update: if audited('industry', id) && request.resource.data.slug == id;
+    }
+    match /industryFeatures/{id} {
+      allow read: if true;
+      allow create, update: if audited('industryFeature', id) && id == request.resource.data.industryId + '_' + request.resource.data.featureId;
+    }
+    match /finderRules/{id} {
+      allow read: if true;
+      allow create, update: if audited('finderRule', id);
+    }
+    // Per-company switches on top of the industry: read by that company's members (the app uses them) and superadmin.
+    match /tenantFeatureOverrides/{id} {
+      allow read: if isSuperadmin() || member(resource.data.tenantId);
+      allow create, update: if audited('tenantOverride', id) && request.resource.data.mode in ['add', 'remove', 'none']
+        && id == request.resource.data.tenantId + '_' + request.resource.data.featureId;
+    }
+    // "Tell us you need this" leads from allurus.my. Anyone may add one (fixed fields, sensible sizes, consent given,
+    // status 'new', timestamped now); only superadmin reads them or moves them along. Never deleted.
+    match /leads/{id} {
+      allow create: if request.resource.data.keys().hasOnly(['businessName', 'contactName', 'phone', 'email', 'industryIds', 'otherIndustry',
+            'featureInterests', 'teamSize', 'notes', 'consent', 'status', 'lang', 'createdAt'])
+        && shortText(request.resource.data.businessName, 150) && request.resource.data.businessName.size() > 0
+        && shortText(request.resource.data.contactName, 100) && request.resource.data.contactName.size() > 0
+        && shortText(request.resource.data.phone, 30) && request.resource.data.phone.size() >= 9
+        && (!('email' in request.resource.data) || shortText(request.resource.data.email, 200))
+        && request.resource.data.industryIds is list && request.resource.data.industryIds.size() <= 12
+        && (!('otherIndustry' in request.resource.data) || shortText(request.resource.data.otherIndustry, 200))
+        && (!('featureInterests' in request.resource.data) || (request.resource.data.featureInterests is list && request.resource.data.featureInterests.size() <= 60))
+        && (!('teamSize' in request.resource.data) || shortText(request.resource.data.teamSize, 40))
+        && (!('notes' in request.resource.data) || shortText(request.resource.data.notes, 2000))
+        && (!('lang' in request.resource.data) || shortText(request.resource.data.lang, 5))
+        && request.resource.data.consent == true && request.resource.data.status == 'new'
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.createdAt > request.time - duration.value(10, 'm') && request.resource.data.createdAt < request.time + duration.value(10, 'm');
+      allow read: if isSuperadmin();
+      allow update: if audited('lead', id) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'assignedTo', 'lastAuditId'])
+        && request.resource.data.status in ['new', 'contacted', 'demo', 'won', 'lost'];
+    }
+    // Who changed what and when. Superadmin adds entries (as themselves, timestamped by the server); nobody edits or
+    // deletes them.
+    match /auditLog/{id} {
+      allow read: if isSuperadmin();
+      allow create: if isSuperadmin() && request.resource.data.actorUid == request.auth.uid && request.resource.data.createdAt == request.time
+        && request.resource.data.keys().hasOnly(['actorUid', 'actorEmail', 'action', 'entityType', 'entityId', 'before', 'after', 'createdAt'])
+        && request.resource.data.entityType in ['module', 'feature', 'industry', 'industryFeature', 'finderRule', 'tenant', 'tenantOverride', 'lead'];
+      allow update, delete: if false;
+    }
     // The public demo (?demo, ?demo=suria, ?demo=majorfe): the check-in point its admin set, so every phone trying the
     // demo checks in against it. No sign-in, demo companies only, and only these fields with sensible values.
     match /demoZones/{co} {
@@ -128,8 +204,14 @@ service cloud.firestore {
 
     match /tenants/{t} {
       allow read: if member(t);
-      allow create: if signedIn() && !hasProfile() && request.resource.data.owner == request.auth.uid;
-      allow update: if hasArea(t, 'settings') && request.resource.data.owner == resource.data.owner;
+      allow create: if signedIn() && !hasProfile() && request.resource.data.owner == request.auth.uid
+        && !request.resource.data.keys().hasAny(['industryIds', 'lastAuditId']);
+      allow update: if hasArea(t, 'settings') && request.resource.data.owner == resource.data.owner
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['industryIds', 'lastAuditId']);
+      // Superadmin: sees every company, and sets only which industries it belongs to (with an audit entry).
+      allow read: if isSuperadmin();
+      allow update: if audited('tenant', t) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['industryIds', 'lastAuditId'])
+        && request.resource.data.industryIds is list && request.resource.data.industryIds.size() <= 12;
 
       match /buckets/{b} {
         allow read: if member(t) && readsClass(t, resource.data.r);

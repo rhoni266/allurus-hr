@@ -289,10 +289,31 @@ async function start(profile) {
   [...S.base.keys()].forEach(apply);
   ws.employees = employeesFrom();
   app.adoptCloud(ws, profile);
+  await loadFeatures(profile.tenantId);
   S.live = true;
   app.refresh(true);
   drain();    // anything that arrived while loading
   changed();  // send what the app filled in on load (new defaults), and nothing else
+}
+// Industry features (set by superadmin at allurus.my/superadmin): which areas of the app this company has.
+// Only companies with industries set are affected; for everyone else window.AllurusFeatures stays null and every
+// area shows as before. Effective = features linked to the company's industries + its extras − its removals.
+async function loadFeatures(tenantId) {
+  window.AllurusFeatures = null;
+  try {
+    const t = await getDoc(doc(db, `tenants/${tenantId}`));
+    const ids = (t.exists() && Array.isArray(t.data().industryIds)) ? t.data().industryIds.slice(0, 10) : [];
+    if (!ids.length) return;
+    const [cat, links, overrides, feats] = await Promise.all([
+      import('/site/js/lib/catalog.js'),
+      getDocs(query(collection(db, 'industryFeatures'), where('industryId', 'in', ids))),
+      getDocs(query(collection(db, 'tenantFeatureOverrides'), where('tenantId', '==', tenantId))),
+      getDocs(collection(db, 'features')),
+    ]);
+    const featuresByKey = Object.fromEntries(feats.docs.map((d) => [d.id, { key: d.id, ...d.data() }]));
+    const eff = cat.effectiveFeatures({ industryIds: ids, links: links.docs.map((d) => d.data()), overrides: overrides.docs.map((d) => d.data()), featuresByKey });
+    window.AllurusFeatures = { keys: eff.keys, source: eff.source, has: (k) => eff.keys.has(k), area: (a) => cat.areaAllowed(a, eff, true) };
+  } catch (e) { console.warn('[Allurus cloud] industry features', e); window.AllurusFeatures = null; }   // on failure, show everything
 }
 function stop() {
   S.unsubs.forEach((u) => { try { u(); } catch (e) { /* already closed */ } });

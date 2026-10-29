@@ -443,7 +443,8 @@
   };
   const myPerms = () => { const a = account(); return a && Array.isArray(a.perms) ? a.perms : null; };
   // Whether the person may work in an area of the company console (only ever in Company Admin view).
-  const can = (area) => role() === 'admin' && (!myPerms() || myPerms().includes(area));
+  // Also off when the company's industries don't include that area (window.AllurusFeatures, set by cloud.js).
+  const can = (area) => role() === 'admin' && (!myPerms() || myPerms().includes(area)) && (!window.AllurusFeatures || window.AllurusFeatures.area(area));
   window.AllurusAccess = { can, AREAS, TEMPLATES, templateOf };
   // "HR admin", "Finance", "Owner"… for the company console; the role's own name otherwise.
   const roleLabel = (r) => (r === 'admin' && myPerms() ? TEMPLATES[templateOf(myPerms())]?.label || 'Company Admin' : ROLES[r]?.label || r);

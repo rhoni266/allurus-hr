@@ -1,0 +1,34 @@
+{
+  "_note": "Scoring for the 'Which one is me?' finder. Each option adds points to industries (by slug); highest total wins, second highest is the secondary match. `reason` is shown on the result screen when that answer helped the winner. Superadmin tunes the live copy in /superadmin.",
+  "questions": [
+    {
+      "id": "q1", "order": 1, "text": "What best describes how you earn money?",
+      "options": [
+        { "id": "walkin", "text": "Customers walk in and buy or order now (food, shop, services)", "reason": "Customers buy or order on the spot", "points": { "fnb": 3, "retail": 3, "appt": 1 } },
+        { "id": "book", "text": "Customers book a time or date in advance (events, clinic, salon, rental, classes)", "reason": "Customers book a time or date in advance", "points": { "catering": 3, "appt": 3, "rental": 3, "tuition": 3 } },
+        { "id": "jobs", "text": "We do jobs or projects over days or weeks (contractor, workshop, agency)", "reason": "Your work runs as jobs or projects", "points": { "projects": 3, "workshop": 3 } },
+        { "id": "move", "text": "We move goods or vehicles (fleet, courier, transport)", "reason": "You move goods or vehicles", "points": { "fleet": 4, "rental": 1 } }
+      ]
+    },
+    {
+      "id": "q2", "order": 2, "text": "What do you spend the most time managing?",
+      "options": [
+        { "id": "orders", "text": "Orders, tables and stock", "reason": "Orders and stock take most of your time", "points": { "fnb": 3, "retail": 3, "workshop": 1 } },
+        { "id": "bookings", "text": "Bookings, calendars and no-shows", "reason": "Bookings and calendars take most of your time", "points": { "appt": 3, "catering": 2, "rental": 2, "tuition": 1 } },
+        { "id": "projects", "text": "Jobs, projects and progress claims", "reason": "Jobs and progress claims take most of your time", "points": { "projects": 3, "workshop": 2 } },
+        { "id": "vehicles", "text": "Vehicles, trips and drivers", "reason": "Vehicles and drivers take most of your time", "points": { "fleet": 3, "rental": 1 } },
+        { "id": "staff", "text": "Staff, attendance and salaries", "reason": "Staff and salaries take most of your time", "points": { "catering": 1, "projects": 1, "fnb": 1, "fleet": 1 } },
+        { "id": "invoices", "text": "Invoices, parents/clients and payments", "reason": "Invoices and payments take most of your time", "points": { "tuition": 3, "rental": 2, "projects": 1 } }
+      ]
+    },
+    {
+      "id": "q3", "order": 3, "text": "How big is your team?",
+      "options": [
+        { "id": "solo", "text": "Just me", "reason": "", "points": { "appt": 1, "rental": 1 } },
+        { "id": "small", "text": "2 to 10 people", "reason": "", "points": { "fnb": 1, "retail": 1, "workshop": 1, "tuition": 1 } },
+        { "id": "mid", "text": "11 to 50 people", "reason": "", "points": { "catering": 1, "projects": 1, "fleet": 1 } },
+        { "id": "large", "text": "More than 50", "reason": "", "points": { "projects": 1, "fleet": 1, "catering": 1 } }
+      ]
+    }
+  ]
+}

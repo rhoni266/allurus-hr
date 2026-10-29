@@ -13,6 +13,8 @@
         "**/node_modules/**",
         "docs/**",
         "tests/**",
+        "tests-rules/**",
+        "scripts/**",
         "redirect/**",
         "**/*.md",
         "**/*.zip",
@@ -23,6 +25,10 @@
       ],
       "cleanUrls": true,
       "trailingSlash": false,
+      "rewrites": [
+        { "source": "/industries", "destination": "/index.html" },
+        { "source": "/industries/**", "destination": "/index.html" }
+      ],
       "redirects": [
         { "source": "/index.html", "destination": "/", "type": 301 },
         { "source": "/app.html", "destination": "/app", "type": 301 },

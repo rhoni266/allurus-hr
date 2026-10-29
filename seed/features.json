@@ -1,0 +1,81 @@
+{
+  "_note": "Starter feature catalogue (Part A of the industries brief). Loaded into Firestore by `npm run seed`; after that, superadmin edits the live copy in /superadmin. Keys are stable identifiers: rename the name, never the key. Keys starting with area. switch whole areas of the app on or off for a company.",
+  "modules": [
+    { "key": "operations", "name": "Operations", "order": 1 },
+    { "key": "finance", "name": "Finance", "order": 2 },
+    { "key": "people", "name": "People & HR", "order": 3 },
+    { "key": "payroll", "name": "Payroll", "order": 4 },
+    { "key": "other", "name": "Other", "order": 5 }
+  ],
+  "features": [
+    { "key": "area.people", "name": "Staff records", "moduleKey": "people", "status": "live", "description": "Staff records, onboarding, assets and org chart." },
+    { "key": "area.time", "name": "Attendance and leave", "moduleKey": "people", "status": "live", "description": "Selfie and GPS check-in, schedules, leave and overtime." },
+    { "key": "area.payroll", "name": "Payroll", "moduleKey": "payroll", "status": "live", "description": "EPF, SOCSO, EIS, PCB, zakat and HRD Corp, payslips and bank files." },
+    { "key": "area.claims", "name": "Claims", "moduleKey": "finance", "status": "live", "description": "Receipt scan, approvals, paid with payroll." },
+    { "key": "area.finance", "name": "Books and invoices", "moduleKey": "finance", "status": "live", "description": "Bookkeeping, invoices, bills, budget and monthly reports." },
+    { "key": "area.talent", "name": "Talent", "moduleKey": "people", "status": "live", "description": "Recruitment, appraisals, training and grievances." },
+    { "key": "area.operations", "name": "Operations", "moduleKey": "operations", "status": "live", "description": "Stock, purchasing, production, deliveries and machines." },
+
+    { "key": "stock", "name": "Stock and reorder alerts", "moduleKey": "operations", "status": "live", "description": "Live stock levels, low-stock alerts and days of stock left." },
+    { "key": "suppliers", "name": "Suppliers and purchase orders", "moduleKey": "operations", "status": "live", "description": "Purchase orders, goods received and cost price history." },
+    { "key": "delivery-app", "name": "Driver delivery app", "moduleKey": "operations", "status": "live", "description": "Drivers see the day's deliveries and collect cash on their phone." },
+    { "key": "roster", "name": "Shift roster", "moduleKey": "people", "status": "live", "description": "Shifts and rosters, with clock-in." },
+    { "key": "site-attendance", "name": "Site attendance (GPS and photo)", "moduleKey": "people", "status": "live", "description": "Workers clock in at the site with GPS and a selfie." },
+    { "key": "einvoice", "name": "LHDN MyInvois e-invoicing", "moduleKey": "finance", "status": "beta", "description": "Invoices are prepared for e-Invoice; sending to MyInvois is coming." },
+    { "key": "commission", "name": "Commission into payroll", "moduleKey": "payroll", "status": "beta", "description": "Commission per sale, service or job, paid through payroll." },
+
+    { "key": "pos", "name": "Point of sale", "moduleKey": "operations", "status": "planned", "description": "Tablet POS: tables, takeaway, delivery, split bills, discounts, service charge, SST, cash drawer and receipts.", "dependsOn": ["stock", "receipts"] },
+    { "key": "receipts", "name": "Receipts and payments", "moduleKey": "finance", "status": "planned", "description": "Printed or digital receipts, with the day's takings reconciled per payment method." },
+    { "key": "payments", "name": "DuitNow QR, card and e-wallet", "moduleKey": "finance", "status": "planned", "description": "Take DuitNow QR, card, e-wallet and cash." },
+    { "key": "kds", "name": "Kitchen display", "moduleKey": "operations", "status": "planned", "description": "Orders on a kitchen screen by station, with timers and ready alerts.", "dependsOn": ["pos"] },
+    { "key": "qr-order", "name": "QR menu ordering", "moduleKey": "operations", "status": "planned", "description": "Customers scan the table QR, order and pay from their phone.", "dependsOn": ["pos"] },
+    { "key": "recipes", "name": "Menu and recipe costing", "moduleKey": "operations", "status": "planned", "description": "Items, modifiers, combo sets and cost per dish.", "dependsOn": ["stock"] },
+    { "key": "auto-deduct", "name": "Ingredients deducted as you sell", "moduleKey": "operations", "status": "planned", "description": "Stock drops automatically with each sale; wastage log.", "dependsOn": ["stock", "pos"] },
+    { "key": "tips", "name": "Tips pool", "moduleKey": "payroll", "status": "planned", "description": "Tips shared out and paid through payroll." },
+
+    { "key": "bookings-calendar", "name": "Booking calendar", "moduleKey": "operations", "status": "planned", "description": "Every event with venue, date, headcount and deposit status in one view." },
+    { "key": "quotes", "name": "Quotations and agreements", "moduleKey": "finance", "status": "planned", "description": "Quote from packages, convert to a confirmed booking, collect the deposit." },
+    { "key": "menu-costing", "name": "Menu costing per pax", "moduleKey": "operations", "status": "planned", "description": "Cost and selling price per head, profit per event." },
+    { "key": "shopping-list", "name": "Combined shopping list", "moduleKey": "operations", "status": "planned", "description": "All confirmed events for the week in one purchasing list.", "dependsOn": ["bookings-calendar"] },
+    { "key": "crew", "name": "Crew rostering per event", "moduleKey": "people", "status": "planned", "description": "Assign cooks, waiters and drivers to each event and send them the schedule.", "dependsOn": ["roster"] },
+    { "key": "wa-reminders", "name": "WhatsApp reminders", "moduleKey": "other", "status": "planned", "description": "Confirmations, reminders and balance chasers sent on WhatsApp." },
+
+    { "key": "gantt", "name": "Gantt timeline", "moduleKey": "operations", "status": "planned", "description": "Tasks, dependencies and milestones with a today marker." },
+    { "key": "progress-claims", "name": "Progress claims and retention", "moduleKey": "finance", "status": "planned", "description": "Bill by percentage complete, linked to the contract sum and retention." },
+    { "key": "variation-orders", "name": "Variation orders", "moduleKey": "finance", "status": "planned", "description": "Record, approve and bill changes.", "dependsOn": ["progress-claims"] },
+    { "key": "project-costing", "name": "Project profit", "moduleKey": "finance", "status": "planned", "description": "Labour, materials and subcontractors per project; budget against actual, live." },
+    { "key": "documents", "name": "Project documents", "moduleKey": "other", "status": "planned", "description": "Drawings, permits and site photos per project." },
+
+    { "key": "barcode-pos", "name": "Barcode scanning", "moduleKey": "operations", "status": "planned", "description": "Scanner support, fast checkout, held bills, returns and exchanges.", "dependsOn": ["pos"] },
+    { "key": "multi-outlet", "name": "Stock across outlets", "moduleKey": "operations", "status": "planned", "description": "Quantity per outlet, transfers, stocktake by scanning.", "dependsOn": ["stock"] },
+    { "key": "promotions", "name": "Pricing and promotions", "moduleKey": "operations", "status": "planned", "description": "Discounts, buy-X-get-Y and happy-hour prices.", "dependsOn": ["pos"] },
+    { "key": "members", "name": "Members and points", "moduleKey": "other", "status": "planned", "description": "Points, tiers, birthday offers and member prices.", "dependsOn": ["pos"] },
+    { "key": "batch-expiry", "name": "Batch and expiry tracking", "moduleKey": "operations", "status": "planned", "description": "Batches, expiry dates and near-expiry alerts.", "dependsOn": ["stock"] },
+
+    { "key": "online-booking", "name": "Online booking", "moduleKey": "operations", "status": "planned", "description": "Book by service, staff member and room, with a shareable link and QR." },
+    { "key": "customer-records", "name": "Customer records", "moduleKey": "other", "status": "planned", "description": "Visit history, preferences and notes, with clinic-grade access control." },
+    { "key": "packages", "name": "Packages and memberships", "moduleKey": "finance", "status": "planned", "description": "Prepaid sessions with expiry and balance." },
+
+    { "key": "job-cards", "name": "Job cards", "moduleKey": "operations", "status": "planned", "description": "Customer, vehicle or unit, complaint, parts, labour and before/after photos." },
+    { "key": "service-reminders", "name": "Service reminders", "moduleKey": "other", "status": "planned", "description": "Next service date or mileage reminders." },
+    { "key": "warranty", "name": "Warranty records", "moduleKey": "operations", "status": "planned", "description": "Parts and labour warranty per job.", "dependsOn": ["job-cards"] },
+
+    { "key": "classes", "name": "Classes and timetables", "moduleKey": "operations", "status": "planned", "description": "Classes, rooms, teachers and replacement classes." },
+    { "key": "class-attendance", "name": "Class attendance", "moduleKey": "operations", "status": "planned", "description": "Tap attendance per class, with absence alerts to parents.", "dependsOn": ["classes"] },
+    { "key": "fees", "name": "Fee invoicing and reminders", "moduleKey": "finance", "status": "planned", "description": "Monthly fee invoices, sibling discounts and reminders to parents." },
+    { "key": "parent-portal", "name": "Parent portal", "moduleKey": "other", "status": "planned", "description": "Parents see the timetable, invoices and receipts.", "dependsOn": ["fees"] },
+    { "key": "teaching-hours", "name": "Teaching hours to payroll", "moduleKey": "payroll", "status": "planned", "description": "Hours taught are paid through payroll.", "dependsOn": ["classes"] },
+
+    { "key": "availability", "name": "Availability calendar", "moduleKey": "operations", "status": "planned", "description": "Every unit or item, with double-booking prevention." },
+    { "key": "deposits", "name": "Agreements and deposits", "moduleKey": "finance", "status": "planned", "description": "Agreements, deposits and refunds on return." },
+    { "key": "recurring-invoices", "name": "Recurring invoices", "moduleKey": "finance", "status": "planned", "description": "Monthly rent, utilities and late fees." },
+    { "key": "checkinout", "name": "Check-in and check-out", "moduleKey": "operations", "status": "planned", "description": "Condition photos and damage notes.", "dependsOn": ["availability"] },
+    { "key": "maintenance", "name": "Maintenance jobs", "moduleKey": "operations", "status": "planned", "description": "Log, assign and cost repairs per unit or vehicle." },
+    { "key": "unit-profit", "name": "Profit per unit or vehicle", "moduleKey": "finance", "status": "planned", "description": "Income minus costs for each property, item or vehicle." },
+
+    { "key": "vehicles", "name": "Vehicle records and expiry alerts", "moduleKey": "operations", "status": "planned", "description": "Road tax, insurance, APAD permit, service and inspection dates, with alerts." },
+    { "key": "trips", "name": "Trip sheets", "moduleKey": "operations", "status": "planned", "description": "Route, load, customer and distance per trip.", "dependsOn": ["vehicles"] },
+    { "key": "fuel-tolls", "name": "Fuel and tolls per trip", "moduleKey": "finance", "status": "planned", "description": "Fuel and tolls costed per vehicle and per trip.", "dependsOn": ["trips"] },
+    { "key": "driver-allowances", "name": "Driver allowances to payroll", "moduleKey": "payroll", "status": "planned", "description": "Trip allowances and overtime paid through payroll.", "dependsOn": ["trips"] }
+  ]
+}

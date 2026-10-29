@@ -1,0 +1,177 @@
+{
+  "_note": "Starter industries (Part A of the industries brief). `features` become industryFeatures links: headline = shown on the card, label = custom name for this industry. Every industry is also linked to all area.* core features (hidden from the public page) by the seed script. `ms` holds optional Bahasa Malaysia text.",
+  "industries": [
+    {
+      "slug": "fnb", "order": 1, "status": "planned", "visible": true, "illustration": "pos",
+      "name": "F&B and restaurants", "tagline": "Cafés, restaurants, kopitiams and cloud kitchens.",
+      "ms": { "name": "F&B dan restoran", "tagline": "Kafe, restoran, kopitiam dan dapur awan." },
+      "buildsOnModules": ["operations", "finance", "payroll"],
+      "whoFor": ["Cafés", "Restaurants", "Kopitiams", "Hawker stalls with a registered business", "Food trucks", "Bubble tea shops", "Cloud and delivery-only kitchens", "Bakeries"],
+      "signsThisIsYou": ["You take orders at tables, at the counter, or by delivery apps", "Food costs keep rising and you are not sure which dishes make money", "Your kitchen runs on shouted orders or paper slips", "You count stock by eye and discover shortages mid-service"],
+      "problemsSolved": ["Wrong or lost orders", "Slow table turnover", "Stock running out", "No idea of the true margin per dish", "End-of-day cash reconciliation taking an hour", "Staff pay and tips calculated by hand"],
+      "dayStory": "Table 4 scans the QR and orders 2 nasi lemak, 2 teh tarik and a chicken chop. The kitchen screen lights up, stock drops, the bill shows RM 35.90, and the customer pays by QR. At night you open one report: sales, cost of goods, margin, and cash in the till.",
+      "sampleData": [{ "label": "Nasi lemak", "value": "RM 8.50" }, { "label": "Mee bandung", "value": "RM 12.00" }, { "label": "Teh tarik", "value": "RM 4.50" }, { "label": "Roti canai set", "value": "RM 6.00" }, { "label": "Chicken chop", "value": "RM 9.90" }, { "label": "Kopi O", "value": "RM 3.50" }],
+      "worksWith": ["DuitNow QR", "Major card and e-wallet gateways", "GrabFood / foodpanda order import (planned)", "LHDN MyInvois e-invoicing", "WhatsApp order updates"],
+      "seoTitle": "F&B and restaurant POS and back office | Allurus", "seoDescription": "Tablet POS, kitchen display, QR ordering, recipe costing, stock and payroll for Malaysian cafés, restaurants and kopitiams.",
+      "features": [
+        { "key": "pos", "headline": true, "label": "Tablet POS for tables, takeaway and delivery" },
+        { "key": "kds", "headline": true },
+        { "key": "qr-order", "headline": true },
+        { "key": "payments" }, { "key": "receipts" }, { "key": "recipes" }, { "key": "auto-deduct" }, { "key": "stock" }, { "key": "suppliers" },
+        { "key": "roster" }, { "key": "tips" }, { "key": "einvoice" }
+      ]
+    },
+    {
+      "slug": "catering", "order": 2, "status": "planned", "visible": true, "illustration": "calendar",
+      "name": "Catering and events", "tagline": "Caterers, event planners and banquet halls.",
+      "ms": { "name": "Katering dan acara", "tagline": "Katering, perancang acara dan dewan bankuet." },
+      "buildsOnModules": ["operations", "people", "finance"],
+      "whoFor": ["Wedding and kenduri caterers", "Corporate lunch suppliers", "Event planners", "Banquet halls", "Canopy and equipment suppliers"],
+      "signsThisIsYou": ["Bookings live in WhatsApp chats and a paper diary", "Two events nearly clashed last month", "You quote by headcount and are never sure of your margin", "You scramble to find enough crew on the day"],
+      "problemsSolved": ["Double bookings", "Deposits not tracked", "Wrong food quantities", "Menu cost guesswork", "Crew shortages", "Late balance payments"],
+      "dayStory": "Wedding for 300 pax on Saturday, kenduri for 500 pax on Sunday. The calendar shows both, the shopping list adds up the rice and meat, crew are assigned and notified, and balances are chased automatically.",
+      "sampleData": [{ "label": "Office lunch", "value": "80 pax" }, { "label": "Menu tasting", "value": "Fri" }, { "label": "Hall visit", "value": "Fri" }, { "label": "Wedding", "value": "300 pax" }, { "label": "Kenduri", "value": "500 pax" }],
+      "worksWith": ["WhatsApp", "DuitNow QR", "LHDN MyInvois e-invoicing", "Google Calendar sync"],
+      "seoTitle": "Catering and event booking software | Allurus", "seoDescription": "Booking calendar, quotes and deposits, menu costing per pax, shopping lists and crew rostering for Malaysian caterers.",
+      "features": [
+        { "key": "bookings-calendar", "headline": true },
+        { "key": "menu-costing", "headline": true },
+        { "key": "crew", "headline": true },
+        { "key": "quotes" }, { "key": "shopping-list" }, { "key": "wa-reminders", "label": "WhatsApp balance reminders" }, { "key": "roster" }, { "key": "payments" }, { "key": "einvoice" }
+      ]
+    },
+    {
+      "slug": "projects", "order": 3, "status": "planned", "visible": true, "illustration": "gantt",
+      "name": "Projects and contractors", "tagline": "Contractors, renovation, engineering firms and agencies.",
+      "ms": { "name": "Projek dan kontraktor", "tagline": "Kontraktor, pengubahsuaian, firma kejuruteraan dan agensi." },
+      "buildsOnModules": ["people", "finance", "operations"],
+      "whoFor": ["Renovation and fit-out contractors", "M&E contractors", "Engineering consultants", "Interior designers", "Creative and marketing agencies"],
+      "signsThisIsYou": ["You run several projects at once and lose track of which is late", "You bill by progress, not a single invoice", "Variation orders get agreed verbally and forgotten", "You cannot tell if a project made or lost money until it ends"],
+      "problemsSolved": ["Delays discovered too late", "Unbilled work", "Labour and material overruns", "No project-level profit view", "Subcontractor payments scattered"],
+      "dayStory": "At 8am the site supervisor's workers clock in at Project A. The Gantt shows M&E works two days behind. By afternoon, the progress claim for Structure is raised and sent to the client.",
+      "sampleData": [{ "label": "Site survey", "value": "Done" }, { "label": "Design and approval", "value": "Done" }, { "label": "Structure", "value": "60%" }, { "label": "M&E works", "value": "2 days behind" }, { "label": "Handover", "value": "Planned" }],
+      "worksWith": ["LHDN MyInvois e-invoicing", "Retention and SST handling", "Bank payment files for subcontractors"],
+      "seoTitle": "Project and contractor management software | Allurus", "seoDescription": "Gantt timelines, progress claims, variation orders, site attendance and project profit for Malaysian contractors and agencies.",
+      "features": [
+        { "key": "gantt", "headline": true },
+        { "key": "progress-claims", "headline": true },
+        { "key": "site-attendance", "headline": true },
+        { "key": "variation-orders" }, { "key": "project-costing" }, { "key": "suppliers", "label": "Materials and subcontractor POs" }, { "key": "documents" }, { "key": "einvoice" }
+      ]
+    },
+    {
+      "slug": "retail", "order": 4, "status": "planned", "visible": true,
+      "name": "Retail and minimarts", "tagline": "Shops, minimarts, pharmacies and boutiques.",
+      "ms": { "name": "Runcit dan kedai mini", "tagline": "Kedai, pasar mini, farmasi dan butik." },
+      "buildsOnModules": ["operations", "finance"],
+      "whoFor": ["Minimarts", "Convenience stores", "Pharmacies", "Boutiques", "Bookshops", "Hardware shops", "Multi-outlet retailers"],
+      "signsThisIsYou": ["You scan or type prices at the counter and mistakes happen", "Stock between outlets is moved by phone call", "Regular customers ask \"do I have points?\"", "Stocktake takes a whole weekend"],
+      "problemsSolved": ["Pricing mistakes at the counter", "No live stock per outlet", "Slow stocktakes", "No member loyalty"],
+      "dayStory": "The cashier scans items, the member's phone number adds points, stock updates, and a low-stock alert creates a draft purchase order for the supplier.",
+      "sampleData": [],
+      "worksWith": ["Barcode scanners", "Receipt printers", "DuitNow QR", "Card terminals", "LHDN MyInvois e-invoicing"],
+      "seoTitle": "Retail and minimart POS with stock control | Allurus", "seoDescription": "Barcode POS, stock across outlets, promotions, members and suppliers for Malaysian shops, minimarts and pharmacies.",
+      "features": [
+        { "key": "barcode-pos", "headline": true, "label": "Barcode POS with cash drawer and receipts" },
+        { "key": "multi-outlet", "headline": true },
+        { "key": "members", "headline": true },
+        { "key": "pos" }, { "key": "receipts" }, { "key": "promotions" }, { "key": "suppliers" }, { "key": "stock" }, { "key": "batch-expiry", "label": "Batch and expiry tracking (pharmacy)" }, { "key": "einvoice" }
+      ]
+    },
+    {
+      "slug": "appt", "order": 5, "status": "planned", "visible": true,
+      "name": "Clinics, salons and services", "tagline": "Clinics, salons, spas and wellness centres.",
+      "ms": { "name": "Klinik, salun dan perkhidmatan", "tagline": "Klinik, salun, spa dan pusat kesihatan." },
+      "buildsOnModules": ["people", "finance"],
+      "whoFor": ["GP and dental clinics", "Aesthetic clinics", "Hair and beauty salons", "Barbers", "Spas", "Massage and wellness centres", "Physiotherapy"],
+      "signsThisIsYou": ["Customers no-show and the slot is wasted", "Staff commission is calculated at month-end by hand", "Bookings come from phone calls, WhatsApp and walk-ins at once"],
+      "problemsSolved": ["No-shows", "Manual commission", "Bookings scattered across channels"],
+      "dayStory": "A customer books a 3pm facial with a chosen therapist online. A reminder goes out the day before. After the visit, commission is credited to the therapist for the month's payroll.",
+      "sampleData": [],
+      "worksWith": ["WhatsApp", "DuitNow QR", "Card payments", "LHDN MyInvois e-invoicing"],
+      "seoTitle": "Clinic and salon booking software | Allurus", "seoDescription": "Online booking, WhatsApp reminders, customer records, packages and staff commission for Malaysian clinics, salons and spas.",
+      "features": [
+        { "key": "online-booking", "headline": true },
+        { "key": "wa-reminders", "headline": true, "label": "WhatsApp reminders to cut no-shows" },
+        { "key": "commission", "headline": true, "label": "Commission per service, into payroll" },
+        { "key": "customer-records" }, { "key": "packages" }, { "key": "payments" }, { "key": "receipts" }, { "key": "einvoice" }
+      ]
+    },
+    {
+      "slug": "workshop", "order": 6, "status": "planned", "visible": true,
+      "name": "Workshops and servicing", "tagline": "Car workshops, air-cond and appliance servicing.",
+      "ms": { "name": "Bengkel dan servis", "tagline": "Bengkel kereta, servis penghawa dingin dan perkakas." },
+      "buildsOnModules": ["operations", "finance"],
+      "whoFor": ["Car and motorcycle workshops", "Tyre shops", "Air-cond servicing", "Appliance and electronics repair"],
+      "signsThisIsYou": ["Job details are on paper and parts get forgotten on the bill", "Customers ask \"is my car ready?\" all day", "You do not know which parts are in stock"],
+      "problemsSolved": ["Parts missed on the bill", "Constant status calls", "Unknown parts stock"],
+      "dayStory": "A car comes in, the job card is opened with photos, the quote is approved by WhatsApp, parts are deducted from stock, and the customer is notified when it is ready.",
+      "sampleData": [],
+      "worksWith": ["WhatsApp", "DuitNow QR", "LHDN MyInvois e-invoicing"],
+      "seoTitle": "Workshop job card and servicing software | Allurus", "seoDescription": "Job cards, WhatsApp quotes, service reminders, warranty, parts stock and mechanic commission for Malaysian workshops.",
+      "features": [
+        { "key": "job-cards", "headline": true },
+        { "key": "service-reminders", "headline": true },
+        { "key": "stock", "headline": true, "label": "Parts drawn from stock per job" },
+        { "key": "quotes", "label": "Quotation to WhatsApp approval" }, { "key": "warranty" }, { "key": "commission", "label": "Mechanic commission into payroll" }, { "key": "receipts" }, { "key": "einvoice" }
+      ]
+    },
+    {
+      "slug": "tuition", "order": 7, "status": "planned", "visible": true,
+      "name": "Tuition and training centres", "tagline": "Tuition centres, kindergartens and training providers.",
+      "ms": { "name": "Pusat tuisyen dan latihan", "tagline": "Pusat tuisyen, tadika dan penyedia latihan." },
+      "buildsOnModules": ["finance", "people"],
+      "whoFor": ["Tuition centres", "Kindergartens and nurseries", "Music and art schools", "Language and skills training providers", "Driving schools"],
+      "signsThisIsYou": ["You chase parents for fees every month", "Timetables clash when a teacher is away", "You calculate part-time teacher pay from a notebook"],
+      "problemsSolved": ["Late fees", "Timetable clashes", "Manual teacher pay"],
+      "dayStory": "On the 1st of the month, 120 fee invoices go out. By the 7th, only 9 parents get an automatic reminder. Teachers' hours for the month are already tallied for payroll.",
+      "sampleData": [],
+      "worksWith": ["WhatsApp", "DuitNow QR", "LHDN MyInvois e-invoicing"],
+      "seoTitle": "Tuition centre fees and timetable software | Allurus", "seoDescription": "Classes, attendance, fee invoices with WhatsApp reminders and teaching hours to payroll for Malaysian tuition and training centres.",
+      "features": [
+        { "key": "classes", "headline": true },
+        { "key": "fees", "headline": true },
+        { "key": "teaching-hours", "headline": true },
+        { "key": "class-attendance" }, { "key": "parent-portal" }, { "key": "wa-reminders" }, { "key": "payments" }, { "key": "einvoice" }
+      ]
+    },
+    {
+      "slug": "rental", "order": 8, "status": "planned", "visible": true,
+      "name": "Rental and property", "tagline": "Equipment hire, homestays and property managers.",
+      "ms": { "name": "Sewaan dan hartanah", "tagline": "Sewaan peralatan, homestay dan pengurus hartanah." },
+      "buildsOnModules": ["operations", "finance"],
+      "whoFor": ["Equipment and tool hire", "Party and event rentals", "Homestays and vacation rentals", "Landlords and property managers", "Car rental"],
+      "signsThisIsYou": ["Availability is checked by scrolling chat history", "Deposits and returns are not tracked", "Rent invoices are typed by hand each month"],
+      "problemsSolved": ["Double bookings", "Untracked deposits", "Manual rent invoices"],
+      "dayStory": "A tenant's rent invoice is generated on the 1st and reminded on the 5th. A homestay guest checks out, the cleaning job is auto-created, and the unit shows as available again.",
+      "sampleData": [],
+      "worksWith": ["DuitNow QR", "WhatsApp", "LHDN MyInvois e-invoicing", "Airbnb / Booking.com iCal import (planned)"],
+      "seoTitle": "Rental and property management software | Allurus", "seoDescription": "Availability calendars, agreements and deposits, recurring invoices, check-in photos and maintenance for Malaysian rentals and landlords.",
+      "features": [
+        { "key": "availability", "headline": true },
+        { "key": "deposits", "headline": true },
+        { "key": "recurring-invoices", "headline": true },
+        { "key": "checkinout" }, { "key": "maintenance" }, { "key": "unit-profit" }, { "key": "payments" }, { "key": "einvoice" }
+      ]
+    },
+    {
+      "slug": "fleet", "order": 9, "status": "planned", "visible": true,
+      "name": "Fleet and logistics", "tagline": "Lorry, courier and transport operators.",
+      "ms": { "name": "Armada dan logistik", "tagline": "Pengusaha lori, kurier dan pengangkutan." },
+      "buildsOnModules": ["operations", "people"],
+      "whoFor": ["Lorry and trucking companies", "Courier and last-mile delivery", "Transport and bus operators", "Rental fleets"],
+      "signsThisIsYou": ["Road tax or insurance expired without anyone noticing", "Fuel and toll claims are hard to match to trips", "Driver allowances are calculated manually"],
+      "problemsSolved": ["Expired road tax and insurance", "Unmatched fuel and toll claims", "Manual driver allowances"],
+      "dayStory": "A lorry's road tax expires in 14 days, so an alert is sent. The driver completes 3 trips, fuel and tolls are logged against them, and allowances flow into payroll.",
+      "sampleData": [],
+      "worksWith": ["Fuel card imports", "Touch 'n Go statement import (planned)", "GPS tracker import (planned)", "LHDN MyInvois e-invoicing"],
+      "seoTitle": "Fleet and logistics management software | Allurus", "seoDescription": "Vehicle expiry alerts, trip sheets, fuel and tolls per trip, driver allowances and profit per vehicle for Malaysian transport operators.",
+      "features": [
+        { "key": "vehicles", "headline": true },
+        { "key": "trips", "headline": true },
+        { "key": "driver-allowances", "headline": true },
+        { "key": "fuel-tolls" }, { "key": "maintenance" }, { "key": "unit-profit", "label": "Profit per vehicle and per trip" }, { "key": "delivery-app" }, { "key": "einvoice" }
+      ]
+    }
+  ]
+}
