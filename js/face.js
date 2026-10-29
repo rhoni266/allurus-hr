@@ -49,8 +49,49 @@ window.AllurusFace = (function () {
   }
   const centre = (pts) => ({ x: pts.reduce((s, p) => s + p.x, 0) / pts.length, y: pts.reduce((s, p) => s + p.y, 0) / pts.length });
 
+  // Which detections count as faces: confident enough, big enough to be the person holding the phone, roughly
+  // face-shaped, and not overlapping a stronger one (non-maximum suppression). Pure, so it is unit-tested.
+  const RULES = { minScore: 0.6, iou: 0.3, minWidth: 0.15, minAspect: 0.5, maxAspect: 2 };
+  function iou(a, b) {
+    const x = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
+    const y = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+    const inter = x * y, union = a.width * a.height + b.width * b.height - inter;
+    return union > 0 ? inter / union : 0;
+  }
+  function filterFaces(dets, imageWidth, rules = RULES) {
+    const keep = [];
+    const ok = dets.filter((d) => {
+      const b = d.box, aspect = b.height / (b.width || 1);
+      return d.score >= rules.minScore && b.width >= rules.minWidth * imageWidth && aspect >= rules.minAspect && aspect <= rules.maxAspect;
+    }).sort((a, b) => b.score - a.score);
+    for (const d of ok) if (!keep.some((k) => iou(k.box, d.box) > rules.iou)) keep.push(d);
+    return keep;
+  }
+
+  // Detections only (boxes and scores, no landmarks yet), from this one still image.
+  async function boxes(fa, c, inputSize) {
+    const raw = await fa.detectAllFaces(c, new fa.TinyFaceDetectorOptions({ inputSize, scoreThreshold: 0.5 }));
+    const dets = raw.map((d) => ({ score: d.score, box: { x: d.box.x, y: d.box.y, width: d.box.width, height: d.box.height } }));
+    const kept = filterFaces(dets, c.width);
+    console.info('[face] one capture', { image: `${c.width}×${c.height}`, inputSize, backend: fa.tf.getBackend(), raw: dets.length,
+      detections: dets.slice(0, 30).map((d) => `${d.score.toFixed(2)} ${Math.round(d.box.width)}×${Math.round(d.box.height)}`), final: kept.length });
+    return kept;
+  }
+  // Landmarks and descriptor for one accepted box, from a crop around it (so other boxes can't leak in).
+  async function describeBox(fa, c, box) {
+    const pad = box.width * 0.35, x = Math.max(0, box.x - pad), y = Math.max(0, box.y - pad);
+    const w = Math.min(c.width - x, box.width + 2 * pad), h = Math.min(c.height - y, box.height + 2 * pad);
+    const crop = document.createElement('canvas'); crop.width = Math.round(w); crop.height = Math.round(h);
+    crop.getContext('2d').drawImage(c, x, y, w, h, 0, 0, crop.width, crop.height);
+    return fa.detectSingleFace(crop, new fa.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 })).withFaceLandmarks().withFaceDescriptor();
+  }
   async function detect(fa, c, inputSize) {
-    return fa.detectAllFaces(c, new fa.TinyFaceDetectorOptions({ inputSize, scoreThreshold: 0.3 })).withFaceLandmarks().withFaceDescriptors();
+    let kept = await boxes(fa, c, inputSize);
+    // Some phones' GPUs return garbage from WebGL (hundreds of boxes). Then redo it on the CPU, once.
+    if (kept.length > 3 && fa.tf.getBackend() === 'webgl') { console.warn('[face] implausible count on WebGL, retrying on CPU'); await fa.tf.setBackend('cpu'); await fa.tf.ready(); kept = await boxes(fa, c, inputSize); }
+    if (kept.length !== 1) return kept.map((d) => ({ detection: { score: d.score }, box: d.box }));
+    const one = await describeBox(fa, c, kept[0].box);
+    return one ? [one] : [];
   }
 
   // Every face found in an image, canvas or video frame. Dim photos get a second, brightened look,
@@ -61,6 +102,8 @@ window.AllurusFace = (function () {
     let found = await detect(fa, base, 416);
     if (!found.length) found = await detect(fa, base, 608);
     if (!found.length) { base = toCanvas(source, { filter: 'brightness(1.6) contrast(1.15)' }); found = await detect(fa, base, 512); }
+    // More than one face: callers only need the count, to ask for a selfie on their own.
+    if (found.length > 1) return found.map((f) => ({ descriptor: null, score: f.detection.score }));
     const out = [];
     for (const f of found) {
       let best = f;
@@ -80,5 +123,5 @@ window.AllurusFace = (function () {
   const verdict = (d) => (d <= MATCH ? 'match' : d <= WEAK ? 'weak' : 'mismatch');
   const similarity = (d) => Math.max(0, Math.min(100, Math.round((1 - d) * 100)));
 
-  return { load, describe, distance, verdict, similarity, MATCH, WEAK };
+  return { load, describe, distance, verdict, similarity, filterFaces, iou, RULES, MATCH, WEAK };
 })();

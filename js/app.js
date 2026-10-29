@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.10';
+  const APP_VERSION = '3.11';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -2175,8 +2175,8 @@
     }
     if (!$('#ci-body')) return;
     const retake = '<button class="btn" data-act="close-overlay">Cancel</button><button class="btn btn-primary" data-act="ci-retake">Retake selfie</button>';
-    if (!faces.length) { ciProblem('We couldn’t see a face', 'Hold the phone at eye level in good light, with your whole face in the frame.', '', retake); return; }
-    if (faces.length > 1) { ciProblem(`We found ${faces.length} faces`, 'Only you should be in your check-in selfie. Retake it on your own.', '', retake); return; }
+    if (!faces.length) { ciProblem('No face found', 'Face the camera in good light.', '', retake); return; }
+    if (faces.length > 1) { ciProblem('More than one face found', 'Only you should be in your check-in selfie. Retake it on your own.', '', retake); return; }
     const desc = faces[0].descriptor, ref = me().face;
     if (!ref) { ci.face = { result: 'enrolled', descriptor: desc }; ciReview(); return; }
     const d = AllurusFace.distance(desc, ref.descriptor), v = AllurusFace.verdict(d);
