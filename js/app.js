@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.14';
+  const APP_VERSION = '3.15';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -485,8 +485,9 @@
     { id: 'hr-reports', label: 'HR reports', icon: 'chart', group: 'Insights' },
     { id: 'projects', label: 'Project costing', icon: 'layers', group: 'Insights' },
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
+    { id: 'billing', label: 'Billing', icon: 'doc', group: 'Workspace' },
   ];
-  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)));
+  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'billing' || (CLOUD && (!myPerms() || myPerms().includes('settings')))) && (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)));
   // A page may carry a query after "?" (#ops-stock?po=…); it is the page's to read.
   const route = () => { const h = location.hash.replace('#', '').split('?')[0]; const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
@@ -549,7 +550,7 @@
     const view = $('#view');
     // Super Admin and auditor pages have no dashboard, so their setup checklist sits on their first page.
     const setup = ['super', 'auditor'].includes(role()) && r === routes()[0].id ? AllurusUX.setupCard() : '';
-    view.innerHTML = setup + VIEWS[r]();
+    view.innerHTML = billingUi.banner() + (r === routes()[0].id ? billingUi.checklist() : '') + setup + VIEWS[r]();
     AFTER[r]?.();
     $('#sidebar').classList.remove('open');
     AllurusUX.afterRender(r, navigated);
@@ -1399,7 +1400,7 @@
       </form>
       ${CLOUD ? '' : `<div class="card demo-pick" style="width:100%;max-width:440px;margin:0 auto 16px;padding:18px 20px"><div style="font-weight:600;margin-bottom:4px">Explore the demo company</div>${Object.keys(AllurusSeed.companies).length > 1 ? `<div class="seg demo-co" role="group" aria-label="Demo company" style="margin:4px 0 8px;width:100%">${Object.values(AllurusSeed.companies).map((c) => `<button type="button" data-act="demo-company" data-v="${c.id}" class="${c.id === DEMO.id ? 'on' : ''}" aria-pressed="${c.id === DEMO.id}" style="flex:1">${esc(c.short)}</button>`).join('')}</div>` : ''}<p class="muted" style="font-size:13.5px;margin-bottom:12px">${esc(state.settings.company)}${DEMO.blurb ? ` · ${esc(DEMO.blurb)}` : ''}. A sample business; changes stay in this browser.</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${DEMO.logins.filter(([e]) => state.accounts.some((a) => a.email === e)).map(([e, label, sub]) => `<button type="button" class="btn" style="flex-direction:column;align-items:flex-start;height:auto;padding:10px 12px;text-align:left" data-act="demo-as" data-v="${e}"><span style="font-weight:600">${label}</span><span class="muted" style="font-size:12px;font-weight:400">${sub}</span></button>`).join('')}</div></div>`}
-      ${CLOUD ? '<p class="muted" style="font-size:13.5px">New company? <a href="/#contact">Talk to Allurus</a> to open your account.</p>' : `<div class="register-cta"><div><strong>New to Allurus?</strong><span class="muted"> Register your company and start a free trial.</span></div><button class="btn btn-primary" data-act="register">${icon('plus')}Register company</button></div>`}
+      ${CLOUD ? '<div class="register-cta"><div><strong>New to Allurus?</strong><span class="muted"> Sign up your company and try it free for 30 days.</span></div><a class="btn btn-primary" href="/signup">Start free trial</a></div>' : `<div class="register-cta"><div><strong>New to Allurus?</strong><span class="muted"> Register your company and start a free trial.</span></div><button class="btn btn-primary" data-act="register">${icon('plus')}Register company</button></div>`}
       <p class="faint" style="font-size:12.5px">${CLOUD ? 'Your company’s data is kept securely in the cloud and shared live with your team. <a href="?demo">Try the demo company instead</a>.' : CAN_CLOUD ? `Demo company, saved in this browser only. <a href="${location.pathname}">Sign in to your real workspace</a>.` : `Demo mode. Your workspace is saved in this browser${cloud.db ? '; company sign-ups and check-ins are also shared with the Allurus team' : ''}.`} Version ${APP_VERSION}</p>
     </div>`;
   }
@@ -1449,7 +1450,8 @@
     save();
     // Pick up where this person left off last time.
     const last = AllurusUX.prefs().lastRoute?.[state.session.role];
-    const target = last && routes().some((r) => r.id === last) ? last : opsApi?.landing(state.session.role) || '';
+    // An expired company's admin opens on Billing (the rest is read-only until it's paid).
+    const target = CLOUD && fire()?.profile?.billingOnly ? 'billing' : last && routes().some((r) => r.id === last) ? last : opsApi?.landing(state.session.role) || '';
     if (location.hash.slice(1) !== target) location.hash = target; else render();
     window.scrollTo(0, 0);
     toast(target && target !== routes()[0].id ? `Welcome back. You’re where you left off.` : `Signed in as ${acct.email}`);
@@ -2718,6 +2720,128 @@
   const approvalsBase = VIEWS['my-approvals'];
   VIEWS['my-approvals'] = () => (leaveApi.isApprover(me().id) ? approvalsBase() + claimsApi.approvalsCard(me().id) : '<div class="page-head"><div><h1>Approvals</h1><p class="sub">Tasks waiting for you.</p></div></div>') + hrApi.myTasksCard(me().id) + recruitApi.approvalsCard(me().id) + lmsApi.approvalsCard(me().id);
 
+  // ---------- Trial, subscription and billing (cloud mode) ----------
+  // The status comes from the company record (js/billing-rules.js; firestore.rules enforces the same). Admins see a
+  // countdown banner and the Billing page; an expired company opens read-only on Billing until it's paid.
+  const billingUi = {
+    data: null,
+    company: () => window.AllurusCompany || null,
+    status: () => AllurusBilling.effective(billingUi.company() || {}),
+    readOnly: () => !!fire()?.profile?.billingOnly,
+    banner() {
+      if (!CLOUD || role() !== 'admin' || !billingUi.company()) return '';
+      const b = AllurusBilling.banner(billingUi.company());
+      const ro = billingUi.readOnly();
+      if (!b && !ro) return '';
+      const tone = { info: 'var(--info-soft);color:var(--info)', amber: 'var(--warn-soft);color:var(--warn)', red: 'var(--bad-soft);color:var(--bad)' }[b?.level || 'red'];
+      const del = AllurusBilling.deletion(billingUi.company());
+      return `<div class="lock-banner" role="status" style="background:${tone};margin-bottom:14px;flex-wrap:wrap">${icon('clock')}<span style="flex:1">${esc(b?.text || '')}${ro ? ' Everything is read-only until then; you can still export your data.' : ''}${del ? ` Data is kept until ${esc(U.fmtDate(AllurusBilling.myDate(del.at)))}.` : ''}</span>
+        ${route() === 'billing' ? '' : `<a class="btn btn-sm btn-primary" href="#billing">${esc(b?.action || 'Subscribe')}</a>`}</div>`;
+    },
+    // First steps for a company that signed itself up, until they're done or dismissed.
+    checklist() {
+      const c = billingUi.company();
+      if (!CLOUD || role() !== 'admin' || !c || c.createdVia !== 'self_signup' || state.settings.onboardDone) return '';
+      const steps = [
+        ['Company profile', 'Name, address, statutory numbers', '#settings', !!state.settings.employer?.address],
+        ['Work site and check-in radius', 'Where staff check in', '#settings', zone().source === 'checkin'],
+        ['Add your staff', 'Import from Excel, or add one', '#employees', state.employees.length > 1],
+        ['Invite staff', 'They get an email to set their password', '#employees', !!(teamAccess.data?.invites?.length || teamAccess.data?.users?.length > 1)],
+        ['Test a check-in on a phone', 'Open allurus.my/app on your phone', '#attendance', Object.keys(state.attendance || {}).length > 0],
+      ];
+      const done = steps.filter((s) => s[3]).length;
+      return `<div class="card" style="margin-bottom:14px"><div class="card-head"><h3>Get started · ${done} of ${steps.length}</h3><button class="btn btn-sm btn-ghost" data-act="onboard-hide">Hide</button></div>
+        <div class="list">${steps.map(([t, d, href, ok]) => `<a class="list-item" href="${href}" style="text-decoration:none;color:inherit"><span class="pill ${ok ? 'ok' : ''}">${ok ? 'Done' : 'To do'}</span><div class="grow"><div class="person-name">${esc(t)}</div><div class="person-sub">${esc(d)}</div></div></a>`).join('')}</div></div>`;
+    },
+    // Staff of an expired or suspended company: a clear stop, never a broken app.
+    blocked(eff) {
+      cloudWaiting = false;
+      $('#login').hidden = false; $('.app').hidden = true;
+      $('#login').innerHTML = `<div class="login-inner"><div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div>
+        <h1>${eff === 'suspended' ? 'Account suspended' : 'Subscription ended'}</h1><p class="sub">${eff === 'suspended' ? 'Your company’s Allurus account is suspended. Please contact your admin.' : 'Your company’s subscription has expired. Please contact your admin.'}</p>
+        <button class="btn" data-act="logout">Sign out</button></div>`;
+    },
+    view() {
+      const c = billingUi.company() || {}, eff = billingUi.status(), d = billingUi.data;
+      const end = AllurusBilling.endsAt(c), ref = AllurusBilling.reference(c.id || state.session.tenantId || '');
+      const label = { trial: 'Free trial', active: 'Active', past_due: 'Payment overdue', expired: 'Expired', suspended: 'Suspended', cancelled: 'Cancelled' }[eff];
+      const pill = { trial: 'info', active: 'ok', past_due: 'bad', expired: 'bad', suspended: 'bad', cancelled: '' }[eff];
+      const plans = (d?.plans || []).filter((p) => Number(p.priceMyr) > 0);
+      const bank = d?.config || {};
+      return `<div class="page-head"><div><h1>Billing</h1><p class="sub">Your plan, payments and invoices.</p></div><div class="actions"><button class="btn" data-act="bill-export">${icon('download')}Export all data</button></div></div>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
+          <div class="card"><div class="kpi-label">Status</div><div style="margin:6px 0"><span class="pill ${pill}">${label}</span></div>
+            <p class="muted">${eff === 'trial' ? `Trial ends ${esc(U.fmtDate(AllurusBilling.myDate(end)))}.` : eff === 'active' && end ? `Paid until ${esc(U.fmtDate(AllurusBilling.myDate(end)))}.` : eff === 'past_due' ? `Pay by ${esc(U.fmtDate(AllurusBilling.myDate(end)))} to keep using Allurus.` : 'Subscribe to continue. Your data is kept safe.'}</p>
+            <p class="faint">Plan: ${esc(c.plan || 'trial')}</p></div>
+          <div class="card"><div class="kpi-label">Pay by bank transfer or DuitNow</div>
+            ${bank.bankName ? `<dl class="kv" style="margin-top:8px"><dt>Bank</dt><dd>${esc(bank.bankName)}</dd><dt>Account name</dt><dd>${esc(bank.accountName || '')}</dd><dt>Account no.</dt><dd class="num">${esc(bank.accountNo || '')}</dd>${bank.duitnow ? `<dt>DuitNow</dt><dd>${esc(bank.duitnow)}</dd>` : ''}<dt>Reference</dt><dd class="num"><b>${esc(ref)}</b></dd></dl>${bank.qr ? `<img src="${esc(bank.qr)}" alt="DuitNow QR code" style="width:160px;margin-top:8px;border-radius:12px">` : ''}`
+              : `<p class="muted" style="margin-top:8px">Payment details are being set up. Contact <a href="mailto:${esc(bank.contact || 'hello@allurus.my')}">${esc(bank.contact || 'hello@allurus.my')}</a> to subscribe.</p><p class="faint">Your reference: <b>${esc(ref)}</b></p>`}</div>
+        </div>
+        <div class="card" style="margin-top:14px"><div class="card-head"><h3>Send payment proof</h3></div>
+          ${!d ? '<p class="muted">Loading…</p>' : plans.length ? `<form id="bill-form" class="form-grid" novalidate>
+            <div class="field"><label for="b-plan">Plan</label><select class="select" id="b-plan" name="planId">${plans.map((p) => `<option value="${esc(p.id)}">${esc(p.name)} · RM ${Number(p.priceMyr).toFixed(2)} a ${esc(p.period || 'month')}${p.employeeLimit ? ` · up to ${p.employeeLimit} staff` : ''}</option>`).join('')}</select></div>
+            <div class="field"><label for="b-months">Months</label><select class="select" id="b-months" name="months">${[1, 3, 6, 12].map((m) => `<option value="${m}">${m}</option>`).join('')}</select></div>
+            <div class="field"><label>Amount</label><div class="num" id="b-amount" style="font-size:20px;font-weight:700"></div><span class="field-hint">Transfer this amount with reference ${esc(ref)}.</span></div>
+            <div class="field"><label for="b-proof">Proof of payment</label><input class="input" id="b-proof" type="file" accept="image/*,application/pdf" required><span class="field-hint">A photo or screenshot of the receipt, or a PDF under 700 KB.</span></div>
+            <div class="field full"><button class="btn btn-primary" type="submit">Send for review</button></div></form>`
+            : '<p class="muted">Plans and prices aren’t published yet. Contact <a href="mailto:hello@allurus.my">hello@allurus.my</a> to subscribe.</p>'}</div>
+        <div class="card card-flush" style="margin-top:14px"><div class="card-head" style="padding:16px 18px 0"><h3>Payments and invoices</h3></div>
+          <div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>What</th><th class="r">Amount</th><th>Status</th></tr></thead><tbody>
+          ${[...(d?.payments || []).map((p) => [p.createdAt, `Payment ${esc(p.reference)} · ${p.months} month${p.months > 1 ? 's' : ''}`, p.amountMyr, `<span class="pill ${p.status === 'approved' ? 'ok' : p.status === 'rejected' ? 'bad' : 'warn'}">${{ submitted: 'Waiting for review', approved: 'Approved', rejected: 'Rejected' }[p.status] || esc(p.status)}</span>${p.note ? `<div class="field-hint">${esc(p.note)}</div>` : ''}`]),
+            ...(d?.invoices || []).map((i) => [i.issuedAt, `Invoice ${esc(i.number)}`, i.amountMyr, '<span class="pill ok">Paid</span>'])].map(([t, w, a, s]) => `<tr><td class="num">${t?.seconds ? esc(U.fmtDate(AllurusBilling.myDate(t.seconds * 1000))) : ''}</td><td>${w}</td><td class="r num">RM ${Number(a || 0).toFixed(2)}</td><td>${s}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Nothing yet.</td></tr>'}
+          </tbody></table></div></div>`;
+    },
+    async load() { try { billingUi.data = await fire().billing(); } catch (e) { billingUi.data = { plans: [], payments: [], invoices: [], config: {} }; } if (route() === 'billing') render(); },
+    bind() {
+      if (!billingUi.data) { billingUi.load(); return; }
+      const f = $('#bill-form'); if (!f) return;
+      const amt = () => { const p = billingUi.data.plans.find((x) => x.id === f.planId.value); const v = (Number(p?.priceMyr) || 0) * Number(f.months.value); $('#b-amount').textContent = `RM ${v.toFixed(2)}`; return v; };
+      amt(); f.addEventListener('change', amt);
+      f.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        const file = $('#b-proof').files[0]; if (!file) { toast('Choose the proof of payment', 'error'); return; }
+        let proof;
+        try { proof = await billingUi.shrink(file); } catch (e) { toast(e.message, 'error'); return; }
+        const btn = f.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Sending…';
+        const r = await fire().submitPayment({ planId: f.planId.value, months: Number(f.months.value), amountMyr: amt(), reference: AllurusBilling.reference(billingUi.company()?.id || ''), method: 'bank', proof, proofName: file.name, proofType: file.type });
+        toast(r.ok ? 'Sent. We’ll check it and confirm, usually within one working day.' : r.error, r.ok ? '' : 'error');
+        billingUi.data = null; billingUi.load();
+      });
+    },
+    // Photos are shrunk to a JPEG under 700 KB; PDFs must already be that small (the record limit is 1 MB).
+    async shrink(file) {
+      const read = (f) => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => no(new Error('Couldn’t read that file.')); r.readAsDataURL(f); });
+      if (file.type === 'application/pdf') { if (file.size > 700 * 1024) throw new Error('That PDF is over 700 KB. Send a screenshot or photo of the receipt instead.'); return read(file); }
+      if (!file.type.startsWith('image/')) throw new Error('Send a photo, screenshot or PDF.');
+      const img = await new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(new Error('Couldn’t open that image.')); i.src = URL.createObjectURL(file); });
+      for (const max of [1600, 1200, 900]) {
+        const k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement('canvas');
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        for (const q of [0.8, 0.65, 0.5]) { const url = c.toDataURL('image/jpeg', q); if (url.length < 700 * 1024) return url; }
+      }
+      throw new Error('That image is too large. Try a screenshot instead.');
+    },
+    // Everything this admin can see, as an Excel workbook (people, leave, attendance) plus a full JSON backup.
+    async exportAll() {
+      try {
+        const X = window.XLSX || await new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'js/vendor/xlsx.full.min.js?v=0.20.3'; s.onload = () => ok(window.XLSX); s.onerror = no; document.head.appendChild(s); });
+        const wb = X.utils.book_new();
+        X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(AllurusImportRules.exportRows(state.employees, (id) => dept(id)?.name || '')), 'Employees');
+        X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet([['Employee', 'Type', 'From', 'To', 'Days', 'Status'], ...(state.leaves || []).map((l) => [fullName(emp(l.empId) || {}), l.type, l.from, l.to, l.days, l.status])]), 'Leave');
+        X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet([['Date', 'Employee', 'Status', 'In', 'Out'], ...Object.entries(state.attendance || {}).flatMap(([day, recs]) => Object.entries(recs).map(([id, r]) => [day, fullName(emp(id) || {}), r.status || '', r.in || '', r.out || '']))]), 'Attendance');
+        const stamp = U.today();
+        X.writeFile(wb, `allurus-export-${stamp}.xlsx`);
+        const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), company: state.settings.company, data: Object.fromEntries(WS_KEYS.map((k) => [k, state[k]])) })], { type: 'application/json' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `allurus-backup-${stamp}.json`; document.body.appendChild(a); a.click(); a.remove();
+        toast('Exported: an Excel workbook and a full backup file.');
+      } catch (e) { toast('The export couldn’t be made here. Try again on a computer.', 'error'); }
+    },
+  };
+  VIEWS.billing = () => billingUi.view();
+  AFTER.billing = () => billingUi.bind();
+  ACTIONS['bill-export'] = () => billingUi.exportAll();
+  ACTIONS['onboard-hide'] = () => { state.settings.onboardDone = true; commit('Checklist hidden'); };
+
   // ---------- Team access (cloud mode): who can sign in, and as what ----------
   const teamAccess = {
     data: null,
@@ -2869,6 +2993,8 @@
     // The cloud finished reconnecting (or the sign-in had expired).
     // A company the superadmin opened, set up by its first admin when they activate: empty, with them as e1.
     firstWorkspace(d) { return newWorkspace({ currency: 'MYR', plan: 'growth', city: 'Kuala Lumpur', ...d }, false); },
+    // Staff of an expired or suspended company (js/cloud.js start()).
+    companyBlocked(eff) { billingUi.blocked(eff); },
     // Superadmin viewing a company: open it as its Owner would see it, with a banner; changes are never saved.
     cloudViewOnly(name) {
       cloudWaiting = false; startSession(state.accounts[0]);

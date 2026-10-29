@@ -22,8 +22,9 @@ const main = $("#sa"), nav = $("#saNav"), dlg = $("#saDialog");
 const STATUSES = ["planned", "beta", "live"];
 const LEAD_STATUSES = ["new", "contacted", "demo", "won", "lost"];
 const LEAD_LABEL = { new: "New", contacted: "Contacted", demo: "Demo booked", won: "Won", lost: "Lost" };
-const VIEWS = [["dashboard", "Dashboard"], ["industries", "Industries"], ["features", "Features"], ["matrix", "Matrix"], ["tenants", "Companies"], ["leads", "Leads"], ["finder", "Finder"], ["audit", "Audit log"]];
-const S = { user: null, view: "dashboard", modules: [], features: [], industries: [], links: [], rules: [], tenants: [], overrides: [], leads: [], audit: [], filter: {} };
+const VIEWS = [["dashboard", "Dashboard"], ["industries", "Industries"], ["features", "Features"], ["matrix", "Matrix"], ["tenants", "Companies"], ["payments", "Payments"], ["plans", "Plans"], ["billingcfg", "Billing settings"], ["leads", "Leads"], ["finder", "Finder"], ["audit", "Audit log"]];
+const S = { user: null, view: "dashboard", modules: [], features: [], industries: [], links: [], rules: [], tenants: [], overrides: [], leads: [], audit: [], plans: [], payments: [], invoices: [], config: {}, counts: {}, filter: {} };
+const B = window.AllurusBilling;
 
 /* ---------- small UI helpers ---------- */
 let toastTimer;
@@ -80,10 +81,14 @@ async function run(fn, okMsg) {
 /* ---------- data ---------- */
 async function all(col, ...q) { const s = await getDocs(q.length ? query(collection(db, col), ...q) : collection(db, col)); return s.docs.map((d) => ({ id: d.id, ...d.data() })); }
 async function load() {
-  const [modules, features, industries, links, rules, tenants, overrides, leads, audit] = await Promise.all([
+  const [modules, features, industries, links, rules, tenants, overrides, leads, audit, plans, payments, invoices, config] = await Promise.all([
     all("modules"), all("features"), all("industries"), all("industryFeatures"), all("finderRules"), all("tenants"), all("tenantFeatureOverrides"),
     all("leads", orderBy("createdAt", "desc")), all("auditLog", orderBy("createdAt", "desc"), limit(200)),
+    all("plans").catch(() => []), all("payments", orderBy("createdAt", "desc")).catch(() => []), all("invoices").catch(() => []), all("config").catch(() => []),
   ]);
+  S.plans = plans; S.payments = payments; S.invoices = invoices; S.config = Object.fromEntries(config.map((c) => [c.id, c]));
+  // Employees per company (a count, not the records).
+  await Promise.all(tenants.map(async (t) => { try { S.counts[t.id] = (await FS.getCountFromServer(collection(db, `tenants/${t.id}/people`))).data().count; } catch (e) { S.counts[t.id] = null; } }));
   Object.assign(S, {
     modules: modules.sort((a, b) => (a.order ?? 99) - (b.order ?? 99)),
     features: features.map((f) => ({ ...f, key: f.key || f.id })).sort((a, b) => (a.moduleKey || "").localeCompare(b.moduleKey || "") || a.name.localeCompare(b.name)),
@@ -98,8 +103,8 @@ const tenantsIn = (slug) => S.tenants.filter((t) => (t.industryIds || []).includ
 /* ---------- views ---------- */
 function render() {
   nav.hidden = false;
-  nav.innerHTML = VIEWS.map(([id, label]) => `<button type="button" data-view="${id}" aria-current="${S.view === id}">${label}${id === "leads" ? ` <span class="sa-count">${S.leads.filter((l) => l.status === "new").length || ""}</span>` : ""}</button>`).join("");
-  main.innerHTML = ({ dashboard, industries, features, matrix, tenants, leads, finder, audit })[S.view]();
+  nav.innerHTML = VIEWS.map(([id, label]) => `<button type="button" data-view="${id}" aria-current="${S.view === id}">${label}${id === "leads" ? ` <span class="sa-count">${S.leads.filter((l) => l.status === "new").length || ""}</span>` : id === "payments" ? ` <span class="sa-count">${S.payments.filter((p) => p.status === "submitted").length || ""}</span>` : ""}</button>`).join("");
+  main.innerHTML = ({ dashboard, industries, features, matrix, tenants, payments, plans, billingcfg, leads, finder, audit })[S.view]();
 }
 
 function bars(rows) {
@@ -305,15 +310,144 @@ async function copyLinks() {
 }
 
 /* Companies */
+const STATUS_LABEL = { trial: "Trial", active: "Active", past_due: "Past due", expired: "Expired", suspended: "Suspended", cancelled: "Cancelled" };
+const STATUS_CLS = { trial: "beta", active: "live", past_due: "removed", expired: "removed", suspended: "removed", cancelled: "planned" };
+const myDay = (t) => (t ? new Date(B.ms(t)).toLocaleDateString("en-MY", { timeZone: "Asia/Kuala_Lumpur", day: "numeric", month: "short", year: "numeric" }) : "");
+const FILTERS = [["all", "All"], ["trial7", "Trial ending in 7 days"], ["expired", "Expired"], ["past_due", "Past due"], ["active", "Active"], ["trial", "In trial"], ["delete", "Due for deletion"], ["test", "Test"]];
+function filtered() {
+  const f = S.filter.co || "all", now = Date.now();
+  return S.tenants.filter((t) => {
+    const e = B.effective(t, now);
+    if (f === "all") return true;
+    if (f === "trial7") return e === "trial" && B.daysLeft(B.ms(t.trialEndsAt), now) <= 7;
+    if (f === "delete") return (B.deletion(t, now)?.days ?? 99) <= 0;
+    if (f === "test") return !!t.isTest;
+    return e === f;
+  });
+}
 function tenants() {
-  return `<div class="sa-head"><h1>Companies</h1><div class="sa-tools"><button type="button" class="sa-btn primary" data-new-tenant>New company</button></div></div>
-    <p class="sa-muted">Companies can’t sign themselves up. Open one here: its first admin gets an invitation email and activates at allurus.my/activate.</p>
-    <div class="sa-table-wrap"><table class="sa-table"><thead><tr><th>Company</th><th>Admin</th><th>Plan</th><th>Industries</th><th>Overrides</th><th></th></tr></thead><tbody>
-    ${S.tenants.map((t) => `<tr><td><b>${esc(t.name || t.id)}</b><br><span class="sa-muted">${esc(t.industry || "")}</span>
-      ${t.owner ? "" : t.inviteStatus === "failed" ? '<br><span class="sa-src removed">Invite failed</span>' : `<br><span class="sa-src dependency">Not activated yet${t.inviteSentAt ? ` · invited ${esc(fmtTime(t.inviteSentAt))}` : ""}</span>`}</td><td>${esc(t.admin || "")}</td><td>${esc(t.plan || "")}</td>
-      <td>${(t.industryIds || []).map((s) => `<span class="sa-chip">${esc(indBySlug(s)?.name || s)}</span>`).join(" ") || '<span class="sa-muted">None (every area on)</span>'}</td>
-      <td>${S.overrides.filter((o) => o.tenantId === t.id && o.mode !== "none").length}</td>
-      <td class="sa-actions"><button type="button" class="sa-btn" data-tenant="${esc(t.id)}">Features</button> <button type="button" class="sa-btn primary" data-view-co="${esc(t.id)}">Open company</button>${t.owner ? "" : ` <button type="button" class="sa-btn" data-retry-invite="${esc(t.id)}">Retry invite</button>`}</td></tr>`).join("") || '<tr><td colspan="6" class="sa-muted">No companies yet.</td></tr>'}</tbody></table></div>`;
+  const list = filtered();
+  return `<div class="sa-head"><h1>Companies</h1><div class="sa-tools"><select data-filter="co" aria-label="Filter">${FILTERS.map(([v, l]) => `<option value="${v}" ${(S.filter.co || "all") === v ? "selected" : ""}>${l}</option>`).join("")}</select><button type="button" class="sa-btn primary" data-new-tenant>Create company manually</button></div></div>
+    <p class="sa-muted">Companies sign themselves up at allurus.my/signup (30-day trial). Create one here for a client you onboard yourself: its first admin gets an invitation email.</p>
+    <div class="sa-table-wrap"><table class="sa-table"><thead><tr><th>Company</th><th>Status</th><th>Plan</th><th>Trial ends</th><th>Paid until</th><th>Employees</th><th>Admin</th><th>Industries</th><th></th></tr></thead><tbody>
+    ${list.map((t) => { const e = B.effective(t), del = B.deletion(t);
+      return `<tr><td><b>${esc(t.name || t.id)}</b>${t.isTest ? ' <span class="sa-chip">test</span>' : ""}<br><span class="sa-muted">${esc(t.createdVia === "self_signup" ? "Signed up" : "Created by superadmin")}${t.createdAt ? ` · ${esc(myDay(t.createdAt))}` : ""}</span>
+      ${t.owner ? "" : t.inviteStatus === "failed" ? '<br><span class="sa-src removed">Invite failed</span>' : `<br><span class="sa-src dependency">Not activated yet${t.inviteSentAt ? ` · invited ${esc(fmtTime(t.inviteSentAt))}` : ""}</span>`}</td>
+      <td><span class="sa-st ${STATUS_CLS[e]}">${STATUS_LABEL[e]}</span>${del ? `<br><span class="sa-muted">${del.days > 0 ? `Data kept ${del.days} more days` : "Due for deletion"}</span>` : ""}${t.statusNote ? `<br><span class="sa-muted">${esc(t.statusNote)}</span>` : ""}</td>
+      <td>${esc(t.plan || "")}</td><td>${esc(myDay(t.trialEndsAt))}</td><td>${esc(myDay(t.paidUntil))}</td><td>${S.counts[t.id] ?? "–"}</td><td>${esc(t.admin || "")}</td>
+      <td>${(t.industryIds || []).map((s) => `<span class="sa-chip">${esc(indBySlug(s)?.name || s)}</span>`).join(" ") || '<span class="sa-muted">None</span>'}</td>
+      <td class="sa-actions"><button type="button" class="sa-btn primary" data-billing="${esc(t.id)}">Billing</button> <button type="button" class="sa-btn" data-tenant="${esc(t.id)}">Features</button> <button type="button" class="sa-btn" data-view-co="${esc(t.id)}">Open</button> <button type="button" class="sa-btn" data-export-co="${esc(t.id)}">Export</button>${t.owner ? "" : ` <button type="button" class="sa-btn" data-retry-invite="${esc(t.id)}">Retry invite</button>`}</td></tr>`; }).join("") || '<tr><td colspan="9" class="sa-muted">No companies match.</td></tr>'}</tbody></table></div>`;
+}
+// Billing actions for one company: each one audited, with a reason.
+async function billingActions(id) {
+  const t = S.tenants.find((x) => x.id === id), e = B.effective(t);
+  const plans = S.plans.filter((p) => p.active !== false);
+  const fd = await ask(`${t.name}: billing`, `<p class="sa-muted">Now: <b>${STATUS_LABEL[e]}</b>${t.trialEndsAt ? ` · trial ends ${esc(myDay(t.trialEndsAt))}` : ""}${t.paidUntil ? ` · paid until ${esc(myDay(t.paidUntil))}` : ""}${t.plan ? ` · plan ${esc(t.plan)}` : ""}</p>
+    <div class="sa-grid">
+      <label class="sa-f full"><span>Action</span><select name="act" required>
+        <option value="extend">Extend trial</option><option value="paid">Mark as paid</option><option value="plan">Change plan</option>
+        <option value="suspend">Suspend</option><option value="reactivate">Reactivate</option><option value="cancel">Cancel subscription</option><option value="test">${t.isTest ? "Unmark as test" : "Mark as test"}</option></select></label>
+      <label class="sa-f"><span>Days <em>(extend trial)</em></span><input name="days" type="number" min="1" max="90" value="14"></label>
+      <label class="sa-f"><span>Months <em>(mark as paid)</em></span><input name="months" type="number" min="1" max="24" value="1"></label>
+      <label class="sa-f"><span>Plan <em>(paid / change plan)</em></span><select name="plan">${plans.map((p) => `<option value="${esc(p.id)}" ${t.plan === p.id ? "selected" : ""}>${esc(p.name)}${p.priceMyr ? ` · RM ${Number(p.priceMyr).toFixed(2)}` : ""}</option>`).join("") || '<option value="">No plans yet (add them under Plans)</option>'}</select></label>
+      <label class="sa-f"><span>Amount received (RM) <em>(mark as paid)</em></span><input name="amount" type="number" min="0" step="0.01"></label>
+      <label class="sa-f full"><span>Reason <em>(saved in the audit log)</em></span><input name="reason" required maxlength="200"></label></div>`, "Apply");
+  if (!fd) return;
+  const act = fd.get("act"), reason = String(fd.get("reason") || "").trim();
+  if (!reason) return toast("Give a reason; it goes in the audit log.", true);
+  const now = Date.now(), before = { status: t.status || null, plan: t.plan || null, trialEndsAt: t.trialEndsAt || null, paidUntil: t.paidUntil || null };
+  const T = (d) => FS.Timestamp.fromDate(d);
+  const tenantItem = (data, action) => ({ type: "tenant", path: `tenants/${id}`, data: { ...data, statusNote: reason.slice(0, 200) }, before, action, plain: true });
+  let items;
+  if (act === "extend") {
+    const from = Math.max(now, B.ms(t.trialEndsAt) || now);
+    items = [tenantItem({ status: "trial", trialEndsAt: T(B.trialEnd(from + B.DAY, Number(fd.get("days")) || 14)) }, "extend-trial")];
+  } else if (act === "paid") {
+    const plan = fd.get("plan"); if (!plan) return toast("Add a plan first, under Plans.", true);
+    items = markPaidItems(t, plan, Number(fd.get("months")) || 1, Number(fd.get("amount")) || 0, reason);
+  } else if (act === "plan") items = [tenantItem({ plan: fd.get("plan") }, "change-plan")];
+  else if (act === "suspend") items = [tenantItem({ status: "suspended" }, "suspend")];
+  else if (act === "cancel") items = [tenantItem({ status: "cancelled", expiredAt: T(new Date(now)) }, "cancel")];
+  else if (act === "test") items = [tenantItem({ isTest: !t.isTest }, t.isTest ? "unmark-test" : "mark-test")];
+  else items = [tenantItem({ status: B.ms(t.paidUntil) > now ? "active" : B.ms(t.trialEndsAt) > now ? "trial" : "active", ...(B.ms(t.paidUntil) > now || B.ms(t.trialEndsAt) > now ? {} : { paidUntil: T(B.extendPaid({}, 1, now)) }) }, "reactivate")];
+  await run(() => save(items), "Saved");
+}
+// Mark as paid: the company's new paid-until, a sequential invoice, and the counter, in one audited batch.
+function markPaidItems(t, planId, months, amount, reason, paymentId = null) {
+  const now = Date.now(), until = B.extendPaid(t, months, now), n = (S.config.invoiceCounter?.next || 1);
+  const invId = doc(collection(db, "invoices")).id, number = B.invoiceNo(n, now);
+  const items = [
+    { type: "tenant", path: `tenants/${t.id}`, data: { status: "active", plan: planId, paidUntil: FS.Timestamp.fromDate(until), statusNote: reason.slice(0, 200) }, before: { status: t.status || null, paidUntil: t.paidUntil || null, plan: t.plan || null }, action: "mark-paid", plain: true },
+    { type: "invoice", path: `invoices/${invId}`, data: { tenantId: t.id, companyName: t.name, number, planId, months, amountMyr: amount, sst: 0, periodFrom: FS.Timestamp.fromDate(new Date(Math.max(now, B.ms(t.paidUntil) || 0))), periodTo: FS.Timestamp.fromDate(until), issuedAt: serverTimestamp(), paymentId }, before: null, action: "issue-invoice" },
+    { type: "config", path: "config/invoiceCounter", data: { next: n + 1 }, before: S.config.invoiceCounter || null, action: "invoice-counter" },
+  ];
+  if (paymentId) items.push({ type: "payment", path: `payments/${paymentId}`, data: { status: "approved", reviewedBy: S.user.email || "", reviewedAt: serverTimestamp(), invoiceId: invId }, before: { status: "submitted" }, action: "approve-payment", plain: true });
+  return items;
+}
+// Everything stored for one company, as one JSON file (the superadmin may read, never change, a company's data).
+async function exportCompany(id) {
+  const t = S.tenants.find((x) => x.id === id), out = { company: t, exportedAt: new Date().toISOString() };
+  for (const sub of ["buckets", "people", "payslips", "personal"]) { try { out[sub] = (await getDocs(collection(db, `tenants/${id}/${sub}`))).docs.map((d) => ({ id: d.id, ...d.data() })); } catch (e) { out[sub] = `not readable: ${e.code}`; } }
+  try { await FS.addDoc(collection(db, "auditLog"), { actorUid: S.user.uid, actorEmail: S.user.email || "", action: "export-company", entityType: "tenant", entityId: id, before: null, after: { name: t.name }, createdAt: serverTimestamp() }); } catch (e) { return toast("Couldn’t record the audit entry, so nothing was exported.", true); }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], { type: "application/json" })); a.download = `${(t.name || id).replace(/[^\w-]+/g, "-")}-${new Date().toISOString().slice(0, 10)}.json`; a.click();
+  toast("Exported");
+}
+
+/* Payments (bank-transfer proof from company admins) */
+function payments() {
+  const tn = (id) => S.tenants.find((t) => t.id === id)?.name || id;
+  return `<div class="sa-head"><h1>Payments</h1></div><p class="sa-muted">Proof of bank transfers sent from each company’s Billing page. Approving marks the company paid and issues an invoice.</p>
+    <div class="sa-table-wrap"><table class="sa-table"><thead><tr><th>Sent</th><th>Company</th><th>Reference</th><th>Plan</th><th>Amount</th><th>Proof</th><th>Status</th><th></th></tr></thead><tbody>
+    ${S.payments.map((p) => `<tr><td>${esc(fmtTime(p.createdAt))}<br><span class="sa-muted">${esc(p.submittedBy || "")}</span></td><td>${esc(tn(p.tenantId))}</td><td><code>${esc(p.reference)}</code></td><td>${esc(p.planId)} · ${p.months} mo</td><td>RM ${Number(p.amountMyr || 0).toFixed(2)}</td>
+      <td><button type="button" class="sa-link" data-proof="${esc(p.id)}">View ${esc(p.proofName || "proof")}</button></td><td>${esc(p.status)}${p.note ? `<br><span class="sa-muted">${esc(p.note)}</span>` : ""}</td>
+      <td class="sa-actions">${p.status === "submitted" ? `<button type="button" class="sa-btn primary" data-approve="${esc(p.id)}">Mark as paid</button> <button type="button" class="sa-btn" data-reject="${esc(p.id)}">Reject</button>` : ""}</td></tr>`).join("") || '<tr><td colspan="8" class="sa-muted">No payments yet.</td></tr>'}</tbody></table></div>`;
+}
+/* Plans: names, prices and limits (no price: not offered yet) */
+function plans() {
+  return `<div class="sa-head"><h1>Plans</h1><div class="sa-tools"><button type="button" class="sa-btn primary" data-plan="">Add plan</button></div></div>
+    <p class="sa-muted">Companies choose from active plans with a price on their Billing page. Prices are in RM, before SST (not registered).</p>
+    <div class="sa-table-wrap"><table class="sa-table"><thead><tr><th>Plan</th><th>Price</th><th>Per</th><th>Employees</th><th>Sites</th><th>Active</th><th></th></tr></thead><tbody>
+    ${S.plans.map((p) => `<tr><td><b>${esc(p.name)}</b> <code>${esc(p.id)}</code></td><td>${p.priceMyr ? `RM ${Number(p.priceMyr).toFixed(2)}` : '<span class="sa-muted">Not set</span>'}</td><td>${esc(p.period || "month")}</td><td>${p.employeeLimit || "No limit"}</td><td>${p.siteLimit || "No limit"}</td><td>${p.active === false ? "No" : "Yes"}</td>
+      <td><button type="button" class="sa-btn" data-plan="${esc(p.id)}">Edit</button></td></tr>`).join("") || '<tr><td colspan="7" class="sa-muted">No plans yet. Add one, or several.</td></tr>'}</tbody></table></div>`;
+}
+async function editPlan(id) {
+  const p = S.plans.find((x) => x.id === id) || {};
+  const fd = await ask(id ? `Edit ${p.name}` : "Add plan", `<div class="sa-grid">
+    <label class="sa-f"><span>Plan code</span><input name="id" required pattern="[a-z0-9-]{2,30}" value="${esc(p.id || "")}" ${id ? "readonly" : ""}></label>
+    <label class="sa-f"><span>Name</span><input name="name" required maxlength="60" value="${esc(p.name || "")}"></label>
+    <label class="sa-f"><span>Price (RM) <em>(blank: not offered yet)</em></span><input name="priceMyr" type="number" min="0" step="0.01" value="${esc(p.priceMyr ?? "")}"></label>
+    <label class="sa-f"><span>Billed per</span><select name="period"><option ${p.period !== "year" ? "selected" : ""}>month</option><option ${p.period === "year" ? "selected" : ""}>year</option></select></label>
+    <label class="sa-f"><span>Employee limit <em>(blank: none)</em></span><input name="employeeLimit" type="number" min="0" value="${esc(p.employeeLimit ?? "")}"></label>
+    <label class="sa-f"><span>Site limit <em>(blank: none)</em></span><input name="siteLimit" type="number" min="0" value="${esc(p.siteLimit ?? "")}"></label>
+    <label class="sa-inline"><input type="checkbox" name="active" ${p.active === false ? "" : "checked"}> Active (offered to companies)</label></div>`);
+  if (!fd) return;
+  const pid = String(fd.get("id")).trim().toLowerCase(); if (!/^[a-z0-9-]{2,30}$/.test(pid)) return toast("Plan code: 2–30 lower-case letters, numbers or dashes.", true);
+  const num = (k) => (String(fd.get(k) || "").trim() === "" ? null : Number(fd.get(k)));
+  const data = { name: String(fd.get("name")).trim(), priceMyr: num("priceMyr"), period: fd.get("period"), employeeLimit: num("employeeLimit"), siteLimit: num("siteLimit"), active: fd.has("active"), featureKeys: p.featureKeys || [] };
+  await run(() => save([{ type: "plan", path: `plans/${pid}`, data, before: id ? p : null, action: id ? "edit-plan" : "add-plan" }]), "Plan saved");
+}
+/* Billing settings: where companies pay */
+function billingcfg() {
+  const c = S.config.billing || {};
+  return `<div class="sa-head"><h1>Billing settings</h1></div><p class="sa-muted">Shown on every company’s Billing page. The reference is made for each company (ALR-&lt;code&gt;-&lt;YYYYMM&gt;).</p>
+    <form class="sa-card" id="billcfg"><div class="sa-grid">
+      <label class="sa-f"><span>Bank</span><input name="bankName" maxlength="60" value="${esc(c.bankName || "")}"></label>
+      <label class="sa-f"><span>Account name</span><input name="accountName" maxlength="100" value="${esc(c.accountName || "")}"></label>
+      <label class="sa-f"><span>Account number</span><input name="accountNo" maxlength="30" value="${esc(c.accountNo || "")}"></label>
+      <label class="sa-f"><span>DuitNow ID <em>(optional)</em></span><input name="duitnow" maxlength="60" value="${esc(c.duitnow || "")}"></label>
+      <label class="sa-f"><span>Billing contact email</span><input name="contact" type="email" maxlength="120" value="${esc(c.contact || "hello@allurus.my")}"></label>
+      <label class="sa-f"><span>DuitNow QR image <em>(optional, under 300 KB)</em></span><input name="qr" type="file" accept="image/*"></label>
+    </div>${c.qr ? `<img src="${esc(c.qr)}" alt="Current DuitNow QR" style="width:140px;margin:10px 0;border-radius:12px">` : ""}<button type="submit" class="sa-btn primary">Save</button></form>`;
+}
+async function saveBillingCfg(form) {
+  const fd = new FormData(form), c = S.config.billing || {};
+  const data = Object.fromEntries(["bankName", "accountName", "accountNo", "duitnow", "contact"].map((k) => [k, String(fd.get(k) || "").trim()]));
+  const file = fd.get("qr");
+  if (file && file.size) {
+    if (file.size > 300 * 1024) return toast("The QR image must be under 300 KB.", true);
+    data.qr = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(file); });
+  }
+  await run(() => save([{ type: "config", path: "config/billing", data, before: c.bankName ? c : null, action: "billing-settings" }]), "Billing settings saved");
 }
 // A new company, with no owner until its first admin activates their invitation (an Owner: every area).
 async function newTenant() {
@@ -344,7 +478,8 @@ async function newTenant() {
   catch (e) { return toast(authError(e), true); }
   // 2. The company, then the invitation. If the invitation can't be saved, the company is marked so it can be retried.
   try {
-    await save([{ type: "tenant", path: `tenants/${tref.id}`, data: { owner: null, name, admin: email, adminName, city: String(fd.get("city") || "").trim(), industry: "", plan: "growth", seats: 0, createdAt: serverTimestamp(), inviteStatus: "sent", inviteSentAt: serverTimestamp() }, before: null, action: "create-company", plain: true }]);
+    await save([{ type: "tenant", path: `tenants/${tref.id}`, data: { owner: null, name, admin: email, adminName, city: String(fd.get("city") || "").trim(), industry: "", plan: "trial", seats: 0, createdAt: serverTimestamp(), inviteStatus: "sent", inviteSentAt: serverTimestamp(),
+      status: "trial", isTest: false, trialStartedAt: serverTimestamp(), trialEndsAt: FS.Timestamp.fromDate(B.trialEnd(Date.now())), createdVia: "superadmin" }, before: null, action: "create-company", plain: true }]);
   } catch (e) { console.error(e?.code); await load(); render(); return toast(`The company wasn’t created (${e.code === "permission-denied" ? "permission denied: are you still a superadmin?" : "connection problem"}). The email that went out won’t work; try again.`, true); }
   try { await writeInvite(email, tref.id, adminName, name); toast(`${name} created. Invitation sent to ${email}, valid 7 days.`); }
   catch (e) { console.error(e?.code); await markInvite(tref.id, "failed"); toast(`${name} was created, but its invitation couldn’t be saved. Use Retry invite.`, true); }
@@ -502,6 +637,29 @@ main.addEventListener("click", async (e) => {
   else if (d.tenant) openTenant(d.tenant);
   else if ("newTenant" in d) newTenant();
   else if (d.retryInvite) { el.disabled = true; await retryInvite(d.retryInvite); }
+  else if (d.billing) billingActions(d.billing);
+  else if (d.exportCo) { el.disabled = true; await exportCompany(d.exportCo); el.disabled = false; }
+  else if ("plan" in d) editPlan(d.plan);
+  else if (d.proof) {
+    const p = S.payments.find((x) => x.id === d.proof);
+    const w = window.open("", "_blank"); if (!w) return toast("Allow pop-ups to view the proof.", true);
+    w.opener = null;
+    w.document.title = p.proofName || "Proof";
+    w.document.body.innerHTML = String(p.proof || "").startsWith("data:application/pdf") ? `<embed src="${esc(p.proof)}" type="application/pdf" style="width:100%;height:100vh">` : `<img src="${esc(p.proof)}" style="max-width:100%">`;
+  }
+  else if (d.approve) {
+    const p = S.payments.find((x) => x.id === d.approve), t = S.tenants.find((x) => x.id === p.tenantId);
+    const fd = await ask("Mark as paid", `<p>${esc(t?.name || p.tenantId)} · <code>${esc(p.reference)}</code> · RM ${Number(p.amountMyr || 0).toFixed(2)} for ${p.months} month${p.months > 1 ? "s" : ""} of ${esc(p.planId)}.</p>
+      <label class="sa-f"><span>Note <em>(audit log)</em></span><input name="reason" required maxlength="200" value="Bank transfer checked"></label>`, "Mark as paid");
+    if (!fd || !t) return;
+    await run(() => save(markPaidItems(t, p.planId, p.months, Number(p.amountMyr) || 0, String(fd.get("reason")), p.id)), `${t.name} is active until ${myDay(B.extendPaid(t, p.months))}`);
+  }
+  else if (d.reject) {
+    const p = S.payments.find((x) => x.id === d.reject);
+    const fd = await ask("Reject payment", '<label class="sa-f"><span>Reason <em>(shown to the company)</em></span><input name="note" required maxlength="200"></label>', "Reject");
+    if (!fd) return;
+    await run(() => save([{ type: "payment", path: `payments/${p.id}`, data: { status: "rejected", note: String(fd.get("note")).slice(0, 200), reviewedBy: S.user.email || "", reviewedAt: serverTimestamp() }, before: { status: p.status }, action: "reject-payment", plain: true }]), "Payment rejected");
+  }
   else if (d.viewCo) {
     // Viewing a company's data is recorded before it opens (who, which company, when).
     const t = S.tenants.find((x) => x.id === d.viewCo);
@@ -520,7 +678,10 @@ main.addEventListener("change", async (e) => {
   else if (d.filter && el.tagName === "SELECT") { S.filter[d.filter] = el.value; render(); }
 });
 main.addEventListener("input", (e) => { const d = e.target.dataset; if (d.filter === "matrix") { S.filter.matrix = e.target.value; const pos = e.target.selectionStart; render(); const f = main.querySelector('[data-filter="matrix"]'); f.focus(); f.setSelectionRange(pos, pos); } });
-main.addEventListener("submit", (e) => { const f = e.target.closest("[data-finder-q]"); if (f) { e.preventDefault(); saveFinder(f); } });
+main.addEventListener("submit", (e) => {
+  const f = e.target.closest("[data-finder-q]"); if (f) { e.preventDefault(); saveFinder(f); return; }
+  if (e.target.id === "billcfg") { e.preventDefault(); saveBillingCfg(e.target); }
+});
 
 /* ---------- sign-in ---------- */
 function signInView(msg = "") {

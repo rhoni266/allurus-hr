@@ -38,7 +38,9 @@ service cloud.firestore {
     // Every superadmin change carries lastAuditId: the audit entry written in the same batch, about this very
     // document. Without it the write is refused, so nothing changes without a record of who, what and when.
     function audited(entityType, id) {
+      // The entry must be new in this same batch: an older entry left on the document doesn't count again.
       return isSuperadmin() && request.resource.data.lastAuditId is string
+        && !exists(auditDoc(request.resource.data.lastAuditId))
         && existsAfter(auditDoc(request.resource.data.lastAuditId))
         && getAfter(auditDoc(request.resource.data.lastAuditId)).data.entityType == entityType
         && getAfter(auditDoc(request.resource.data.lastAuditId)).data.entityId == id
@@ -47,6 +49,27 @@ service cloud.firestore {
     function shortText(v, n) { return v is string && v.size() <= n; }
     function verified() { return request.auth.token.email_verified == true; }
     function inviteFor(email) { return get(/databases/$(database)/documents/invites/$(email)).data; }
+
+    // ---- Trials and subscriptions (the same logic as js/billing-rules.js) ----
+    // The status is worked out from the dates at every request, so a trial ends on time without a daily job.
+    // Companies from before billing have no status and count as active.
+    function co(t) { return get(/databases/$(database)/documents/tenants/$(t)).data; }
+    function coStatus(d) { return d.get('status', 'active'); }
+    function coExpired(d) {
+      return coStatus(d) == 'expired'
+        || (coStatus(d) == 'trial' && d.get('trialEndsAt', null) is timestamp && d.trialEndsAt < request.time)
+        || (coStatus(d) in ['active', 'past_due'] && d.get('paidUntil', null) is timestamp && d.paidUntil + duration.value(7, 'd') < request.time);
+    }
+    // Normal use: trial, active, past due (in its grace period).
+    function working(t) { return !(coStatus(co(t)) in ['suspended', 'cancelled']) && !coExpired(co(t)); }
+    // Expired or cancelled: the company's admins may still read everything (to export) and pay; staff can't.
+    function canRead(t) { return working(t) || (admin(t) && (coExpired(co(t)) || coStatus(co(t)) == 'cancelled')); }
+    function disposable(email) {
+      return email.split('@')[1] in ['mailinator.com', 'guerrillamail.com', 'guerrillamail.info', 'sharklasers.com', '10minutemail.com', 'tempmail.com',
+        'temp-mail.org', 'yopmail.com', 'trashmail.com', 'getnada.com', 'dispostable.com', 'maildrop.cc', 'mailnesia.com', 'throwawaymail.com',
+        'fakeinbox.com', 'mintemail.com', 'emailondeck.com', 'mohmal.com', 'tempail.com', 'moakt.com'];
+    }
+    function tenantPath(t) { return /databases/$(database)/documents/tenants/$(t); }
 
     // Areas of the company console (see AREAS in js/app.js and js/cloud-map.js).
     function owner() { return !('perms' in me()); }
@@ -97,13 +120,20 @@ service cloud.firestore {
       // never from the browser. Nobody signs a company up themselves; the superadmin creates companies.
       allow create: if signedIn() && request.auth.uid == uid && !hasProfile()
         && request.resource.data.email == myEmail() && verified()
-        && exists(/databases/$(database)/documents/invites/$(myEmail()))
-        && inviteFor(myEmail()).expiresAt is timestamp && inviteFor(myEmail()).expiresAt > request.time
-        && inviteFor(myEmail()).tenantId == request.resource.data.tenantId
-        && inviteFor(myEmail()).roles == request.resource.data.roles
-        && inviteFor(myEmail()).empId == request.resource.data.empId
-        && samePerms(request.resource.data, inviteFor(myEmail()))
-        && !('disabled' in request.resource.data);
+        && !('disabled' in request.resource.data)
+        && (
+          (exists(/databases/$(database)/documents/invites/$(myEmail()))
+            && inviteFor(myEmail()).expiresAt is timestamp && inviteFor(myEmail()).expiresAt > request.time
+            && inviteFor(myEmail()).tenantId == request.resource.data.tenantId
+            && inviteFor(myEmail()).roles == request.resource.data.roles
+            && inviteFor(myEmail()).empId == request.resource.data.empId
+            && samePerms(request.resource.data, inviteFor(myEmail())))
+          // ...or the founder of a company signing itself up now (allurus.my/signup), in the same batch: its Owner.
+          || (!exists(tenantPath(request.resource.data.tenantId)) && existsAfter(tenantPath(request.resource.data.tenantId))
+            && getAfter(tenantPath(request.resource.data.tenantId)).data.owner == uid
+            && getAfter(tenantPath(request.resource.data.tenantId)).data.createdVia == 'self_signup'
+            && request.resource.data.roles == ['admin', 'employee'] && request.resource.data.empId == 'e1' && !('perms' in request.resource.data))
+        );
       // Admins with the settings area change someone else's access in their company, or disable them; nobody
       // changes their own.
       allow update: if signedIn() && request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings')
@@ -198,8 +228,43 @@ service cloud.firestore {
       allow read: if isSuperadmin();
       allow create: if isSuperadmin() && request.resource.data.actorUid == request.auth.uid && request.resource.data.createdAt == request.time
         && request.resource.data.keys().hasOnly(['actorUid', 'actorEmail', 'action', 'entityType', 'entityId', 'before', 'after', 'createdAt'])
-        && request.resource.data.entityType in ['module', 'feature', 'industry', 'industryFeature', 'finderRule', 'tenant', 'tenantOverride', 'lead'];
+        && request.resource.data.entityType in ['module', 'feature', 'industry', 'industryFeature', 'finderRule', 'tenant', 'tenantOverride', 'lead', 'plan', 'config', 'payment', 'invoice'];
       allow update, delete: if false;
+    }
+
+    // ---- Sign-up and billing ----
+    // One free trial per mobile number: a record named by the number's SHA-256, created once with the company and
+    // never read, changed or removed from a browser (the number itself isn't stored here).
+    match /signupAttempts/{h} {
+      allow create: if signedIn() && verified() && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid && request.resource.data.createdAt == request.time;
+    }
+    // Plans and prices: anyone may read them (the pricing and billing pages); only the superadmin edits them.
+    match /plans/{id} {
+      allow read: if true;
+      allow write: if audited('plan', id);
+    }
+    // Billing settings (bank and DuitNow details) and the invoice counter.
+    match /config/{id} {
+      allow read: if signedIn();
+      allow write: if audited('config', id);
+    }
+    // A company admin sends proof of a bank transfer, even while expired; the superadmin approves or rejects it.
+    match /payments/{id} {
+      allow read: if isSuperadmin() || (signedIn() && admin(resource.data.tenantId));
+      allow create: if signedIn() && admin(request.resource.data.tenantId) && !(coStatus(co(request.resource.data.tenantId)) in ['suspended'])
+        && request.resource.data.keys().hasOnly(['tenantId', 'planId', 'months', 'amountMyr', 'reference', 'method', 'proof', 'proofName', 'proofType', 'status', 'submittedBy', 'createdAt'])
+        && request.resource.data.status == 'submitted' && request.resource.data.submittedBy == myEmail() && request.resource.data.createdAt == request.time
+        && request.resource.data.months is int && request.resource.data.months >= 1 && request.resource.data.months <= 24
+        && request.resource.data.amountMyr is number && request.resource.data.amountMyr >= 0
+        && shortText(request.resource.data.reference, 40) && shortText(request.resource.data.planId, 40) && shortText(request.resource.data.method, 20)
+        && request.resource.data.proof is string && request.resource.data.proof.size() < 950000 && shortText(request.resource.data.proofName, 120);
+      allow update: if audited('payment', id) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewedBy', 'reviewedAt', 'note', 'invoiceId', 'lastAuditId'])
+        && request.resource.data.status in ['approved', 'rejected'];
+    }
+    match /invoices/{id} {
+      allow read: if isSuperadmin() || (signedIn() && admin(resource.data.tenantId));
+      allow create: if audited('invoice', id);
     }
     // The public demo (?demo, ?demo=suria, ?demo=majorfe): the check-in point its admin set, so every phone trying the
     // demo checks in against it. No sign-in, demo companies only, and only these fields with sensible values.
@@ -220,12 +285,34 @@ service cloud.firestore {
       // Only the superadmin opens a company (with an audit entry). It has no owner until its first admin
       // activates their invitation and claims it, once.
       allow create: if audited('tenant', t) && request.resource.data.owner == null
-        && request.resource.data.keys().hasOnly(['owner', 'name', 'admin', 'adminName', 'industry', 'city', 'country', 'plan', 'seats', 'createdAt', 'inviteStatus', 'inviteSentAt', 'lastAuditId'])
+        && request.resource.data.keys().hasOnly(['owner', 'name', 'admin', 'adminName', 'industry', 'city', 'country', 'plan', 'seats', 'createdAt', 'inviteStatus', 'inviteSentAt',
+          'status', 'isTest', 'trialStartedAt', 'trialEndsAt', 'paidUntil', 'createdVia', 'industryIds', 'lastAuditId'])
         && request.resource.data.admin is string && request.resource.data.admin == request.resource.data.admin.lower();
+      // A company signing itself up (allurus.my/signup), with its confirmed email: a 30-day trial, owned by them,
+      // with a mobile number never used for a trial before (signupAttempts, created in the same batch).
+      allow create: if signedIn() && verified() && !hasProfile() && !disposable(myEmail())
+        && request.resource.data.keys().hasOnly(['owner', 'name', 'admin', 'adminName', 'phone', 'industryIds', 'industryOther', 'staffRange', 'city', 'country',
+          'status', 'plan', 'isTest', 'trialStartedAt', 'trialEndsAt', 'createdVia', 'termsVersion', 'termsAcceptedAt', 'createdAt'])
+        && request.resource.data.owner == request.auth.uid && request.resource.data.admin == myEmail()
+        && request.resource.data.status == 'trial' && request.resource.data.plan == 'trial' && request.resource.data.isTest == false
+        && request.resource.data.createdVia == 'self_signup'
+        && request.resource.data.trialStartedAt == request.time && request.resource.data.createdAt == request.time
+        && request.resource.data.trialEndsAt is timestamp && request.resource.data.trialEndsAt > request.time + duration.value(29, 'd')
+        && request.resource.data.trialEndsAt < request.time + duration.value(31, 'd')
+        && request.resource.data.termsAcceptedAt == request.time && shortText(request.resource.data.termsVersion, 20)
+        && shortText(request.resource.data.name, 120) && request.resource.data.name.size() >= 2 && shortText(request.resource.data.adminName, 100)
+        && request.resource.data.phone is string && request.resource.data.phone.matches('^601[0-9]{8,9}$')
+        && existsAfter(/databases/$(database)/documents/signupAttempts/$(hashing.sha256(request.resource.data.phone).toHexString().lower()))
+        && getAfter(/databases/$(database)/documents/signupAttempts/$(hashing.sha256(request.resource.data.phone).toHexString().lower())).data.uid == request.auth.uid
+        && request.resource.data.industryIds is list && request.resource.data.industryIds.size() <= 5
+        && (!('industryOther' in request.resource.data) || shortText(request.resource.data.industryOther, 80))
+        && shortText(request.resource.data.staffRange, 20);
       allow update: if member(t) && resource.data.owner == null && myEmail() == resource.data.admin && owner() && 'admin' in me().roles
         && request.resource.data.owner == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['owner']);
-      allow update: if hasArea(t, 'settings') && request.resource.data.owner == resource.data.owner
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['industryIds', 'lastAuditId']);
+      // The company's own admins edit its profile, never its owner, industries or billing.
+      allow update: if hasArea(t, 'settings') && request.resource.data.owner == resource.data.owner && working(t)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['industryIds', 'lastAuditId', 'status', 'plan', 'isTest', 'trialStartedAt', 'trialEndsAt',
+          'paidUntil', 'expiredAt', 'statusNote', 'createdVia', 'termsVersion', 'termsAcceptedAt', 'admin', 'phone']);
       // Superadmin: sees every company, and sets only which industries it belongs to (with an audit entry).
       allow read: if isSuperadmin();
       // ...and can view (never change) everything inside one, for support. Opening a company from /superadmin
@@ -238,29 +325,36 @@ service cloud.firestore {
       // ...and records whether the first admin's invitation went out ("sent" or "failed"), for Retry invite.
       allow update: if audited('tenant', t) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['inviteStatus', 'inviteSentAt', 'lastAuditId'])
         && request.resource.data.inviteStatus in ['sent', 'failed'];
+      // ...and runs billing: extend a trial, mark as paid, change plan, suspend, reactivate (each audited).
+      allow update: if audited('tenant', t) && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'plan', 'trialEndsAt', 'paidUntil', 'expiredAt', 'statusNote', 'isTest', 'lastAuditId'])
+        && request.resource.data.get('status', 'active') in ['trial', 'active', 'past_due', 'expired', 'suspended', 'cancelled'];
 
+      // Everything inside a company also follows its status: written only while it's working; read while working,
+      // or by its admins once expired or cancelled (export). Suspended: nobody.
       match /buckets/{b} {
-        allow read: if member(t) && readsClass(t, resource.data.r);
-        allow create, update: if writesBucket(t, b) && request.resource.data.r == bucketClass(b);
-        allow delete: if writesBucket(t, b) && admin(t);
+        allow read: if member(t) && readsClass(t, resource.data.r) && canRead(t);
+        allow create, update: if writesBucket(t, b) && request.resource.data.r == bucketClass(b) && working(t);
+        allow delete: if writesBucket(t, b) && admin(t) && working(t);
       }
       match /people/{e} {
-        allow read: if seesPeople(t) || (member(t) && me().empId == e);
-        allow create, delete: if seesPeople(t);
-        allow update: if seesPeople(t) || (member(t) && me().empId == e
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['devices', 'face']));
+        allow read: if (seesPeople(t) || (member(t) && me().empId == e)) && canRead(t);
+        allow create, delete: if seesPeople(t) && working(t);
+        allow update: if (seesPeople(t) || (member(t) && me().empId == e
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['devices', 'face']))) && working(t);
       }
       match /payslips/{e} {
-        allow read: if hasArea(t, 'payroll') || (member(t) && me().empId == e);
-        allow write: if hasArea(t, 'payroll');
+        allow read: if (hasArea(t, 'payroll') || (member(t) && me().empId == e)) && canRead(t);
+        allow write: if hasArea(t, 'payroll') && working(t);
       }
       match /personal/{e} {
-        allow read, write: if member(t) && me().empId == e;
+        allow read: if member(t) && me().empId == e && canRead(t);
+        allow write: if member(t) && me().empId == e && working(t);
       }
       match /blobs/{id} {
-        allow read: if member(t);
-        allow create: if member(t) && request.resource.data.d is string && request.resource.data.d.size() < 1048000;
-        allow delete: if admin(t);
+        allow read: if member(t) && canRead(t);
+        allow create: if member(t) && request.resource.data.d is string && request.resource.data.d.size() < 1048000 && working(t);
+        allow delete: if admin(t) && working(t);
       }
     }
   }

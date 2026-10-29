@@ -35,6 +35,11 @@ const AUTH_MSG = {
   'auth/requires-recent-login': 'For your security, sign out and in again, then change your password.',
 };
 const authMsg = (e) => AUTH_MSG[e?.code] || 'Something went wrong. Please try again.';
+const BLOCKED_MSG = {
+  expired: 'Your company’s subscription has expired. Please contact your admin.',
+  suspended: 'Your company’s Allurus account is suspended. Please contact your admin, or Allurus at hello@allurus.my.',
+  cancelled: 'Your company’s Allurus account has been cancelled. Please contact your admin.',
+};
 
 // ---------- Sync state ----------
 const S = {
@@ -188,7 +193,8 @@ function changed() {
   clearTimeout(S.timer); S.timer = setTimeout(push, 500);
 }
 async function push() {
-  if (!S.live || S.profile?.viewOnly) return;   // superadmin viewing a company: nothing is ever sent
+  // Superadmin viewing a company, or an expired company's admin (read-only until they pay): nothing is sent.
+  if (!S.live || S.profile?.viewOnly || S.profile?.billingOnly) return;
   if (S.pushing) { S.again = true; return; }
   S.pushing = true;
   try {
@@ -273,6 +279,15 @@ new MutationObserver((list) => {
 async function start(profile) {
   stop();
   S.profile = profile; S.admin = profile.roles.includes('admin'); S.perms = Array.isArray(profile.perms) ? profile.perms : null;
+  // Trial and subscription status (firestore.rules enforces the same): staff of an expired or suspended company
+  // are stopped here with a message; its admins get the company read-only, with Billing and Export.
+  const B = window.AllurusBilling;
+  let company = null;
+  try { const c = await getDoc(doc(db, `tenants/${profile.tenantId}`)); company = c.exists() ? { id: c.id, ...c.data() } : null; } catch (e) { company = null; }
+  window.AllurusCompany = company;
+  const eff = B.effective(company || {}), acc = B.access(eff, S.admin);
+  if (!profile.viewOnly && acc === 'none') { app.companyBlocked(eff, company); throw Object.assign(new Error('company-blocked'), { blocked: eff }); }
+  if (!profile.viewOnly && acc !== 'full') profile.billingOnly = true;
   await new Promise((ready) => listen(ready));
   // Build the workspace from what the server has, on a blank company.
   const ws = app.blankWorkspace();
@@ -310,6 +325,8 @@ async function loadFeatures(tenantId) {
       getDocs(query(collection(db, 'tenantFeatureOverrides'), where('tenantId', '==', tenantId))),
       getDocs(collection(db, 'features')),
     ]);
+    // Industries with no feature links yet (catalogue not seeded): don't hide anything.
+    if (!links.docs.some((d) => d.data().linked !== false)) return;
     const featuresByKey = Object.fromEntries(feats.docs.map((d) => [d.id, { key: d.id, ...d.data() }]));
     const eff = cat.effectiveFeatures({ industryIds: ids, links: links.docs.map((d) => d.data()), overrides: overrides.docs.map((d) => d.data()), featuresByKey });
     window.AllurusFeatures = { keys: eff.keys, source: eff.source, has: (k) => eff.keys.has(k), area: (a) => cat.areaAllowed(a, eff, true) };
@@ -363,7 +380,35 @@ const api = {
       if (prof.error === 'unverified') { await Auth.signOut(auth); return { error: `Confirm your email first. We’ve sent a link to ${lower(email)}; open it, then sign in again.` }; }
       await start(prof);
       return { ok: true, profile: prof };
-    } catch (e) { console.warn('[Allurus cloud] sign-in', e); return { error: authMsg(e) }; }
+    } catch (e) {
+      if (e?.blocked) { await Auth.signOut(auth); return { error: BLOCKED_MSG[e.blocked] || BLOCKED_MSG.expired, blocked: e.blocked }; }
+      console.warn('[Allurus cloud] sign-in', e?.code); return { error: authMsg(e) };
+    }
+  },
+  // ----- Billing (company admins): plans, bank details, payment proof, invoices -----
+  async billing() {
+    const tid = S.profile.tenantId;
+    const [plans, cfg, pays, invs, co] = await Promise.all([
+      getDocs(collection(db, 'plans')).catch(() => ({ docs: [] })),
+      getDoc(doc(db, 'config/billing')).catch(() => null),
+      getDocs(query(collection(db, 'payments'), where('tenantId', '==', tid))).catch(() => ({ docs: [] })),
+      getDocs(query(collection(db, 'invoices'), where('tenantId', '==', tid))).catch(() => ({ docs: [] })),
+      getDoc(doc(db, `tenants/${tid}`)).catch(() => null),
+    ]);
+    if (co?.exists()) window.AllurusCompany = { id: co.id, ...co.data() };
+    return {
+      company: window.AllurusCompany, config: cfg?.exists() ? cfg.data() : {},
+      plans: plans.docs.map((d) => ({ id: d.id, ...d.data() })).filter((p) => p.active !== false),
+      payments: pays.docs.map((d) => { const x = d.data(); return { id: d.id, ...x, proof: undefined }; }).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)),
+      invoices: invs.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.issuedAt?.seconds || 0) - (a.issuedAt?.seconds || 0)),
+    };
+  },
+  async submitPayment(p) {
+    try {
+      await setDoc(doc(collection(db, 'payments')), { tenantId: S.profile.tenantId, planId: p.planId, months: p.months, amountMyr: p.amountMyr, reference: p.reference, method: p.method,
+        proof: p.proof, proofName: String(p.proofName || 'proof').slice(0, 119), proofType: p.proofType || '', status: 'submitted', submittedBy: lower(auth.currentUser.email), createdAt: serverTimestamp() });
+      return { ok: true };
+    } catch (e) { return { error: e.code === 'permission-denied' ? 'Only your company’s admins can send payment proof.' : 'Couldn’t send it. Check your connection and try again.' }; }
   },
   // First-time sign-in happens on allurus.my/activate (js/activate.js), from the invitation email.
   async resetPassword(email) {
@@ -486,18 +531,23 @@ Auth.onAuthStateChanged(auth, async (user) => {
       if (!prof.error) {
         // The first admin of a company the superadmin opened: claim it and lay down its empty workspace, once.
         const tref = doc(db, `tenants/${prof.tenantId}`), t = await getDoc(tref).catch(() => null);
-        if (t?.exists() && t.data().owner == null && lower(t.data().admin) === lower(user.email)) {
-          await setDoc(tref, { owner: user.uid }, { merge: true });
-          const d = t.data(), ws = app.firstWorkspace({ name: d.name, email: lower(user.email), adminName: prof.name || user.email, city: d.city || undefined });
+        // A company that signed itself up (allurus.my/signup) is already theirs; it gets the same empty workspace.
+        const d = t?.exists() ? t.data() : null, mine = d && lower(d.admin) === lower(user.email);
+        const unclaimed = mine && d.owner == null, selfNew = mine && d.owner === user.uid && d.createdVia === 'self_signup' && !d.workspaceReady;
+        if (unclaimed || selfNew) {
+          if (unclaimed) await setDoc(tref, { owner: user.uid }, { merge: true });
+          const ws = app.firstWorkspace({ name: d.name, email: lower(user.email), adminName: d.adminName || prof.name || user.email, city: d.city || undefined, phone: d.phone || '' });
           S.profile = { ...prof }; S.admin = true; S.perms = null; S.live = true;
           app.adoptCloud(ws, S.profile); await push(); S.live = false;
+          if (selfNew) await setDoc(tref, { workspaceReady: true }, { merge: true }).catch(() => {});
         }
         await start(prof); app.cloudSignedIn(); return;
       }
     } catch (e) { console.warn('[Allurus cloud] after activation', e?.code); }
   }
   if (user && sess.cloud?.uid === user.uid && sess.account) {
-    try { const prof = await profileFor(user); if (!prof.error) { await start(prof); app.cloudReady(); return; } } catch (e) { console.warn('[Allurus cloud] resume', e); }
+    try { const prof = await profileFor(user); if (!prof.error) { await start(prof); app.cloudReady(); return; } }
+    catch (e) { if (e?.blocked) return; console.warn('[Allurus cloud] resume', e?.code || e?.message); }   // blocked: its message stays
   }
   if (user && sess.cloud?.uid !== user.uid) await Auth.signOut(auth);
   app.cloudReady(sess.cloud && !user ? 'signed-out' : null);
