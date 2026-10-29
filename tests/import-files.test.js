@@ -104,7 +104,7 @@ test('9 non-admins can’t import: People area required in the app, and in Fires
   const rules = fs.readFileSync(path.join(__dirname, '..', 'firestore.rules'), 'utf8');
   assert.match(rules, /b in \['departments', 'directory', 'importData'\] \? 'people'/, 'importData writes need the People area');
   assert.match(rules, /b in \['savedReports', 'importData'\] \? 'a'/, 'importData is read by admins only');
-  assert.match(rules, /match \/people\/\{e\} \{[\s\S]*?allow create, delete: if seesPeople\(t\);/, 'creating employees needs People access');
+  assert.match(rules, /match \/people\/\{e\} \{[\s\S]*?allow create, delete: if seesPeople\(t\)( && working\(t\))?;/, 'creating employees needs People access');
   const ui = fs.readFileSync(path.join(__dirname, '..', 'js', 'import', 'import.js'), 'utf8');
   assert.match(ui, /const allowed = \(\) => !!window\.AllurusAccess\?\.can\('people'\)/);
 });
