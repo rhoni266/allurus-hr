@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.7';
+  const APP_VERSION = '3.9';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -1912,7 +1912,9 @@
       const c = state.settings.checkin;
       if (!c?.setAt || c.setAt <= sent || !U.hasCoords(c) || c.setAt <= (DEMO.published?.at || 0)) return;
       sent = c.setAt;
-      fetch(url(), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pack(c)) }).catch(() => { sent = 0; });
+      fetch(url(), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pack(c)) })
+        .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); console.info('[check-in] demo point shared', pack(c).fields); })
+        .catch((e) => { sent = 0; console.warn('[check-in] demo point not shared:', e.message); toast('Saved on this computer only: phones can’t get the new check-in point yet (shared point not available)', 'error'); });
     }
     async function pull() {
       if (!on() || busy) return;
@@ -2085,6 +2087,15 @@
       return;
     }
     const { m, inside } = U.checkZone(loc, z);
+    // Debug trail for phone testing: where the phone is, where it measures from, and the Haversine distance.
+    console.info('[check-in]', { phone: { lat: loc.lat, lng: loc.lng }, accuracyM: loc.accuracyRaw ?? loc.accuracy, target: { lat: z.lat, lng: z.lng, label: z.label }, radiusM: z.radius, distanceM: m, inside, company: state.settings.company, demo: CLOUD ? null : DEMO.id });
+    const debug = `<dl class="kv zone-debug"><dt>Check-in point</dt><dd class="num">${U.fmtCoords(z)} · ${z.radius} m</dd><dt>You are at</dt><dd class="num">${U.fmtCoords(loc)} · ±${loc.accuracy} m</dd>
+      <dt>Distance</dt><dd class="num">${m} m</dd>${z.setAt ? `<dt>Point updated</dt><dd>${new Date(z.setAt).toLocaleString()}</dd>` : ''}</dl>`;
+    // A fix less precise than the zone itself can't tell inside from outside: ask for a better one, never guess.
+    if (ci.mode === 'present' && loc.accuracy > z.radius) {
+      ciProblem('Your GPS reading isn’t precise enough', `Your phone is accurate to ±${loc.accuracy} m, but the check-in zone is ${z.radius} m. Turn on Precise Location, move near a window or outside, and try again.`, debug);
+      return;
+    }
     loc.m = m;
     loc.inside = inside;
     // Fake-GPS heuristics flag the check-in for HR; they never block it.
@@ -2093,8 +2104,7 @@
     if (ci.mode === 'present' && !loc.inside) {
       ciProblem(`You are ${U.fmtDist(m)} from ${esc(z.label)}`, `Move inside the ${z.radius} m check-in zone and try again. Your GPS accuracy is ±${loc.accuracy} m.`,
         `<div class="map-canvas map-sm" id="ci-map" role="img" aria-label="Map of the check-in zone and your position"></div>
-        <dl class="kv zone-debug"><dt>Check-in point</dt><dd class="num">${U.fmtCoords(z)} · ${z.radius} m</dd><dt>You are at</dt><dd class="num">${U.fmtCoords(loc)} · ±${loc.accuracy} m</dd>
-          ${z.setAt ? `<dt>Point updated</dt><dd>${new Date(z.setAt).toLocaleString()}</dd>` : ''}</dl>
+        ${debug}
         <a class="hint" href="${mapsLink(z)}" target="_blank" rel="noopener">Open the check-in point in Google Maps</a>`);
       AllurusMap.preview($('#ci-map'), z, loc).catch((e) => { console.warn('Check-in map unavailable:', e); $('#ci-map')?.remove(); });
       return;
@@ -2104,7 +2114,7 @@
   function ciWhere() {
     const z = zone(), L = ci.loc;
     if (L.field) return `<div class="ci-where ok">${icon('pin')}<span>Field check-in · ${L.lat != null ? `location saved (±${L.accuracy} m)` : 'location not shared'}</span></div>`;
-    return `<div class="ci-where ${L.inside ? 'ok' : ''}">${icon(L.inside ? 'check' : 'pin')}<span>${L.inside ? `Inside the check-in zone · ${U.fmtDist(L.m)} from ${esc(z.label)}` : `Remote · ${U.fmtDist(L.m)} from ${esc(z.label)}`}</span></div>`;
+    return `<div class="ci-where ${L.inside ? 'ok' : ''}">${icon(L.inside ? 'check' : 'pin')}<span>${L.inside ? `Inside the check-in zone · ${U.fmtDist(L.m)} from ${esc(z.label)} (${U.fmtCoords(z)}, ±${L.accuracy} m)` : `Remote · ${U.fmtDist(L.m)} from ${esc(z.label)}`}</span></div>`;
   }
   async function ciSelfie() {
     ci.photo = null; ci.canvas = null;
