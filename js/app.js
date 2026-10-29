@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.12';
+  const APP_VERSION = '3.13';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -807,6 +807,7 @@
       if (ui.empStatus !== 'all' && empStatus(e) !== ui.empStatus) return false;
       return !q || `${fullName(e)} ${e.email} ${e.role}`.toLowerCase().includes(q);
     }).sort((a, b) => a.first.localeCompare(b.first));
+    const acc = teamAccess.on();
     return `
       <div class="page-head">
         <div><h1>Employees</h1><p class="sub">${activeEmployees().length} active people across ${state.departments.length} departments.</p></div>
@@ -819,10 +820,12 @@
           <select class="select" id="emp-dept"><option value="all">All departments</option>${state.departments.map((d) => `<option value="${d.id}" ${ui.empDept === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
           <div class="seg" role="group" aria-label="Status">${['all', 'Active', 'On leave', 'Inactive'].map((s) => `<button data-act="emp-status" data-v="${s}" class="${ui.empStatus === s ? 'on' : ''}">${s === 'all' ? 'All' : s}</button>`).join('')}</div>
         </div>
+        ${acc && (ui.empSel || new Set()).size ? `<div class="toolbar" style="background:var(--brand-soft)"><span style="flex:1"><b>${ui.empSel.size}</b> selected</span><button class="btn btn-sm" data-act="emp-sel-none">Clear</button><button class="btn btn-sm btn-primary" data-act="acc-bulk">Send invitations</button></div>` : ''}
         <div class="table-wrap"><table>
-          <thead><tr><th>Name</th><th class="hide-sm">Department</th><th>Status</th><th class="hide-sm">Location</th><th class="hide-sm">Start date</th><th class="r">Salary</th><th></th></tr></thead>
+          <thead><tr>${acc ? `<th style="width:34px"><input type="checkbox" id="emp-sel-all" aria-label="Select everyone shown" ${list.length && list.every((e) => ui.empSel?.has(e.id)) ? 'checked' : ''}></th>` : ''}<th>Name</th><th class="hide-sm">Department</th><th>Status</th>${acc ? '<th>Sign-in</th>' : ''}<th class="hide-sm">Location</th><th class="hide-sm">Start date</th><th class="r">Salary</th><th></th></tr></thead>
           <tbody>${list.map((e) => `<tr class="clickable" data-act="view-emp" data-id="${e.id}">
-            <td>${person(e)}</td><td class="hide-sm">${deptTag(e.dept)}</td><td>${statusPill(empStatus(e))}</td>
+            ${acc ? `<td><input type="checkbox" data-sel="${e.id}" aria-label="Select ${esc(fullName(e))}" ${ui.empSel?.has(e.id) ? 'checked' : ''}></td>` : ''}
+            <td>${person(e)}</td><td class="hide-sm">${deptTag(e.dept)}</td><td>${statusPill(empStatus(e))}</td>${acc ? `<td>${teamAccess.badge(e)}</td>` : ''}
             <td class="hide-sm muted">${esc(e.location)}</td><td class="hide-sm muted num">${U.fmtDate(e.start)}</td>
             <td class="r num">${money(e.salary)}</td>
             <td><div class="row-actions"><button class="btn btn-sm btn-icon btn-ghost" data-act="edit-emp" data-id="${e.id}" aria-label="Edit ${esc(fullName(e))}">${icon('edit')}</button></div></td></tr>`).join('')}</tbody>
@@ -833,6 +836,12 @@
     const q = $('#emp-q');
     q.addEventListener('input', () => { ui.empQuery = q.value; const pos = q.selectionStart; render(); const n = $('#emp-q'); n.focus(); n.setSelectionRange(pos, pos); });
     $('#emp-dept').addEventListener('change', (ev) => { ui.empDept = ev.target.value; render(); });
+    if (!teamAccess.on()) return;
+    // Who has signed in, who is invited: loaded once per visit to the page.
+    if (!teamAccess.data && !teamAccess.loading) { teamAccess.loading = true; teamAccess.load().finally(() => { teamAccess.loading = false; if (route() === 'employees') render(); }); }
+    ui.empSel = ui.empSel || new Set();
+    $$('[data-sel]').forEach((c) => c.addEventListener('click', (ev) => { ev.stopPropagation(); c.checked ? ui.empSel.add(c.dataset.sel) : ui.empSel.delete(c.dataset.sel); render(); }));
+    $('#emp-sel-all')?.addEventListener('click', (ev) => { const ids = $$('[data-sel]').map((c) => c.dataset.sel); ids.forEach((id) => (ev.target.checked ? ui.empSel.add(id) : ui.empSel.delete(id))); render(); });
   };
 
   function employeeForm(e = {}) {
@@ -870,6 +879,14 @@
         if (!docsApi.validateEmployee(d, $('#overlay-root form'))) return false;
         if (id) {
           const before = { ...emp(id) };
+          // A new email cancels any invitation sent to the old one, so that link stops working. Send a new one.
+          const oldEmail = (before.email || '').trim().toLowerCase(), newEmail = (d.email || '').trim().toLowerCase();
+          if (CLOUD && fire()?.live && oldEmail && oldEmail !== newEmail) {
+            const st = teamAccess.data ? teamAccess.status(before) : null;
+            fire().cancelInvite(oldEmail).then(() => { teamAccess.data = null; });
+            if (st?.key === 'joined') toast(`${d.first} still signs in with ${oldEmail}. Ask them to change it in their account, or turn their access off and invite the new email.`, 'info');
+            else toast(`Email changed. Any invitation to ${oldEmail} is cancelled; send a new invitation to ${newEmail}.`, 'info');
+          }
           Object.assign(emp(id), d);
           const note = [docsApi.afterSave(before, emp(id)), hrApi.afterEdit(before, emp(id))].filter(Boolean).join(' ');
           commit(note ? `Changes saved. ${note}` : 'Changes saved', `${d.first} ${d.last}'s profile was updated`);
@@ -904,6 +921,7 @@
         <div><h2 style="font-size:24px;letter-spacing:-0.02em">${esc(fullName(e))}</h2><div class="muted" style="margin-top:2px">${esc(e.role)}</div></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">${statusPill(empStatus(e))}${deptTag(e.dept)}</div>
         <div class="actions"><button class="btn btn-sm btn-primary" data-act="edit-emp" data-id="${e.id}">${icon('edit')}Edit</button><button class="btn btn-sm" data-act="new-leave" data-id="${e.id}">${icon('calendar')}Request leave</button><button class="btn btn-sm btn-danger" data-act="ask-delete-emp" data-id="${e.id}">${icon('trash')}Remove</button></div>
+        ${teamAccess.on() && e.email ? `<div class="actions" id="acc-prof" data-emp="${e.id}" style="align-items:center"><span class="muted" style="font-size:13px">Sign-in:</span>${teamAccess.badge(e)}${teamAccess.actions(e)}</div>` : ''}
         <div id="del-confirm"></div>
         ${hrApi.tabBar(e, 'summary')}
       </div>
@@ -1377,11 +1395,11 @@
           <div class="pw-wrap"><input class="input" id="login-password" name="password" type="password" autocomplete="current-password" required><button type="button" class="pw-toggle" data-act="toggle-pw" aria-label="Show password">Show</button></div></div>
         <p class="login-error" id="login-error" role="alert" hidden></p>
         <button class="btn btn-primary login-submit" type="submit">Sign in</button>
-        ${CLOUD ? '<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px"><button type="button" class="link-btn" data-act="cloud-reset">Forgot password?</button><button type="button" class="link-btn" data-act="cloud-activate">First time here? Set up your account</button></div>' : ''}
+        ${CLOUD ? '<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px"><button type="button" class="link-btn" data-act="cloud-reset">Forgot password?</button><a class="link-btn" href="/activate">First time? Activate your account</a></div>' : ''}
       </form>
       ${CLOUD ? '' : `<div class="card demo-pick" style="width:100%;max-width:440px;margin:0 auto 16px;padding:18px 20px"><div style="font-weight:600;margin-bottom:4px">Explore the demo company</div>${Object.keys(AllurusSeed.companies).length > 1 ? `<div class="seg demo-co" role="group" aria-label="Demo company" style="margin:4px 0 8px;width:100%">${Object.values(AllurusSeed.companies).map((c) => `<button type="button" data-act="demo-company" data-v="${c.id}" class="${c.id === DEMO.id ? 'on' : ''}" aria-pressed="${c.id === DEMO.id}" style="flex:1">${esc(c.short)}</button>`).join('')}</div>` : ''}<p class="muted" style="font-size:13.5px;margin-bottom:12px">${esc(state.settings.company)}${DEMO.blurb ? ` · ${esc(DEMO.blurb)}` : ''}. A sample business; changes stay in this browser.</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${DEMO.logins.filter(([e]) => state.accounts.some((a) => a.email === e)).map(([e, label, sub]) => `<button type="button" class="btn" style="flex-direction:column;align-items:flex-start;height:auto;padding:10px 12px;text-align:left" data-act="demo-as" data-v="${e}"><span style="font-weight:600">${label}</span><span class="muted" style="font-size:12px;font-weight:400">${sub}</span></button>`).join('')}</div></div>`}
-      <div class="register-cta"><div><strong>New to Allurus?</strong><span class="muted"> Register your company and start a free trial.</span></div><button class="btn btn-primary" data-act="register">${icon('plus')}Register company</button></div>
+      ${CLOUD ? '<p class="muted" style="font-size:13.5px">New company? <a href="/#contact">Talk to Allurus</a> to open your account.</p>' : `<div class="register-cta"><div><strong>New to Allurus?</strong><span class="muted"> Register your company and start a free trial.</span></div><button class="btn btn-primary" data-act="register">${icon('plus')}Register company</button></div>`}
       <p class="faint" style="font-size:12.5px">${CLOUD ? 'Your company’s data is kept securely in the cloud and shared live with your team. <a href="?demo">Try the demo company instead</a>.' : CAN_CLOUD ? `Demo company, saved in this browser only. <a href="${location.pathname}">Sign in to your real workspace</a>.` : `Demo mode. Your workspace is saved in this browser${cloud.db ? '; company sign-ups and check-ins are also shared with the Allurus team' : ''}.`} Version ${APP_VERSION}</p>
     </div>`;
   }
@@ -1395,7 +1413,12 @@
       const btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Signing in…';
       if (CLOUD) {
         if (!fire()) { btn.disabled = false; btn.textContent = 'Sign in'; err.textContent = 'Still connecting to the server. Try again in a moment.'; err.hidden = false; return; }
+        // After 5 wrong passwords in this browser, each try waits longer (up to 30 s), on top of Firebase's own lockout.
+        const FAIL_KEY = 'allurus-signin-fails';
+        let fails = 0; try { fails = +sessionStorage.getItem(FAIL_KEY) || 0; } catch (e) { /* no storage */ }
+        if (fails >= 5) { btn.textContent = 'Please wait…'; await new Promise((r) => setTimeout(r, Math.min(30, 2 ** (fails - 4)) * 1000)); }
         const res = await fire().signIn(email, pw);
+        try { sessionStorage.setItem(FAIL_KEY, res.ok ? '0' : String(fails + 1)); } catch (e) { /* no storage */ }
         if (!res.ok) { btn.disabled = false; btn.textContent = 'Sign in'; err.textContent = res.error; err.hidden = false; form.password.value = ''; form.password.focus(); return; }
         startSession(state.accounts[0]);
         return;
@@ -2352,7 +2375,8 @@
 
   // Role-specific actions
   Object.assign(ACTIONS_EXTRA, {
-    'register': () => openRegister(),
+    // Demo mode only: in the cloud, companies are opened by Allurus (superadmin), not by sign-up.
+    'register': () => { if (CLOUD) return; openRegister(); },
     // Demo mode only: sign in as one of the sample people without a password.
     'demo-as': (_, email) => { if (CLOUD) return; const a = state.accounts.find((x) => x.email === email); if (a) startSession(a); },
     'cloud-reset': () => {
@@ -2365,24 +2389,15 @@
         },
       });
     },
-    'cloud-activate': () => {
-      openModal({
-        title: 'Set up your account', submit: 'Create my password', size: 'sm',
-        body: `<p class="muted" style="margin-bottom:12px">Use the work email HR invited. We’ll send a link to confirm it’s yours, then you can sign in.</p>
-          <div class="form-grid">
-          <div class="field full"><label for="ac-email">Work email</label><input class="input" id="ac-email" name="email" type="email" autocomplete="username" required></div>
-          <div class="field full"><label for="ac-pw">Choose a password</label><input class="input" id="ac-pw" name="password" type="password" autocomplete="new-password" minlength="8" required><span class="field-hint">At least 8 characters.</span></div>
-          <div class="field full"><label for="ac-pw2">Confirm password</label><input class="input" id="ac-pw2" name="password2" type="password" autocomplete="new-password" required></div></div>`,
-        onSubmit(d) {
-          if (!fire()) { toast('Still connecting to the server. Try again in a moment.'); return false; }
-          if (d.password.length < 8) { toast('Use at least 8 characters for your password'); return false; }
-          if (d.password !== d.password2) { toast('The two passwords don’t match'); return false; }
-          fire().activate(d.email, d.password).then((r) => toast(r.ok ? `Check ${d.email.trim()} for a link to confirm your email, then sign in here.` : r.error, r.ok ? '' : 'error'));
-        },
-      });
-    },
+    // First-time sign-in moved to its own page, from the invitation email.
+    'cloud-activate': () => { location.href = '/activate'; },
     'acc-invite': (empId) => teamAccess.invite(empId),
     'acc-invite-all': () => teamAccess.inviteAll(),
+    'acc-bulk': () => teamAccess.bulk([...(ui.empSel || [])]),
+    'emp-sel-none': () => { ui.empSel = new Set(); render(); },
+    'acc-cancel': (email) => teamAccess.cancel(email),
+    'acc-disable': (uid) => teamAccess.setDisabled(uid, true),
+    'acc-enable': (uid) => teamAccess.setDisabled(uid, false),
     'acc-revoke': (email) => teamAccess.revoke(email),
     'toggle-pw': () => { const i = $('#login-password'), b = $('[data-act="toggle-pw"]'); const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.textContent = show ? 'Hide' : 'Show'; b.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); },
     'logout': () => {
@@ -2706,18 +2721,43 @@
   // ---------- Team access (cloud mode): who can sign in, and as what ----------
   const teamAccess = {
     data: null,
+    on: () => CLOUD && can('settings') && !!fire()?.live,
+    async load() {
+      try { this.data = await fire().access(); } catch (e) { this.data = { invites: [], users: [] }; }
+      return this.data;
+    },
     async mount() {
       const el = $('#team-access'); if (!el || !fire()?.live) return;
-      try { this.data = await fire().access(); } catch (e) { this.data = { invites: [], users: [] }; }
+      await this.load();
       this.draw();
     },
+    // Not invited, Invited (with the date sent), Invitation expired, Active or Disabled (js/invite-rules.js).
     status(e) {
       const email = (e.email || '').toLowerCase(), d = this.data || { invites: [], users: [] };
       const user = d.users.find((u) => u.empId === e.id), inv = d.invites.find((i) => i.email === email);
       const tpl = (x) => ((x.roles || []).includes('admin') ? templateOf(Array.isArray(x.perms) ? x.perms : null) : 'employee');
-      if (user) return { key: 'joined', label: 'Signed in', pill: 'ok', template: tpl(user), uid: user.uid, email: user.email };
-      if (inv) return { key: 'invited', label: 'Invited', pill: 'info', template: tpl(inv), email: inv.email };
-      return { key: 'none', label: 'No access', pill: '', template: 'employee' };
+      const s = AllurusInvite.status({ user, invite: user ? null : inv });
+      const key = s.key === 'active' ? 'joined' : s.key;
+      return { ...s, key, template: user ? tpl(user) : inv ? tpl(inv) : 'employee', email: user?.email || inv?.email || email };
+    },
+    badge(e) {
+      if (!this.data) {
+        // Not loaded yet (for example a profile opened from search): load, then fill in the profile's line.
+        if (!this.loading) { this.loading = true; this.load().finally(() => { this.loading = false; const p = $('#acc-prof'), x = p && emp(p.dataset.emp); if (x) p.innerHTML = `<span class="muted" style="font-size:13px">Sign-in:</span>${this.badge(x)}${this.actions(x)}`; }); }
+        return '<span class="faint">…</span>';
+      }
+      const s = this.status(e);
+      return `<span class="pill ${s.pill}">${s.label}</span>${s.key === 'invited' && s.sentAt ? `<div class="field-hint">Sent ${U.fmtDate(new Date(s.sentAt).toISOString().slice(0, 10))}</div>` : ''}`;
+    },
+    // The buttons for one person, used on the Employees list, their profile and Settings → Team access.
+    actions(e) {
+      if (!this.data || e.id === fire()?.profile?.empId) return '';
+      const s = this.status(e), b = (act, label, id, cls = '') => `<button class="btn btn-sm ${cls}" data-act="${act}" data-id="${esc(id)}">${label}</button>`;
+      if (s.key === 'none') return b('acc-invite', 'Send invitation', e.id, 'btn-primary');
+      if (s.key === 'invited' || s.key === 'expired') return b('acc-invite', 'Resend invitation', e.id) + b('acc-cancel', 'Cancel invitation', s.email);
+      if (s.key === 'joined') return b('acc-disable', 'Turn off access', s.uid, 'btn-danger');
+      if (s.key === 'disabled') return b('acc-enable', 'Turn access back on', s.uid);
+      return '';
     },
     draw() {
       const el = $('#team-access'); if (!el) return;
@@ -2725,13 +2765,13 @@
       const rows = people.map((e) => {
         const st = this.status(e), isMe = e.id === self.empId;
         return `<tr><td>${person(e)}</td><td class="muted">${esc(e.email || 'No email')}</td>
-          <td><span class="pill ${st.pill}">${st.label}</span></td>
+          <td>${this.badge(e)}</td>
           <td>${isMe ? `<span class="muted">You · ${esc(roleLabel('admin'))}</span>` : `<select class="select" data-acc-role="${e.id}" aria-label="Access for ${esc(fullName(e))}">${this.options(st.template)}</select>`}</td>
-          <td class="r">${isMe ? '' : st.key === 'none' ? `<button class="btn btn-sm btn-primary" data-act="acc-invite" data-id="${e.id}" ${e.email ? '' : 'disabled'}>Invite</button>` : `<button class="btn btn-sm" data-act="acc-revoke" data-id="${esc(st.email || e.email)}">Remove access</button>`}</td></tr>`;
+          <td class="r"><div class="row-actions" style="opacity:1">${isMe ? '' : e.email ? this.actions(e) : '<span class="faint">No email</span>'}</div></td></tr>`;
       }).join('');
       const waiting = people.filter((e) => e.email && this.status(e).key === 'none').length;
       el.innerHTML = `<div class="card-head"><h3>Team access</h3>${waiting ? `<button class="btn btn-sm" data-act="acc-invite-all">Invite all ${waiting}</button>` : ''}</div>
-        <p class="muted" style="margin-bottom:12px">Invite people by their work email. They open Allurus, choose <b>First time here? Set up your account</b>, confirm their email and sign in. Everyone gets the employee app; a role adds parts of the company console. Managers need no role: being an approver in the leave settings is enough.</p>
+        <p class="muted" style="margin-bottom:12px">Send someone an invitation and they get an email with a sign-in link to <b>allurus.my/activate</b>, where they create their password. Invitations last ${AllurusInvite.DAYS} days. Everyone gets the employee app; a role adds parts of the company console. Managers need no role: being an approver in the leave settings is enough.</p>
         <div class="chips" style="margin-bottom:12px;flex-wrap:wrap">${shownTemplates().map(([, t]) => `<span class="tag" title="${esc(t.desc)}"><b>${esc(t.label)}</b>: ${esc(t.desc)}</span>`).join('')}</div>
         <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
       $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value)));
@@ -2749,15 +2789,36 @@
       const chosen = this.pending?.[empId] || (st.template === 'custom' ? 'employee' : st.template);
       const r = await fire().invite(e, chosen);
       if (r.ok && this.pending) delete this.pending[empId];
-      if (!quiet) toast(r.ok ? `${e.first} is invited. Ask them to choose “First time here?” on the sign-in screen with ${e.email}.` : r.error, r.ok ? '' : 'error');
-      if (!quiet) await this.mount();
-      return r.ok;
+      if (r.ok) { log(`Invitation ${st.key === 'none' ? 'sent' : 'resent'} to ${fullName(e)}${r.emailed ? '' : ' (email not sent)'}`); save(); }
+      if (!quiet) toast(r.ok && r.emailed ? `Invitation sent to ${e.email}. It’s valid until ${U.fmtDate(r.expiresAt.toISOString().slice(0, 10))}.` : r.error, r.ok && r.emailed ? '' : 'error');
+      if (!quiet) await this.refresh();
+      return r.ok && r.emailed;
     },
-    async inviteAll() {
-      const list = activeEmployees().filter((e) => e.email && this.status(e).key === 'none');
-      let n = 0; for (const e of list) if (await this.invite(e.id, true)) n++;
-      toast(`${n} ${n === 1 ? 'person' : 'people'} invited`); await this.mount();
+    async inviteAll() { this.bulk(activeEmployees().filter((e) => e.email && this.status(e).key === 'none').map((e) => e.id)); },
+    // Several at once, after confirming the count.
+    bulk(ids) {
+      const list = ids.map(emp).filter((e) => e?.email && ['none', 'invited', 'expired'].includes(this.status(e).key));
+      if (!list.length) { toast('None of those people can be invited: they need a work email and no active account.', 'error'); return; }
+      openModal({ title: 'Send invitations', size: 'sm', submit: `Send to ${list.length}`, body: `<p>Send an invitation email to ${list.length} ${list.length === 1 ? 'employee' : 'employees'}?</p><p class="muted" style="margin-top:8px">${list.slice(0, 8).map((e) => esc(fullName(e))).join(', ')}${list.length > 8 ? ` and ${list.length - 8} more` : ''}.</p>`,
+        onSubmit: () => {
+          (async () => { let n = 0; for (const e of list) { if (await this.invite(e.id, true)) n++; } toast(`${n} of ${list.length} invitations sent`, n === list.length ? '' : 'error'); ui.empSel = new Set(); await this.refresh(); })();
+        } });
     },
+    async cancel(email) {
+      const e = state.employees.find((x) => (x.email || '').toLowerCase() === String(email).toLowerCase());
+      const r = await fire().cancelInvite(email);
+      if (r.ok) { log(`Invitation cancelled for ${e ? fullName(e) : email}`); save(); }
+      toast(r.ok ? 'Invitation cancelled. The link in their email no longer works.' : r.error, r.ok ? '' : 'error');
+      await this.refresh();
+    },
+    async setDisabled(uid, off) {
+      const u = (this.data?.users || []).find((x) => x.uid === uid), e = u && emp(u.empId);
+      const r = await fire().setDisabled(uid, off);
+      if (r.ok) { log(`Access ${off ? 'turned off' : 'turned back on'} for ${e ? fullName(e) : u?.email || 'a user'}`); save(); }
+      toast(r.ok ? (off ? `${e?.first || 'Their'} access is off. They can’t open any company data, starting now.` : 'Access is back on.') : r.error, r.ok ? '' : 'error');
+      await this.refresh();
+    },
+    async refresh() { await this.load(); if ($('#team-access')) this.draw(); else render(); },
     async setRole(empId, template) {
       const e = emp(empId), st = this.status(e);
       if (st.key === 'none') { this.pending = { ...(this.pending || {}), [empId]: template }; toast(`${e.first} will be invited as ${template === 'employee' ? 'an Employee' : TEMPLATES[template].label}. Choose Invite.`); return; }
@@ -2806,6 +2867,10 @@
       if (!force) AllurusUX.pulseLive();
     },
     // The cloud finished reconnecting (or the sign-in had expired).
+    // A company the superadmin opened, set up by its first admin when they activate: empty, with them as e1.
+    firstWorkspace(d) { return newWorkspace({ currency: 'MYR', plan: 'growth', city: 'Kuala Lumpur', ...d }, false); },
+    // Just activated on /activate and already signed in: open the app as them.
+    cloudSignedIn() { cloudWaiting = false; startSession(state.accounts[0]); toast('Your account is ready. Welcome to Allurus.'); },
     cloudReady(reason) {
       cloudWaiting = false;
       if (reason === 'signed-out') { Object.assign(state.session, { account: null, roles: [], role: null }); saveLocal(); toast('Please sign in again.'); }

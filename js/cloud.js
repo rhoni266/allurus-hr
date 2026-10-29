@@ -326,11 +326,12 @@ function stop() {
 async function profileFor(user) {
   const uref = doc(db, `users/${user.uid}`);
   let snap = await getDoc(uref);
-  if (snap.exists()) return { uid: user.uid, ...snap.data() };
+  if (snap.exists()) return snap.data().disabled ? { error: 'disabled' } : { uid: user.uid, ...snap.data() };
   const email = lower(user.email);
   let inv;
   try { inv = await getDoc(doc(db, `invites/${email}`)); } catch (e) { inv = null; }
   if (!inv?.exists()) return { error: 'no-invite' };
+  if (!window.AllurusInvite.usable(inv.data())) return { error: 'expired' };
   if (!user.emailVerified) {
     await user.reload();
     if (!auth.currentUser.emailVerified) { try { await Auth.sendEmailVerification(auth.currentUser); } catch (e) { /* sent recently */ } return { error: 'unverified' }; }
@@ -356,21 +357,15 @@ const api = {
     try {
       const cred = await Auth.signInWithEmailAndPassword(auth, lower(email), password);
       const prof = await profileFor(cred.user);
-      if (prof.error === 'no-invite') { await Auth.signOut(auth); return { error: 'There’s no Allurus workspace for this email yet. Ask HR to invite you, or register your company.' }; }
+      if (prof.error === 'no-invite') { await Auth.signOut(auth); return { error: 'There’s no Allurus workspace for this email yet. Ask your HR admin to invite you.' }; }
+      if (prof.error === 'expired') { await Auth.signOut(auth); return { error: 'Your invitation has expired. Ask your HR admin to send a new one.' }; }
+      if (prof.error === 'disabled') { await Auth.signOut(auth); return { error: 'Your access to Allurus has been turned off. Contact your HR admin.' }; }
       if (prof.error === 'unverified') { await Auth.signOut(auth); return { error: `Confirm your email first. We’ve sent a link to ${lower(email)}; open it, then sign in again.` }; }
       await start(prof);
       return { ok: true, profile: prof };
     } catch (e) { console.warn('[Allurus cloud] sign-in', e); return { error: authMsg(e) }; }
   },
-  // First time for an invited employee: create their password and send the confirmation email.
-  async activate(email, password) {
-    try {
-      const cred = await Auth.createUserWithEmailAndPassword(auth, lower(email), password);
-      await Auth.sendEmailVerification(cred.user);
-      await Auth.signOut(auth);
-      return { ok: true };
-    } catch (e) { return { error: authMsg(e) }; }
-  },
+  // First-time sign-in happens on allurus.my/activate (js/activate.js), from the invitation email.
   async resetPassword(email) {
     try { await Auth.sendPasswordResetEmail(auth, lower(email)); return { ok: true }; } catch (e) { return { error: authMsg(e) }; }
   },
@@ -412,13 +407,31 @@ const api = {
     return { invites: inv.docs.map((d) => ({ email: d.id, ...d.data() })), users: users.docs.map((d) => ({ uid: d.id, ...d.data() })) };
   },
   // template: 'employee', or a role template from app.js ('owner', 'hr', 'payroll', 'finance').
+  // Send (or resend) an invitation: the invites/{email} record with a 7-day expiry, then Firebase emails the
+  // person a one-time sign-in link to allurus.my/activate?c=<company>. Never automatic: an admin presses the button.
   async invite(emp, template = 'employee') {
     const email = lower(emp.email);
     if (!email) return { error: `${emp.first} has no work email. Add one on their profile first.` };
+    const I = window.AllurusInvite, expiresAt = I.expiry();
     try {
-      await setDoc(doc(db, `invites/${email}`), { tenantId: S.profile.tenantId, empId: emp.id, name: `${emp.first} ${emp.last}`.trim(), ...access(template), invitedBy: S.profile.email, invitedAt: serverTimestamp() });
-      return { ok: true };
+      await setDoc(doc(db, `invites/${email}`), { tenantId: S.profile.tenantId, empId: emp.id, name: `${emp.first} ${emp.last}`.trim(), company: String(app.state.settings?.company || '').slice(0, 120), ...access(template), invitedBy: S.profile.email, invitedAt: serverTimestamp(), sentAt: serverTimestamp(), expiresAt: FS.Timestamp.fromDate(expiresAt) });
     } catch (e) { return { error: e.code === 'permission-denied' ? 'You can only give access you have yourself.' : 'Couldn’t save the invite. Check your connection.' }; }
+    try {
+      await Auth.sendSignInLinkToEmail(auth, email, { url: I.link(location.origin, S.profile.tenantId), handleCodeInApp: true });
+      return { ok: true, emailed: true, expiresAt };
+    } catch (e) {
+      console.warn('[Allurus cloud] invitation email', e?.code);
+      return { ok: true, emailed: false, expiresAt, error: e?.code === 'auth/operation-not-allowed' ? 'The invitation is saved, but email sign-in links are turned off for this project (Firebase console → Authentication → Sign-in method → Email link).' : 'The invitation is saved, but the email couldn’t be sent. Try Resend.' };
+    }
+  },
+  // Cancel a pending invitation (or the old one when the email changes): the link stops working.
+  async cancelInvite(email) {
+    try { await FS.deleteDoc(doc(db, `invites/${lower(email)}`)); return { ok: true }; } catch (e) { return { error: 'Couldn’t cancel the invitation.' }; }
+  },
+  // Turn someone's access off or back on. Off blocks them at once (firestore.rules: member()).
+  async setDisabled(uid, disabled) {
+    try { await setDoc(doc(db, `users/${uid}`), { disabled: !!disabled }, { merge: true }); return { ok: true }; }
+    catch (e) { return { error: 'Couldn’t change their access. You need the Settings area, and can’t change your own.' }; }
   },
   async setRole(uid, template) {
     try { await setDoc(doc(db, `users/${uid}`), access(template, true), { merge: true }); return { ok: true }; }
@@ -450,6 +463,24 @@ Auth.onAuthStateChanged(auth, async (user) => {
   const sess = app.state.session;
   if (!firstAuth) return;
   firstAuth = false;
+  // Straight from allurus.my/activate: they're signed in with their new password; open their workspace.
+  if (user && /[?&]activated\b/.test(location.search)) {
+    history.replaceState(null, '', location.pathname + location.hash);
+    try {
+      const prof = await profileFor(user);
+      if (!prof.error) {
+        // The first admin of a company the superadmin opened: claim it and lay down its empty workspace, once.
+        const tref = doc(db, `tenants/${prof.tenantId}`), t = await getDoc(tref).catch(() => null);
+        if (t?.exists() && t.data().owner == null && lower(t.data().admin) === lower(user.email)) {
+          await setDoc(tref, { owner: user.uid }, { merge: true });
+          const d = t.data(), ws = app.firstWorkspace({ name: d.name, email: lower(user.email), adminName: prof.name || user.email, city: d.city || undefined });
+          S.profile = { ...prof }; S.admin = true; S.perms = null; S.live = true;
+          app.adoptCloud(ws, S.profile); await push(); S.live = false;
+        }
+        await start(prof); app.cloudSignedIn(); return;
+      }
+    } catch (e) { console.warn('[Allurus cloud] after activation', e?.code); }
+  }
   if (user && sess.cloud?.uid === user.uid && sess.account) {
     try { const prof = await profileFor(user); if (!prof.error) { await start(prof); app.cloudReady(); return; } } catch (e) { console.warn('[Allurus cloud] resume', e); }
   }

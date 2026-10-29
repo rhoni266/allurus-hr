@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Activate your account | Allurus</title>
+<meta name="description" content="Activate your Allurus account from your company's invitation.">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg">
+<link rel="stylesheet" href="css/styles.css?v=3.13">
+<style>
+  .ac-rules { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; text-align: left; font-size: 13px; color: var(--fg-2); }
+  .ac-rules li::before { content: "○"; display: inline-block; width: 18px; color: var(--fg-3); }
+  .ac-rules li.ok { color: var(--ok); } .ac-rules li.ok::before { content: "✓"; color: var(--ok); }
+  .ac-note { font-size: 13.5px; color: var(--fg-2); text-align: left; margin: 0; }
+  .ac-ok { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--ok-soft); color: var(--ok); font-size: 13.5px; font-weight: 500; text-align: left; }
+  .ac-step { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--fg-3); margin: 0; text-align: left; }
+</style>
+</head>
+<body>
+<main class="login" id="ac"><div class="login-inner"><p class="sub">Loading…</p></div></main>
+<script src="js/firebase-config.js?v=3.13"></script>
+<script src="js/invite-rules.js?v=3.13"></script>
+<script src="js/password-rules.js?v=3.13"></script>
+<script type="module" src="js/activate.js?v=3.13"></script>
+</body>
+</html>

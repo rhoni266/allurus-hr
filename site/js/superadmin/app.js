@@ -306,12 +306,35 @@ async function copyLinks() {
 
 /* Companies */
 function tenants() {
-  return `<div class="sa-head"><h1>Companies</h1></div>
+  return `<div class="sa-head"><h1>Companies</h1><div class="sa-tools"><button type="button" class="sa-btn primary" data-new-tenant>New company</button></div></div>
+    <p class="sa-muted">Companies can’t sign themselves up. Open one here: its first admin gets an invitation email and activates at allurus.my/activate.</p>
     <div class="sa-table-wrap"><table class="sa-table"><thead><tr><th>Company</th><th>Admin</th><th>Plan</th><th>Industries</th><th>Overrides</th><th></th></tr></thead><tbody>
     ${S.tenants.map((t) => `<tr><td><b>${esc(t.name || t.id)}</b><br><span class="sa-muted">${esc(t.industry || "")}</span></td><td>${esc(t.admin || "")}</td><td>${esc(t.plan || "")}</td>
       <td>${(t.industryIds || []).map((s) => `<span class="sa-chip">${esc(indBySlug(s)?.name || s)}</span>`).join(" ") || '<span class="sa-muted">None (every area on)</span>'}</td>
       <td>${S.overrides.filter((o) => o.tenantId === t.id && o.mode !== "none").length}</td>
       <td><button type="button" class="sa-btn" data-tenant="${esc(t.id)}">Open</button></td></tr>`).join("") || '<tr><td colspan="6" class="sa-muted">No companies yet.</td></tr>'}</tbody></table></div>`;
+}
+// A new company, with no owner until its first admin activates their invitation (an Owner: every area).
+async function newTenant() {
+  const fd = await ask("New company", `<div class="sa-grid">
+    <label class="sa-f full"><span>Company name</span><input name="name" required maxlength="120"></label>
+    <label class="sa-f"><span>First admin’s name</span><input name="adminName" required maxlength="100"></label>
+    <label class="sa-f"><span>First admin’s work email</span><input name="email" type="email" required maxlength="200"></label>
+    <label class="sa-f"><span>City <em>(optional)</em></span><input name="city" maxlength="60"></label>
+    <label class="sa-f"><span>Industry <em>(optional)</em></span><select name="ind"><option value="">None</option>${S.industries.filter((i) => !i.archived).map((i) => `<option value="${esc(i.slug)}">${esc(i.name)}</option>`).join("")}</select></label></div>
+    <p class="sa-muted">They get an email with a sign-in link, valid 7 days. No account exists until they activate.</p>`, "Create and invite");
+  if (!fd) return;
+  const name = String(fd.get("name")).trim(), email = String(fd.get("email")).trim().toLowerCase(), adminName = String(fd.get("adminName")).trim();
+  if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast("Enter a company name and a valid email.", true);
+  const tref = doc(collection(db, "tenants"));
+  try {
+    await save([{ type: "tenant", path: `tenants/${tref.id}`, data: { owner: null, name, admin: email, city: String(fd.get("city") || "").trim(), industry: "", plan: "growth", seats: 0, createdAt: serverTimestamp() }, before: null, action: "create-company", plain: true }]);
+    const expiresAt = new Date(Date.now() + 7 * 864e5);
+    await FS.setDoc(doc(db, `invites/${email}`), { tenantId: tref.id, empId: "e1", name: adminName, company: name, roles: ["admin", "employee"], invitedBy: S.user.email || "", invitedAt: serverTimestamp(), sentAt: serverTimestamp(), expiresAt: FS.Timestamp.fromDate(expiresAt) });
+    await AU.sendSignInLinkToEmail(auth, email, { url: `${location.origin}/activate?c=${encodeURIComponent(tref.id)}`, handleCodeInApp: true });
+    toast(`${name} created. Invitation sent to ${email}.`);
+  } catch (e) { console.error(e?.code); toast(`Not finished: ${e.code === "permission-denied" ? "permission denied" : e.code || e.message}`, true); }
+  await load(); render();
 }
 async function openTenant(id) {
   const t = S.tenants.find((x) => x.id === id), F = fbk();
@@ -438,6 +461,7 @@ main.addEventListener("click", async (e) => {
   else if (d.linkAll) linkToAll(d.linkAll);
   else if ("copyLinks" in d) copyLinks();
   else if (d.tenant) openTenant(d.tenant);
+  else if ("newTenant" in d) newTenant();
   else if ("csv" in d) exportCsv();
 });
 main.addEventListener("change", async (e) => {

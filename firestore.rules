@@ -25,7 +25,8 @@ service cloud.firestore {
     function userDoc() { return /databases/$(database)/documents/users/$(request.auth.uid); }
     function hasProfile() { return signedIn() && exists(userDoc()); }
     function me() { return get(userDoc()).data; }
-    function member(t) { return hasProfile() && me().tenantId == t; }
+    // A disabled person (users/{uid}.disabled, set by an admin) is no longer a member: blocked at once.
+    function member(t) { return hasProfile() && me().tenantId == t && me().get('disabled', false) != true; }
     function admin(t) { return member(t) && ('admin' in me().roles); }
     function myEmail() { return request.auth.token.email.lower(); }
 
@@ -90,22 +91,23 @@ service cloud.firestore {
     match /users/{uid} {
       allow get: if signedIn() && (request.auth.uid == uid || hasArea(resource.data.tenantId, 'settings'));
       allow list: if hasProfile() && resource.data.tenantId == me().tenantId && hasArea(me().tenantId, 'settings');
-      // Joining from an invite (email confirmed), or the founder of a company they just created.
+      // The only way into a company: activating an admin's invitation (allurus.my/activate) with that email
+      // confirmed, before the invitation expires. Company, roles, areas and employee come from the invitation,
+      // never from the browser. Nobody signs a company up themselves; the superadmin creates companies.
       allow create: if signedIn() && request.auth.uid == uid && !hasProfile()
-        && request.resource.data.email == myEmail()
-        && (
-          (verified() && exists(/databases/$(database)/documents/invites/$(myEmail()))
-            && inviteFor(myEmail()).tenantId == request.resource.data.tenantId
-            && inviteFor(myEmail()).roles == request.resource.data.roles
-            && inviteFor(myEmail()).empId == request.resource.data.empId
-            && samePerms(request.resource.data, inviteFor(myEmail())))
-          || (get(/databases/$(database)/documents/tenants/$(request.resource.data.tenantId)).data.owner == uid
-            && request.resource.data.roles == ['admin', 'employee'] && request.resource.data.empId == 'e1'
-            && !('perms' in request.resource.data))
-        );
-      // Admins with the settings area change someone else's access in their company; nobody changes their own.
+        && request.resource.data.email == myEmail() && verified()
+        && exists(/databases/$(database)/documents/invites/$(myEmail()))
+        && inviteFor(myEmail()).expiresAt is timestamp && inviteFor(myEmail()).expiresAt > request.time
+        && inviteFor(myEmail()).tenantId == request.resource.data.tenantId
+        && inviteFor(myEmail()).roles == request.resource.data.roles
+        && inviteFor(myEmail()).empId == request.resource.data.empId
+        && samePerms(request.resource.data, inviteFor(myEmail()))
+        && !('disabled' in request.resource.data);
+      // Admins with the settings area change someone else's access in their company, or disable them; nobody
+      // changes their own.
       allow update: if signedIn() && request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings')
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled'])
+        && request.resource.data.get('disabled', false) is bool
         && validRoles(request.resource.data) && grantable(request.resource.data) && grantable(resource.data);
       allow delete: if signedIn() && request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings') && grantable(resource.data);
     }
@@ -113,9 +115,19 @@ service cloud.firestore {
     match /invites/{email} {
       allow get: if signedIn() && (myEmail() == email || hasArea(resource.data.tenantId, 'settings'));
       allow list: if hasProfile() && resource.data.tenantId == me().tenantId && hasArea(me().tenantId, 'settings');
+      // An invitation lasts at most 8 days (the app gives 7); resending writes a new expiry.
       allow create, update: if email == email.lower() && hasArea(request.resource.data.tenantId, 'settings')
-        && validRoles(request.resource.data) && grantable(request.resource.data);
+        && validRoles(request.resource.data) && grantable(request.resource.data) && validExpiry();
       allow delete: if hasArea(resource.data.tenantId, 'settings');
+      // The superadmin invites a new company's first admin (an Owner: every area).
+      allow get: if isSuperadmin();
+      allow create, update: if isSuperadmin() && email == email.lower() && request.resource.data.roles == ['admin', 'employee']
+        && request.resource.data.empId == 'e1' && !('perms' in request.resource.data) && validExpiry()
+        && exists(/databases/$(database)/documents/tenants/$(request.resource.data.tenantId));
+    }
+    function validExpiry() {
+      return request.resource.data.expiresAt is timestamp && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt < request.time + duration.value(8, 'd');
     }
 
     // Enquiries from the contact form on allurus.my: anyone may add one with these fields only; nobody can read,
@@ -204,8 +216,13 @@ service cloud.firestore {
 
     match /tenants/{t} {
       allow read: if member(t);
-      allow create: if signedIn() && !hasProfile() && request.resource.data.owner == request.auth.uid
-        && !request.resource.data.keys().hasAny(['industryIds', 'lastAuditId']);
+      // Only the superadmin opens a company (with an audit entry). It has no owner until its first admin
+      // activates their invitation and claims it, once.
+      allow create: if audited('tenant', t) && request.resource.data.owner == null
+        && request.resource.data.keys().hasOnly(['owner', 'name', 'admin', 'industry', 'city', 'country', 'plan', 'seats', 'createdAt', 'lastAuditId'])
+        && request.resource.data.admin is string && request.resource.data.admin == request.resource.data.admin.lower();
+      allow update: if member(t) && resource.data.owner == null && myEmail() == resource.data.admin && owner() && 'admin' in me().roles
+        && request.resource.data.owner == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['owner']);
       allow update: if hasArea(t, 'settings') && request.resource.data.owner == resource.data.owner
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['industryIds', 'lastAuditId']);
       // Superadmin: sees every company, and sets only which industries it belongs to (with an audit entry).
