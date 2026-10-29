@@ -72,6 +72,23 @@ async function verifyEmail() {
   });
 }
 
+// "Your email was changed" email: put the old address back (and suggest a new password), after a button press.
+async function recoverEmail() {
+  let info;
+  try { info = await Auth.checkActionCode(auth, code); } catch (e) { hide(); problem(e, '<a class="btn btn-primary login-submit" href="/app">Go to sign in</a>'); return; }   // read-only
+  hide();
+  const restored = info.data.email;
+  page('Undo the email change', `<p class="ac-note" style="margin:0">Your Allurus sign-in email was changed${info.data.previousEmail ? ` to <b>${esc(info.data.previousEmail)}</b>` : ''}. If that wasn’t you, put it back to <b>${esc(restored)}</b>.</p><button class="btn btn-primary login-submit" id="go">Restore ${esc(restored)}</button>`);
+  document.getElementById('go').addEventListener('click', async () => {
+    try {
+      await Auth.applyActionCode(auth, code);   // the one-time step
+      page('Email restored', `<p class="ac-ok" role="status">Your sign-in email is ${esc(restored)} again. If someone else changed it, change your password now.</p>
+        <button class="btn btn-primary login-submit" id="rs">Email me a password reset link</button><a class="btn login-submit" href="/app">Sign in</a>`);
+      document.getElementById('rs').addEventListener('click', async (ev) => { ev.target.disabled = true; try { await Auth.sendPasswordResetEmail(auth, restored); ev.target.textContent = 'Reset email sent'; } catch (e) { ev.target.textContent = 'Couldn’t send it. Use Forgot password? on the sign-in page.'; } });
+    } catch (e) { problem(e, '<a class="btn btn-primary login-submit" href="/app">Go to sign in</a>'); }
+  });
+}
+
 // Invitation sign-in links: hand the whole link to /activate, keeping the company code from the continue URL.
 function signIn() {
   let c = '';
@@ -82,6 +99,7 @@ function signIn() {
 
 if (!window.ALLURUS_FIREBASE?.apiKey || !code) page('Link not recognised', '<p class="login-error" role="alert">This link is incomplete. Open it again from the email, or request a new one.</p><a class="btn btn-primary login-submit" href="/app">Go to sign in</a>');
 else if (mode === 'resetPassword') resetPassword();
-else if (mode === 'verifyEmail') verifyEmail();
+else if (mode === 'verifyEmail' || mode === 'verifyAndChangeEmail') verifyEmail();
+else if (mode === 'recoverEmail' || mode === 'revertSecondFactorAddition') recoverEmail();
 else if (mode === 'signIn') signIn();
 else page('Link not recognised', '<p class="login-error" role="alert">This kind of link isn’t used by Allurus. Ask your HR admin.</p><a class="btn btn-primary login-submit" href="/app">Go to sign in</a>');
