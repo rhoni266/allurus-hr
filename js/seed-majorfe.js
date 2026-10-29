@@ -10,8 +10,10 @@
   const r2 = (n) => Math.round(n * 100) / 100;
   const COMPANY = 'Major Far East Sdn Bhd';
   const DOMAIN = 'majorfareast.com.my';
-  // The warehouse's check-in point (Kepong). The lorry driver may check in outside it (field staff).
-  const published = { company: COMPANY, label: 'Major Far East warehouse, Kepong', lat: 3.2102, lng: 101.6346, radius: 100, field: ['e11'], at: Date.UTC(2026, 9, 26, 1, 0) };
+  // The demo's starting check-in point (the site set in Settings, Kemaman). The lorry driver may check in outside it
+  // (field staff). `at` only orders it against points HR saves later (newer wins); it replaces the old Kepong point
+  // (at 26 Oct) on phones that still have it. The app shows it as "demo default", not as a time someone saved it.
+  const published = { company: COMPANY, label: 'Major Far East site, Kemaman', lat: 4.245987, lng: 103.41691, radius: 100, field: ['e11'], at: Date.UTC(2026, 9, 29, 0, 0) };
 
   function create() {
     const T = U.today();

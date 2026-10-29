@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.9';
+  const APP_VERSION = '3.10';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -1170,11 +1170,12 @@
     const c = s.checkin, z = zone(), set = z.source === 'checkin';
     return `<div class="card" id="checkin-card"><div class="card-head"><h3>Check-in location</h3><a class="hint" id="z-maplink" href="${mapsLink(z)}" target="_blank" rel="noopener">View on Google Maps</a></div>
         <p class="muted" style="margin-bottom:6px">Employees must be inside this circle and take a selfie to check in. This is separate from the head office city above.</p>
+        <div class="dept-note" id="z-record">${icon('shield')}<span>${CLOUD ? `Editing: <b>Real account</b> · ${esc(s.company)}. Saved to your company’s cloud workspace; staff phones signed in to it check in against this point.` : `Editing: <b>Demo</b> · ${esc(DEMO.name)} (<code>?demo=${esc(DEMO.id)}</code>). Saved in this browser and shared to phones that open the same demo link. Your real account is not changed.`}</span></div>
         <div class="lock-banner warn" id="z-warn" ${set ? 'hidden' : ''}>${icon('pin')}<span>No check-in point is set, so employees can’t check in yet. Drop the pin on the map or paste coordinates below.</span></div>
         <div class="settings-row"><div><div class="label">Name</div><div class="desc">Shown to employees, for example “Allurus HQ”.</div></div><input class="input" id="z-label" value="${esc(c.label || '')}" style="width:min(260px,100%)"></div>
         <div class="settings-row zone-coords"><div><div class="label"><label for="z-coords">Coordinates</label></div><div class="desc">Paste from Google Maps, as decimals (4.238203, 103.419428) or degrees (4°14'17.5"N 103°25'10.0"E). Saves automatically.</div></div>
           <div class="zone-field"><div class="actions"><input class="input num" id="z-coords" value="${set ? esc(U.fmtCoords(c)) : ''}" placeholder="4.238203, 103.419428" autocomplete="off" spellcheck="false" inputmode="text" aria-describedby="z-coords-msg"><button class="btn" data-act="zone-here">${icon('pin')}Use my location</button></div>
-          <span class="field-hint" id="z-coords-msg" role="status">${set ? `Saved${c.setAt ? ' ' + new Date(c.setAt).toLocaleString() : ''}.` : 'Not set yet.'}</span></div></div>
+          <span class="field-hint" id="z-coords-msg" role="status">${set ? `${pointWhen(c)}.` : 'Not set yet.'}</span></div></div>
         <div class="map-pick">
           <form class="map-search" id="z-search" role="search"><input class="input" type="search" id="z-q" placeholder="Search a place or address" aria-label="Search a place or address" autocomplete="off"><button class="btn" type="submit">${icon('search')}<span>Search</span></button></form>
           <div class="map-results" id="z-results" hidden></div>
@@ -1185,6 +1186,8 @@
         <div class="settings-row"><div><div class="label">Field staff</div><div class="desc">${(c.field || []).length ? `${(c.field || []).map((id) => emp(id)).filter(Boolean).map((e) => esc(fullName(e))).join(', ')} can check in from anywhere, with a selfie.` : 'Nobody yet.'} Change this on each person’s profile under Employees.</div></div></div>
         <div class="settings-row"><div><div class="label">Staff phones</div><div class="desc">In this demo every browser keeps its own copy of the settings. Send staff this link once so their phone uses this exact check-in point.</div></div><button class="btn" data-act="zone-link" ${set ? '' : 'disabled'}>Copy setup link</button></div>`;
   }
+  // When the point was set: the real time HR saved it, or "demo default" for the demo company's starting point.
+  const pointWhen = (c) => (!c.setAt ? 'Saved' : !CLOUD && c.setAt === DEMO.published?.at ? 'Demo default point (not yet changed in Settings)' : `Saved ${new Date(c.setAt).toLocaleString()}`);
   // Save a new check-in point without re-rendering the page, and keep the field, link and map in sync.
   function setZonePoint(p, how) {
     const c = state.settings.checkin;
@@ -2090,7 +2093,7 @@
     // Debug trail for phone testing: where the phone is, where it measures from, and the Haversine distance.
     console.info('[check-in]', { phone: { lat: loc.lat, lng: loc.lng }, accuracyM: loc.accuracyRaw ?? loc.accuracy, target: { lat: z.lat, lng: z.lng, label: z.label }, radiusM: z.radius, distanceM: m, inside, company: state.settings.company, demo: CLOUD ? null : DEMO.id });
     const debug = `<dl class="kv zone-debug"><dt>Check-in point</dt><dd class="num">${U.fmtCoords(z)} · ${z.radius} m</dd><dt>You are at</dt><dd class="num">${U.fmtCoords(loc)} · ±${loc.accuracy} m</dd>
-      <dt>Distance</dt><dd class="num">${m} m</dd>${z.setAt ? `<dt>Point updated</dt><dd>${new Date(z.setAt).toLocaleString()}</dd>` : ''}</dl>`;
+      <dt>Distance</dt><dd class="num">${m} m</dd>${z.setAt ? `<dt>Point updated</dt><dd>${pointWhen(z)}</dd>` : ''}<dt>Record</dt><dd>${CLOUD ? 'Real account' : `Demo (${esc(DEMO.id)})`}</dd></dl>`;
     // A fix less precise than the zone itself can't tell inside from outside: ask for a better one, never guess.
     if (ci.mode === 'present' && loc.accuracy > z.radius) {
       ciProblem('Your GPS reading isn’t precise enough', `Your phone is accurate to ±${loc.accuracy} m, but the check-in zone is ${z.radius} m. Turn on Precise Location, move near a window or outside, and try again.`, debug);
