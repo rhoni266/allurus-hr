@@ -234,7 +234,7 @@ window.AllurusEInvoice = (function () {
       'einv-contact': (id, v) => contactForm(id, v),
       'einv-contact-for': (id, v) => { const rec = recOf(id, v), cc = contactOf(rec); contactForm(cc?.id || '', v === 'bill' ? 'supplier' : 'customer', () => { if (!cc) { const made = contacts().find((x) => x.name === (rec.customer || rec.supplier)); if (made) rec.contactId = made.id; } check(id, v); }); if (!cc) { const n = ctx.$('#ct-name'); if (n) n.value = rec.customer || rec.supplier; } },
       'einv-contact-del': (id) => { const cc = contacts().find((x) => x.id === id); fin().contacts = contacts().filter((x) => x.id !== id); [...fin().invoices, ...fin().bills].forEach((r) => { if (r.contactId === id) r.contactId = ''; }); ctx.closeOverlay(); ctx.commit(`${cc.name} removed`); },
-      'einv-company': () => { location.hash = 'settings'; setTimeout(() => ctx.$('#einv-company')?.scrollIntoView({ block: 'start' }), 80); },
+      'einv-company': () => { window.AllurusSettingsGo('einv-company'); },
     });
     return { pill, panel: (inv) => panelHtml(inv, 'invoice'), contactReady, settingsCard, bindSettings, insights, inputFor, inputForBill, companyProblems };
   }

@@ -108,7 +108,7 @@ window.AllurusUX = (function () {
   const SETUP = {
     admin: [
       ['visit:dashboard', 'Look around your dashboard', '#dashboard'],
-      ['visit:settings', 'Check your office check-in location', '#settings'],
+      ['visit:settings', 'Check your office check-in location', '#settings/checkin'],
       ['visit:employees', 'Review your team', '#employees'],
       ['visit:claims', 'Set up claim categories', '#claims'],
       ['visit:payroll', 'Preview this month’s payroll', '#payroll'],
@@ -128,7 +128,7 @@ window.AllurusUX = (function () {
       ['visit:companies', 'Review subscribed companies', '#companies'],
       ['visit:billing', 'Check plans and billing', '#billing'],
       ['act:ux-palette', 'Jump anywhere with ⌘K', 'ux-palette'],
-      ['act:ux-look', 'Pick your theme and colour', '#settings'],
+      ['act:ux-look', 'Pick your theme and colour', '#settings/account'],
     ],
     auditor: [
       ['visit:reports', 'Open the reports to verify', '#reports'],
@@ -350,12 +350,12 @@ window.AllurusUX = (function () {
     { roles: ['*'], label: 'Use dark mode', icon: 'moon', keywords: 'theme night appearance', run: () => setPref('theme', 'dark') },
     { roles: ['*'], label: 'Use light mode', icon: 'sun', keywords: 'theme day appearance', run: () => setPref('theme', 'light') },
     { roles: ['*'], label: 'Match my device’s theme', icon: 'auto', keywords: 'theme auto system appearance', run: () => setPref('theme', 'system') },
-    { roles: ['*'], label: 'Change colours, text size and density', icon: 'palette', keywords: 'accent appearance accessibility font contrast', run: () => { go('settings'); setTimeout(() => $('#appearance')?.scrollIntoView({ block: 'start' }), 80); } },
+    { roles: ['*'], label: 'Change colours, text size and density', icon: 'palette', keywords: 'accent appearance accessibility font contrast', run: () => { window.AllurusSettingsGo('appearance'); } },
     { roles: ['*'], label: 'Take the tour', icon: 'sparkle', keywords: 'help onboarding guide', run: () => startTour() },
     { roles: ['*'], label: 'Help and keyboard shortcuts', icon: 'help', keywords: 'support tips', run: () => openHelp() },
     { roles: ['*'], label: 'Sign out', icon: 'lock', keywords: 'logout log out', run: () => act('logout') },
   ];
-  const goSection = (id) => { go('settings'); setTimeout(() => $('#' + id)?.scrollIntoView({ block: 'start' }), 80); };
+  const goSection = (id) => { window.AllurusSettingsGo(id); };
   const go = (id) => { if (location.hash === '#' + id) ctx.render(); else location.hash = id; };
   const act = (name, id, v) => ctx.ACTIONS[name]?.(id, v);
   const goThen = (route, name, id, v) => { go(route); setTimeout(() => act(name, id, v), 80); };
@@ -491,7 +491,7 @@ window.AllurusUX = (function () {
       ${h ? `<div class="drawer-section"><h4>Tips for this page</h4><ul class="help-list">${h[1].map((t) => `<li>${ctx.icon('sparkle')}<span>${ctx.esc(t)}</span></li>`).join('')}</ul></div>` : ''}
       <div class="drawer-section"><h4>Getting started</h4><p class="muted">${s.n} of ${s.total} setup steps done.</p><div class="actions"><button class="btn btn-sm" data-act="ux-tour">${ctx.icon('sparkle')}Take the tour</button>${hidden || s.complete ? `<button class="btn btn-sm btn-ghost" data-act="ux-setup-show">Show setup checklist</button>` : ''}</div></div>
       <div class="drawer-section"><h4>Keyboard shortcuts</h4><dl class="kv shortcuts"><dt><kbd>⌘</kbd><kbd>K</kbd> or <kbd>/</kbd></dt><dd>Search people, pages and actions</dd><dt><kbd>?</kbd></dt><dd>Open this help</dd><dt><kbd>esc</kbd></dt><dd>Close a window</dd><dt><kbd>↑</kbd><kbd>↓</kbd> <kbd>↵</kbd></dt><dd>Move and choose in search</dd></dl></div>
-      <div class="drawer-section"><h4>Accessibility</h4><p class="muted">Turn on larger text, more contrast or less motion in <a href="#settings" data-act="close-overlay">Settings → Appearance</a>. Everything works with a keyboard and screen reader.</p></div>`);
+      <div class="drawer-section"><h4>Accessibility</h4><p class="muted">Turn on larger text, more contrast or less motion in <a href="#settings/account" data-act="close-overlay">Settings → Appearance</a>. Everything works with a keyboard and screen reader.</p></div>`);
     trapFocus($('.drawer'));
     setTimeout(() => $('.drawer button')?.focus(), 30);
   }

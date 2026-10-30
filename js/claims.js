@@ -502,7 +502,7 @@ window.AllurusClaims = (function () {
       'cl-tab': (_, v) => { cui.tab = v; ctx.render(); },
       'cl-by': (_, v) => { cui.by = v; ctx.render(); },
       'cl-report-csv': () => { const rep = R.report(list(), reportOpts()); const text = R.reportCSV(rep); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' })); a.download = `claims-by-${cui.by}-${cui.year}.csv`; document.body.appendChild(a); a.click(); a.remove(); toast(`${a.download} downloaded`); },
-      'cl-goto': (_, id) => { location.hash = 'settings'; setTimeout(() => ctx.$('#' + id)?.scrollIntoView({ block: 'start' }), 80); },
+      'cl-goto': (_, id) => { window.AllurusSettingsGo(id); },
       'cl-review': (id) => review(id),
       'cl-approve': (id) => decide(id, true),
       'cl-reject': (id) => decide(id, false),

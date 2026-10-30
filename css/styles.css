@@ -1620,3 +1620,54 @@ tr.ops-low td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
 .im-table tr.im-off td { opacity: .6; }
 .im-notes { white-space: normal !important; min-width: 220px; color: var(--fg-2); }
 .im-err { color: var(--bad); font-weight: 600; }
+
+/* Settings: one section at a time. A side menu on a computer; on a phone, the list, then the section full screen. */
+.st { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; align-items: start; }
+.st-side { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 10px; }
+.st-search { position: relative; }
+.st-search .input { width: 100%; }
+.st-results { position: absolute; z-index: 40; left: 0; right: 0; top: calc(100% + 4px); background: var(--surface); border-radius: 14px; box-shadow: var(--shadow-lg, 0 10px 30px rgba(0,0,0,.18)); padding: 6px; max-height: 60vh; overflow: auto; }
+.st-results button { display: flex; flex-direction: column; align-items: flex-start; width: 100%; border: 0; background: none; text-align: left; padding: 9px 10px; border-radius: 10px; cursor: pointer; color: var(--fg); font: inherit; min-height: 44px; }
+.st-results button small { color: var(--fg-3); font-size: 12px; }
+.st-results button[aria-selected=true], .st-results button:hover { background: var(--brand-soft); }
+.st-nav { display: flex; flex-direction: column; gap: 2px; }
+.st-nav a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 12px; color: var(--fg-2); text-decoration: none; }
+.st-nav a svg { flex: none; width: 18px; height: 18px; }
+.st-nav a span { display: flex; flex-direction: column; min-width: 0; }
+.st-nav a b { font-weight: 550; color: var(--fg); font-size: 14px; }
+.st-nav a small { display: none; color: var(--fg-3); font-size: 12px; }
+.st-nav a:hover { background: var(--surface-2); }
+.st-nav a.active { background: var(--brand-soft); }
+.st-nav a.active b { color: var(--brand); }
+.st-nav a:focus-visible, .st-back:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.st-body { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.st-sec { display: flex; flex-direction: column; gap: 16px; }
+.st-sec[hidden] { display: none; }
+.st-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.st-head h2 { font-size: 22px; margin: 0; flex: 1; outline: none; }
+.st-back { display: none; }
+.st-saved { font-size: 13px; }
+.st-steps { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px 18px; flex-wrap: wrap; }
+.st-steps li { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.st-steps li svg { width: 16px; height: 16px; color: var(--fg-3); }
+.st-steps li.ok { color: var(--fg-3); text-decoration: line-through; }
+.st-steps li.ok svg { color: var(--ok); }
+.st-danger { border: 1px solid var(--bad-soft); }
+.st-danger h3 { color: var(--bad); }
+.st-flash { animation: st-flash 1.6s ease; }
+@keyframes st-flash { 0%, 40% { background: var(--brand-soft); } 100% { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .st-flash { animation: none; } }
+@media (max-width: 760px) {
+  .st { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .st-side { position: static; }
+  .st[data-mode=list] .st-body { display: none; }
+  .st[data-mode=sec] .st-side { display: none; }
+  .st-nav { background: var(--surface); border-radius: var(--radius); padding: 4px; }
+  .st-nav a { padding: 12px; min-height: 56px; }
+  .st-nav a small { display: block; }
+  .st-nav a.active { background: none; }
+  .st-nav a.active b { color: var(--fg); }
+  .st-back { display: inline-flex; }
+  .st-head h2 { flex-basis: 100%; order: 2; }
+  .st-saved { order: 3; }
+}

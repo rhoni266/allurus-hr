@@ -318,7 +318,7 @@ window.AllurusNotify = (function () {
         if (n.href && location.hash !== n.href) location.hash = n.href.replace('#', ''); else ctx.render();
       },
       'nt-read-all': () => { st().notifications = N.markRead(list(), viewer()); ctx.save(); updateBell(); },
-      'nt-prefs': () => { closePanel(false); location.hash = 'settings'; setTimeout(() => ctx.$('#nt-prefs')?.scrollIntoView({ block: 'start' }), 80); },
+      'nt-prefs': () => { closePanel(false); window.AllurusSettingsGo('nt-prefs'); },
       'nt-push': async () => { if (!canPush()) return; const p = await Notification.requestPermission(); ctx.toast(p === 'granted' ? 'Browser notifications are on' : 'Browser notifications stay off', p === 'granted' ? undefined : 'info'); ctx.render(); },
       'nt-test': () => showLocal({ id: U.uid('t'), title: 'Notifications are working', body: 'You’ll see new approvals, payslips and announcements like this.', href: '#home' }),
       'nt-mail': (id) => { const m = outbox().find((x) => x.id === id); if (m) ctx.openModal({ title: m.subject, submit: null, body: `<dl class="kv"><dt>To</dt><dd>${esc(m.to)}</dd><dt>Status</dt><dd>${m.status === 'sent' ? `Sent ${new Date(m.sentAt).toLocaleString('en-MY')}` : 'Queued, waiting for an email service'}</dd></dl><pre class="mail-body">${esc(m.body)}</pre>` }); },

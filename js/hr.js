@@ -679,7 +679,7 @@ window.AllurusHR = (function () {
       'hr-tpl-edit': (_, v) => templateForm(v),
       'hr-ltpl': (id) => letterTemplateForm(id),
       'hr-ltpl-del': (id) => { cfg().letters = cfg().letters.filter((l) => l.id !== id); ctx.commit('Template removed'); },
-      'hr-goto-settings': (_, v) => { location.hash = 'settings'; setTimeout(() => ctx.$('#' + v)?.scrollIntoView({ block: 'start' }), 80); },
+      'hr-goto-settings': (_, v) => { window.AllurusSettingsGo(v); },
     });
     return { TABS, tabBar, tabBody, onCreated, afterEdit, remove, addCareer, requestsCard, myProfileCards, myTasksCard, settingsCards, bindSettings, expiringItems, runReminders, insights, startChecklist, pendingCount: () => pendingReqs().length, openList,
       overdueCount: () => H.overdueTasks(arr('checklists').filter((l) => emp(l.empId)), T()).length,

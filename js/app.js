@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.16';
+  const APP_VERSION = '3.17';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -187,6 +187,8 @@
     fire()?.changed();
     // Demo mode: share a new check-in point with the other phones (set up further down, so not during start-up).
     try { demoZone.publish(); } catch (e) { /* not set up yet */ }
+    // Settings shows "Saved 10:02", and nothing typed is left unsaved.
+    try { if (route() === 'settings') { stUi.dirty = false; stUi.savedAt = Date.now(); const el = $('#st-saved'); if (el) el.textContent = `Saved ${new Date(stUi.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`; } } catch (e) { /* not set up yet */ }
   }
   function saveLocal() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {
@@ -489,7 +491,7 @@
   ];
   const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'billing' || (CLOUD && (!myPerms() || myPerms().includes('settings')))) && (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)));
   // A page may carry a query after "?" (#ops-stock?po=…); it is the page's to read.
-  const route = () => { const h = location.hash.replace('#', '').split('?')[0]; const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
+  const route = () => { const h = location.hash.replace('#', '').split('?')[0].replace(/^settings\/.*/, 'settings'); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
   function renderNav() {
     let html = '', group = '';
@@ -1331,67 +1333,181 @@
       <div class="settings-row"><div><div class="label">HRD Corp levy</div><div class="desc">Paid by the company on basic pay: 1% with 10 or more Malaysian staff, 0.5% optional for 5 to 9.</div></div>${seg('hrdf', [[0, 'None'], [0.5, '0.5%'], [1, '1%']])}</div>
       <p class="disclaimer">${icon('pin')}<span>Payments are due to KWSP, PERKESO, LHDN and HRD Corp by the 15th of the following month. Rates change; check the official contribution tables.</span></p></div>`;
   }
-  VIEWS.settings = () => {
-    const s = state.settings;
-    if (role() !== 'admin' || !can('settings')) return `
-      <div class="page-head"><div><h1>Settings</h1><p class="sub">Appearance and demo data for this browser.</p></div></div>
-      ${AllurusUX.appearanceCard()}
-      ${notifyApi.prefsCard()}
-      ${accountCard()}
-      ${role() === 'super' ? `<div class="card"><div class="card-head"><h3>Data</h3></div>
-        <div class="settings-row"><div><div class="label">Reset demo workspace</div><div class="desc">Data is stored in this browser only.</div></div><button class="btn btn-danger" data-act="ask-reset">Reset data</button></div>
-        <div id="reset-confirm"></div></div>` : ''}`;
+  // Settings is split into sections, one shown at a time: #settings/<section> (a side menu on a computer, a list
+  // then the section full screen on a phone). Every card keeps its own markup, ids and saving; only where it sits
+  // changed. All sections are drawn (others hidden) so the existing bindings and "go to this card" links work.
+  const SETTINGS_KEY = 'allurus-settings-sec';
+  const stUi = { dirty: false, savedAt: 0, jump: null, prevSec: null };
+  const isPhone = () => window.matchMedia('(max-width: 760px)').matches;
+  const settingsSections = () => {
+    const s = state.settings, admin = role() === 'admin' && can('settings'), my = s.currency === 'MYR';
     const currencies = ['MYR', 'USD', 'EUR', 'GBP', 'AED', 'SAR', 'QAR', 'INR', 'PKR', 'CAD', 'AUD', 'SGD'];
-    return `
-      <div class="page-head"><div><h1>Settings</h1><p class="sub">Company details, pay rules and appearance. Changes apply right away.</p></div></div>
-      <div class="grid g-2">
-        <div class="card"><div class="card-head"><h3>Company</h3></div>
-          <div class="settings-row"><div><div class="label">Company name</div><div class="desc">Shown in the sidebar and on payslips.</div></div><input class="input" id="s-company" value="${esc(s.company)}" style="width:220px"></div>
-          <div class="settings-row"><div><div class="label">Head office city</div><div class="desc">Only places your company on the Allurus map. Check-ins use the check-in location below.</div></div><div><div id="s-office-field"></div><div id="s-office-pin"></div></div></div>
-          <div class="settings-row"><div><div class="label">Currency</div><div class="desc">Used for salaries and payroll.</div></div><select class="select" id="s-currency">${currencies.map((c) => `<option ${s.currency === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
-        </div>
-        <div class="card"><div class="card-head"><h3>Pay and leave rules</h3></div>
-          ${s.currency === 'MYR' ? '' : `<div class="settings-row"><div><div class="label">Income tax withholding</div><div class="desc">Percent of gross pay.</div></div><input class="input num" id="s-tax" type="number" min="0" max="60" step="0.5" value="${s.taxRate}" style="width:100px"></div>
-          <div class="settings-row"><div><div class="label">Benefit contributions</div><div class="desc">Deducted from pay, as percent of gross.</div></div><input class="input num" id="s-benefits" type="number" min="0" max="30" step="0.5" value="${s.benefitsRate}" style="width:100px"></div>`}
-          <div class="settings-row"><div><div class="label">Leave policy</div><div class="desc">Leave types, public holidays, rest days, approvals and carry forward.</div></div><button class="btn" data-act="lv-goto-settings">${icon('calendar')}Leave settings</button></div>
-          <div class="settings-row"><div><div class="label">Time and overtime</div><div class="desc">Working patterns, overtime rates, daily allowances and rotations.</div></div><button class="btn" data-act="tm-goto" data-v="time-patterns">${icon('clock')}Time settings</button></div>
-        </div>
-      </div>
-      ${AllurusUX.appearanceCard()}
-      ${s.currency === 'MYR' ? statutoryCard(s) + docsApi.settingsCard() + einvApi.settingsCard() : ''}
-      ${leaveApi.settingsCards()}
-      ${timeApi.settingsCards()}
-      ${claimsApi.settingsCards()}
-      ${appraisalApi.settingsCards()}
-      ${hrApi.settingsCards()}
-      ${recruitApi.settingsCard()}
-      ${grievApi.settingsCard()}
-      ${checkinCard(s)}
-        <div class="settings-row"><div><div class="label">Remote check-in</div><div class="desc">Lets employees check in from anywhere with a selfie. Marked as Remote.</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="zone-remote" data-v="${v}" class="${(s.checkin.remote ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-        ${[['deviceLock', 'One phone per person', 'Each person checks in only from their approved phone, and a phone checks in for one person. New phones need your approval.'],
-           ['faceCheck', 'Face check', 'Compares each selfie with the person’s reference photo, on their phone. Asks for consent first.'],
-           ['liveOnly', 'Live camera only', 'Blocks uploading a saved photo instead of taking a selfie.']].map(([k, label, desc]) => `<div class="settings-row"><div><div class="label">${label}</div><div class="desc">${desc}</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="sec-toggle" data-id="${k}" data-v="${v}" class="${(s.checkin[k] !== false ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`).join('')}
-      </div>
-      ${kioskApi.settingsCard()}
-      ${notifyApi.prefsCard()}
-      ${notifyApi.outboxCard()}
-      <div class="card"><div class="card-head"><h3>Brand</h3><a class="hint" href="brand.html">Open brand kit</a></div>
-        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">${LOGO_FULL}<div class="chips">${[['Allurus Teal', '#0F766E'], ['Champagne', '#D9B66F'], ['Obsidian', '#16181D'], ['Mist', '#F5F5F7']].map(([n, c]) => `<span class="chip" style="cursor:default"><i style="width:14px;height:14px;border-radius:50%;background:${c};border:1px solid var(--line-strong)"></i>${n}<span class="n">${c}</span></span>`).join('')}</div></div>
-      </div>
-      ${CLOUD ? '<div class="card" id="team-access"><div class="card-head"><h3>Team access</h3><span class="hint">Loading…</span></div></div>' : ''}
-      ${accountCard()}
-      ${CLOUD ? '' : `<div class="card"><div class="card-head"><h3>Data</h3></div>
-        <div class="settings-row"><div><div class="label">Reset demo workspace</div><div class="desc">Data is stored in this browser only. Resetting puts ${esc(state.settings.company)} back to its sample data; other demo companies are not touched.</div></div><button class="btn btn-danger" data-act="ask-reset">Reset data</button></div>
-        <div id="reset-confirm"></div>
-      </div>`}`;
+    const row = (label, desc, ctl) => `<div class="settings-row"><div><div class="label">${label}</div><div class="desc">${desc}</div></div>${ctl}</div>`;
+    const account = { id: 'account', label: 'My account', icon: 'people', summary: 'Theme, text size and your password', keys: 'theme dark light appearance accessibility font contrast motion password sign in',
+      html: () => AllurusUX.appearanceCard() + accountCard() };
+    const notifications = { id: 'notifications', label: 'Notifications', icon: 'bell', summary: 'Which emails and alerts you get', keys: 'email alert reminder outbox notification',
+      html: () => notifyApi.prefsCard() + (admin ? notifyApi.outboxCard() : '') };
+    const resetCard = (desc) => `<div class="card st-danger"><div class="card-head"><h3>Danger zone</h3></div>
+      ${row('Reset demo workspace', desc, '<button class="btn btn-danger" data-act="ask-reset">Reset data</button>')}<div id="reset-confirm"></div></div>`;
+    if (!admin) return [account, notifications, ...(role() === 'super' ? [{ id: 'data', label: 'Data', icon: 'box', summary: 'Reset the demo workspace', keys: 'reset demo data', html: () => resetCard('Data is stored in this browser only.') }] : [])];
+    const feats = window.AllurusFeatures, B = window.AllurusBilling?.CFG || { graceDays: 7, keepDays: 90 };
+    return [
+      { id: 'company', label: 'Company', icon: 'building', summary: 'Name, head office, registration numbers', keys: 'company name head office city town state address phone ssm registration tin sst myinvois e-invoice brand logo colours',
+        html: () => `<div class="card"><div class="card-head"><h3>Company</h3></div>
+          ${row('Company name', 'Shown in the sidebar and on payslips.', `<input class="input" id="s-company" value="${esc(s.company)}" style="width:220px">`)}
+          ${row('Head office city', 'Only places your company on the Allurus map. Check-ins use the check-in location (Check-in &amp; attendance).', '<div><div id="s-office-field"></div><div id="s-office-pin"></div></div>')}</div>
+          ${my ? docsApi.settingsCard() + einvApi.settingsCard() : ''}
+          <div class="card"><div class="card-head"><h3>Brand</h3><a class="hint" href="brand.html">Open brand kit</a></div>
+            <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">${LOGO_FULL}<div class="chips">${[['Allurus Teal', '#0F766E'], ['Champagne', '#D9B66F'], ['Obsidian', '#16181D'], ['Mist', '#F5F5F7']].map(([n, c]) => `<span class="chip" style="cursor:default"><i style="width:14px;height:14px;border-radius:50%;background:${c};border:1px solid var(--line-strong)"></i>${n}<span class="n">${c}</span></span>`).join('')}</div></div></div>` },
+      { id: 'checkin', label: 'Check-in & attendance', icon: 'pin', summary: 'Location and radius, selfie rules, work hours', keys: 'check-in checkin location radius map gps coordinates pin selfie face camera phone device remote field staff kiosk supervisor project working pattern hours shift roster overtime allowance',
+        // The check-in card (with its map) is drawn only while this section is open.
+        html: (open) => `${open ? `${checkinCard(s)}
+          ${row('Remote check-in', 'Lets employees check in from anywhere with a selfie. Marked as Remote.', `<div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="zone-remote" data-v="${v}" class="${(s.checkin.remote ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
+          ${[['deviceLock', 'One phone per person', 'Each person checks in only from their approved phone, and a phone checks in for one person. New phones need your approval.'],
+             ['faceCheck', 'Face check', 'Compares each selfie with the person’s reference photo, on their phone. Asks for consent first.'],
+             ['liveOnly', 'Live camera only', 'Blocks uploading a saved photo instead of taking a selfie.']].map(([k, label, desc]) => row(label, desc, `<div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="sec-toggle" data-id="${k}" data-v="${v}" class="${(s.checkin[k] !== false ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`)).join('')}
+          </div>` : ''}${kioskApi.settingsCard()}${timeApi.settingsCards()}` },
+      { id: 'leave', label: 'Leave & holidays', icon: 'calendar', summary: 'Leave types, public holidays, rest days', keys: 'leave type entitlement annual sick public holiday state weekend rest day work week approver approval carry forward year-end',
+        html: () => leaveApi.settingsCards() },
+      { id: 'payroll', label: 'Payroll', icon: 'wallet', summary: my ? 'Currency, EPF, SOCSO, EIS, PCB' : 'Currency, tax and benefits', keys: 'payroll currency salary epf kwsp socso perkeso eis pcb income tax lhdn hrdf hrd corp levy benefit contribution statutory deduction',
+        html: () => `<div class="card"><div class="card-head"><h3>Pay</h3></div>
+          ${row('Currency', 'Used for salaries and payroll.', `<select class="select" id="s-currency" aria-label="Currency">${currencies.map((c) => `<option ${s.currency === c ? 'selected' : ''}>${c}</option>`).join('')}</select>`)}
+          ${my ? '<p class="field-hint">Registration numbers (SSM, EPF, SOCSO, LHDN) are under <a href="#settings/company">Company</a>.</p>' : row('Income tax withholding', 'Percent of gross pay.', `<input class="input num" id="s-tax" type="number" min="0" max="60" step="0.5" value="${s.taxRate}" style="width:100px" aria-label="Income tax withholding percent">`) + row('Benefit contributions', 'Deducted from pay, as percent of gross.', `<input class="input num" id="s-benefits" type="number" min="0" max="30" step="0.5" value="${s.benefitsRate}" style="width:100px" aria-label="Benefit contributions percent">`)}</div>
+          ${my ? statutoryCard(s) : ''}` },
+      { id: 'claims', label: 'Claims', icon: 'receipt', summary: 'Claim categories, limits, mileage, medical', keys: 'claim category limit mileage medical expense reimbursement',
+        html: () => claimsApi.settingsCards() },
+      { id: 'people', label: 'People & talent', icon: 'userplus', summary: 'Onboarding, letters, hiring, appraisals', keys: 'employee department position import onboarding offboarding checklist letter template recruitment job offer appraisal grade band grievance',
+        html: () => `<div class="card"><div class="card-head"><h3>Employees and departments</h3></div>
+          ${row('Employees', 'Add people, import from Excel or CSV, and set each person’s details.', `<a class="btn" href="#employees">${icon('people')}Open Employees</a>`)}
+          ${row('Departments', 'Departments and who leads them.', `<a class="btn" href="#departments">${icon('building')}Open Departments</a>`)}</div>
+          ${hrApi.settingsCards()}${recruitApi.settingsCard()}${appraisalApi.settingsCards()}${grievApi.settingsCard()}` },
+      { id: 'users', label: 'Users & roles', icon: 'shield', summary: 'Who can sign in, and what they can do', keys: 'user role admin permission access invite invitation disable owner hr finance',
+        html: () => (CLOUD ? '<div class="card" id="team-access"><div class="card-head"><h3>Team access</h3><span class="hint">Loading…</span></div></div>'
+          : '<div class="card"><div class="card-head"><h3>Team access</h3></div><p class="muted">Invitations and roles are set up in your real workspace. In this demo, sign in as the sample people from the sign-in page.</p></div>') },
+      ...(CLOUD ? [{ id: 'billing', label: 'Billing & subscription', icon: 'doc', summary: 'Plan, trial, invoices, payment proof', keys: 'billing plan trial subscription invoice payment proof upgrade paid',
+        html: () => `<div class="card"><div class="card-head"><h3>Billing &amp; subscription</h3></div>${row('Plan and invoices', 'Your plan, trial or paid-until date, invoices and payment proof.', `<a class="btn btn-primary" href="#billing">${icon('doc')}Open Billing</a>`)}</div>` }] : []),
+      { id: 'security', label: 'Security', icon: 'shield', summary: 'Password rules', keys: 'security password rule length two-step session sign-in',
+        html: () => `<div class="card"><div class="card-head"><h3>Password rules</h3></div>
+          <p class="muted">Everyone’s password must be at least ${window.AllurusPassword?.MIN || 10} characters, and can’t be a common password or contain their name, email or company name. Change your own in <a href="#settings/account">My account</a>.</p></div>` },
+      { id: 'data', label: 'Data & privacy', icon: 'box', summary: CLOUD ? 'How long data is kept' : 'Reset the demo workspace', keys: 'data privacy pdpa retention reset delete export',
+        html: () => `<div class="card"><div class="card-head"><h3>Data retention</h3></div><p class="muted">${CLOUD ? `If a subscription ends, company admins can still open the workspace, Billing and their data for a ${B.graceDays}-day grace period. The data is then kept for ${B.keepDays} days before it is deleted.` : 'This demo is saved in this browser only.'}</p></div>
+          ${CLOUD ? '' : resetCard(`Data is stored in this browser only. Resetting puts ${esc(s.company)} back to its sample data; other demo companies are not touched.`)}` },
+      ...(feats ? [{ id: 'features', label: 'Features', icon: 'layers', summary: 'Modules switched on for your company', keys: 'feature module industry',
+        html: () => `<div class="card"><div class="card-head"><h3>Features</h3><span class="hint">Set by Allurus for your industry</span></div><div class="chips" style="flex-wrap:wrap">${[...feats.keys].sort().map((k) => `<span class="tag">${esc(k)}</span>`).join('') || '<span class="faint">None</span>'}</div></div>` }] : []),
+      account, notifications,
+    ];
   };
+  // Setup progress: the four things a new company needs, each linking to where it's done.
+  function setupProgress() {
+    const s = state.settings, my = s.currency === 'MYR';
+    const items = [['Company profile', 'company', !!(s.headOffice || s.office) && (!my || !!s.employer?.address)], ['Check-in location', 'checkin', zone().source === 'checkin'],
+      ['Staff added', '#employees', activeEmployees().length > 1], ['Payroll set', my ? 'company' : 'payroll', my ? !!s.employer?.epfNo : true]];
+    const done = items.filter((x) => x[2]).length;
+    if (done === items.length) return '';
+    return `<div class="card st-progress"><div class="card-head"><h3>Setup progress</h3><span class="hint">${done} of ${items.length} done</span></div><ul class="st-steps">${items.map(([l, to, ok]) => `<li class="${ok ? 'ok' : ''}">${icon(ok ? 'check' : 'pin')}${ok ? `<span>${l}</span>` : `<a href="${to.startsWith('#') ? to : `#settings/${to}`}">${l}</a>`}</li>`).join('')}</ul></div>`;
+  }
+  // #settings/<id>, #settings (a phone shows the list; a computer opens the last section) or #settings/@<card id>.
+  function settingsSection(list) {
+    const want = (location.hash.split('?')[0].split('/')[1] || '');
+    if (want.startsWith('@')) { stUi.jump = { id: want.slice(1) }; return list[0].id; }
+    if (list.some((x) => x.id === want)) return want;
+    if (want === '' && isPhone()) return '';
+    let last = ''; try { last = localStorage.getItem(SETTINGS_KEY) || ''; } catch (e) { /* storage unavailable */ }
+    const sec = list.some((x) => x.id === last) ? last : list[0].id;
+    history.replaceState(null, '', `#settings/${sec}`);
+    return sec;
+  }
+  VIEWS.settings = () => {
+    const list = settingsSections(), sec = settingsSection(list), cur = list.find((x) => x.id === sec);
+    const admin = role() === 'admin' && can('settings');
+    stUi.dirty = false;
+    return `
+      <div class="page-head"><div><h1>Settings</h1><p class="sub">${admin ? 'Company details, pay rules and appearance. Changes save automatically.' : 'Your appearance, notifications and password.'}</p></div></div>
+      ${admin && !cur ? setupProgress() : ''}
+      <div class="st" data-mode="${cur ? 'sec' : 'list'}">
+        <aside class="st-side">
+          <div class="st-search" role="search"><input class="input" type="search" id="st-q" placeholder="Search settings" aria-label="Search settings" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="st-results" aria-expanded="false"><div class="st-results" id="st-results" role="listbox" aria-label="Matching settings" hidden></div></div>
+          <nav class="st-nav" aria-label="Settings sections">${list.map((x) => `<a href="#settings/${x.id}" class="${x.id === sec ? 'active' : ''}" ${x.id === sec ? 'aria-current="page"' : ''}>${icon(x.icon)}<span><b>${esc(x.label)}</b><small>${esc(x.summary)}</small></span></a>`).join('')}</nav>
+        </aside>
+        <div class="st-body">
+          ${cur ? `<div class="st-head"><a class="btn btn-sm btn-ghost st-back" href="#settings" aria-label="Back to all settings">${icon('left')}Back</a><h2 id="st-h" tabindex="-1">${esc(cur.label)}</h2>${admin && cur.id !== 'account' ? `<span class="st-saved faint" id="st-saved" role="status">${stUi.savedAt ? `Saved ${new Date(stUi.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Changes save automatically'}</span>` : ''}</div>
+            ${admin && cur.id === list[0].id ? setupProgress() : ''}` : ''}
+          ${list.map((x) => `<section class="st-sec" data-sec="${x.id}" aria-labelledby="st-h" ${x.id === sec ? '' : 'hidden'}>${x.html(x.id === sec)}</section>`).join('')}
+        </div>
+      </div>`;
+  };
+  // The search index: each section's card titles and setting names, plus extra words (radius, EPF…).
+  function settingsIndex(list) {
+    const out = [];
+    list.forEach((x) => {
+      out.push({ sec: x.id, text: x.label, where: x.summary, words: `${x.label} ${x.summary} ${x.keys}`.toLowerCase() });
+      $$(`[data-sec="${x.id}"] h3, [data-sec="${x.id}"] .settings-row .label`).forEach((el) => { const t = el.textContent.trim(); if (t && t.length < 60) out.push({ sec: x.id, text: t, where: x.label, words: t.toLowerCase() }); });
+    });
+    return out;
+  }
+  function bindSettingsLayout(list, sec) {
+    const q = $('#st-q'), res = $('#st-results'); if (!q) return;
+    let index = null, hits = [], active = -1;
+    const draw = () => {
+      const t = q.value.trim().toLowerCase();
+      if (t.length < 2) { res.hidden = true; q.setAttribute('aria-expanded', 'false'); return; }
+      index = index || settingsIndex(list);
+      const seen = new Set(), words = t.split(/\s+/);
+      // Setting names first, then whole sections matched by their extra words.
+      hits = index.filter((h) => words.every((w) => h.words.includes(w))).sort((a, b) => (a.words.length > 60) - (b.words.length > 60))
+        .filter((h) => { const k = h.sec + h.text; return !seen.has(k) && seen.add(k); }).slice(0, 8);
+      active = hits.length ? 0 : -1;
+      res.innerHTML = hits.length ? hits.map((h, i) => `<button type="button" role="option" id="st-r${i}" data-i="${i}" aria-selected="${i === active}"><b>${esc(h.text)}</b><small>${esc(h.where)}</small></button>`).join('') : `<div class="faint" style="padding:10px">No settings match “${esc(q.value.trim())}”.</div>`;
+      res.hidden = false; q.setAttribute('aria-expanded', 'true');
+    };
+    const pick = (h) => { if (!h) return; stUi.jump = { text: h.text }; res.hidden = true; q.value = ''; if (h.sec === sec) render(); else location.hash = `settings/${h.sec}`; };
+    q.addEventListener('input', draw);
+    q.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); if (!hits.length) return; active = (active + (ev.key === 'ArrowDown' ? 1 : -1) + hits.length) % hits.length; $$('[role=option]', res).forEach((b, i) => b.setAttribute('aria-selected', String(i === active))); q.setAttribute('aria-activedescendant', `st-r${active}`); }
+      else if (ev.key === 'Enter') { ev.preventDefault(); pick(hits[active]); }
+      else if (ev.key === 'Escape') { res.hidden = true; q.setAttribute('aria-expanded', 'false'); }
+    });
+    res.addEventListener('mousedown', (ev) => ev.preventDefault());
+    res.addEventListener('click', (ev) => { const b = ev.target.closest('[data-i]'); if (b) pick(hits[+b.dataset.i]); });
+    q.addEventListener('blur', () => setTimeout(() => { res.hidden = true; q.setAttribute('aria-expanded', 'false'); }, 150));
+    // Saved time, and typing not yet saved (fields save when you leave them).
+    const body = $('.st-body');
+    body.addEventListener('input', (ev) => { if (ev.target.closest('.st-sec') && !ev.target.closest('#reset-confirm')) stUi.dirty = true; }, true);
+    // Fields save when you leave them, so leaving one is done (saved, or unchanged); one marked invalid isn't.
+    body.addEventListener('focusout', (ev) => setTimeout(() => { if (ev.target.getAttribute?.('aria-invalid') !== 'true') stUi.dirty = false; }, 0));
+    try { if (sec) localStorage.setItem(SETTINGS_KEY, sec); } catch (e) { /* storage unavailable */ }
+    // Focus the section heading when moving between sections, so screen readers announce it.
+    if (sec && stUi.prevSec !== null && stUi.prevSec !== sec && !stUi.jump) setTimeout(() => $('#st-h')?.focus({ preventScroll: true }), 0);
+    stUi.prevSec = sec;
+    // A link to one card (#settings/@leave-types) or a search result: open its section, then scroll to it.
+    const j = stUi.jump; stUi.jump = null;
+    if (j?.id) {
+      const el = document.getElementById(j.id), to = el?.closest('[data-sec]')?.dataset.sec;
+      history.replaceState(null, '', `#settings/${to || sec || list[0].id}`);
+      if (to && !j.done && el.closest('[hidden]')) { stUi.jump = { id: j.id, done: true }; render(); return; }
+    }
+    const target = j?.id ? document.getElementById(j.id) : j?.text ? $$(`[data-sec="${sec}"] h3, [data-sec="${sec}"] .settings-row .label`).find((el) => el.textContent.trim() === j.text) : null;
+    if (target) setTimeout(() => { target.scrollIntoView({ block: 'center' }); const box = target.closest('.settings-row, .card') || target; box.classList.add('st-flash'); setTimeout(() => box.classList.remove('st-flash'), 1600); }, 30);
+  }
+  // Open the section holding a card, by the card's id (used by "Leave settings", "Edit" and similar links).
+  const settingsGo = (id) => { if (location.hash === `#settings/@${id}`) render(); else location.hash = `settings/@${id}`; };
+  window.AllurusSettingsGo = settingsGo;
+  // Leaving with a field typed in but not saved asks first.
+  document.addEventListener('click', (ev) => {
+    if (!stUi.dirty || route() !== 'settings') return;
+    const a = ev.target.closest('a[href^="#"]'); if (!a || a.closest('.st-sec')) return;
+    if (!confirm('You have a change that isn’t saved yet. Leave this section without saving it?')) { ev.preventDefault(); ev.stopPropagation(); } else stUi.dirty = false;
+  }, true);
+  window.addEventListener('beforeunload', (ev) => { if (stUi.dirty && route() === 'settings') { ev.preventDefault(); ev.returnValue = ''; } });
   AFTER.settings = () => {
+    const list = settingsSections(), sec = (location.hash.split('?')[0].split('/')[1] || '');
     bindAccountCard();
     notifyApi.bindSettings();
+    bindSettingsLayout(list, list.some((x) => x.id === sec) ? sec : '');
     if (role() !== 'admin' || !can('settings')) return;
     if (CLOUD) teamAccess.mount();
-    const bind = (id, key, num) => $(id).addEventListener('change', (ev) => { state.settings[key] = num ? Math.max(0, Number(ev.target.value) || 0) : ev.target.value.trim() || state.settings[key]; commit('Settings saved'); });
-    bindCheckinCard();
+    const bind = (id, key, num) => $(id)?.addEventListener('change', (ev) => { state.settings[key] = num ? Math.max(0, Number(ev.target.value) || 0) : ev.target.value.trim() || state.settings[key]; commit('Settings saved'); });
+    if ($('#z-label')) bindCheckinCard();
     leaveApi.bindSettings();
     timeApi.bindSettings();
     docsApi.bindSettings();
@@ -2677,9 +2793,16 @@
       openEmployeeModal(null, { first, last: rest.join(' '), email: `${first}.${rest.join('')}`.toLowerCase().replace(/[^a-z.]/g, '') + '@' + state.settings.domain, role: j?.title || '', dept: j?.dept, location: j?.location || '', start: U.addDays(U.today(), 14) }, () => { c.converted = true; });
     },
     'theme': (_, v) => ACTIONS['ux-pref']('theme', v),
-    'ask-reset': () => { $('#reset-confirm').innerHTML = `<div class="confirm-bar"><span style="flex:1">Put ${esc(state.settings.company)} back to its sample data?</span><button class="btn btn-sm" data-act="cancel-reset">Cancel</button><button class="btn btn-sm btn-danger" data-act="do-reset">Reset</button></div>`; },
+    // Danger zone: type the company name to confirm.
+    'ask-reset': () => {
+      const name = state.settings.company;
+      $('#reset-confirm').innerHTML = `<div class="confirm-bar" style="flex-wrap:wrap"><label for="reset-name" style="flex:1 1 220px">Put ${esc(name)} back to its sample data? Type <b>${esc(name)}</b> to confirm.</label><input class="input" id="reset-name" autocomplete="off" style="width:min(220px,100%)"><button class="btn btn-sm" data-act="cancel-reset">Cancel</button><button class="btn btn-sm btn-danger" data-act="do-reset" disabled>Reset</button></div>`;
+      const f = $('#reset-name'), b = $('[data-act=do-reset]');
+      f.addEventListener('input', () => { b.disabled = f.value.trim().toLowerCase() !== name.trim().toLowerCase(); });
+      f.focus();
+    },
     'cancel-reset': () => { $('#reset-confirm').innerHTML = ''; },
-    'do-reset': () => { state = seedNew(); commit('Workspace reset'); },
+    'do-reset': () => { if ($('#reset-name') && $('#reset-name').value.trim().toLowerCase() !== state.settings.company.trim().toLowerCase()) return; state = seedNew(); commit('Workspace reset'); },
     // Switch demo company: each one lives under its own address and storage key.
     'demo-company': (_, id) => { if (CLOUD || id === DEMO.id) return; location.href = `${location.pathname}?demo${id === 'serimaju' ? '' : `=${id}`}`; },
     'menu': () => $('#sidebar').classList.toggle('open'),
@@ -2765,8 +2888,8 @@
       const c = billingUi.company();
       if (!CLOUD || role() !== 'admin' || !c || c.createdVia !== 'self_signup' || state.settings.onboardDone) return '';
       const steps = [
-        ['Company profile', 'Name, address, statutory numbers', '#settings', !!state.settings.employer?.address],
-        ['Work site and check-in radius', 'Where staff check in', '#settings', zone().source === 'checkin'],
+        ['Company profile', 'Name, address, statutory numbers', '#settings/company', !!state.settings.employer?.address],
+        ['Work site and check-in radius', 'Where staff check in', '#settings/checkin', zone().source === 'checkin'],
         ['Add your staff', 'Import from Excel, or add one', '#employees', state.employees.length > 1],
         ['Invite staff', 'They get an email to set their password', '#employees', !!(teamAccess.data?.invites?.length || teamAccess.data?.users?.length > 1)],
         ['Test a check-in on a phone', 'Open allurus.my/app on your phone', '#attendance', Object.keys(state.attendance || {}).length > 0],

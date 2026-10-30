@@ -494,7 +494,7 @@ window.AllurusTime = (function () {
   }
 
   // ---------- Settings ----------
-  function goto(id) { location.hash = 'settings'; setTimeout(() => ctx.$('#' + id)?.scrollIntoView({ block: 'start' }), 80); }
+  function goto(id) { window.AllurusSettingsGo(id); }
   const seg = (act, key, cur, opts) => `<div class="seg" role="group">${opts.map(([v, l]) => `<button type="button" data-act="${act}" data-id="${key}" data-v="${v}" class="${String(cur) === String(v) ? 'on' : ''}" aria-pressed="${String(cur) === String(v)}">${l}</button>`).join('')}</div>`;
   const onOff = (key, cur) => seg('tm-ot-set', key, cur ? 'true' : 'false', [['false', 'Off'], ['true', 'On']]);
   function settingsCards() {

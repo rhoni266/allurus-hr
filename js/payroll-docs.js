@@ -284,7 +284,7 @@ window.AllurusPayDocs = (function () {
       'pd-tab': (_, v) => { ui.tab = v; ctx.render(); },
       'pd-open': (_, mk) => { ui.tab = 'files'; ctx.setPayMonth(mk); location.hash = 'payroll'; ctx.render(); },
       'pd-year': (_, y) => { ui.tab = 'year'; ui.year = +y; location.hash = 'payroll'; ctx.render(); },
-      'pd-goto': (_, id) => { location.hash = 'settings'; setTimeout(() => ctx.$('#' + id)?.scrollIntoView({ block: 'start' }), 80); },
+      'pd-goto': (_, id) => { window.AllurusSettingsGo(id); },
       'pd-dl': (k, mk) => {
         const run = st().payroll[mk];
         const f = k === 'bank' ? S.bankFile(run, { ...fctx(mk), template: ui.bankTpl }) : KINDS[k].build(run, fctx(mk));

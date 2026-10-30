@@ -380,7 +380,7 @@ window.AllurusLeave = (function () {
     } else if (ui.tab === 'calendar') body = calendarCard();
     else body = balancesCard();
     return `<div class="page-head"><div><div class="eyebrow">Time off</div><h1>Leave</h1>
-        <p class="sub">${c.state ? `${esc(c.state)} calendar` : 'Company calendar'} · rest days ${(R.WEEKEND_LABELS[c.weekend] || R.WEEKEND_LABELS['sat-sun']).replace(' only', '')} · ${hols.length} public holidays in ${y}. <a href="#settings" data-act="lv-goto-settings">Leave settings</a></p></div>
+        <p class="sub">${c.state ? `${esc(c.state)} calendar` : 'Company calendar'} · rest days ${(R.WEEKEND_LABELS[c.weekend] || R.WEEKEND_LABELS['sat-sun']).replace(' only', '')} · ${hols.length} public holidays in ${y}. <a href="#settings/leave" data-act="lv-goto-settings">Leave settings</a></p></div>
         <div class="actions"><button class="btn" data-act="lv-export">${ctx.icon('download')}Export CSV</button><button class="btn btn-primary" data-act="new-leave">${ctx.icon('plus')}New request</button></div></div>
       <div class="seg lv-tabs" role="tablist" aria-label="Leave views">${tabs.map(([id, l]) => `<button role="tab" aria-selected="${ui.tab === id}" class="${ui.tab === id ? 'on' : ''}" data-act="lv-tab" data-v="${id}">${l}${id === 'requests' && counts.Pending ? ` <span class="faint">${counts.Pending}</span>` : ''}</button>`).join('')}</div>
       ${ui.tab === 'calendar' ? `<div class="grid g-main lv-top"><div>${body}</div><div class="lv-side">${whoOffCard()}${holidayListCard(4)}</div></div>` : `${body}<div class="grid g-2">${whoOffCard()}${holidayListCard(4)}</div>`}`;
@@ -399,7 +399,7 @@ window.AllurusLeave = (function () {
   }
   function holidayListCard(n = 5) {
     const up = [yearNow(), yearNow() + 1].flatMap((y) => R.holidaysFor(y, cfg())).filter((h) => !h.off && h.date >= T()).slice(0, n);
-    return `<div class="card"><div class="card-head"><h3>Public holidays</h3>${ctx.role() === 'admin' ? '<a class="hint" href="#settings" data-act="lv-goto-settings">Edit</a>' : `<span class="hint">${esc(cfg().state || '')}</span>`}</div>
+    return `<div class="card"><div class="card-head"><h3>Public holidays</h3>${ctx.role() === 'admin' ? '<a class="hint" href="#settings/leave" data-act="lv-goto-settings">Edit</a>' : `<span class="hint">${esc(cfg().state || '')}</span>`}</div>
       ${up.length ? `<div class="list">${up.map((h) => `<div class="list-item"><div class="lv-hdate"><b>${+h.date.slice(8)}</b><span>${U.fmtDate(h.date, { month: 'short' })}</span></div><div class="grow"><div class="person-name" style="white-space:normal">${esc(h.name)}</div><div class="person-sub">${U.fmtDate(h.date, { weekday: 'long' })}${h.kind === 'state' ? ` · ${esc(cfg().state)}` : h.kind === 'company' ? ' · Company' : h.kind === 'replacement' ? ' · Replacement' : ''}</div></div></div>`).join('')}</div>` : '<div class="empty"><strong>None coming up</strong>Add next year’s holidays in Settings.</div>'}</div>`;
   }
   function myView() {
@@ -536,7 +536,7 @@ window.AllurusLeave = (function () {
       'lv-open-bal': () => { ui.tab = 'balances'; if (location.hash !== '#leave') location.hash = 'leave'; else ctx.render(); },
       'lv-cal': (_, v) => { ui.calMonth = +v === 0 ? U.monthKey(T()) : U.addMonths(ui.calMonth, +v); ctx.render(); },
       'lv-open-att': (id) => openAttachment(id),
-      'lv-goto-settings': () => { location.hash = 'settings'; setTimeout(() => ctx.$('#leave-types')?.scrollIntoView({ block: 'start' }), 60); },
+      'lv-goto-settings': () => { window.AllurusSettingsGo('leave-types'); },
       'lv-export': () => ctx.downloadCSV(`leave-${yearNow()}.csv`, [['Employee', 'Department', 'Type', 'From', 'To', 'Half day', 'Days', 'Paid', 'Status', 'Next approver', 'Reason'],
         ...st().leaves.map((l) => { const e = ctx.emp(l.empId); const n = R.nextStep(l.chain); return [ctx.fullName(e), ctx.dept(e?.dept)?.name || '', typeName(l.type), l.from, l.to, l.half || '', l.days, typeOf(l.type).paid ? 'Yes' : 'No', l.status, n ? nameOf(n.approver) : '', l.reason || '']; })]),
       'lv-divisor': (_, v) => { cfg().unpaidDivisor = v; ctx.commit('Unpaid leave deduction saved'); },

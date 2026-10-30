@@ -38,7 +38,9 @@
         { "source": "/dashboard", "destination": "/app", "type": 302 },
         { "source": "/admin", "destination": "/app", "type": 302 },
         { "source": "/register", "destination": "/app#register", "type": 302 },
-        { "source": "/careers/:company", "destination": "/app#careers/:company", "type": 302 }
+        { "source": "/careers/:company", "destination": "/app#careers/:company", "type": 302 },
+        { "source": "/settings", "destination": "/app#settings", "type": 302 },
+        { "source": "/settings/:section", "destination": "/app#settings/:section", "type": 302 }
       ],
       "headers": [
         {
