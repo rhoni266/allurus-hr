@@ -42,7 +42,7 @@ async function formScreen(draft = store.get(DRAFT) || {}, msg = '', { withPasswo
         ${withPassword ? f('email', 'Work email', 'type="email" required maxlength="200" autocomplete="email" inputmode="email"') : `<div class="field"><label>Work email</label><div class="input" style="display:flex;align-items:center">${esc(auth.currentUser?.email || '')}</div></div>`}
         ${f('phone', 'Mobile number', 'type="tel" required maxlength="20" autocomplete="tel" inputmode="tel" placeholder="012-345 6789"')}
         <div class="field"><label for="s-size">Number of employees</label><select class="select" id="s-size" name="size" required><option value="">Choose…</option>${SIZES.map((s) => `<option ${draft.size === s ? 'selected' : ''}>${s}</option>`).join('')}</select></div>
-        ${f('city', 'City <span class="faint">(optional)</span>', 'maxlength="60"')}
+        <div class="field"><label for="s-city">Head office <span class="faint">(optional)</span></label><div id="s-city-host"></div></div>
       </div>
       <fieldset class="field" style="border:0;padding:0;margin:0"><legend style="font-weight:600;font-size:13px;margin-bottom:6px">Industry <span class="faint">(choose any)</span></legend>
         <div class="su-inds">${industries.map((i) => `<label><input type="checkbox" name="ind" value="${esc(i.slug)}" ${(draft.ind || []).includes(i.slug) ? 'checked' : ''}> ${esc(i.name)}</label>`).join('')}
@@ -63,7 +63,9 @@ async function formScreen(draft = store.get(DRAFT) || {}, msg = '', { withPasswo
       ${withPassword ? '<p class="faint" style="font-size:12.5px;margin:0;text-align:center">Started already? <button type="button" class="link-btn" id="resume">Finish a sign-up you started</button></p>' : ''}
     </form>`);
   const form = document.getElementById('f'), err = document.getElementById('err');
-  const read = () => { const d = new FormData(form); return { company: clean(d.get('company'), 120), name: clean(d.get('name'), 100), email: lower(d.get('email') || auth.currentUser?.email), phone: String(d.get('phone') || '').trim(), size: d.get('size') || '', city: clean(d.get('city'), 60), ind: d.getAll('ind'), other: clean(d.get('other'), 80), terms: d.has('terms'), pdpa: d.has('pdpa') }; };
+  let office = draft.headOffice || null;
+  window.AllurusPlaceField.mount(document.getElementById('s-city-host'), { id: 's-city', value: office, placeholder: 'Town, district or state', onChange: (v) => { office = v; } });
+  const read = () => { const d = new FormData(form); return { company: clean(d.get('company'), 120), name: clean(d.get('name'), 100), email: lower(d.get('email') || auth.currentUser?.email), phone: String(d.get('phone') || '').trim(), size: d.get('size') || '', city: clean(window.AllurusPlaces.officeName(office), 60), headOffice: office, ind: d.getAll('ind'), other: clean(d.get('other'), 80), terms: d.has('terms'), pdpa: d.has('pdpa') }; };
   const who = () => ({ email: form.email?.value, name: form.name.value, phone: form.phone.value });
   const draw = () => { const r = document.getElementById('rules'); if (r) r.innerHTML = P.check(form.pw.value, who(), common).rules.map((x) => `<li class="${x.ok ? 'ok' : ''}">${esc(x.text)}</li>`).join(''); };
   if (withPassword) { draw(); form.pw.addEventListener('input', draw); document.getElementById('show').addEventListener('click', (ev) => { const s = form.pw.type === 'password'; form.pw.type = form.pw2.type = s ? 'text' : 'password'; ev.target.textContent = s ? 'Hide' : 'Show'; }); document.getElementById('resume').addEventListener('click', resumeScreen); }

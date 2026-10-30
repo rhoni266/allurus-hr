@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.15';
+  const APP_VERSION = '3.16';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -69,7 +69,7 @@
     const st = ws.settings, L = AllurusLeaveRules;
     if (!st) return;
     if (!st.leave) {
-      const stateName = st.company === AllurusSeed.published.company ? 'Terengganu' : st.currency === 'MYR' ? (L.CITY_STATE[st.office] || '') : '';
+      const stateName = st.company === AllurusSeed.published.company ? 'Terengganu' : st.currency === 'MYR' ? (st.headOffice?.countryCode === 'MY' && st.headOffice.state) || L.CITY_STATE[st.office] || '' : '';
       st.leave = L.defaultSettings({ state: stateName, departments: ws.departments || [], hr: (ws.employees || [])[0]?.id || '' });
       // Keep a flat annual allowance the company had set, if it meets the statutory minimum.
       if (st.annualDays >= 8) Object.assign(st.leave.types.find((t) => t.id === 'annual'), { byService: false, days: st.annualDays });
@@ -1209,6 +1209,28 @@
   }
   // When the point was set: the real time HR saved it, or "demo default" for the demo company's starting point.
   const pointWhen = (c) => (!c.setAt ? 'Saved' : !CLOUD && c.setAt === DEMO.published?.at ? 'Demo default point (not yet changed in Settings)' : `Saved ${new Date(c.setAt).toLocaleString()}`);
+  // Head office (Settings → Company): a typed place with suggestions (js/places-field.js). Saved as
+  // settings.headOffice, and as the plain name in settings.office that older parts of the app read.
+  // Only places the company on the Allurus map: it never changes the check-in point.
+  function bindHeadOffice() {
+    const host = $('#s-office-field'); if (!host) return;
+    const s = state.settings;
+    AllurusPlaceField.mount(host, { id: 's-office', value: s.headOffice || s.office || '', onChange: (v) => { s.headOffice = v; s.office = AllurusPlaces.officeName(v); save(); toast(`Head office: ${v.label}`); headOfficePin(); } });
+    headOfficePin();
+  }
+  // A place typed by hand isn't on the map until it has a pin.
+  function headOfficePin() {
+    const el = $('#s-office-pin'), v = state.settings.headOffice; if (!el) return;
+    if (!v || AllurusPlaces.onMap(v)) { el.innerHTML = ''; return; }
+    el.innerHTML = `<p class="field-hint" style="margin-top:6px">Not shown on the map yet. <button type="button" class="link-btn" id="ho-pin-btn">Drop a pin</button> to place it.</p><div class="map-canvas map-sm" id="ho-map" hidden style="margin-top:8px"></div>`;
+    $('#ho-pin-btn').addEventListener('click', () => {
+      const m = $('#ho-map'); m.hidden = false;
+      const start = U.city(state.settings.office) || { lat: 4.2105, lng: 101.9758 };
+      AllurusMap.picker(m, { lat: start.lat, lng: start.lng, radius: 300, approx: true, onPick: (p) => {
+        Object.assign(state.settings.headOffice, { lat: +p.lat.toFixed(5), lng: +p.lng.toFixed(5), updatedAt: Date.now() }); save(); toast('Head office placed on the map');
+      } }).catch(() => { m.innerHTML = '<div class="map-loading">The map couldn’t load here.</div>'; });
+    });
+  }
   // Save a new check-in point without re-rendering the page, and keep the field, link and map in sync.
   function setZonePoint(p, how) {
     const c = state.settings.checkin;
@@ -1325,7 +1347,7 @@
       <div class="grid g-2">
         <div class="card"><div class="card-head"><h3>Company</h3></div>
           <div class="settings-row"><div><div class="label">Company name</div><div class="desc">Shown in the sidebar and on payslips.</div></div><input class="input" id="s-company" value="${esc(s.company)}" style="width:220px"></div>
-          <div class="settings-row"><div><div class="label">Head office city</div><div class="desc">Only places your company on the Allurus map. Check-ins use the check-in location below.</div></div><select class="select" id="s-office">${U.CITIES.map((c) => `<option value="${esc(c.name)}" ${s.office === c.name ? 'selected' : ''}>${esc(c.name)}, ${esc(c.country)}</option>`).join('')}</select></div>
+          <div class="settings-row"><div><div class="label">Head office city</div><div class="desc">Only places your company on the Allurus map. Check-ins use the check-in location below.</div></div><div><div id="s-office-field"></div><div id="s-office-pin"></div></div></div>
           <div class="settings-row"><div><div class="label">Currency</div><div class="desc">Used for salaries and payroll.</div></div><select class="select" id="s-currency">${currencies.map((c) => `<option ${s.currency === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
         </div>
         <div class="card"><div class="card-head"><h3>Pay and leave rules</h3></div>
@@ -1380,7 +1402,7 @@
     einvApi.bindSettings();
     claimsApi.bindSettings();
     kioskApi.bindSettings();
-    bind('#s-company', 'company'); bind('#s-currency', 'currency'); bind('#s-office', 'office'); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
+    bind('#s-company', 'company'); bind('#s-currency', 'currency'); bindHeadOffice(); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
     $$('[data-stat]').forEach((el) => el.addEventListener('change', () => { state.settings.statutory = { ...U.statutory(state.settings), [el.dataset.stat]: Math.min(20, Math.max(0, Number(el.value) || 0)) }; commit('Statutory rates saved'); }));
   };
 

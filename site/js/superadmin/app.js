@@ -451,14 +451,17 @@ async function saveBillingCfg(form) {
 }
 // A new company, with no owner until its first admin activates their invitation (an Owner: every area).
 async function newTenant() {
-  const fd = await ask("New company", `<div class="sa-grid">
+  const asked = ask("New company", `<div class="sa-grid">
     <label class="sa-f full"><span>Company name</span><input name="name" required maxlength="120"></label>
     <label class="sa-f"><span>First admin’s name</span><input name="adminName" required maxlength="100"></label>
     <label class="sa-f"><span>First admin’s work email</span><input name="email" type="email" required maxlength="200"></label>
-    <label class="sa-f"><span>City <em>(optional)</em></span><input name="city" maxlength="60"></label>
+    <div class="sa-f"><span>Head office <em>(optional)</em></span><div id="sa-office-host"></div></div>
     <label class="sa-f"><span>Industry <em>(optional)</em></span><select name="ind"><option value="">None</option>${S.industries.filter((i) => !i.archived).map((i) => `<option value="${esc(i.slug)}">${esc(i.name)}</option>`).join("")}</select></label></div>
     <p class="sa-muted">They get an email with a sign-in link, valid 7 days. No account exists until they activate.</p>`, "Create and invite");
+  const office = window.AllurusPlaceField.mount(document.getElementById("sa-office-host"), { id: "sa-office", placeholder: "Town, district or state" });
+  const fd = await asked;
   if (!fd) return;
+  fd.set("city", window.AllurusPlaces.officeName(office.value) || "");
   const name = String(fd.get("name")).trim(), email = String(fd.get("email")).trim().toLowerCase(), adminName = String(fd.get("adminName")).trim();
   if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast("Enter a company name and a valid email.", true);
   // Same name or same first admin as an existing company: ask before making another.
