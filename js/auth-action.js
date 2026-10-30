@@ -22,8 +22,20 @@ const BAD = {
   'auth/user-not-found': ['This account no longer exists', 'Contact your company’s HR admin.'],
 };
 function problem(e, again) {
-  const [t, d] = BAD[e?.code] || ['Something went wrong', 'Check your connection and try again.'];
-  page(esc(t), `<p class="login-error" role="alert">${esc(d)}</p>${again}`);
+  // Confirming an email twice (or a scanner having opened it first) usually means it's already done.
+  const used = e?.code === 'auth/invalid-action-code', expired = e?.code === 'auth/expired-action-code';
+  if (mode === 'verifyEmail' && (used || expired)) {
+    page(used ? 'This link was already used' : 'This link has expired', `<p class="login-error" role="alert">${used ? 'Your email may already be confirmed: you can sign in now.' : 'Request a new one: sign in, and we’ll offer to send it again.'}</p>
+      <a class="btn btn-primary login-submit" href="${esc(back())}">${back().startsWith('/signup') ? 'Continue sign-up' : 'Sign in'}</a>`);
+    return;
+  }
+  const [t, d] = used ? ['This link was already used', 'Each link works once. If you already finished, you can sign in now; otherwise request a new one.']
+    : expired ? ['This link has expired', 'Request a new one.'] : BAD[e?.code] || ['Something went wrong', 'Check your connection and try again.'];
+  page(esc(t), `<p class="login-error" role="alert">${esc(d)}</p>${again}<a class="btn login-submit" href="/app">Sign in</a>`);
+}
+// Where to go after the link: the allurus.my page that asked for it (e.g. /signup?finish=1), never another site.
+function back() {
+  try { const u = new URL(q.get('continueUrl') || '/app', location.origin); return u.origin === location.origin ? u.pathname + u.search : '/app'; } catch (e) { return '/app'; }
 }
 // Remove the code from the address bar and history once it's been read.
 const hide = () => history.replaceState(null, '', '/auth/action');
@@ -67,7 +79,7 @@ async function verifyEmail() {
   hide();
   page('Confirm your email', `<p class="ac-note" style="margin:0">Confirm <b>${esc(info.data.email)}</b> for your Allurus account.</p><button class="btn btn-primary login-submit" id="go">Confirm email</button>`);
   document.getElementById('go').addEventListener('click', async () => {
-    try { await Auth.applyActionCode(auth, code); page('Email confirmed', '<p class="ac-ok" role="status">Thank you. You can sign in now.</p><a class="btn btn-primary login-submit" href="/app">Sign in</a>'); }
+    try { await Auth.applyActionCode(auth, code); page('Email confirmed', `<p class="ac-ok" role="status">Thank you, your email is confirmed.</p><a class="btn btn-primary login-submit" href="${esc(back())}">${back().startsWith('/signup') ? 'Continue sign-up' : 'Sign in'}</a>`); }
     catch (e) { problem(e, '<a class="btn btn-primary login-submit" href="/app">Go to sign in</a>'); }
   });
 }
