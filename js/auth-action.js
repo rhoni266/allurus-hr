@@ -35,7 +35,7 @@ function problem(e, again) {
 }
 // Where to go after the link: the allurus.my page that asked for it (e.g. /signup?finish=1), never another site.
 function back() {
-  try { const u = new URL(q.get('continueUrl') || '/app', location.origin); return u.origin === location.origin ? u.pathname + u.search : '/app'; } catch (e) { return '/app'; }
+  try { const u = new URL(q.get('next') || q.get('continueUrl') || '/app', location.origin); return u.origin === location.origin ? u.pathname + u.search : '/app'; } catch (e) { return '/app'; }
 }
 // Remove the code from the address bar and history once it's been read.
 const hide = () => history.replaceState(null, '', '/auth/action');

@@ -63,8 +63,7 @@
       "public": "redirect",
       "redirects": [
         { "source": "/", "destination": "https://allurus.my/app", "type": 301 },
-        { "source": "/index.html", "destination": "https://allurus.my/app", "type": 301 },
-        { "source": "/:path*", "destination": "https://allurus.my/:path", "type": 301 }
+        { "source": "/index.html", "destination": "https://allurus.my/app", "type": 301 }
       ]
     }
   ],
