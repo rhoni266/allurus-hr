@@ -75,7 +75,7 @@
       "source": "functions",
       "codebase": "default",
       "ignore": ["node_modules", "test", "*.log"],
-      "predeploy": ["node -e \"require('fs').copyFileSync('js/pos-rules.js', 'functions/pos-rules.js')\"", "node --test functions/test/pos-core.test.js"]
+      "predeploy": ["node scripts/copy-pos-rules.js", "node --test functions/test/pos-core.test.js"]
     }
   ],
   "firestore": {
