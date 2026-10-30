@@ -1,0 +1,14 @@
+{
+  "name": "allurus-functions",
+  "private": true,
+  "description": "Allurus Cloud Functions (point of sale). pos-rules.js is copied from ../js at deploy (see firebase.json predeploy).",
+  "main": "index.js",
+  "engines": { "node": "22" },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^6.1.0"
+  }
+}

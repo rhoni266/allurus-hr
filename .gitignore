@@ -10,3 +10,4 @@ firebase-debug.log
 *service-account*.json
 *serviceAccount*.json
 scripts/serviceAccount.json
+functions/pos-rules.js

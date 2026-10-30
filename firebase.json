@@ -11,6 +11,7 @@
         "**/.git/**",
         ".git/**",
         "**/node_modules/**",
+        "functions/**",
         "docs/**",
         "tests/**",
         "tests-rules/**",
@@ -67,6 +68,14 @@
         { "source": "/", "destination": "https://allurus.my/app", "type": 301 },
         { "source": "/index.html", "destination": "https://allurus.my/app", "type": 301 }
       ]
+    }
+  ],
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": ["node_modules", "test", "*.log"],
+      "predeploy": ["node -e \"require('fs').copyFileSync('js/pos-rules.js', 'functions/pos-rules.js')\"", "node --test functions/test/pos-core.test.js"]
     }
   ],
   "firestore": {
