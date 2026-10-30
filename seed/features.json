@@ -25,6 +25,10 @@
     { "key": "commission", "name": "Commission into payroll", "moduleKey": "payroll", "status": "beta", "description": "Commission per sale, service or job, paid through payroll." },
 
     { "key": "pos", "name": "Point of sale", "moduleKey": "operations", "status": "planned", "description": "Tablet POS: tables, takeaway, delivery, split bills, discounts, service charge, SST, cash drawer and receipts.", "dependsOn": ["stock", "receipts"] },
+    { "key": "table_management", "name": "Tables", "moduleKey": "operations", "status": "planned", "description": "Table layout, open tables, transfer, merge and split bills.", "dependsOn": ["pos"] },
+    { "key": "pos_reports", "name": "POS sales reports", "moduleKey": "operations", "status": "planned", "description": "Sales by day, hour, item, category, payment method and cashier; voids, discounts, tax, shifts and payment reconciliation, with CSV export.", "dependsOn": ["pos"] },
+    { "key": "pos_qr_payment", "name": "Dynamic DuitNow QR at the POS", "moduleKey": "finance", "status": "planned", "description": "A QR with the exact amount, confirmed automatically by the payment gateway.", "dependsOn": ["pos", "payments"] },
+    { "key": "pos_card_tap", "name": "Card tap on phone (SoftPOS)", "moduleKey": "finance", "status": "planned", "description": "Contactless cards on the merchant's NFC phone through a certified SoftPOS provider. Switched on per company only after acquirer onboarding.", "dependsOn": ["pos", "payments"] },
     { "key": "receipts", "name": "Receipts and payments", "moduleKey": "finance", "status": "planned", "description": "Printed or digital receipts, with the day's takings reconciled per payment method." },
     { "key": "payments", "name": "DuitNow QR, card and e-wallet", "moduleKey": "finance", "status": "planned", "description": "Take DuitNow QR, card, e-wallet and cash." },
     { "key": "kds", "name": "Kitchen display", "moduleKey": "operations", "status": "planned", "description": "Orders on a kitchen screen by station, with timers and ready alerts.", "dependsOn": ["pos"] },

@@ -380,6 +380,10 @@
       { id: 'home', label: 'Home', icon: 'dashboard', group: 'Me' },
       { id: 'my-deliveries', label: 'My deliveries', icon: 'pin', group: 'Me' },
       { id: 'my-machines', label: 'Machines', icon: 'sliders', group: 'Me' },
+      { id: 'pos', label: 'Till', icon: 'receipt', group: 'Point of sale' },
+      { id: 'pos-tables', label: 'Tables', icon: 'grip', group: 'Point of sale' },
+      { id: 'pos-kitchen', label: 'Kitchen display', icon: 'clock', group: 'Point of sale' },
+      { id: 'pos-shift', label: 'Shift & cash', icon: 'wallet', group: 'Point of sale' },
       { id: 'my-time', label: 'My attendance', icon: 'clock', group: 'Me' },
       { id: 'my-leave', label: 'My time off', icon: 'calendar', group: 'Me' },
       { id: 'my-approvals', label: 'Approvals', icon: 'check', group: 'Me' },
@@ -423,6 +427,7 @@
     finance: 'Books, invoices, bills, budget, tax, audit',
     talent: 'Hiring, appraisals, training, grievances',
     operations: 'Stock, purchasing, production, deliveries, machines',
+    pos: 'Point of sale: till, tables, kitchen, menu and sales',
     settings: 'Company settings and team access',
   };
   const ALL_AREAS = Object.keys(AREAS);
@@ -433,9 +438,10 @@
     finance: { label: 'Finance', desc: 'The books and claims. No staff records or payroll detail.', perms: ['finance', 'claims'] },
     // For a company that makes and delivers (a workspace with operations data); hidden elsewhere.
     operations: { label: 'Operations', desc: 'Stock, purchasing, production, deliveries and machines', perms: ['operations'], ops: true },
+    outlet: { label: 'Outlet manager', desc: 'Runs the outlet: the till, menu, voids, shifts and sales reports, plus stock', perms: ['pos', 'operations', 'time'], pos: true },
     manager: { label: 'Admin manager', desc: 'Runs the office and the floor: everything but hiring and appraisals', perms: ['people', 'time', 'payroll', 'claims', 'finance', 'operations', 'settings'], ops: true },
   };
-  const shownTemplates = () => Object.entries(TEMPLATES).filter(([, t]) => !t.ops || state.ops);
+  const shownTemplates = () => Object.entries(TEMPLATES).filter(([, t]) => (!t.ops || state.ops) && (!t.pos || state.pos));
   const templateOf = (perms) => (!perms ? 'owner' : Object.keys(TEMPLATES).find((k) => TEMPLATES[k].perms.length === perms.length && TEMPLATES[k].perms.every((x) => perms.includes(x))) || 'custom');
   const ROUTE_AREA = {
     employees: 'people', departments: 'people', onboarding: 'people', assets: 'people', 'org-chart': 'people', rooms: 'people', announcements: 'people', 'hr-reports': 'people',
@@ -444,11 +450,12 @@
     finance: 'finance', books: 'finance', invoices: 'finance', bills: 'finance', contacts: 'finance', budget: 'finance', tax: 'finance', reports: 'finance', projects: 'payroll',
     recruitment: 'talent', performance: 'talent', training: 'talent', grievances: 'talent',
     'ops-today': 'operations', 'ops-stock': 'operations', 'ops-production': 'operations', 'ops-sales': 'operations', 'ops-machines': 'operations',
+    pos: 'pos', 'pos-tables': 'pos', 'pos-kitchen': 'pos', 'pos-shift': 'pos', 'pos-menu': 'pos', 'pos-reports': 'pos',
   };
   const myPerms = () => { const a = account(); return a && Array.isArray(a.perms) ? a.perms : null; };
   // Whether the person may work in an area of the company console (only ever in Company Admin view).
   // Also off when the company's industries don't include that area (window.AllurusFeatures, set by cloud.js).
-  const can = (area) => role() === 'admin' && (!myPerms() || myPerms().includes(area)) && (!window.AllurusFeatures || window.AllurusFeatures.area(area));
+  const can = (area) => role() === 'admin' && (!myPerms() || myPerms().includes(area)) && (!window.AllurusFeatures || (area === 'pos' ? window.AllurusFeatures.has('pos') : window.AllurusFeatures.area(area)));
   window.AllurusAccess = { can, AREAS, TEMPLATES, templateOf };
   // "HR admin", "Finance", "Owner"… for the company console; the role's own name otherwise.
   const roleLabel = (r) => (r === 'admin' && myPerms() ? TEMPLATES[templateOf(myPerms())]?.label || 'Company Admin' : ROLES[r]?.label || r);
@@ -459,6 +466,12 @@
     { id: 'ops-production', label: 'Production', icon: 'layers', group: 'Operations' },
     { id: 'ops-sales', label: 'Sales & delivery', icon: 'pin', group: 'Operations' },
     { id: 'ops-machines', label: 'Machines', icon: 'sliders', group: 'Operations' },
+    { id: 'pos', label: 'Till', icon: 'receipt', group: 'Point of sale' },
+    { id: 'pos-tables', label: 'Tables', icon: 'grip', group: 'Point of sale' },
+    { id: 'pos-kitchen', label: 'Kitchen display', icon: 'clock', group: 'Point of sale' },
+    { id: 'pos-shift', label: 'Shift & cash', icon: 'wallet', group: 'Point of sale' },
+    { id: 'pos-menu', label: 'Menu & settings', icon: 'book', group: 'Point of sale' },
+    { id: 'pos-reports', label: 'Sales reports', icon: 'chart', group: 'Point of sale' },
     { id: 'employees', label: 'Employees', icon: 'people', group: 'Workforce' },
     { id: 'departments', label: 'Departments', icon: 'building', group: 'Workforce' },
     { id: 'onboarding', label: 'Onboarding', icon: 'userplus', group: 'Workforce' },
@@ -489,7 +502,7 @@
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
     { id: 'billing', label: 'Billing', icon: 'doc', group: 'Workspace' },
   ];
-  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'billing' || (CLOUD && (!myPerms() || myPerms().includes('settings')))) && (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)));
+  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'billing' || (CLOUD && (!myPerms() || myPerms().includes('settings')))) && (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)) && (posApi ? posApi.routeAllowed(r.id) : !/^pos(-|$)/.test(r.id)));
   // A page may carry a query after "?" (#ops-stock?po=…); it is the page's to read.
   const route = () => { const h = location.hash.replace('#', '').split('?')[0].replace(/^settings\/.*/, 'settings'); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
@@ -497,7 +510,7 @@
     let html = '', group = '';
     const rs = routes(), pinned = AllurusUX.pins().map((id) => rs.find((r) => r.id === id)).filter(Boolean);
     const navItem = (r) => {
-      const count = r.id === 'my-approvals' ? leaveApi.myCount(me().id) + timeApi.myCount(me().id) + claimsApi.myCount(me().id) + (recruitApi?.taskCount(me().id) || 0) : r.id === 'training' ? lmsApi?.pendingCount() || 0 : r.id === 'my-training' ? lmsApi?.todoCount(me().id) || 0 : r.id === 'grievances' ? grievApi?.badge() || 0 : r.id === 'recruitment' ? recruitApi?.badge() || 0 : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'employees' ? hrApi?.pendingCount() || 0 : r.id === 'onboarding' ? hrApi?.overdueCount() || 0 : r.id === 'performance' || r.id === 'my-appraisal' ? appraisalApi?.badge(r.id) || 0 : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || opsApi?.badge(r.id) || 0);
+      const count = r.id === 'my-approvals' ? leaveApi.myCount(me().id) + timeApi.myCount(me().id) + claimsApi.myCount(me().id) + (recruitApi?.taskCount(me().id) || 0) : r.id === 'training' ? lmsApi?.pendingCount() || 0 : r.id === 'my-training' ? lmsApi?.todoCount(me().id) || 0 : r.id === 'grievances' ? grievApi?.badge() || 0 : r.id === 'recruitment' ? recruitApi?.badge() || 0 : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'employees' ? hrApi?.pendingCount() || 0 : r.id === 'onboarding' ? hrApi?.overdueCount() || 0 : r.id === 'performance' || r.id === 'my-appraisal' ? appraisalApi?.badge(r.id) || 0 : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || opsApi?.badge(r.id) || posApi?.badge(r.id) || 0);
       const on = AllurusUX.pins().includes(r.id), cur = route() === r.id;
       return `<div class="nav-item"><a href="#${r.id}" class="${cur ? 'active' : ''}" ${cur ? 'aria-current="page"' : ''}>${icon(r.icon)}<span>${r.label}</span>${count ? `<span class="count" aria-label="${count} waiting">${count}</span>` : ''}</a><button type="button" class="nav-pin ${on ? 'on' : ''}" data-act="ux-pin" data-id="${r.id}" aria-pressed="${on}" aria-label="${on ? 'Unpin' : 'Pin'} ${esc(r.label)}" title="${on ? 'Unpin' : 'Pin to top'}">${icon(on ? 'starFill' : 'star')}</button></div>`;
     };
@@ -569,7 +582,7 @@
   const VIEWS = {};
   const AFTER = {};
   const ACTIONS_EXTRA = {};
-  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null, appraisalApi = null, hrApi = null, costingApi = null, einvApi = null, recruitApi = null, lmsApi = null, grievApi = null, roomsApi = null, opsApi = null;
+  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null, appraisalApi = null, hrApi = null, costingApi = null, einvApi = null, recruitApi = null, lmsApi = null, grievApi = null, roomsApi = null, opsApi = null, posApi = null;
   let clockTimer = null;
 
   // ---------- Automated insights (what needs attention, trends and wellbeing nudges) ----------
@@ -647,7 +660,7 @@
     if (hrApi) out.push(...hrApi.insights());
     if (costingApi) out.push(...costingApi.insights());
     if (einvApi) out.push(...einvApi.insights());
-    [recruitApi, lmsApi, grievApi, roomsApi, opsApi].forEach((a) => { if (a) out.push(...a.insights()); });
+    [recruitApi, lmsApi, grievApi, roomsApi, opsApi, posApi].forEach((a) => { if (a) out.push(...a.insights()); });
     return out.sort((a, b) => b.prio - a.prio);
   }
   const actionLink = (a, cls = 'btn btn-sm') => a.href ? `<a class="${cls}" href="${a.href}">${esc(a.label)}</a>` : `<button type="button" class="${cls}" data-act="${a.act}" ${a.id ? `data-id="${a.id}"` : ''} ${a.v ? `data-v="${a.v}"` : ''}>${esc(a.label)}</button>`;
@@ -1589,7 +1602,7 @@
     // Pick up where this person left off last time.
     const last = AllurusUX.prefs().lastRoute?.[state.session.role];
     // An expired company's admin opens on Billing (the rest is read-only until it's paid).
-    const target = CLOUD && fire()?.profile?.billingOnly ? 'billing' : last && routes().some((r) => r.id === last) ? last : opsApi?.landing(state.session.role) || '';
+    const target = CLOUD && fire()?.profile?.billingOnly ? 'billing' : last && routes().some((r) => r.id === last) ? last : posApi?.landing(state.session.role) || opsApi?.landing(state.session.role) || '';
     if (location.hash.slice(1) !== target) location.hash = target; else render();
     window.scrollTo(0, 0);
     toast(target && target !== routes()[0].id ? `Welcome back. You’re where you left off.` : `Signed in as ${acct.email}`);
@@ -2859,6 +2872,7 @@
   grievApi = AllurusGrievance.install(moduleCtx);
   roomsApi = AllurusRooms.install(moduleCtx);
   opsApi = AllurusOps.install(moduleCtx);
+  posApi = AllurusPos.install(moduleCtx);
   AllurusImport.install(moduleCtx);
   kioskApi = AllurusKiosk.install(moduleCtx, { write: writeCheckin, zone, deviceId, deviceName, squareCanvas, nowHM, isField, selfieThumb, cloudWrite: (p, d) => cloudWrite(p, d), cloudOn: () => !!cloud.db });
   // Approvers see their team's claims under Approvals, after leave and attendance requests.

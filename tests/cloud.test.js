@@ -253,9 +253,9 @@ test('firestore.rules agree with the operations classes', () => {
 test('the public demo shares only its check-in point, for the demo companies', () => {
   const rules = fs.readFileSync(path.join(root, 'firestore.rules'), 'utf8');
   const block = rules.slice(rules.indexOf('match /demoZones/{co}'), rules.indexOf('match /tenants/{t}'));
-  assert.match(block, /allow read: if co in \['serimaju', 'suria', 'majorfe'\];/);
+  assert.match(block, /allow read: if co in \['serimaju', 'suria', 'majorfe', 'banafsha'\];/);
   assert.match(block, /keys\(\)\.hasOnly\(\['lat', 'lng', 'radius', 'label', 'field', 'setAt'\]\)/);
   // The demo companies the rule names are exactly the ones in the app.
   const ids = vm.runInContext('Object.keys(AllurusSeed.companies)', sandbox);
-  assert.deepEqual(plain(ids).sort(), ['majorfe', 'serimaju', 'suria']);
+  assert.deepEqual(plain(ids).sort(), ['banafsha', 'majorfe', 'serimaju', 'suria']);
 });

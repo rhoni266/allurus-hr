@@ -137,7 +137,8 @@ service cloud.firestore {
       // Admins with the settings area change someone else's access in their company, or disable them; nobody
       // changes their own.
       allow update: if signedIn() && request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings')
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole'])
+        && request.resource.data.get('posRole', '') in ['', 'manager', 'cashier', 'waiter', 'kitchen']
         && request.resource.data.get('disabled', false) is bool
         && validRoles(request.resource.data) && grantable(request.resource.data) && grantable(resource.data);
       allow delete: if signedIn() && request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings') && grantable(resource.data);
@@ -269,8 +270,8 @@ service cloud.firestore {
     // The public demo (?demo, ?demo=suria, ?demo=majorfe): the check-in point its admin set, so every phone trying the
     // demo checks in against it. No sign-in, demo companies only, and only these fields with sensible values.
     match /demoZones/{co} {
-      allow read: if co in ['serimaju', 'suria', 'majorfe'];
-      allow write: if co in ['serimaju', 'suria', 'majorfe']
+      allow read: if co in ['serimaju', 'suria', 'majorfe', 'banafsha'];
+      allow write: if co in ['serimaju', 'suria', 'majorfe', 'banafsha']
         && request.resource.data.keys().hasOnly(['lat', 'lng', 'radius', 'label', 'field', 'setAt'])
         && request.resource.data.lat is number && request.resource.data.lat >= -90 && request.resource.data.lat <= 90
         && request.resource.data.lng is number && request.resource.data.lng >= -180 && request.resource.data.lng <= 180
@@ -351,6 +352,52 @@ service cloud.firestore {
         allow read: if member(t) && me().empId == e && canRead(t);
         allow write: if member(t) && me().empId == e && working(t);
       }
+      // ---- Point of sale (js/pos.js, functions/pos) ----
+      // Everyone on the till reads the outlet, menu, tables and today's orders. Money is written only by Cloud
+      // Functions (Admin SDK, which skips these rules): payments, refunds, receipt numbers, paid/void status, shift
+      // close and the audit log. So a browser can never mark a payment approved, change a paid order or rewrite
+      // what the drawer should hold. Nothing is deleted. All of it stops when the company isn't working(t).
+      function posRole() { return me().get('posRole', admin(t) && (owner() || 'pos' in me().perms) ? 'manager' : ''); }
+      function onTill(roles) { return member(t) && posRole() in roles; }
+      function posStaff() { return onTill(['manager', 'cashier', 'waiter', 'kitchen']); }
+      // Fields of an order that only the server sets.
+      function serverOrderFields() { return ['status', 'paidAt', 'receiptNo', 'rounding', 'voidedAt', 'voidedBy', 'voidReason', 'refunded']; }
+      match /pos_outlets/{id} {
+        allow read: if posStaff() && canRead(t);
+        allow write: if onTill(['manager']) && working(t);
+      }
+      match /pos_menu/{id} {
+        allow read: if posStaff() && canRead(t);
+        allow write: if onTill(['manager']) && working(t);
+      }
+      match /pos_tables/{id} {
+        allow read: if posStaff() && canRead(t);
+        allow create, delete: if false;
+        allow update: if (onTill(['manager']) || (onTill(['cashier', 'waiter'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'currentOrderId']))) && working(t);
+      }
+      match /pos_orders/{id} {
+        allow read: if posStaff() && canRead(t);
+        // The document id is the order's clientOrderId, so an order synced twice from the offline queue is one order.
+        allow create: if onTill(['manager', 'cashier', 'waiter']) && working(t) && id == request.resource.data.clientOrderId
+          && request.resource.data.status in ['open', 'sent'] && request.resource.data.createdBy == me().empId
+          && !request.resource.data.keys().hasAny(['paidAt', 'receiptNo', 'voidedAt', 'refunded']);
+        allow update: if working(t) && resource.data.status in ['open', 'sent']
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(serverOrderFields().removeAll(['status']))
+          && request.resource.data.status in ['open', 'sent']
+          && (onTill(['manager', 'cashier', 'waiter'])
+            // The kitchen only moves lines along (new → preparing → ready → served).
+            || (onTill(['kitchen']) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lines'])));
+        allow delete: if false;
+      }
+      // Written only by Cloud Functions: recordPayment (cash and recorded card/QR), createQrPayment and the gateway
+      // webhook (phase 2), the SoftPOS confirmation (phase 3), refunds, shift close and the daily Finance posting.
+      match /pos_payments/{id} { allow read: if onTill(['manager', 'cashier']) && canRead(t); allow write: if false; }
+      match /pos_refunds/{id} { allow read: if onTill(['manager']) && canRead(t); allow write: if false; }
+      match /pos_shifts/{id} { allow read: if onTill(['manager', 'cashier']) && canRead(t); allow write: if false; }
+      match /pos_counters/{id} { allow read, write: if false; }
+      match /pos_audit/{id} { allow read: if onTill(['manager']) && canRead(t); allow write: if false; }
+
       match /blobs/{id} {
         allow read: if member(t) && canRead(t);
         allow create: if member(t) && request.resource.data.d is string && request.resource.data.d.size() < 1048000 && working(t);
