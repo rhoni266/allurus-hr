@@ -11,3 +11,6 @@ firebase-debug.log
 *serviceAccount*.json
 scripts/serviceAccount.json
 functions/pos-rules.js
+
+# Cafe POS trial: holds the secret key
+pos/config.js

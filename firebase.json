@@ -12,6 +12,7 @@
         ".git/**",
         "**/node_modules/**",
         "functions/**",
+        "pos/**",
         "docs/**",
         "tests/**",
         "tests-rules/**",
