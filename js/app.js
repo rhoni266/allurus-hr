@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.19';
+  const APP_VERSION = '3.20';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -227,6 +227,8 @@
     left: '<path d="M15 6l-6 6 6 6"/>',
     right: '<path d="M9 6l6 6-6 6"/>',
     edit: '<path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/>',
+    copy: '<rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+    printer: '<path d="M7 9V4h10v5"/><rect x="4" y="9" width="16" height="8" rx="2"/><path d="M7 14h10v6H7z"/>',
     trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
     download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
     palette: '<path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-1.1-.9-1.5-.9-2.6 0-1 .8-1.7 1.8-1.7H17a4 4 0 0 0 4-4C21 6.5 17 3 12 3z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="11" cy="7.5" r="1.2"/><circle cx="15.5" cy="8.5" r="1.2"/>',
@@ -681,8 +683,8 @@
         const ca = a.gross + a.erCost, cb = b.gross + b.erCost, ch = ca ? ((cb - ca) / ca) * 100 : 0;
         add(Math.abs(ch) < 3 ? 'info' : ch > 0 ? 'warn' : 'good', 'trend', `Payroll cost ${ch >= 0 ? 'up' : 'down'} ${Math.abs(ch).toFixed(1)}%`, `${U.fmtMonth(paid[paid.length - 1], { month: 'long' })} cost ${money(cb)} with employer contributions.`, { label: 'Payroll', href: '#payroll' }, 0);
       }
-      const od = (state.finance?.invoices || []).filter((i) => i.status === 'Sent' && i.due < T);
-      if (od.length && can('finance')) add('warn', 'doc', `${plural(od.length, 'invoice is', 'invoices are')} overdue`, `${money(od.reduce((s, i) => s + AllurusFinance.invoiceTotals(i).total, 0))} is owed to you.`, { label: 'Chase', href: '#invoices' }, 2);
+      const od = (state.finance?.invoices || []).filter((i) => AllurusInvoiceRules.canPay(i) && i.due < T);
+      if (od.length && can('finance')) add('warn', 'doc', `${plural(od.length, 'invoice is', 'invoices are')} overdue`, `${money(od.reduce((s, i) => s + AllurusFinance.invoiceTotals(i).due, 0))} is owed to you.`, { label: 'Chase', href: '#invoices' }, 2);
       const since = U.addDays(T, -183);
       const tired = activeEmployees().filter((e) => e.start < since && !state.leaves.some((l) => l.empId === e.id && l.status === 'Approved' && l.type === 'annual' && l.to >= since));
       if (tired.length && can('time')) add('info', 'heart', `${plural(tired.length, 'person hasn’t', 'people haven’t')} had a break in 6 months`, `${tired.slice(0, 3).map((e) => e.first).join(', ')}${tired.length > 3 ? ' and others' : ''}. A nudge to rest goes a long way.`, { label: 'Time off', href: '#leave' }, 1);
@@ -2915,9 +2917,11 @@
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
     downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
     save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
-    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, get einvoice() { return einvApi; }, get lms() { return lmsApi; }, get recruit() { return recruitApi; }, get ops() { return opsApi; }, get ui() { return ui; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
+    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, get einvoice() { return einvApi; }, get lms() { return lmsApi; }, get recruit() { return recruitApi; }, get ops() { return opsApi; }, get invoices() { return invStore; }, get ui() { return ui; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
   };
   AllurusUX.install(moduleCtx);
+  // Every invoice change goes through this (js/invoice-store.js): checked, audited, and in the cloud one document each.
+  const invStore = AllurusInvoiceStore.install(moduleCtx, fire);
   finApi = AllurusFinance.install(moduleCtx);
   AllurusTax.install(moduleCtx);
   AllurusGuide.install(moduleCtx);

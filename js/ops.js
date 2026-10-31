@@ -55,11 +55,12 @@ window.AllurusOps = (function () {
   }
   // Invoice numbers run on across months (INV-YYMM-0001), after the highest number already used.
   const invNo = () => { const n = Math.max(0, ...fin().invoices.map((i) => +(/^INV-\d{4}-(\d+)$/.exec(i.no || '') || [])[1] || 0)) + 1; return `INV-${T().slice(2, 4)}${T().slice(5, 7)}-${String(n).padStart(4, '0')}`; };
-  function invoiceFromDO(d, so) {
+  // A delivery's invoice is issued (sent) at delivery, with any cash collected recorded as a payment
+  // (js/invoice-store.js; in the cloud, its own document).
+  function invoiceFromDO(d, so, cash, date) {
     const c = contact(so.clientId);
-    const inv = { id: U.uid('i'), no: invNo(), customer: c?.name || so.clientId, contactId: so.clientId, email: c?.email || '', issue: T(), due: so.terms === 'COD' ? T() : U.addDays(T(), 30), items: so.lines.map((l) => ({ desc: prod(l.productId)?.name || l.productId, qty: l.qty, price: l.price, classification: '022' })), taxRate: 0, status: 'Sent', paidOn: '', type: 'invoice', category: 'Product sales', doId: d.id, soId: so.id, einvoice: { status: 'Draft' } };
-    fin().invoices.push(inv);
-    return inv;
+    const inv = { no: invNo(), customer: c?.name || so.clientId, contactId: so.clientId, email: c?.email || '', issue: T(), due: so.terms === 'COD' ? T() : U.addDays(T(), 30), items: so.lines.map((l) => ({ desc: prod(l.productId)?.name || l.productId, qty: l.qty, unit: window.AllurusInvoiceRules.UNITS.some((u) => u.code === prod(l.productId)?.unit) ? prod(l.productId).unit : 'unit', price: l.price, classification: '022' })), taxRate: 0, category: 'Product sales', doId: d.id, soId: so.id, einvoice: { status: 'Draft' } };
+    return ctx.invoices.issueDelivered(inv, cash, date);
   }
   const soTotal = (so) => O.r2((so?.lines || []).reduce((s, l) => s + l.qty * l.price, 0));
   // What the driver needs about a delivery, kept on the delivery order itself: a driver can't read the sales
@@ -75,10 +76,9 @@ window.AllurusOps = (function () {
   function invoiceDelivery(d) {
     const so = ops().orders.find((x) => x.id === d.soId);
     if (!so) return null;
-    const inv = invoiceFromDO(d, so), total = soTotal(so), cash = d.cash || 0;
+    const total = soTotal(so), cash = d.cash || 0, inv = invoiceFromDO(d, so, cash, (d.deliveredAt || T()).slice(0, 10));
     d.invoiceId = inv.id; d.invoicePending = false; so.status = 'Delivered';
     if (cash > 0) {
-      if (cash >= total) { inv.status = 'Paid'; inv.paidOn = (d.deliveredAt || T()).slice(0, 10); } else { inv.adjust = -cash; inv.note = `RM ${cash.toFixed(2)} collected on delivery, balance due`; }
       fin().txns.push({ id: U.uid('x'), date: (d.deliveredAt || T()).slice(0, 10), desc: `${cash >= total ? 'Cash' : 'Part payment'} on delivery from ${inv.customer}`, type: 'in', category: 'Product sales', amount: cash, tax: 0, ref: inv.no, source: 'invoice', reconciled: false });
     }
     return inv;
@@ -334,7 +334,7 @@ window.AllurusOps = (function () {
     return `<div class="card card-flush"><div class="table-wrap"><table><thead><tr><th>Order</th><th>Client</th><th class="hide-sm">Terms</th><th class="r">Total</th><th>Status</th><th class="hide-sm">Invoice</th></tr></thead><tbody>
       ${list.map((so) => { const d = ops().dos.find((x) => x.id === so.doId), inv = d?.invoiceId && fin().invoices.find((i) => i.id === d.invoiceId); return `<tr><td><strong>${esc(so.no)}</strong><div class="person-sub">${fmt(so.date)}${d ? ` · ${esc(d.no)}` : ''}</div></td><td>${esc(contact(so.clientId)?.name || '')}</td><td class="hide-sm">${esc(so.terms)}</td><td class="r num">${money(soTotal(so))}</td><td>${pill(d?.status || so.status)}</td><td class="hide-sm">${inv ? `${esc(inv.no)} ${pill(inv.status === 'Paid' ? 'Done' : inv.due < T() ? 'Overdue' : 'Open', inv.status === 'Paid' ? 'Paid' : inv.due < T() ? 'Overdue' : 'Unpaid')}` : '—'}</td></tr>`; }).join('')}</tbody></table></div></div>`;
   }
-  function openInvoices() { return fin().invoices.filter((i) => i.type === 'invoice' && !['Paid', 'Draft'].includes(i.status)).map((i) => ({ client: i.customer, contactId: i.contactId, due: i.due, balance: AllurusFinance.invoiceTotals(i).balance, no: i.no, id: i.id })); }
+  function openInvoices() { return fin().invoices.filter((i) => window.AllurusInvoiceRules.canPay(i)).map((i) => ({ client: i.customer, contactId: i.contactId, due: i.due, balance: AllurusFinance.invoiceTotals(i).due, no: i.no, id: i.id })); }
   function clientsTable() {
     const open = openInvoices();
     const rows = fin().contacts.filter((c) => c.kind === 'customer').map((c) => { const mine = open.filter((i) => i.contactId === c.id), a = O.aging(mine, T()); const last = ops().orders.filter((s) => s.clientId === c.id).map((s) => s.date).sort().pop(); return { c, a, last }; }).sort((x, y) => y.a.total - x.a.total);
@@ -596,7 +596,7 @@ window.AllurusOps = (function () {
   // The owner's month so far: what was sold, made and bought, and what the people cost.
   function monthCard() {
     const mk = T().slice(0, 7), name = U.fmtMonth(mk, { month: 'long' });
-    const sales = fin().invoices.filter((i) => i.type === 'invoice' && i.issue?.startsWith(mk)).reduce((s, i) => s + AllurusFinance.invoiceTotals(i).total, 0);
+    const sales = fin().invoices.filter((i) => window.AllurusInvoiceRules.counts(i) && i.issue?.startsWith(mk)).reduce((s, i) => s + AllurusFinance.invoiceTotals(i).total, 0);
     const made = units(ops().batches.filter((b) => b.date.startsWith(mk)));
     const bought = fin().bills.filter((b) => b.issue?.startsWith(mk) && ['Raw materials', 'Packaging', 'Stock purchases'].includes(b.category)).reduce((s, b) => s + (Number(b.amount) || 0), 0);
     const makes = ops().products.length > 0;

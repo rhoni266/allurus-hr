@@ -63,6 +63,8 @@ window.AllurusEInvoice = (function () {
         ${e.status === 'Valid' && can.ok ? `<button type="button" class="btn btn-sm btn-ghost" data-act="einv-cancel" data-id="${id}" data-v="${kind}">Cancel e-Invoice</button>` : ''}</div>`}</div>`;
   }
   const recOf = (id, kind) => (kind === 'bill' ? fin().bills.find((b) => b.id === id) : fin().invoices.find((i) => i.id === id));
+  // In the cloud an invoice's e-Invoice status is saved on its own document (js/invoice-store.js); bills as before.
+  const persist = (rec, kind) => { if (kind !== 'bill' && ctx.invoices?.live()) ctx.invoices.setEinvoice(rec.id, JSON.parse(JSON.stringify(rec.einvoice))); };
   const reopen = (id, kind) => setTimeout(() => (kind === 'bill' ? billView(id) : ctx.ACTIONS['fin-view-inv'](id)), 60);
 
   function check(id, kind) {
@@ -93,7 +95,7 @@ window.AllurusEInvoice = (function () {
       });
       return;
     }
-    apply(rec, r);
+    apply(rec, r); persist(rec, kind);
     ctx.closeOverlay(); ctx.commit(r.ok ? `Submitted to MyInvois: ${r.status}` : 'MyInvois did not accept the document');
     reopen(id, kind);
   }
@@ -110,6 +112,7 @@ window.AllurusEInvoice = (function () {
       async onSubmit(d) {
         const r = await AllurusMyInvois.cancelOnMyInvois(rec.einvoice.uuid, d.reason.trim());
         Object.assign(rec.einvoice, { status: 'Cancelled', cancelledAt: nowISO(), reason: d.reason.trim(), simulated: rec.einvoice.simulated || r.connected === false });
+        persist(rec, kind);
         ctx.commit('e-Invoice cancelled', `e-Invoice for ${rec.no || rec.selfNo} cancelled: ${d.reason.trim()}`);
         reopen(id, kind);
       },
@@ -178,7 +181,11 @@ window.AllurusEInvoice = (function () {
         if (bad.length) { showErrors(ctx.$('#overlay-root form'), bad, 'ct'); ctx.toast(`${bad[0].label}: ${bad[0].message}`, 'error'); return false; }
         if (contacts().some((y) => y.id !== id && y.kind === x.kind && y.name.toLowerCase() === x.name.toLowerCase())) { ctx.toast(`There is already a ${x.kind} called ${x.name}`, 'error'); return false; }
         let saved;
-        if (id) { const old = c.name; Object.assign(c, x); saved = c; if (old !== x.name) [...fin().invoices.filter((i) => i.contactId === id), ...fin().bills.filter((b) => b.contactId === id)].forEach((r) => { if (r.customer) r.customer = x.name; else r.supplier = x.name; }); }
+        if (id) { const old = c.name; Object.assign(c, x); saved = c; if (old !== x.name) {
+          // Bills and draft invoices take the new name; a sent invoice keeps the name it was sent with (it is locked).
+          fin().bills.filter((b) => b.contactId === id).forEach((b) => { b.supplier = x.name; });
+          fin().invoices.filter((i) => i.contactId === id && i.status === 'Draft').forEach((i) => { if (ctx.invoices?.live()) ctx.invoices.saveDraft(i.id, { customer: x.name }); else i.customer = x.name; });
+        } }
         else { saved = { id: U.uid('ct'), ...x }; contacts().push(saved); }
         const left = E.partyProblems(saved, role).length;
         ctx.commit(left ? `${x.name} saved; ${left} e-Invoice detail${left === 1 ? '' : 's'} still missing` : `${x.name} saved, ready for e-Invoice`);
@@ -210,7 +217,7 @@ window.AllurusEInvoice = (function () {
   function insights() {
     if (ctx.role() !== 'admin' || !fin()) return [];
     const out = [], p = companyProblems();
-    const waiting = fin().invoices.filter((i) => i.status !== 'Draft' && (i.einvoice?.status || 'Draft') === 'Draft');
+    const waiting = fin().invoices.filter((i) => i.status !== 'Draft' && i.status !== 'Void' && (i.einvoice?.status || 'Draft') === 'Draft');
     const rejected = [...fin().invoices, ...fin().bills].filter((x) => x.einvoice?.status === 'Rejected');
     if (p.length) out.push({ tone: 'warn', icon: 'doc', title: 'Finish your e-Invoice company details', detail: p.slice(0, 3).map((x) => x.label).join(', '), action: { label: 'Settings', act: 'einv-company' }, prio: 1 });
     if (rejected.length) out.push({ tone: 'bad', icon: 'doc', title: `${rejected.length} e-Invoice${rejected.length === 1 ? ' was' : 's were'} rejected`, detail: rejected.slice(0, 3).map((x) => x.no || x.selfNo).join(', '), action: { label: 'Open', act: rejected[0].no ? 'fin-view-inv' : 'einv-bill', id: rejected[0].id }, prio: 2 });
@@ -225,8 +232,8 @@ window.AllurusEInvoice = (function () {
     Object.assign(ctx.ACTIONS, {
       'einv-check': (id, v) => check(id, v),
       'einv-submit': (id, v) => submit(id, v),
-      'einv-sim': (id, v) => { const [kind, how] = v.split(':'), rec = recOf(id, kind); apply(rec, AllurusMyInvois.simulate({ valid: how === 'ok', seed: rec.no || rec.selfNo || id })); ctx.closeOverlay(); ctx.commit(how === 'ok' ? 'Simulated: e-Invoice valid' : 'Simulated: e-Invoice rejected', `${rec.no || rec.selfNo} e-Invoice ${how === 'ok' ? 'validated' : 'rejected'} (demo simulation)`); reopen(id, kind); },
-      'einv-redo': (id, v) => { const rec = recOf(id, v); rec.einvoice = { status: 'Draft', history: [...(rec.einvoice.history || []), { status: 'Rejected', at: rec.einvoice.submittedAt, errors: rec.einvoice.errors }] }; ctx.closeOverlay(); ctx.commit('Back to draft. Fix the details and submit again.'); reopen(id, v); },
+      'einv-sim': (id, v) => { const [kind, how] = v.split(':'), rec = recOf(id, kind); apply(rec, AllurusMyInvois.simulate({ valid: how === 'ok', seed: rec.no || rec.selfNo || id })); persist(rec, kind); ctx.closeOverlay(); ctx.commit(how === 'ok' ? 'Simulated: e-Invoice valid' : 'Simulated: e-Invoice rejected', `${rec.no || rec.selfNo} e-Invoice ${how === 'ok' ? 'validated' : 'rejected'} (demo simulation)`); reopen(id, kind); },
+      'einv-redo': (id, v) => { const rec = recOf(id, v); rec.einvoice = { status: 'Draft', history: [...(rec.einvoice.history || []), { status: 'Rejected', at: rec.einvoice.submittedAt, errors: rec.einvoice.errors }] }; persist(rec, v); ctx.closeOverlay(); ctx.commit('Back to draft. Fix the details and submit again.'); reopen(id, v); },
       'einv-cancel': (id, v) => cancel(id, v),
       'einv-json': (id, v) => { const rec = recOf(id, v), input = v === 'bill' ? inputForBill(rec) : inputFor(rec); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(E.build(input), null, 2)], { type: 'application/json' })); a.download = `${input.no}.json`; document.body.appendChild(a); a.click(); a.remove(); ctx.toast(`${input.no}.json downloaded`); },
       'einv-bill': (id) => billView(id),

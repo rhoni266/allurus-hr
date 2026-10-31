@@ -36,7 +36,8 @@ test('every workspace key except the private ones survives the round trip', () =
   const { out } = roundTrip(ws);
   WS_KEYS.filter((k) => !['employees', 'payroll', 'plans'].includes(k)).forEach((k) => {
     if (ws[k] === undefined) return;
-    const want = k === 'settings' ? { ...ws.settings, theme: undefined } : ws[k];
+    // Invoices travel as one document each (tenants/{t}/invoices, cloud.js), not in the finance buckets.
+    const want = k === 'settings' ? { ...ws.settings, theme: undefined } : k === 'finance' ? { ...ws.finance, invoices: undefined } : ws[k];
     assert.equal(M.stable(out[k]), M.stable(want), `key ${k}`);
   });
 });
@@ -44,7 +45,8 @@ test('every workspace key except the private ones survives the round trip', () =
 test('payroll and loans need the payroll area, the books the finance area; leave and attendance are for every member', () => {
   const { docs } = roundTrip(seed());
   assert.equal(docs.leaves.r, 'm');
-  assert.equal(docs['finance.invoices'].r, 'f');
+  assert.equal(docs['finance.invoices'], undefined, 'invoices are their own documents, locked by the rules once sent');
+  assert.equal(docs['finance.bills'].r, 'f');
   assert.equal(docs.finance.r, 'f');
   assert.equal(docs.loans.r, 'p');
   assert.equal(docs.payChanges.r, 'p');

@@ -74,7 +74,9 @@ window.AllurusEInvoiceRules = (function () {
       original: original ? { no: original.no, uuid: original.einvoice?.uuid || '' } : null,
       supplier: company, buyer: contact || { name: inv.customer, email: inv.email },
       taxRate: Number(inv.taxRate) || 0, taxType: inv.taxType || (Number(inv.taxRate) ? '02' : '06'),
-      lines: inv.items.map((it) => ({ desc: it.desc, qty: Number(it.qty) || 0, price: Number(it.price) || 0, classification: it.classification || '022', unit: it.unit || 'C62' })),
+      lines: inv.items.map((it) => ({ desc: it.desc, qty: Number(it.qty) || 0, price: Number(it.price) || 0, classification: it.classification || '022',
+        // The line's unit (kg, pcs…) as its LHDN / UN code (js/invoice-rules.js); lines without one are C62 ("one").
+        unit: window.AllurusInvoiceRules ? window.AllurusInvoiceRules.unitOf(it.unit).lhdn : (it.unit || 'C62') })),
       note: inv.reason || '',
     };
   }

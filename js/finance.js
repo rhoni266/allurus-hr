@@ -17,16 +17,19 @@ window.AllurusFinance = (function () {
   }
 
   // ---------- Calculations (pure; used by the seed and the screens) ----------
-  // balance = what the customer still owes after credit and debit notes (adjust is their net effect).
-  const invoiceTotals = (inv) => {
-    const sub = sum(inv.items, (i) => i.qty * i.price);
-    const tax = r2(sub * inv.taxRate / 100);
-    const total = r2(sub + tax);
-    return { sub, tax, total, balance: r2(total + (inv.adjust || 0)) };
-  };
+  // sub, tax, total; balance = after credit and debit notes (adjust is their net effect); paid and due after
+  // payments. Lines in sen, rounded once each (js/invoice-rules.js).
+  const invoiceTotals = (inv) => window.AllurusInvoiceRules.totals(inv);
   // Credit, debit and refund notes live with the invoices but are not receivables themselves.
   const isInvoice = (i) => (i.type || 'invoice') === 'invoice';
-  const invoiceStatus = (inv, today) => (inv.status === 'Sent' && inv.due < today ? 'Overdue' : inv.status);
+  const invoiceStatus = (inv, today) => window.AllurusInvoiceRules.shown(inv, today);
+  // What a customer still owed on an invoice at the end of a day: sent (not void), less payments made by then.
+  const owedAt = (i, end) => {
+    if (!window.AllurusInvoiceRules.counts(i) || i.issue > end) return 0;
+    const t = invoiceTotals(i);
+    if (!i.payments) return i.status === 'Paid' && i.paidOn <= end ? 0 : t.balance;
+    return r2(t.balance - i.payments.filter((p) => p.date <= end).reduce((s, p) => s + Number(p.amount || 0), 0));
+  };
   const billStatus = (b, today) => (b.status === 'Unpaid' && b.due < today ? 'Overdue' : b.status);
 
   // Paid payroll runs appear in the books automatically, so nobody keys them in twice.
@@ -71,7 +74,7 @@ window.AllurusFinance = (function () {
     const pay = run && run.status === 'Paid'
       ? { people: run.items.length, gross: sum(run.items, (i) => i.gross), tax: sum(run.items, (i) => i.tax), benefits: sum(run.items, (i) => i.benefits), net: sum(run.items, (i) => i.net) }
       : null;
-    const ar = sum(fin.invoices.filter((i) => isInvoice(i) && i.status !== 'Draft' && i.issue <= end && (i.status !== 'Paid' || i.paidOn > end)), (i) => invoiceTotals(i).balance);
+    const ar = sum(fin.invoices, (i) => owedAt(i, end));
     const ap = sum(fin.bills.filter((b) => b.issue <= end && (b.status !== 'Paid' || b.paidOn > end)), (b) => b.amount + b.tax);
     return {
       mk, income, expenses, totalIn, totalOut, net: r2(totalIn - totalOut),
@@ -185,7 +188,7 @@ window.AllurusFinance = (function () {
     const m2 = (n) => money(n, 2);
     const signed = (t) => `<span class="num ${t.type === 'in' ? 'amt-in' : 'amt-out'}">${t.type === 'in' ? '+' : '−'}${m2(t.amount + t.tax)}</span>`;
     const SOURCE = { invoice: 'Invoice', bill: 'Bill', payroll: 'Payroll', manual: 'Manual', receipt: 'Receipt', claim: 'Claim' };
-    const invPill = (s) => `<span class="pill ${({ Draft: '', Sent: 'info', Overdue: 'bad', Paid: 'ok' })[s]}">${s}</span>`;
+    const invPill = (s) => `<span class="pill ${({ Draft: '', Sent: 'info', 'Partially paid': 'warn', Overdue: 'bad', Paid: 'ok', Void: 'void' })[s] ?? ''}">${s === 'Partially paid' ? 'Part paid' : s}</span>`;
     const billPill = (s) => `<span class="pill ${({ Unpaid: 'warn', Overdue: 'bad', Paid: 'ok' })[s]}">${s}</span>`;
     const NOTE_NAMES = { invoice: 'Invoice', credit: 'Credit note', debit: 'Debit note', refund: 'Refund note' };
     const noteName = (i) => NOTE_NAMES[i.type || 'invoice'] || 'Invoice';
@@ -244,14 +247,14 @@ window.AllurusFinance = (function () {
 
     VIEWS.finance = () => {
       const f = fin(), mk = cur(), c = compute(f, pay(), mk);
-      const out = f.invoices.filter((i) => isInvoice(i) && ['Sent', 'Overdue'].includes(invoiceStatus(i, T())));
+      const out = f.invoices.filter((i) => isInvoice(i) && window.AllurusInvoiceRules.canPay(i));
       const overdueInv = out.filter((i) => invoiceStatus(i, T()) === 'Overdue');
       const unpaid = f.bills.filter((b) => b.status !== 'Paid');
       const overdueBills = unpaid.filter((b) => billStatus(b, T()) === 'Overdue');
       const due14 = unpaid.filter((b) => b.due <= U.addDays(T(), 14));
       const recent = months().slice(0, 6).reverse();
       const attention = [
-        ...overdueInv.map((i) => ({ text: `<strong>${esc(i.customer)}</strong> owes ${money(invoiceTotals(i).balance)} on ${esc(i.no)}, due ${U.fmtDate(i.due, { month: 'short', day: 'numeric' })}`, pill: '<span class="pill bad">Overdue invoice</span>', act: `data-act="fin-view-inv" data-id="${i.id}"` })),
+        ...overdueInv.map((i) => ({ text: `<strong>${esc(i.customer)}</strong> owes ${money(invoiceTotals(i).due)} on ${esc(i.no)}, due ${U.fmtDate(i.due, { month: 'short', day: 'numeric' })}`, pill: '<span class="pill bad">Overdue invoice</span>', act: `data-act="fin-view-inv" data-id="${i.id}"` })),
         ...overdueBills.map((b) => ({ text: `Pay <strong>${esc(b.supplier)}</strong> ${money(b.amount + b.tax)}, due ${U.fmtDate(b.due, { month: 'short', day: 'numeric' })}`, pill: '<span class="pill bad">Overdue bill</span>', act: 'data-act="fin-go" data-v="bills"' })),
         ...Object.entries(f.reports).filter(([, r]) => r.status === 'Changes requested').map(([k]) => ({ text: `Your auditor asked for changes to the ${U.fmtMonth(k)} report`, pill: '<span class="pill warn">Auditor</span>', act: `data-act="fin-report" data-v="${k}"` })),
         ...months().filter((k) => k < mk && repStatus(k) === 'Not submitted').slice(0, 2).map((k) => ({ text: `${U.fmtMonth(k)} is closed. Submit its report to your auditor.`, pill: '<span class="pill warn">To submit</span>', act: `data-act="fin-report" data-v="${k}"` })),
@@ -263,7 +266,7 @@ window.AllurusFinance = (function () {
         <div class="grid g-4 keep-2">
           <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Cash in bank</div><div class="kpi-value">${compactMoney(c.cash.closing)}</div><div class="kpi-foot num">${money(c.cash.closing)} today</div></div>
           <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:${c.net >= 0 ? 'var(--ok)' : 'var(--bad)'}"></span>Profit this month</div><div class="kpi-value">${compactMoney(c.net)}</div><div class="kpi-foot">${money(c.totalIn)} in · ${money(c.totalOut)} out so far</div></div>
-          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Customers owe you</div><div class="kpi-value">${compactMoney(sum(out, (i) => invoiceTotals(i).balance))}</div><div class="kpi-foot">${out.length} open invoices${overdueInv.length ? ` · <span style="color:var(--bad)">${overdueInv.length} overdue</span>` : ''}</div></div>
+          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Customers owe you</div><div class="kpi-value">${compactMoney(sum(out, (i) => invoiceTotals(i).due))}</div><div class="kpi-foot">${out.length} open invoices${overdueInv.length ? ` · <span style="color:var(--bad)">${overdueInv.length} overdue</span>` : ''}</div></div>
           <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>You owe suppliers</div><div class="kpi-value">${compactMoney(sum(unpaid, (b) => b.amount + b.tax))}</div><div class="kpi-foot">${due14.length} due in 14 days${overdueBills.length ? ` · <span style="color:var(--bad)">${overdueBills.length} overdue</span>` : ''}</div></div>
         </div>
         <div class="grid g-main">
@@ -347,60 +350,146 @@ window.AllurusFinance = (function () {
     }
 
     // ----- Invoices -----
+    // Every change goes through ctx.invoices (js/invoice-store.js): a Draft is edited freely; Mark as sent locks it;
+    // after that only payments, notes and Void (with a reason). The rules are in js/invoice-rules.js.
+    const IR = window.AllurusInvoiceRules;
+    const store = () => ctx.invoices;
+    const reopen = (id) => setTimeout(() => viewInvoice(id), 50);
+    // A refused change: say why. "This invoice changed" reopens it with the latest copy.
+    const failed = (r, id) => { if (r.error === 'busy') return; toast(r.message, 'error'); if (r.error === 'changed' && id) { closeOverlay(); reopen(id); } };
+    const submitBtn = () => ctx.$('#overlay-root button[type=submit]');
+    const working = (on, label) => { const b = submitBtn(); if (b) { b.disabled = on; if (label) b.textContent = label; } };
+    // Money received on an invoice, as payments (older paid invoices: the whole balance on the day it was paid).
+    const paymentsOf = (i) => (i.payments && i.payments.length ? i.payments : i.status === 'Paid' && i.paidOn ? [{ date: i.paidOn, amount: invoiceTotals(i).balance }] : []);
+
     VIEWS.invoices = () => {
       const f = fin();
+      const FILTERS = [['all', 'All'], ['Draft', 'Draft'], ['Sent', 'Sent'], ['Partially paid', 'Part paid'], ['Overdue', 'Overdue'], ['Paid', 'Paid'], ['Void', 'Void'], ['Notes', 'Credit, debit and refund notes']];
       const list = f.invoices.map((i) => ({ ...i, st: invoiceStatus(i, T()), tot: invoiceTotals(i) })).filter((i) => fui.inv === 'all' || (fui.inv === 'Notes' ? !isInvoice(i) : isInvoice(i) && i.st === fui.inv)).sort((a, b) => b.issue.localeCompare(a.issue) || b.no.localeCompare(a.no));
-      const open = f.invoices.filter((i) => isInvoice(i) && ['Sent', 'Overdue'].includes(invoiceStatus(i, T())));
+      const open = f.invoices.filter((i) => isInvoice(i) && IR.canPay(i));
       const overdue = open.filter((i) => invoiceStatus(i, T()) === 'Overdue');
-      const paidMonth = f.invoices.filter((i) => isInvoice(i) && i.status === 'Paid' && i.paidOn.startsWith(cur()));
+      const received = f.invoices.filter(isInvoice).flatMap(paymentsOf).filter((p) => String(p.date || '').startsWith(cur()));
+      const actionsFor = (i) => {
+        if (isAuditor() || !isInvoice(i)) return '';
+        const dup = `<button class="btn btn-sm btn-icon btn-ghost" data-act="fin-dup-inv" data-id="${i.id}" aria-label="Duplicate ${esc(i.no)}" title="Duplicate">${icon('copy')}</button>`;
+        if (i.st === 'Draft') return `<button class="btn btn-sm" data-act="fin-edit-inv" data-id="${i.id}">${icon('edit')}Edit</button><button class="btn btn-sm" data-act="fin-send-inv" data-id="${i.id}">Mark sent</button>${dup}`;
+        if (IR.canPay(i)) return `<button class="btn btn-sm btn-ok" data-act="fin-pay-inv" data-id="${i.id}">Record payment</button>${dup}`;
+        return dup;
+      };
       return `
-        <div class="page-head"><div><div class="eyebrow">Finance & Accounting</div><h1>Invoices</h1><p class="sub">Bill your customers and track who has paid. Recording a payment adds it to the books.</p></div>
-          <div class="actions">${isAuditor() ? '' : `<button class="btn btn-primary" data-act="fin-new-inv">${icon('plus')}New invoice</button>`}</div></div>
+        <div class="page-head"><div><div class="eyebrow">Finance & Accounting</div><h1>Invoices</h1><p class="sub">Drafts can be changed until you mark them as sent; then they are locked. Recording a payment adds it to the books.</p></div>
+          <div class="actions"><button class="btn" data-act="fin-export-inv">${icon('download')}Export CSV</button>${isAuditor() ? '' : `<button class="btn btn-primary" data-act="fin-new-inv">${icon('plus')}New invoice</button>`}</div></div>
         <div class="grid g-4 keep-2">
-          <div class="card kpi"><div class="kpi-label">Outstanding</div><div class="kpi-value">${compactMoney(sum(open, (i) => invoiceTotals(i).balance))}</div><div class="kpi-foot">${open.length} invoices</div></div>
-          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--bad)"></span>Overdue</div><div class="kpi-value">${compactMoney(sum(overdue, (i) => invoiceTotals(i).balance))}</div><div class="kpi-foot">${overdue.length} invoices</div></div>
-          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>Paid this month</div><div class="kpi-value">${compactMoney(sum(paidMonth, (i) => invoiceTotals(i).balance))}</div><div class="kpi-foot">${paidMonth.length} invoices</div></div>
-          <div class="card kpi"><div class="kpi-label">Drafts</div><div class="kpi-value">${f.invoices.filter((i) => isInvoice(i) && i.status === 'Draft').length}</div><div class="kpi-foot">Not sent yet</div></div>
+          <div class="card kpi"><div class="kpi-label">Outstanding</div><div class="kpi-value">${compactMoney(sum(open, (i) => invoiceTotals(i).due))}</div><div class="kpi-foot">${open.length} invoices</div></div>
+          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--bad)"></span>Overdue</div><div class="kpi-value">${compactMoney(sum(overdue, (i) => invoiceTotals(i).due))}</div><div class="kpi-foot">${overdue.length} invoices</div></div>
+          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>Received this month</div><div class="kpi-value">${compactMoney(sum(received, (p) => Number(p.amount) || 0))}</div><div class="kpi-foot">${received.length} payments</div></div>
+          <div class="card kpi"><div class="kpi-label">Drafts</div><div class="kpi-value">${f.invoices.filter((i) => isInvoice(i) && i.status === 'Draft').length}</div><div class="kpi-foot">Not sent yet, still editable</div></div>
         </div>
         <div class="card card-flush">
-          <div class="toolbar"><div class="seg">${['all', 'Draft', 'Sent', 'Overdue', 'Paid', 'Notes'].map((s) => `<button data-act="fin-inv-filter" data-v="${s}" class="${fui.inv === s ? 'on' : ''}">${s === 'all' ? 'All' : s === 'Notes' ? 'Credit, debit and refund notes' : s}</button>`).join('')}</div></div>
+          <div class="toolbar"><div class="seg">${FILTERS.map(([s, l]) => `<button data-act="fin-inv-filter" data-v="${s}" class="${fui.inv === s ? 'on' : ''}">${l}</button>`).join('')}</div></div>
           <div class="table-wrap"><table>
-            <thead><tr><th>Number</th><th>Customer</th><th class="hide-sm">Issued</th><th class="hide-sm">Due</th><th class="r">Total</th><th>Status</th><th class="hide-sm">e-Invoice</th><th></th></tr></thead>
+            <thead><tr><th>Number</th><th>Customer</th><th class="hide-sm">Items</th><th class="hide-sm">Issued</th><th class="hide-sm">Due</th><th class="r">Total</th><th>Status</th><th class="hide-sm">e-Invoice</th><th></th></tr></thead>
             <tbody>${list.map((i) => `<tr class="clickable" data-act="fin-view-inv" data-id="${i.id}">
-              <td class="num inv-no">${esc(i.no)}${isInvoice(i) ? '' : `<div><span class="tag ${i.type === 'credit' ? 'warn' : i.type === 'refund' ? 'bad' : 'info'}">${esc(noteName(i))}</span></div>`}</td><td>${esc(i.customer)}</td><td class="hide-sm muted num">${U.fmtDate(i.issue, { month: 'short', day: 'numeric' })}</td>
-              <td class="muted num hide-sm">${isInvoice(i) ? U.fmtDate(i.due, { month: 'short', day: 'numeric' }) : '—'}</td><td class="r num">${isInvoice(i) ? m2(i.tot.balance) : `${i.type === 'debit' ? '' : '−'}${m2(i.tot.total)}`}${isInvoice(i) && i.tot.balance !== i.tot.total ? `<div class="person-sub">was ${m2(i.tot.total)}</div>` : ''}</td><td>${isInvoice(i) ? invPill(i.st) : '<span class="pill">Issued</span>'}</td><td class="hide-sm">${ctx.einvoice ? ctx.einvoice.pill(i.einvoice) : ''}</td>
-              <td><div class="row-actions">${isAuditor() || !isInvoice(i) ? '' : i.st === 'Draft' ? `<button class="btn btn-sm" data-act="fin-send-inv" data-id="${i.id}">Mark sent</button>` : i.st !== 'Paid' ? `<button class="btn btn-sm btn-ok" data-act="fin-pay-inv" data-id="${i.id}">Record payment</button>` : ''}</div></td></tr>`).join('')}</tbody>
+              <td class="num inv-no">${esc(i.no)}${isInvoice(i) ? '' : `<div><span class="tag ${i.type === 'credit' ? 'warn' : i.type === 'refund' ? 'bad' : 'info'}">${esc(noteName(i))}</span></div>`}</td><td>${esc(i.customer)}</td>
+              <td class="hide-sm muted inv-items">${esc((i.items || []).slice(0, 2).map((it) => `${it.desc} · ${IR.fmtQty(it.qty, it.unit)}`).join('; '))}${(i.items || []).length > 2 ? ` +${i.items.length - 2}` : ''}</td>
+              <td class="hide-sm muted num">${U.fmtDate(i.issue, { month: 'short', day: 'numeric' })}</td>
+              <td class="muted num hide-sm">${isInvoice(i) ? U.fmtDate(i.due, { month: 'short', day: 'numeric' }) : '—'}</td>
+              <td class="r num">${isInvoice(i) ? m2(i.tot.balance) : `${i.type === 'debit' ? '' : '−'}${m2(i.tot.total)}`}${isInvoice(i) && i.tot.balance !== i.tot.total ? `<div class="person-sub">was ${m2(i.tot.total)}</div>` : ''}${i.st === 'Partially paid' || (i.st === 'Overdue' && i.tot.paid > 0) ? `<div class="person-sub">${m2(i.tot.due)} due</div>` : ''}</td>
+              <td>${isInvoice(i) ? invPill(i.st) : '<span class="pill">Issued</span>'}</td><td class="hide-sm">${ctx.einvoice ? ctx.einvoice.pill(i.einvoice) : ''}</td>
+              <td><div class="row-actions">${actionsFor(i)}</div></td></tr>`).join('')}</tbody>
           </table>${list.length ? '' : '<div class="empty"><strong>No invoices here</strong>Create one with New invoice.</div>'}</div>
         </div>`;
     };
 
-    function invoiceModal() {
-      const rate = fin().settings.taxRate, label = fin().settings.taxLabel;
+    // New invoice, or edit a draft. Lines: description, quantity, unit, unit price; as many as needed.
+    function invoiceModal(id) {
+      const inv = id ? fin().invoices.find((x) => x.id === id) : null;
+      if (id && !inv) return;
+      if (inv && !IR.canEdit(inv)) { toast(`${inv.no} is ${inv.status.toLowerCase()} and locked. Duplicate it to make a new draft.`, 'error'); return; }
+      const rate = fin().settings.taxRate, label = fin().settings.taxLabel, memo = () => fin().unitMemo || {};
       const custs = [...new Set([...(fin().contacts || []).filter((c) => c.kind === 'customer').map((c) => c.name), ...fin().invoices.map((i) => i.customer)])].sort();
-      const row = (n) => `<div class="inv-line"><input class="input" name="d${n}" placeholder="Description" aria-label="Line ${n + 1} description" ${n === 0 ? 'required' : ''}><input class="input num" name="q${n}" type="number" min="0" step="1" placeholder="Qty" value="${n === 0 ? 1 : ''}" aria-label="Line ${n + 1} quantity"><input class="input num" name="p${n}" type="number" min="0" step="0.01" placeholder="Unit price" aria-label="Line ${n + 1} unit price"></div>`;
+      const unitSel = (n, u) => `<select class="select inv-unit" name="u${n}" aria-label="Line ${n + 1} unit">${IR.UNITS.map((x) => `<option value="${x.code}" ${x.code === u ? 'selected' : ''}>${x.label}</option>`).join('')}</select>`;
+      const row = (n, it = {}) => `<div class="inv-line" data-line="${n}">
+          <input class="input" name="d${n}" value="${esc(it.desc || '')}" placeholder="Description" aria-label="Line ${n + 1} description" maxlength="200">
+          <input class="input num" name="q${n}" type="number" min="0" step="any" inputmode="decimal" value="${it.qty ?? ''}" placeholder="Qty" aria-label="Line ${n + 1} quantity">
+          ${unitSel(n, it.unit || IR.DEFAULT_UNIT)}
+          <input class="input num" name="p${n}" type="number" min="0" step="0.01" inputmode="decimal" value="${it.price ?? ''}" placeholder="Unit price (RM)" aria-label="Line ${n + 1} unit price in RM">
+          <span class="inv-amt num" data-amt></span>
+          <button type="button" class="btn btn-icon btn-ghost inv-del" aria-label="Remove line ${n + 1}">${icon('x')}</button></div>`;
+      const items = inv ? inv.items : [{ qty: 1, unit: IR.DEFAULT_UNIT }];
+      const taxNow = inv ? inv.taxRate : rate;
       openModal({
-        title: 'New invoice', submit: 'Save draft',
+        title: inv ? `Edit draft ${inv.no}` : 'New invoice', submit: 'Save draft',
         body: `<div class="form-grid">
-          <div class="field"><label for="in-cust">Customer</label><input class="input" id="in-cust" name="customer" list="cust-list" required><datalist id="cust-list">${custs.map((c) => `<option value="${esc(c)}">`).join('')}</datalist><span class="field-hint" id="in-cust-hint">Pick a saved customer so the e-Invoice has their TIN and address.</span></div>
-          <div class="field"><label for="in-email">Customer email</label><input class="input" id="in-email" name="email" type="email"></div>
-          <div class="field"><label for="in-issue">Issue date</label><input class="input" id="in-issue" name="issue" type="date" required value="${T()}"></div>
-          <div class="field"><label for="in-due">Due date</label><input class="input" id="in-due" name="due" type="date" required value="${U.addDays(T(), 30)}"></div>
-          <div class="field full"><label>Items</label>${row(0)}${row(1)}${row(2)}</div>
-          <div class="field"><label for="in-tax">${esc(label)}</label><select class="select" id="in-tax" name="taxRate"><option value="${rate}">${rate}%</option><option value="0">No ${esc(label)}</option></select></div></div>`,
+          ${inv?.duplicatedFrom ? `<p class="field full faint">${icon('copy')} Duplicated from ${esc(inv.duplicatedFrom.no)}</p>` : ''}
+          <div class="field"><label for="in-cust">Customer</label><input class="input" id="in-cust" name="customer" list="cust-list" required value="${esc(inv?.customer || '')}"><datalist id="cust-list">${custs.map((c) => `<option value="${esc(c)}">`).join('')}</datalist><span class="field-hint" id="in-cust-hint">Pick a saved customer so the e-Invoice has their TIN and address.</span></div>
+          <div class="field"><label for="in-email">Customer email</label><input class="input" id="in-email" name="email" type="email" value="${esc(inv?.email || '')}"></div>
+          <div class="field"><label for="in-issue">Issue date</label><input class="input" id="in-issue" name="issue" type="date" required value="${inv?.issue || T()}"></div>
+          <div class="field"><label for="in-due">Due date</label><input class="input" id="in-due" name="due" type="date" required value="${inv?.due || U.addDays(T(), 30)}"></div>
+          <div class="field full"><label id="inv-lines-label">Items</label>
+            <div class="inv-head" aria-hidden="true"><span>Description</span><span>Qty</span><span>Unit</span><span>Unit price</span><span>Amount</span><span></span></div>
+            <div class="inv-lines" id="inv-lines" role="group" aria-labelledby="inv-lines-label">${items.map((it, n) => row(n, it)).join('')}</div>
+            <div class="inv-lines-foot"><button type="button" class="btn btn-sm" id="inv-add">${icon('plus')}Add a line</button><span class="faint">kg, g, l, ml, m, hours, days and months can have decimals; the others are whole numbers.</span></div></div>
+          <div class="field"><label for="in-tax">${esc(label)}</label><select class="select" id="in-tax" name="taxRate">${[...new Set([taxNow, rate, 0])].map((r) => `<option value="${r}" ${r === taxNow ? 'selected' : ''}>${r ? `${r}%` : `No ${esc(label)}`}</option>`).join('')}</select></div>
+          <div class="field inv-total"><span class="faint">Total</span><strong class="num" id="inv-total">—</strong></div>
+          <div class="field full"><label for="in-notes">Notes on the invoice</label><textarea class="input" id="in-notes" name="notes" rows="2" maxlength="500" placeholder="Payment details, thanks…">${esc(inv?.notes || '')}</textarea><span class="field-hint">Shown on the invoice. No card numbers or personal ID numbers.</span></div>
+          <div class="field full"><div class="inv-errors" id="inv-errors" role="alert" hidden></div></div></div>`,
         onSubmit(d) {
-          const items = [0, 1, 2].map((n) => ({ desc: (d['d' + n] || '').trim(), qty: Number(d['q' + n]) || 0, price: Number(d['p' + n]) || 0 })).filter((i) => i.desc && i.qty > 0 && i.price > 0);
-          if (!items.length) { toast('Add at least one item with a quantity and price', 'error'); return false; }
-          if (d.due < d.issue) { toast('The due date must be on or after the issue date', 'error'); return false; }
-          const mk = U.monthKey(d.issue).replace('-', '');
-          const n = fin().invoices.filter((i) => i.no.includes(mk)).length + 1;
-          const contact = (fin().contacts || []).find((c) => c.kind === 'customer' && c.name.toLowerCase() === d.customer.trim().toLowerCase());
-          const inv = { id: U.uid('i'), type: 'invoice', no: `INV-${mk}-${U.pad(n)}`, customer: contact?.name || d.customer.trim(), contactId: contact?.id || '', email: d.email.trim() || contact?.email || '', issue: d.issue, due: d.due, items: items.map((x) => ({ ...x, classification: '022' })), taxRate: Number(d.taxRate), status: 'Draft', paidOn: '', einvoice: { status: 'Draft' } };
-          fin().invoices.push(inv);
-          fui.inv = 'all';
-          commit(`${inv.no} saved as a draft`, `Invoice ${inv.no} created for ${inv.customer}`);
-          setTimeout(() => viewInvoice(inv.id), 50);
+          const lines = readLines();
+          const contact = (fin().contacts || []).find((c) => c.kind === 'customer' && c.name.toLowerCase() === String(d.customer || '').trim().toLowerCase());
+          const draft = { customer: contact?.name || String(d.customer || '').trim(), contactId: contact?.id || '', email: String(d.email || '').trim() || contact?.email || '',
+            issue: d.issue, due: d.due, items: lines, taxRate: Number(d.taxRate), notes: String(d.notes || '').trim() };
+          const errs = IR.draftErrors(draft);
+          if (errs.length) { showErrors(errs); return false; }
+          working(true, 'Saving…');
+          (inv ? store().saveDraft(inv.id, draft) : store().createDraft(draft)).then((r) => {
+            if (r.ok) { closeOverlay(); fui.inv = 'all'; reopen(inv ? inv.id : r.id); return; }
+            working(false, 'Save draft');
+            if (r.error === 'changed' && inv) { showErrors([r.message], true); return; }
+            showErrors([r.message]);
+          });
+          return false;
         },
       });
+      const box = ctx.$('#inv-lines');
+      function readLines() {
+        return ctx.$$('.inv-line', box).map((el) => {
+          const v = (n) => el.querySelector(`[name^="${n}"]`).value;
+          return { desc: v('d').trim(), qty: v('q') === '' ? 0 : Number(v('q')), unit: v('u'), price: v('p') === '' ? 0 : Number(v('p')), classification: '022' };
+        }).filter((it) => it.desc || it.qty || it.price);
+      }
+      function showErrors(errs, reload) {
+        const el = ctx.$('#inv-errors'); if (!el) return;
+        el.hidden = false;
+        el.innerHTML = `<ul>${errs.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>${reload ? `<button type="button" class="btn btn-sm" id="inv-reload">${icon('check')}Reload</button>` : ''}`;
+        ctx.$('#inv-reload')?.addEventListener('click', () => { closeOverlay(); invoiceModal(inv.id); });
+      }
+      function refresh() {
+        let sub = 0;
+        ctx.$$('.inv-line', box).forEach((el, n) => {
+          const q = Number(el.querySelector('[name^="q"]').value || 0), p = Number(el.querySelector('[name^="p"]').value || 0), u = el.querySelector('[name^="u"]').value;
+          const err = q ? IR.qtyError(q, u) : '', amt = IR.lineSen({ qty: q, price: p });
+          sub += amt;
+          el.querySelector('[data-amt]').textContent = q && p ? m2(amt / 100) : '';
+          const qi = el.querySelector('[name^="q"]'); qi.setAttribute('step', IR.unitOf(u).decimal ? 'any' : '1');
+          if (err) { qi.setAttribute('aria-invalid', 'true'); qi.title = err; } else { qi.removeAttribute('aria-invalid'); qi.title = ''; }
+          el.querySelectorAll('[aria-label]').forEach((x) => { x.setAttribute('aria-label', x.getAttribute('aria-label').replace(/Line \d+/, `Line ${n + 1}`)); });
+        });
+        const tax = Math.round((sub * Number(ctx.$('#in-tax').value || 0)) / 100);
+        ctx.$('#inv-total').textContent = m2((sub + tax) / 100);
+      }
+      let next = items.length;
+      ctx.$('#inv-add').addEventListener('click', () => { box.insertAdjacentHTML('beforeend', row(next++, { unit: IR.DEFAULT_UNIT })); box.lastElementChild.querySelector('input').focus(); refresh(); });
+      box.addEventListener('click', (ev) => { const b = ev.target.closest('.inv-del'); if (!b) return; const line = b.closest('.inv-line'); if (ctx.$$('.inv-line', box).length > 1) line.remove(); else line.querySelectorAll('input').forEach((x) => { x.value = ''; }); refresh(); });
+      box.addEventListener('input', refresh);
+      box.addEventListener('change', (ev) => {
+        // A description used before suggests its unit, unless the unit was already picked.
+        if (!/^d\d+/.test(ev.target.name)) return;
+        const line = ev.target.closest('.inv-line'), sel = line.querySelector('[name^="u"]'), u = IR.unitFor(memo(), ev.target.value);
+        if (u && sel.value === IR.DEFAULT_UNIT) { sel.value = u; refresh(); }
+      });
+      ctx.$('#in-tax').addEventListener('change', refresh);
+      refresh();
       ctx.$('#in-cust')?.addEventListener('change', (ev) => {
         const c = (fin().contacts || []).find((x) => x.kind === 'customer' && x.name.toLowerCase() === ev.target.value.trim().toLowerCase());
         const em = ctx.$('#in-email'); if (c && em && !em.value) em.value = c.email || '';
@@ -408,37 +497,115 @@ window.AllurusFinance = (function () {
       });
     }
 
-    function viewInvoice(id) {
-      const i = fin().invoices.find((x) => x.id === id); if (!i) return;
+    // The invoice (or note) as a document. Used on screen and for printing.
+    function invoiceDoc(i, forPrint) {
       const t = invoiceTotals(i), st = isInvoice(i) ? invoiceStatus(i, T()) : 'Issued', s = ctx.state.settings, e = s.einvoice || {}, c = contactOf(i);
       const orig = i.ref ? fin().invoices.find((x) => x.id === i.ref) : null;
       const notes = isInvoice(i) ? fin().invoices.filter((x) => x.ref === i.id) : [];
+      const pays = isInvoice(i) ? paymentsOf(i) : [];
       const party = (p) => p ? [p.tin && `TIN ${esc(p.tin)}`, p.idNo && `${esc(p.idType || 'BRN')} ${esc(p.idNo)}`, p.sst && p.sst !== 'NA' && `SST ${esc(p.sst)}`].filter(Boolean).join(' · ') : '';
       const addr = (a) => (a ? [a.line1, a.line2, a.line3, [a.postcode, a.city].filter(Boolean).join(' '), window.AllurusEInvoiceRules?.STATES[a.state]].filter(Boolean).map(esc).join(', ') : '');
-      openModal({
-        title: `${noteName(i)} ${i.no}`, size: 'lg', submit: null,
-        body: `<div class="doc">
+      const link = (x, text) => (forPrint ? esc(text) : `<button class="link-btn" data-act="fin-view-inv" data-id="${x.id}">${esc(text)}</button>`);
+      const when = (ms) => (ms ? U.fmtDate(new Date(ms).toISOString().slice(0, 10)) : '');
+      return `<div class="doc">
           <div class="doc-head"><div style="display:flex;align-items:center;gap:12px">${ctx.LOGO_MARK}<div><div style="font-weight:600;letter-spacing:.2em">${esc(s.company.toUpperCase())}</div><div class="faint" style="font-size:12px">${esc(addr(e.address) || s.office || '')}</div>${e.tin ? `<div class="faint" style="font-size:12px">TIN ${esc(e.tin)}${e.brn ? ` · SSM ${esc(e.brn)}` : ''}${e.sst && e.sst !== 'NA' ? ` · SST ${esc(e.sst)}` : ''}</div>` : ''}</div></div>
-            <div style="text-align:right"><div class="doc-title">${esc(noteName(i))}</div><div class="num muted">${esc(i.no)}</div>${isInvoice(i) ? invPill(st) : ''}</div></div>
+            <div style="text-align:right"><div class="doc-title">${st === 'Draft' ? 'Draft invoice' : esc(noteName(i))}</div><div class="num muted">${esc(i.no)}</div>${isInvoice(i) ? invPill(st) : ''}</div></div>
+          ${st === 'Void' ? `<p class="inv-void"><strong>Void.</strong> ${esc(i.voidReason || '')}</p>` : ''}
           <div class="doc-meta"><div><div class="faint">Bill to</div><strong>${esc(i.customer)}</strong><div class="muted">${esc(i.email || c?.email || '')}</div>${c ? `<div class="faint" style="font-size:12px">${party(c)}</div><div class="faint" style="font-size:12px">${addr(c.address)}</div>` : ''}</div>
-            <div><div class="faint">Issued</div>${U.fmtDate(i.issue)}</div>${isInvoice(i) ? `<div><div class="faint">Due</div>${U.fmtDate(i.due)}</div>` : `<div><div class="faint">For invoice</div>${orig ? `<button class="link-btn" data-act="fin-view-inv" data-id="${orig.id}">${esc(orig.no)}</button>` : '—'}</div>`}${i.paidOn ? `<div><div class="faint">Paid</div>${U.fmtDate(i.paidOn)}</div>` : ''}</div>
+            <div><div class="faint">Issued</div>${U.fmtDate(i.issue)}</div>${isInvoice(i) ? `<div><div class="faint">Due</div>${U.fmtDate(i.due)}</div>` : `<div><div class="faint">For invoice</div>${orig ? link(orig, orig.no) : '—'}</div>`}
+            ${i.sentAt && isInvoice(i) ? `<div><div class="faint">Sent</div>${when(i.sentAt)}</div>` : ''}${i.paidOn ? `<div><div class="faint">Paid</div>${U.fmtDate(i.paidOn)}</div>` : ''}</div>
+          ${i.duplicatedFrom && !forPrint ? `<p class="faint">${icon('copy')} Duplicated from ${(() => { const o = fin().invoices.find((x) => x.id === i.duplicatedFrom.id); return o ? link(o, i.duplicatedFrom.no) : esc(i.duplicatedFrom.no); })()}</p>` : ''}
           ${i.reason ? `<p class="muted"><strong>Reason:</strong> ${esc(i.reason)}</p>` : ''}
-          <div class="table-wrap"><table><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead>
-            <tbody>${i.items.map((it) => `<tr><td>${esc(it.desc)}</td><td class="r num">${it.qty}</td><td class="r num">${m2(it.price)}</td><td class="r num">${m2(it.qty * it.price)}</td></tr>`).join('')}</tbody></table></div>
+          <div class="table-wrap"><table class="inv-table"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead>
+            <tbody>${i.items.map((it) => `<tr><td>${esc(it.desc)}</td><td class="r num">${esc(IR.fmtQty(it.qty, it.unit))}</td><td class="r num">${m2(it.price)}</td><td class="r num">${m2(IR.lineSen(it) / 100)}</td></tr>`).join('')}</tbody></table></div>
           <div class="doc-totals"><div><span>Subtotal</span><span class="num">${m2(t.sub)}</span></div><div><span>${esc(fin().settings.taxLabel)} ${i.taxRate}%</span><span class="num">${m2(t.tax)}</span></div><div class="grand"><span>Total</span><span class="num">${m2(t.total)}</span></div>
-            ${notes.length ? notes.map((n) => `<div><span><button class="link-btn" data-act="fin-view-inv" data-id="${n.id}">${esc(noteName(n))} ${esc(n.no)}</button></span><span class="num">${n.type === 'debit' ? '+' : '−'}${m2(invoiceTotals(n).total)}</span></div>`).join('') + `<div class="grand"><span>${st === 'Paid' ? 'Paid' : 'Still owed'}</span><span class="num">${m2(t.balance)}</span></div>` : ''}</div>
-          ${ctx.einvoice ? ctx.einvoice.panel(i) : ''}
-          ${isAuditor() ? '' : `<div class="ci-actions" style="justify-content:flex-end">${!isInvoice(i) ? '' : st === 'Draft' ? `<button class="btn" data-act="fin-del-inv" data-id="${i.id}">Delete draft</button><button class="btn btn-primary" data-act="fin-send-inv" data-id="${i.id}">Mark as sent</button>` : st !== 'Paid' ? `<button class="btn" data-act="fin-note" data-id="${i.id}" data-v="credit">Credit note</button><button class="btn" data-act="fin-note" data-id="${i.id}" data-v="debit">Debit note</button><button class="btn btn-primary" data-act="fin-pay-inv" data-id="${i.id}">${icon('check')}Record payment today</button>` : `<button class="btn" data-act="fin-note" data-id="${i.id}" data-v="refund">Refund note</button>`}</div>`}
-        </div>`,
+            ${notes.map((n) => `<div><span>${link(n, `${noteName(n)} ${n.no}`)}</span><span class="num">${n.type === 'debit' ? '+' : '−'}${m2(invoiceTotals(n).total)}</span></div>`).join('')}
+            ${pays.map((p) => `<div><span>Paid ${U.fmtDate(p.date)}</span><span class="num">−${m2(Number(p.amount) || 0)}</span></div>`).join('')}
+            ${isInvoice(i) && (notes.length || pays.length) && st !== 'Void' ? `<div class="grand"><span>${t.due > 0 ? 'Still owed' : 'Paid in full'}</span><span class="num">${m2(t.due)}</span></div>` : ''}</div>
+          ${i.notes ? `<p class="inv-notes">${esc(i.notes)}</p>` : ''}
+        </div>`;
+    }
+
+    function viewInvoice(id) {
+      const i = fin().invoices.find((x) => x.id === id); if (!i) return;
+      const st = isInvoice(i) ? invoiceStatus(i, T()) : 'Issued';
+      const b = (act, label, cls = '', v = '') => `<button class="btn ${cls}" data-act="${act}" data-id="${i.id}"${v ? ` data-v="${v}"` : ''}>${label}</button>`;
+      const print = b('fin-print-inv', `${icon('printer')}Print or PDF`);
+      const dup = isInvoice(i) ? b('fin-dup-inv', `${icon('copy')}Duplicate`) : '';
+      let actions = print;
+      if (!isAuditor() && isInvoice(i)) {
+        if (st === 'Draft') actions = `${b('fin-del-inv', `${icon('trash')}Delete draft`, 'btn-ghost')}${dup}${print}${b('fin-edit-inv', `${icon('edit')}Edit`)}${b('fin-send-inv', 'Mark as sent', 'btn-primary')}`;
+        else if (IR.canPay(i)) actions = `${b('fin-note', 'Credit note', '', 'credit')}${b('fin-note', 'Debit note', '', 'debit')}${IR.canVoid(i) ? b('fin-void-inv', 'Void', 'btn-ghost') : ''}${dup}${print}${b('fin-pay-inv', `${icon('check')}Record payment`, 'btn-primary')}`;
+        else if (i.status === 'Paid') actions = `${b('fin-note', 'Refund note', '', 'refund')}${dup}${print}`;
+        else actions = `${dup}${print}`;
+      }
+      openModal({
+        title: `${st === 'Draft' ? 'Draft invoice' : noteName(i)} ${i.no}`, size: 'lg', submit: null,
+        body: `${st === 'Draft' ? `<p class="inv-state">${icon('edit')} Draft: you can still change everything. <strong>Mark as sent</strong> locks it.</p>` : isInvoice(i) && st !== 'Void' ? `<p class="inv-state locked">${icon('shield')} Sent and locked. To change it, issue a credit note${IR.canVoid(i) ? ', or void it and duplicate' : ''}.</p>` : ''}
+          ${invoiceDoc(i, false)}
+          ${ctx.einvoice && st !== 'Void' ? ctx.einvoice.panel(i) : ''}
+          <div class="ci-actions" style="justify-content:flex-end;flex-wrap:wrap">${actions}</div>`,
       });
+    }
+
+    // Confirm a status change in a small dialog; the change is the store's.
+    function confirmInv(title, body, submit, run) {
+      openModal({ title, size: 'sm', submit, body, onSubmit(d) { working(true, 'Working…'); run(d).then((r) => { if (!r.ok) working(false, submit); }); return false; } });
+    }
+    function sendInvoice(id) {
+      const i = fin().invoices.find((x) => x.id === id); if (!i) return;
+      confirmInv(`Mark ${i.no} as sent?`, `<p>Do this after you have sent it to ${esc(i.customer)}. It is then <strong>locked</strong>: lines, prices, units and the customer can’t change. Mistakes are fixed with a credit note, or by voiding and duplicating.</p><p class="faint">Allurus doesn’t email it; you send it yourself (Print or PDF).</p>`, 'Mark as sent',
+        () => store().send(id).then((r) => { if (r.ok) { closeOverlay(); reopen(id); } else failed(r, id); return r; }));
+    }
+    function deleteDraft(id) {
+      const i = fin().invoices.find((x) => x.id === id); if (!i) return;
+      confirmInv(`Delete draft ${i.no}?`, '<p>The draft is removed. Sent invoices are never deleted.</p>', 'Delete draft',
+        () => store().remove(id).then((r) => { if (r.ok) closeOverlay(); else failed(r, id); return r; }));
+    }
+    function voidInvoice(id) {
+      const i = fin().invoices.find((x) => x.id === id); if (!i) return;
+      confirmInv(`Void ${i.no}?`, `<p>A void invoice keeps its number and stays on record, but no longer counts as owed or as income. Use Duplicate for a corrected copy.</p>
+        <div class="field"><label for="void-why">Reason</label><input class="input" id="void-why" name="reason" required minlength="3" maxlength="300" placeholder="Wrong customer"></div>`, 'Void invoice',
+        (d) => store().void(id, d.reason).then((r) => { if (r.ok) { closeOverlay(); reopen(id); } else failed(r, id); return r; }));
+    }
+    function payInvoice(id) {
+      const i = fin().invoices.find((x) => x.id === id); if (!i) return;
+      const t = invoiceTotals(i);
+      confirmInv(`Record a payment on ${i.no}`, `<p class="muted">${esc(i.customer)} still owes <strong>${m2(t.due)}</strong>${t.paid ? ` (${m2(t.paid)} paid so far)` : ''}. Enter less for a part payment.</p>
+        <div class="form-grid"><div class="field"><label for="py-amt">Amount received</label><input class="input num" id="py-amt" name="amount" type="number" min="0.01" step="0.01" max="${t.due}" required value="${t.due.toFixed(2)}"></div>
+        <div class="field"><label for="py-date">Date</label><input class="input" id="py-date" name="date" type="date" required value="${T()}" max="${T()}"></div></div>`, 'Record payment',
+        (d) => store().pay(id, d.amount, d.date).then((r) => {
+          if (!r.ok) { failed(r, id); return r; }
+          // Into the books: the payment, with its share of the tax.
+          const a = r2(Number(d.amount)), tax = t.total ? r2((t.tax * a) / t.total) : 0;
+          fin().txns.push({ id: U.uid('x'), date: d.date, desc: `${r.status === 'Paid' ? 'Payment' : 'Part payment'} from ${i.customer}`, type: 'in', category: i.category || (/service|implement|consult/i.test(i.items[0].desc) ? 'Services' : 'Subscriptions'), amount: r2(a - tax), tax, ref: i.no, source: 'invoice', reconciled: false });
+          closeOverlay(); commit(`${money(a)} received from ${i.customer}`, `Payment of ${money(a)} received for ${i.no}`); reopen(id);
+          return r;
+        }));
+    }
+    function duplicateInvoice(id) {
+      return store().duplicate(id).then((r) => { if (r.ok) { closeOverlay(); fui.inv = 'all'; setTimeout(() => invoiceModal(r.id), 60); } else failed(r, id); });
+    }
+    function printInvoice(id) {
+      const i = fin().invoices.find((x) => x.id === id); if (!i) return;
+      ctx.docs.printDocs(invoiceDoc(i, true), `${noteName(i)} ${i.no}`);
+    }
+    function exportInvoices() {
+      const rows = [['Number', 'Type', 'Status', 'Customer', 'Issued', 'Due', 'Item', 'Qty', 'Unit', 'Unit price', 'Amount', `${fin().settings.taxLabel} %`, 'Invoice total', 'Paid', 'Still owed', 'Duplicated from', 'Void reason']];
+      fin().invoices.slice().sort((a, b) => a.issue.localeCompare(b.issue) || a.no.localeCompare(b.no)).forEach((i) => {
+        const t = invoiceTotals(i);
+        i.items.forEach((it, n) => rows.push([i.no, noteName(i), isInvoice(i) ? invoiceStatus(i, T()) : 'Issued', i.customer, i.issue, isInvoice(i) ? i.due : '', it.desc, it.qty, IR.unitOf(it.unit).label, it.price, IR.lineSen(it) / 100, i.taxRate,
+          n ? '' : t.total, n ? '' : t.paid, n ? '' : t.due, n ? '' : i.duplicatedFrom?.no || '', n ? '' : i.voidReason || '']));
+      });
+      downloadCSV(`invoices-${T()}.csv`, rows);
     }
     // Credit and debit notes change what an unpaid invoice is owed; a refund note on a paid invoice pays money back.
     function noteModal(id, type) {
       const inv = fin().invoices.find((x) => x.id === id), t = invoiceTotals(inv), label = noteName({ type });
-      const max = type === 'refund' ? r2(t.balance - (inv.refunded || 0)) : type === 'credit' ? t.balance : Infinity;
+      const max = type === 'refund' ? r2(t.paid - (inv.refunded || 0)) : type === 'credit' ? t.due : Infinity;
       openModal({
         title: `${label} for ${inv.no}`, size: 'sm', submit: `Issue ${label.toLowerCase()}`,
-        body: `<p class="muted" style="margin-bottom:10px">${type === 'debit' ? `Adds to what ${esc(inv.customer)} owes, for example for work not on the invoice.` : type === 'credit' ? `Reduces what ${esc(inv.customer)} owes on ${esc(inv.no)} (${m2(t.balance)} now).` : `Records money paid back to ${esc(inv.customer)} on the paid invoice ${esc(inv.no)}.`}</p>
+        body: `<p class="muted" style="margin-bottom:10px">${type === 'debit' ? `Adds to what ${esc(inv.customer)} owes, for example for work not on the invoice.` : type === 'credit' ? `Reduces what ${esc(inv.customer)} owes on ${esc(inv.no)} (${m2(t.due)} now).` : `Records money paid back to ${esc(inv.customer)} on the paid invoice ${esc(inv.no)}.`}</p>
           <div class="form-grid"><div class="field full"><label for="nt-desc">Description</label><input class="input" id="nt-desc" name="desc" required value="${esc(type === 'debit' ? 'Additional ' : 'Adjustment to ')}${esc(inv.items[0].desc)}"></div>
           <div class="field"><label for="nt-amt">Amount before ${esc(fin().settings.taxLabel)}</label><input class="input num" id="nt-amt" name="amount" type="number" min="0.01" step="0.01" required></div>
           <div class="field"><label for="nt-date">Date</label><input class="input" id="nt-date" name="issue" type="date" required value="${T()}" max="${T()}"></div>
@@ -448,19 +615,18 @@ window.AllurusFinance = (function () {
           const amount = r2(+d.amount), tax = r2((amount * inv.taxRate) / 100), total = r2(amount + tax);
           if (!(amount > 0)) { toast('Enter an amount above zero', 'error'); return false; }
           if (total > max + 0.005) { toast(`That’s more than the ${m2(max)} ${type === 'refund' ? 'paid and not yet refunded' : 'still owed'}`, 'error'); return false; }
-          const pre = { credit: 'CN', debit: 'DN', refund: 'RN' }[type], mk = d.issue.slice(0, 7).replace('-', '');
-          const n = fin().invoices.filter((x) => x.no.startsWith(`${pre}-${mk}`)).length + 1;
-          const note = { id: U.uid('i'), type, ref: inv.id, no: `${pre}-${mk}-${U.pad(n)}`, customer: inv.customer, contactId: inv.contactId || '', email: inv.email, issue: d.issue, due: d.issue, items: [{ desc: d.desc.trim(), qty: 1, price: amount, classification: inv.items[0].classification || '022' }], taxRate: inv.taxRate, status: 'Issued', paidOn: '', reason: d.reason.trim(), einvoice: { status: 'Draft' } };
-          fin().invoices.push(note);
-          if (type === 'credit') inv.adjust = r2((inv.adjust || 0) - total);
-          if (type === 'debit') inv.adjust = r2((inv.adjust || 0) + total);
-          if (type === 'refund') {
-            inv.refunded = r2((inv.refunded || 0) + total);
+          const pre = { credit: 'CN', debit: 'DN', refund: 'RN' }[type];
+          const note = { type, ref: inv.id, no: IR.nextNo(fin().invoices, pre, d.issue.slice(0, 7)), customer: inv.customer, contactId: inv.contactId || '', email: inv.email, issue: d.issue, due: d.issue, items: [{ desc: d.desc.trim(), qty: 1, unit: 'unit', price: amount, classification: inv.items[0].classification || '022' }], taxRate: inv.taxRate, reason: d.reason.trim() };
+          const patch = type === 'credit' ? { adjust: r2((inv.adjust || 0) - total) } : type === 'debit' ? { adjust: r2((inv.adjust || 0) + total) } : { refunded: r2((inv.refunded || 0) + total) };
+          working(true, 'Issuing…');
+          store().issueNote(note, inv.id, patch).then((r) => {
+            if (!r.ok) { working(false, `Issue ${label.toLowerCase()}`); failed(r, inv.id); return; }
             // Money back to the customer: negative income in the month of the refund, with its tax.
-            fin().txns.push({ id: U.uid('x'), date: d.issue, desc: `Refund to ${inv.customer}`, type: 'in', category: /service|implement|consult/i.test(inv.items[0].desc) ? 'Services' : 'Subscriptions', amount: -amount, tax: -tax, ref: note.no, source: 'invoice', reconciled: false });
-          }
-          commit(`${label} ${note.no} issued`, `${label} ${note.no} issued to ${inv.customer} for ${money(total)}`);
-          setTimeout(() => viewInvoice(note.id), 50);
+            if (type === 'refund') fin().txns.push({ id: U.uid('x'), date: d.issue, desc: `Refund to ${inv.customer}`, type: 'in', category: /service|implement|consult/i.test(inv.items[0].desc) ? 'Services' : 'Subscriptions', amount: -amount, tax: -tax, ref: note.no, source: 'invoice', reconciled: false });
+            closeOverlay(); commit(`${label} ${note.no} issued`, `${label} ${note.no} issued to ${inv.customer} for ${money(total)}`);
+            reopen(r.id);
+          });
+          return false;
         },
       });
     }
@@ -708,16 +874,14 @@ window.AllurusFinance = (function () {
       'fin-view-inv': (id) => viewInvoice(id),
       'fin-note': (id, v) => noteModal(id, v),
       'fin-inv-filter': (_, v) => { fui.inv = v; ctx.render(); },
-      'fin-send-inv': (id) => { const i = fin().invoices.find((x) => x.id === id); i.status = 'Sent'; closeOverlay(); commit(`${i.no} marked as sent`, `Invoice ${i.no} sent to ${i.customer}`); },
-      'fin-del-inv': (id) => { const i = fin().invoices.find((x) => x.id === id); fin().invoices = fin().invoices.filter((x) => x.id !== id); closeOverlay(); commit(`${i.no} deleted`); },
-      'fin-pay-inv': (id) => {
-        const i = fin().invoices.find((x) => x.id === id), t = invoiceTotals(i);
-        // After credit or debit notes the payment is the balance, split between amount and tax in proportion.
-        const k = t.total ? t.balance / t.total : 1, tax = r2(t.tax * k);
-        i.status = 'Paid'; i.paidOn = T();
-        fin().txns.push({ id: U.uid('x'), date: T(), desc: `Payment from ${i.customer}`, type: 'in', category: i.category || (/service|implement|consult/i.test(i.items[0].desc) ? 'Services' : 'Subscriptions'), amount: r2(t.balance - tax), tax, ref: i.no, source: 'invoice', reconciled: false });
-        closeOverlay(); commit(`${money(t.balance)} received from ${i.customer}`, `Payment of ${money(t.balance)} received for ${i.no}`);
-      },
+      'fin-edit-inv': (id) => { closeOverlay(); setTimeout(() => invoiceModal(id), 30); },
+      'fin-send-inv': (id) => { closeOverlay(); setTimeout(() => sendInvoice(id), 30); },
+      'fin-del-inv': (id) => { closeOverlay(); setTimeout(() => deleteDraft(id), 30); },
+      'fin-void-inv': (id) => { closeOverlay(); setTimeout(() => voidInvoice(id), 30); },
+      'fin-pay-inv': (id) => { closeOverlay(); setTimeout(() => payInvoice(id), 30); },
+      'fin-dup-inv': (id) => duplicateInvoice(id),
+      'fin-print-inv': (id) => printInvoice(id),
+      'fin-export-inv': () => exportInvoices(),
       'fin-new-bill': () => billModal(),
       'fin-bill-filter': (_, v) => { fui.bill = v; ctx.render(); },
       'fin-pay-bill': (id) => {

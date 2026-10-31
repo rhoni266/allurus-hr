@@ -58,6 +58,9 @@
   const NAMESPACE = new Set(['finance', 'costing', 'ops']);
   // Lists split into one bucket per owner: the list → the record field that names the owner.
   const SPLIT = { 'ops.dos': 'driverId' };
+  // Lists kept as one document per record elsewhere (cloud.js), so the rules can check each one. Invoices:
+  // tenants/{t}/invoices. Their old bucket is kept as a backup and no longer read or written.
+  const OWN_DOCS = new Set(['finance.invoices']);
   const MONTHLY = new Set(['attendance']);
   // Per-person display choices that must not follow the company around.
   const LOCAL_SETTINGS = new Set(['theme']);
@@ -154,6 +157,7 @@
       if (NAMESPACE.has(k) && isPlain(v)) {
         const plain = {};
         Object.keys(v).forEach((p) => {
+          if (OWN_DOCS.has(`${k}.${p}`)) return;
           const by = SPLIT[`${k}.${p}`];
           if (Array.isArray(v[p]) && by) {
             const groups = {};
@@ -182,6 +186,7 @@
 
   // Apply one bucket's fields to a workspace (in place).
   function applyBucket(ws, id, t, fields, lookup) {
+    if (OWN_DOCS.has(id)) return;
     const keys = Object.keys(fields);
     if (t === 'a') {
       const k = id.includes('.') ? id.split('.') : [id];

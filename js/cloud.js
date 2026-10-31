@@ -289,6 +289,7 @@ async function start(profile) {
   if (!profile.viewOnly && acc === 'none') { app.companyBlocked(eff, company); throw Object.assign(new Error('company-blocked'), { blocked: eff }); }
   if (!profile.viewOnly && acc !== 'full') profile.billingOnly = true;
   await new Promise((ready) => listen(ready));
+  if (can('finance')) await listenInvoices();
   // Build the workspace from what the server has, on a blank company.
   const ws = app.blankWorkspace();
   ws.plans = {}; ws.reliefs = {}; ws.taxProfiles = {};
@@ -303,6 +304,7 @@ async function start(profile) {
   };
   [...S.base.keys()].forEach(apply);
   ws.employees = employeesFrom();
+  if (S.invoices) { ws.finance = ws.finance || {}; ws.finance.invoices = S.invoices; }
   app.adoptCloud(ws, profile);
   await loadFeatures(profile.tenantId);
   S.live = true;
@@ -332,9 +334,27 @@ async function loadFeatures(tenantId) {
     window.AllurusFeatures = { keys: eff.keys, source: eff.source, has: (k) => eff.keys.has(k), area: (a) => cat.areaAllowed(a, eff, true) };
   } catch (e) { console.warn('[Allurus cloud] industry features', e); window.AllurusFeatures = null; }   // on failure, show everything
 }
+// Invoices: one document each in tenants/{t}/invoices (firestore.rules locks sent ones), for admins with the
+// finance area. Changes are written by js/invoice-store.js through api.invoiceWrite; this keeps the list live.
+const plainTime = (v) => (v && typeof v.toMillis === 'function' ? v.toMillis() : v);
+function invoiceFrom(d) { const x = d.data({ serverTimestamps: 'estimate' }), o = { id: d.id }; Object.keys(x).forEach((k) => { o[k] = plainTime(x[k]); }); return o; }
+function listenInvoices() {
+  return new Promise((ready) => {
+    let first = true;
+    S.unsubs.push(onSnapshot(collection(db, `${T()}/invoices`), (snap) => {
+      S.invoices = snap.docs.map(invoiceFrom).sort((a, b) => String(a.issue).localeCompare(String(b.issue)) || String(a.no).localeCompare(String(b.no)));
+      if (first) { first = false; ready(); return; }
+      if (S.live && app.state.finance) { app.state.finance.invoices = S.invoices; app.refresh(); }
+    }, (e) => { console.warn('[Allurus cloud] invoices', e.code || e); if (first) { first = false; ready(); } }));
+  });
+}
+// Firestore can't store undefined; the store marks "server time" as { __now: true }.
+const forWrite = (v) => (v && v.__now ? serverTimestamp() : Array.isArray(v) ? v.map(forWrite)
+  : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).map(([k, x]) => [k, forWrite(x)])) : v);
+
 function stop() {
   S.unsubs.forEach((u) => { try { u(); } catch (e) { /* already closed */ } });
-  Object.assign(S, { unsubs: [], live: false, base: new Map(), meta: new Map(), blocked: new Set(), warned: new Set() });
+  Object.assign(S, { unsubs: [], live: false, base: new Map(), meta: new Map(), blocked: new Set(), warned: new Set(), invoices: null });
   clearTimeout(S.timer);
 }
 
@@ -368,6 +388,18 @@ const api = {
   get profile() { return S.profile; },
   changed,
   resolve,
+  // One invoice change as one batch: [{ op: 'set' | 'update' | 'delete', path: 'invoices/<id>' | 'invoiceNos/<no>' |
+  // 'invoiceAudit/<id>', data }]. Refused by the rules → 'changed' (someone saved or sent it first).
+  async invoiceWrite(ops) {
+    if (!S.live || S.profile?.viewOnly || S.profile?.billingOnly) return { error: 'failed' };
+    const b = writeBatch(db);
+    ops.forEach(({ op, path, data }) => {
+      const ref = doc(db, `${T()}/${path}`);
+      if (op === 'delete') b.delete(ref); else if (op === 'update') b.update(ref, forWrite(data)); else b.set(ref, forWrite(data));
+    });
+    try { await b.commit(); return { ok: true }; }
+    catch (e) { console.warn('[Allurus cloud] invoice write', e.code || e); return { error: e.code === 'permission-denied' || e.code === 'not-found' ? 'changed' : e.code === 'unavailable' ? 'offline' : 'failed' }; }
+  },
   // For tests and support: what's waiting to be sent.
   _debug: () => ({ live: S.live, pushing: S.pushing, admin: S.admin, pending: [...localDocs().entries()].filter(([p, d]) => !M.diff(S.base.get(p), d.fields).empty).map(([p, d]) => [p, M.diff(S.base.get(p), d.fields)]), blocked: [...S.blocked] }),
   async signIn(email, password) {

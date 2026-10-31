@@ -338,6 +338,88 @@ service cloud.firestore {
         allow create, update: if writesBucket(t, b) && request.resource.data.r == bucketClass(b) && working(t);
         allow delete: if writesBucket(t, b) && admin(t) && working(t);
       }
+
+      // ---- Invoices: one document each, so a sent invoice is locked here, not only on screen ----
+      // The same rules as js/invoice-rules.js. Admins with the finance area only; staff never.
+      //   Draft: edited freely. Every save raises v by one, so a save from an out-of-date copy is refused
+      //          ("This invoice changed. Reload."). Number, type and creator never change. Only drafts are deleted.
+      //   Mark as sent: only status, sentAt and sentBy change; the lines are as last saved.
+      //   Sent, part paid, paid: only payments, credit or debit note effects and the e-Invoice status change.
+      //   Void: from Sent with no payments yet, with a reason; keeps its number. (Paid money: credit or refund note.)
+      //   Credit, debit and refund notes are issued final; only their e-Invoice status changes later.
+      // Each status change carries lastAuditId: an invoiceAudit entry about this invoice, by this person, written
+      // in the same batch. Each number is held in invoiceNos, so no two invoices share one.
+      match /invoices/{id} {
+        function nd() { return request.resource.data; }
+        function od() { return resource.data; }
+        function finOk() { return hasArea(t, 'finance') && working(t); }
+        function stamped() { return nd().updatedBy == request.auth.uid && nd().updatedAt == request.time; }
+        function nextV() { return nd().v == od().v + 1; }
+        function changed() { return nd().diff(od()).affectedKeys(); }
+        function lines() { return nd().items is list && nd().items.size() > 0 && nd().items.size() <= 200; }
+        function auditPath(a) { return /databases/$(database)/documents/tenants/$(t)/invoiceAudit/$(a); }
+        function invAudit(action) {
+          return nd().lastAuditId is string && !exists(auditPath(nd().lastAuditId)) && existsAfter(auditPath(nd().lastAuditId))
+            && getAfter(auditPath(nd().lastAuditId)).data.action == action
+            && getAfter(auditPath(nd().lastAuditId)).data.invoiceId == id
+            && getAfter(auditPath(nd().lastAuditId)).data.actorUid == request.auth.uid;
+        }
+        function noPath(no) { return /databases/$(database)/documents/tenants/$(t)/invoiceNos/$(no); }
+        function newNumber() { return nd().no is string && nd().no.size() <= 40 && !exists(noPath(nd().no)) && existsAfter(noPath(nd().no)); }
+
+        allow read: if hasArea(t, 'finance') && canRead(t);
+        // A new draft (a duplicate is audited), an invoice issued at delivery (sent, perhaps with cash collected;
+        // audited as sent), or a note issued final.
+        allow create: if nd().v == 1 && nd().createdBy == request.auth.uid && stamped() && newNumber() && lines() && finOk()
+          && ((nd().get('type', 'invoice') == 'invoice' && nd().status == 'Draft' && (!('duplicatedFrom' in nd()) || invAudit('duplicate')))
+            || (nd().get('type', 'invoice') == 'invoice' && nd().status in ['Sent', 'Partially paid', 'Paid']
+              && nd().sentBy == request.auth.uid && nd().sentAt == request.time && invAudit('send'))
+            || (nd().get('type', 'invoice') in ['credit', 'debit', 'refund'] && nd().status == 'Issued' && invAudit('issue')));
+        // Saving a draft.
+        function saveDraft() {
+          return od().status == 'Draft' && nd().status == 'Draft' && lines()
+            && !changed().hasAny(['no', 'type', 'createdBy', 'createdAt', 'sentAt', 'sentBy', 'payments', 'paidOn', 'voidReason', 'voidedAt', 'voidedBy']);
+        }
+        // Mark as sent.
+        function markSent() {
+          return od().status == 'Draft' && nd().status == 'Sent'
+            && changed().hasOnly(['status', 'sentAt', 'sentBy', 'v', 'updatedAt', 'updatedBy', 'lastAuditId'])
+            && nd().sentBy == request.auth.uid && nd().sentAt == request.time && invAudit('send');
+        }
+        // After sending: payments, note effects, e-Invoice status. A status change (part paid, paid) is audited.
+        function afterSent() {
+          return od().status in ['Sent', 'Partially paid', 'Paid'] && nd().status in ['Sent', 'Partially paid', 'Paid']
+            && changed().hasOnly(['status', 'payments', 'paidOn', 'adjust', 'refunded', 'einvoice', 'v', 'updatedAt', 'updatedBy', 'lastAuditId'])
+            && (nd().status == od().status || invAudit('pay'));
+        }
+        // Void, with a reason.
+        function voided() {
+          return od().status in ['Sent', 'Partially paid'] && nd().status == 'Void' && od().get('payments', []).size() == 0
+            && changed().hasOnly(['status', 'voidReason', 'voidedAt', 'voidedBy', 'v', 'updatedAt', 'updatedBy', 'lastAuditId'])
+            && shortText(nd().voidReason, 300) && nd().voidReason.size() >= 3
+            && nd().voidedBy == request.auth.uid && nd().voidedAt == request.time && invAudit('void');
+        }
+        // A note's e-Invoice status.
+        function noteStatus() { return od().get('type', 'invoice') != 'invoice' && changed().hasOnly(['einvoice', 'v', 'updatedAt', 'updatedBy']); }
+        // One rule, so the company and access checks run once (rules may evaluate at most 1,000 expressions).
+        allow update: if nextV() && stamped() && (saveDraft() || markSent() || afterSent() || voided() || noteStatus()) && finOk();
+        allow delete: if od().status == 'Draft' && finOk();
+      }
+      // Who did what to which invoice, and when. Added only; never changed or removed.
+      match /invoiceAudit/{a} {
+        allow read: if hasArea(t, 'finance') && canRead(t);
+        allow create: if hasArea(t, 'finance') && working(t) && request.resource.data.actorUid == request.auth.uid
+          && request.resource.data.at == request.time && request.resource.data.invoiceId is string
+          && request.resource.data.action in ['send', 'void', 'pay', 'duplicate', 'issue', 'delete'];
+      }
+      // Each invoice number, held by its invoice. Freed only when its draft is deleted in the same batch.
+      match /invoiceNos/{no} {
+        allow read: if hasArea(t, 'finance') && canRead(t);
+        allow create: if hasArea(t, 'finance') && working(t) && request.resource.data.invoiceId is string
+          && getAfter(/databases/$(database)/documents/tenants/$(t)/invoices/$(request.resource.data.invoiceId)).data.no == no;
+        allow delete: if hasArea(t, 'finance') && working(t)
+          && !existsAfter(/databases/$(database)/documents/tenants/$(t)/invoices/$(resource.data.invoiceId));
+      }
       match /people/{e} {
         allow read: if (seesPeople(t) || (member(t) && me().empId == e)) && canRead(t);
         allow create, delete: if seesPeople(t) && working(t);

@@ -1740,3 +1740,29 @@ tr.ops-low td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
   .pos-kds { grid-template-columns: minmax(0, 1fr); }
   .pos-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
 }
+
+/* Invoices: lines with a unit, draft/locked notices, void (js/finance.js). */
+.inv-line, .inv-head { grid-template-columns: minmax(0, 1fr) 84px 96px 112px 92px 36px; align-items: center; }
+.inv-head { display: grid; gap: 8px; font-size: 12px; color: var(--fg-3); padding: 0 2px 4px; }
+.inv-head span:nth-child(n+2) { text-align: right; }
+.inv-head span:nth-child(3) { text-align: left; }
+.inv-amt { text-align: right; color: var(--fg-2); font-size: 13.5px; }
+.inv-line .input[aria-invalid="true"] { border-color: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft); }
+.inv-lines-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 12.5px; }
+.inv-total { align-self: end; text-align: right; }
+.inv-total strong { font-size: 20px; display: block; }
+.inv-errors { background: var(--bad-soft); color: var(--bad); border-radius: 12px; padding: 10px 14px; }
+.inv-errors ul { margin: 0 0 6px; padding-left: 18px; }
+.inv-state { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 12px; background: var(--info-soft); color: var(--info); margin-bottom: 12px; font-size: 13.5px; }
+.inv-state.locked { background: var(--surface-2); color: var(--fg-2); }
+.inv-void { padding: 10px 14px; border-radius: 12px; background: var(--bad-soft); color: var(--bad); margin: 8px 0; }
+.inv-notes { white-space: pre-wrap; color: var(--fg-2); margin-top: 12px; }
+.inv-items { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pill.void { background: var(--surface-2); color: var(--fg-3); text-decoration: line-through; }
+@media (max-width: 760px) {
+  .inv-head { display: none; }
+  .inv-line { position: relative; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 10px; border: 1px solid var(--line); border-radius: 14px; }
+  .inv-line > [name^="d"] { grid-column: 1 / -1; margin-right: 48px; }
+  .inv-line > .inv-del { position: absolute; top: 10px; right: 8px; }
+  .inv-line .input, .inv-line .select, .inv-line .btn { min-height: 44px; }
+}

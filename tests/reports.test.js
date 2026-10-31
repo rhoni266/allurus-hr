@@ -114,7 +114,7 @@ test('seeded payroll: the summary reconciles with the pay items', () => {
   const sb = { console };
   sb.window = sb;
   vm.createContext(sb);
-  for (const f of ['utils', 'leave-rules', 'attendance-rules', 'statutory', 'claims-rules', 'notify-rules', 'appraisal-rules', 'hr-rules', 'talent-rules', 'report-rules', 'costing-rules', 'finance', 'tax', 'claims', 'planner', 'seed']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f + '.js'), 'utf8'), sb, { filename: f + '.js' });
+  for (const f of ['utils', 'leave-rules', 'attendance-rules', 'statutory', 'claims-rules', 'notify-rules', 'appraisal-rules', 'hr-rules', 'talent-rules', 'report-rules', 'costing-rules', 'invoice-rules', 'finance', 'tax', 'claims', 'planner', 'seed']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f + '.js'), 'utf8'), sb, { filename: f + '.js' });
   const seed = sb.AllurusSeed.create(), S = sb.AllurusReportRules;
   const mks = Object.keys(seed.payroll).sort();
   const rows = S.payrollByMonth(seed.payroll, mks);

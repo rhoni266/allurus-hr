@@ -8,7 +8,7 @@ const vm = require('node:vm');
 const sb = { console, TextEncoder };
 sb.window = sb;
 vm.createContext(sb);
-for (const f of ['utils', 'leave-rules', 'attendance-rules', 'statutory', 'claims-rules', 'notify-rules', 'appraisal-rules', 'hr-rules', 'talent-rules', 'einvoice-rules', 'finance', 'tax', 'claims', 'planner', 'seed', 'ops-rules', 'seed-suria', 'seed-majorfe', 'pos-rules', 'seed-banafsha']) {
+for (const f of ['utils', 'leave-rules', 'attendance-rules', 'statutory', 'claims-rules', 'notify-rules', 'appraisal-rules', 'hr-rules', 'talent-rules', 'einvoice-rules', 'invoice-rules', 'finance', 'tax', 'claims', 'planner', 'seed', 'ops-rules', 'seed-suria', 'seed-majorfe', 'pos-rules', 'seed-banafsha']) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', f + '.js'), 'utf8'), sb, { filename: f + '.js' });
 }
 const P = sb.AllurusPosRules, T = sb.U.today();
