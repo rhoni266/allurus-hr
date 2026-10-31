@@ -257,7 +257,8 @@ window.AllurusRecruit = (function () {
           <div class="kcard-foot"><button class="btn btn-sm btn-icon btn-ghost" data-act="cand-move" data-id="${c.id}" data-v="-1" ${si === 0 ? 'disabled' : ''} aria-label="Move back">${icon('left')}</button>
             ${s === 'Hired' ? (c.converted ? '<span class="pill ok">Onboarded</span>' : `<button class="btn btn-sm btn-primary" data-act="cand-hire" data-id="${c.id}">${icon('userplus')}Onboard</button>`) : `<button class="btn btn-sm btn-ghost" data-act="rc-cand" data-id="${c.id}">Open</button>`}
             <button class="btn btn-sm btn-icon btn-ghost" data-act="cand-move" data-id="${c.id}" data-v="1" ${si === R.STAGES.length - 1 ? 'disabled' : ''} aria-label="Move forward">${icon('right')}</button></div></div>`; }).join('')}
-        ${l.length ? '' : '<div class="empty" style="padding:16px 4px;font-size:12.5px">No candidates</div>'}</div>`; }).join('')}</div>`;
+        ${l.length ? '' : '<div class="empty" style="padding:16px 4px;font-size:12.5px">No candidates</div>'}</div>`; }).join('')}
+        <div class="kzone" data-zone="reject" aria-hidden="true">${icon('x')}<span>Not progressing</span><small>Drop here</small></div></div>`;
   }
   function requisitionsTab() {
     const l = [...reqs()].sort((a, b) => (a.status === 'Pending') - (b.status === 'Pending') ? (b.status === 'Pending') - (a.status === 'Pending') : b.at.localeCompare(a.at));
@@ -322,7 +323,15 @@ window.AllurusRecruit = (function () {
     ctx.$('#ra-from')?.addEventListener('change', (ev) => { ui.from = ev.target.value; ctx.render(); });
     ctx.$('#ra-to')?.addEventListener('change', (ev) => { ui.to = ev.target.value; ctx.render(); });
     let dragId = null;
-    ctx.$$('.kcard').forEach((c) => { c.addEventListener('dragstart', (ev) => { dragId = c.dataset.cand; ev.dataTransfer.setData('text/plain', dragId); }); });
+    ctx.$$('.kcard').forEach((c) => { c.addEventListener('dragstart', (ev) => { dragId = c.dataset.cand; c.classList.add('dragging'); ctx.$('.kanban')?.classList.add('is-dragging'); ev.dataTransfer.setData('text/plain', dragId); });
+      c.addEventListener('dragend', () => { c.classList.remove('dragging'); ctx.$('.kanban')?.classList.remove('is-dragging'); }); });
+    // Dropping on "Not progressing" does what the candidate's own Not progressing button does (keyboard: Open → Not progressing).
+    const zone = ctx.$('.kzone[data-zone=reject]');
+    if (zone) {
+      zone.addEventListener('dragover', (ev) => { ev.preventDefault(); zone.classList.add('drop'); });
+      zone.addEventListener('dragleave', () => zone.classList.remove('drop'));
+      zone.addEventListener('drop', (ev) => { ev.preventDefault(); zone.classList.remove('drop'); const id = dragId || ev.dataTransfer.getData('text/plain'); if (cand(id)) ctx.ACTIONS['rc-reject'](id); });
+    }
     ctx.$$('.kcol').forEach((col) => {
       col.addEventListener('dragover', (ev) => { ev.preventDefault(); col.classList.add('drop'); });
       col.addEventListener('dragleave', () => col.classList.remove('drop'));

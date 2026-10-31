@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.17';
+  const APP_VERSION = '3.19';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -187,8 +187,8 @@
     fire()?.changed();
     // Demo mode: share a new check-in point with the other phones (set up further down, so not during start-up).
     try { demoZone.publish(); } catch (e) { /* not set up yet */ }
-    // Settings shows "Saved 10:02", and nothing typed is left unsaved.
-    try { if (route() === 'settings') { stUi.dirty = false; stUi.savedAt = Date.now(); const el = $('#st-saved'); if (el) el.textContent = `Saved ${new Date(stUi.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`; } } catch (e) { /* not set up yet */ }
+    // Settings shows "Saved 10:02". (Background saves happen too, so this never clears unsaved typing.)
+    try { if (route() === 'settings') { stUi.savedAt = Date.now(); const el = $('#st-saved'); if (el) el.textContent = `Saved ${new Date(stUi.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`; } } catch (e) { /* not set up yet */ }
   }
   function saveLocal() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {
@@ -520,6 +520,7 @@
       html += navItem(r);
     });
     $('#nav').innerHTML = html;
+    renderShellNav(rs);
     $('#company-name').textContent = role() === 'super' ? 'Platform console' : state.settings.company;
     const who = role() === 'super' ? { name: 'You', sub: 'Super Admin' } : role() === 'admin' ? { name: fullName(me()), sub: `${roleLabel('admin')} · ${state.settings.company}` } : { name: fullName(me()), sub: me().role };
     const acct = account();
@@ -529,6 +530,65 @@
     $('#me-card').innerHTML = `<div class="me-row">${avatar(who.name, 'sm')}<div style="min-width:0;flex:1"><div class="me-name">${esc(who.name)}</div><div class="me-role">${esc(acct?.email || who.sub)}</div></div></div>
       <div class="me-actions">${state.session.roles.length > 1 ? `<select class="select" id="role-switch" aria-label="Switch view">${state.session.roles.map((r) => `<option value="${r}" ${r === role() ? 'selected' : ''}>${roleLabel(r)} view</option>`).join('')}</select>` : `<span class="pill brand">${roleLabel(role())}</span>`}<button class="btn btn-sm btn-ghost" data-act="logout">Sign out</button></div>`;
     $('#role-switch')?.addEventListener('change', (ev) => switchRole(ev.target.value));
+  }
+
+  // The glass shell (css/glass.css): a pill of sections (the route groups) at the top, and a rail of the current
+  // section's pages on the left. The sidebar above stays as the full list, opened from the avatar or the menu button.
+  const GROUP_SHORT = { 'Finance & Accounting': 'Finance' };
+  let pillAt = null;
+  function renderShellNav(rs) {
+    const pill = $('#pillnav'), rail = $('#rail'); if (!pill || !rail) return;
+    const cur = rs.find((r) => r.id === route()) || rs[0], groups = [...new Set(rs.map((r) => r.group))];
+    pill.innerHTML = `<span class="pill-thumb" aria-hidden="true"></span>${groups.map((g) => { const first = rs.find((r) => r.group === g), on = g === cur.group;
+      return `<a href="#${first.id}" class="${on ? 'on' : ''}" ${on ? 'aria-current="true"' : ''}>${esc(GROUP_SHORT[g] || g)}</a>`; }).join('')}`;
+    // The highlight slides from the last section to this one.
+    const on = pill.querySelector('a.on'), th = pill.querySelector('.pill-thumb');
+    if (on && th) {
+      const to = { x: on.offsetLeft, w: on.offsetWidth };
+      if (pillAt) { th.style.transition = 'none'; th.style.transform = `translateX(${pillAt.x}px)`; th.style.width = `${pillAt.w}px`; th.getBoundingClientRect(); th.style.transition = ''; }
+      th.style.transform = `translateX(${to.x}px)`; th.style.width = `${to.w}px`;
+      pillAt = to;
+      if (on.offsetLeft < pill.scrollLeft || on.offsetLeft + on.offsetWidth > pill.scrollLeft + pill.clientWidth) pill.scrollLeft = on.offsetLeft - 12;
+    }
+    const link = (r) => `<a href="#${r.id}" class="${r.id === cur.id ? 'active' : ''}" ${r.id === cur.id ? 'aria-current="page"' : ''} aria-label="${esc(r.label)}" data-tip="${esc(r.label)}">${icon(r.icon)}</a>`;
+    const pages = rs.filter((r) => r.group === cur.group), settings = rs.find((r) => r.id === 'settings');
+    rail.innerHTML = `${pages.map(link).join('')}<span class="rail-div" aria-hidden="true"></span>
+      ${settings && cur.group !== settings.group ? link(settings) : ''}<button type="button" data-act="ux-help" aria-label="Help" data-tip="Help">${icon('help')}</button><button type="button" data-act="menu" aria-label="All pages" data-tip="All pages">${icon('grip')}</button>`;
+    const who = role() === 'super' ? (account()?.name || 'Allurus HQ') : me() ? fullName(me()) : account()?.name || 'You';
+    const mb = $('#me-btn'); if (mb) mb.innerHTML = esc(String(who).split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase());
+  }
+
+  // Page header: the title on two lines, and up to three key numbers beside it (company console pages only).
+  function pageKpis(r) {
+    if (role() !== 'admin') return [];
+    const T = U.today(), act = activeEmployees(), month = T.slice(0, 7);
+    const inNow = () => Object.values(state.attendance[T] || {}).filter((x) => x.in && !x.out);
+    const lastPaid = Object.keys(state.payroll).filter((k) => state.payroll[k].status === 'Paid').sort().pop();
+    const K = {
+      dashboard: () => [['people', act.length, 'Employees'], ['briefcase', state.jobs.length, 'Open roles'], ['clock', `${inNow().length}`, 'In right now']],
+      employees: () => [['people', act.length, 'Active'], ['building', state.departments.length, 'Departments'], ['userplus', act.filter((e) => (e.start || '').startsWith(month)).length, 'Joined this month']],
+      departments: () => [['building', state.departments.length, 'Departments'], ['people', act.length, 'People']],
+      recruitment: () => [['briefcase', state.jobs.length, 'Open roles'], ['people', state.candidates.filter((c) => c.stage !== 'Hired' && !c.rejected).length, 'In the pipeline'], ['check', state.candidates.filter((c) => c.stage === 'Hired').length, 'Hired']],
+      leave: () => [['calendar', pendingLeaves().length, 'Waiting for approval'], ['people', act.filter((e) => onLeaveOn(e.id, T)).length, 'Off today']],
+      attendance: () => [['clock', inNow().length, 'In right now'], ['pin', inNow().filter((x) => x.s === 'remote').length, 'Remote']],
+      payroll: () => [['people', act.length, 'On payroll'], ...(lastPaid ? [['wallet', compactMoney(payTotal(state.payroll[lastPaid]).net), `Net pay, ${U.fmtMonth(lastPaid, { month: 'short' })}`]] : [])],
+      claims: () => [['receipt', claimsApi.pendingCount(), 'Waiting for review']],
+    };
+    try { return K[r] ? K[r]() : []; } catch (e) { return []; }
+  }
+  function decorateHead(r) {
+    const head = $('#view .page-head') || $('#view .hero-text'), h1 = head?.querySelector('h1');
+    if (!h1) return;
+    // Two lines, split where the halves are closest in length ("Statutory & Claim / Guide" → "Statutory & / Claim Guide").
+    const words = h1.textContent.trim().split(/\s+/);
+    if (!h1.children.length && words.length > 1) {
+      let best = 1, diff = Infinity;
+      for (let i = 1; i < words.length; i++) { const d = Math.abs(words.slice(0, i).join(' ').length - words.slice(i).join(' ').length); if (d < diff) { diff = d; best = i; } }
+      h1.innerHTML = `${esc(words.slice(0, best).join(' '))}<br>${esc(words.slice(best).join(' '))}`;
+    }
+    const k = pageKpis(r); if (!k.length || head.querySelector('.kpis')) return;
+    const html = `<div class="kpis" role="list" aria-label="Key numbers">${k.map(([ic, v, l]) => `<div class="kpi-chip" role="listitem"><span class="kpi-ic" aria-hidden="true">${icon(ic)}</span><span class="kpi-txt"><b class="num">${esc(String(v))}</b><small>${esc(l)}</small></span></div>`).join('')}</div>`;
+    if (head.classList.contains('page-head')) head.firstElementChild.insertAdjacentHTML('afterend', html); else h1.insertAdjacentHTML('afterend', html);
   }
 
   function switchRole(r) {
@@ -567,6 +627,9 @@
     const setup = ['super', 'auditor'].includes(role()) && r === routes()[0].id ? AllurusUX.setupCard() : '';
     view.innerHTML = billingUi.banner() + (r === routes()[0].id ? billingUi.checklist() : '') + setup + VIEWS[r]();
     AFTER[r]?.();
+    decorateHead(r);
+    // Content rises in on navigation only (saves re-render too, and shouldn't animate).
+    view.classList.remove('enter'); if (navigated) { void view.offsetWidth; view.classList.add('enter'); }
     $('#sidebar').classList.remove('open');
     AllurusUX.afterRender(r, navigated);
     navigated = false;
@@ -1230,7 +1293,7 @@
   function bindHeadOffice() {
     const host = $('#s-office-field'); if (!host) return;
     const s = state.settings;
-    AllurusPlaceField.mount(host, { id: 's-office', value: s.headOffice || s.office || '', onChange: (v) => { s.headOffice = v; s.office = AllurusPlaces.officeName(v); save(); toast(`Head office: ${v.label}`); headOfficePin(); } });
+    AllurusPlaceField.mount(host, { id: 's-office', value: s.headOffice || s.office || '', onChange: (v) => { s.headOffice = v; s.office = AllurusPlaces.officeName(v); stUi.dirty = false; save(); toast(`Head office: ${v.label}`); headOfficePin(); } });
     headOfficePin();
   }
   // A place typed by hand isn't on the map until it has a pin.
@@ -1250,6 +1313,7 @@
   function setZonePoint(p, how) {
     const c = state.settings.checkin;
     Object.assign(c, { lat: +(+p.lat).toFixed(6), lng: +(+p.lng).toFixed(6), setAt: Date.now() });
+    stUi.dirty = false;
     save();
     const f = $('#z-coords');
     if (f) { f.value = U.fmtCoords(c); f.removeAttribute('aria-invalid'); }
@@ -1506,12 +1570,13 @@
   const settingsGo = (id) => { if (location.hash === `#settings/@${id}`) render(); else location.hash = `settings/@${id}`; };
   window.AllurusSettingsGo = settingsGo;
   // Leaving with a field typed in but not saved asks first.
+  const stDirty = () => !!role() && route() === 'settings' && (stUi.dirty || !!document.querySelector('.st-sec [aria-invalid="true"]'));
   document.addEventListener('click', (ev) => {
-    if (!stUi.dirty || route() !== 'settings') return;
+    if (!stDirty()) return;
     const a = ev.target.closest('a[href^="#"]'); if (!a || a.closest('.st-sec')) return;
     if (!confirm('You have a change that isn’t saved yet. Leave this section without saving it?')) { ev.preventDefault(); ev.stopPropagation(); } else stUi.dirty = false;
   }, true);
-  window.addEventListener('beforeunload', (ev) => { if (stUi.dirty && route() === 'settings') { ev.preventDefault(); ev.returnValue = ''; } });
+  window.addEventListener('beforeunload', (ev) => { if (stDirty()) { ev.preventDefault(); ev.returnValue = ''; } });
   AFTER.settings = () => {
     const list = settingsSections(), sec = (location.hash.split('?')[0].split('/')[1] || '');
     bindAccountCard();

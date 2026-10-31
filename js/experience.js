@@ -7,7 +7,9 @@ window.AllurusUX = (function () {
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
   // ---------- Preferences (per signed-in account, kept with the app data) ----------
+  // Lime is the default (the glass look, css/glass.css); on light backgrounds it darkens to olive so text on it stays readable.
   const ACCENTS = {
+    lime: { name: 'Allurus lime', light: ['#4A6B00', '#3B5600'], dark: ['#C6F432', '#D3F75E'] },
     teal: { name: 'Allurus teal', light: ['#0F766E', '#0B5F59'], dark: ['#2FB4A4', '#45C7B7'] },
     ocean: { name: 'Ocean', light: ['#1F5FCC', '#184DA6'], dark: ['#6EA0FF', '#8DB5FF'] },
     violet: { name: 'Violet', light: ['#6A47D1', '#5638B0'], dark: ['#A68BFF', '#BBA6FF'] },
@@ -21,7 +23,8 @@ window.AllurusUX = (function () {
     const k = s.session.account || 'guest';
     return (s.prefs[k] = s.prefs[k] || {});
   }
-  const theme = () => prefs().theme || ctx.state.settings.theme || 'system';
+  // Dark unless the person picked otherwise (a company's stored 'system' is the old default, not a choice).
+  const theme = () => prefs().theme || (ctx.state.settings.theme && ctx.state.settings.theme !== 'system' ? ctx.state.settings.theme : 'dark');
   const mq = (q) => window.matchMedia && matchMedia(q).matches;
   const isDark = () => theme() === 'dark' || (theme() === 'system' && mq('(prefers-color-scheme: dark)'));
   const reduceMotion = () => prefs().motion === 'reduce' || (prefs().motion !== 'full' && mq('(prefers-reduced-motion: reduce)'));
@@ -34,10 +37,10 @@ window.AllurusUX = (function () {
     root.dataset.text = p.text || 'default';
     root.dataset.contrast = p.contrast ? 'more' : 'normal';
     root.dataset.motion = reduceMotion() ? 'reduce' : 'full';
-    const a = ACCENTS[p.accent] || ACCENTS.teal, dark = isDark(), [brand, hover] = dark ? a.dark : a.light;
+    const a = ACCENTS[p.accent] || ACCENTS.lime, dark = isDark(), [brand, hover] = dark ? a.dark : a.light;
     if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'ux-vars'; document.head.appendChild(styleEl); }
-    root.dataset.accent = p.accent || 'teal';
-    styleEl.textContent = `html:root[data-accent]{--brand:${brand};--brand-hover:${hover};--brand-soft:${hexA(brand, dark ? 0.18 : 0.1)};--brand-ring:${hexA(brand, 0.28)};--on-brand:${dark ? '#0B0B0D' : '#FFFFFF'};}`;
+    root.dataset.accent = ACCENTS[p.accent] ? p.accent : 'lime';
+    styleEl.textContent = `html:root[data-accent]{--brand:${brand};--brand-hover:${hover};--brand-soft:${hexA(brand, dark ? 0.16 : 0.1)};--brand-ring:${hexA(brand, 0.45)};--on-brand:${dark ? '#10130A' : '#FFFFFF'};}`;
     const tb = $('#theme-btn');
     if (tb) { tb.innerHTML = ctx.icon(t === 'dark' ? 'moon' : t === 'light' ? 'sun' : 'auto'); tb.setAttribute('aria-label', `Theme: ${t === 'system' ? 'automatic' : t}. Switch theme`); tb.title = 'Switch theme'; }
   }

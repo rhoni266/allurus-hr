@@ -6,7 +6,9 @@
 <title>Allurus HR</title>
 <meta name="description" content="Allurus — people operations for growing companies.">
 <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg">
-<link rel="stylesheet" href="css/styles.css?v=3.7">
+<link rel="stylesheet" href="css/styles.css?v=3.19">
+<link rel="preload" href="assets/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="css/glass.css?v=3.19">
 </head>
 <body>
 <!--app:start-->
@@ -27,17 +29,23 @@
     </div>
   </aside>
 
+  <nav class="rail" id="rail" aria-label="Pages in this section"></nav>
+
   <div class="main-wrap">
     <header class="topbar">
       <button class="btn btn-icon btn-ghost menu-btn" data-act="menu" aria-label="Open menu"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-      <button type="button" class="cmdk-trigger" data-act="ux-palette" aria-label="Search or jump to" aria-keyshortcuts="Meta+K Control+K"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><span>Search or jump to…</span><kbd>⌘K</kbd></button>
+      <a class="logo-tile" href="#" aria-label="Allurus HR, home"><span class="logo-sq" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M19 47 L32 17 L45 47" fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M23.5 37.5 Q32 32 40.5 37.5" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></svg></span><span class="logo-word">Allurus HR</span></a>
       <div class="top-spacer"></div>
+      <nav class="pillnav" id="pillnav" aria-label="Sections"></nav>
+      <div class="top-spacer"></div>
+      <button type="button" class="cmdk-trigger" data-act="ux-palette" aria-label="Search or jump to" aria-keyshortcuts="Meta+K Control+K"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><span>Search or jump to…</span><kbd>⌘K</kbd></button>
       <span class="live-pill" id="live-pill" hidden><i aria-hidden="true"></i><span>Live</span></span>
       <span class="today" id="today"></span>
       <button type="button" class="btn btn-icon btn-ghost bell" id="nt-bell" data-act="nt-open" aria-label="Notifications" aria-haspopup="dialog" hidden><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><span class="bell-count" hidden></span></button>
       <button type="button" class="btn btn-icon btn-ghost" id="theme-btn" data-act="ux-theme" aria-label="Switch theme"></button>
       <button type="button" class="btn btn-icon btn-ghost" data-act="ux-help" aria-label="Help" aria-keyshortcuts="Shift+Slash" title="Help (?)"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.8M12 17.2v.1"/></svg></button>
       <button type="button" class="btn btn-sm top-signout" data-act="logout" aria-label="Sign out" title="Sign out"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4"/><path d="M10 16l-4-4 4-4M6 12h10"/></svg><span>Sign out</span></button>
+      <button type="button" class="avatar-btn" id="me-btn" data-act="menu" aria-label="Your account and all pages"></button>
     </header>
     <main class="view" id="view" tabindex="-1"></main>
   </div>
