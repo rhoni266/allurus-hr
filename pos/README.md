@@ -70,7 +70,7 @@ Status: **all 3 steps built** (backend, `api.js`, screens). Test checklist passe
 
 ## Tests
 
-Run `node --test pos/tests` from the repo root. The tests run `Code.gs` against a fake Sheet and cover:
+Run `node --test pos/tests/*.test.js` from the repo root. The tests run `Code.gs` against a fake Sheet and cover:
 - totals and rounding
 - double-submit, the same sale saved once
 - a tampered price
@@ -80,6 +80,76 @@ Run `node --test pos/tests` from the repo root. The tests run `Code.gs` against 
 - product edits
 
 They don't replace the in-browser checklist, which comes after step 3.
+
+## Waste and stock (added 31/10/2026)
+
+**Updating an existing Sheet:**
+1. Paste the new `Code.gs` and save.
+2. Run `setup`. It:
+   - adds `unit | cost | track_stock | kind` to the end of Products and fills `pcs`, `menu` and TRUE/FALSE on current rows
+   - creates the `Waste` and `StockMovements` tabs
+   - writes an opening-balance movement for every tracked item
+3. Fill in `cost`.
+4. Deploy > Manage deployments > edit > New version.
+5. Optional: run `loadSampleIngredients` (milk, beans, cream marked "(sample)").
+
+**Screens:**
+- **Waste:** tap items, set quantities, pick a reason (Other needs a note), enter your name (remembered on this device), then Log waste. Today's list has Reverse.
+- **Stock:** tracked items and ingredients, stock value, low stock in orange and negative in red, Stock in and Adjust.
+- **Products:** unit, cost, kind (menu item or ingredient) and track stock.
+- **Today:** a Waste card with cost, entries, % of sales, top reasons and staff meals.
+
+**Rules:**
+- **Cost:** cost comes from Products, never from the till. Blank cost logs the quantity and flags it as `cost_missing`.
+- **Units:** cost is to the sen, so keep ingredients in kg or l (milk RM 8.00 per l), not g or ml. pcs and cup are whole numbers; g, ml, kg and l allow 3 decimals.
+- **Staff meals** are logged like waste, but they are left out of waste cost and % and shown on their own line.
+- **No retyping stock.** Stock is never typed over: Products only sets starting stock, and all later changes are Stock in or Adjust with a reason. Every change (sale, void, waste, reversal, stock in, adjustment) writes a `StockMovements` row whose `balance_after` equals the new stock. Don't edit the stock column in the Sheet by hand.
+- **Never deleted.** A waste entry is never deleted. Reverse marks its lines `reversed` and adds `reversal` rows (`waste_id` `rev-<id>`, negative qty and cost, `reverses_waste_id` set) with the reason in `note`.
+- **No duplicates.** `waste_id` (one per entry; `line_no` per row) and the Stock in/Adjust `movement_id` are made by the till, so a retry never counts twice.
+
+## Inventory ledger: recipes, purchases, open containers, stocktakes (added 31/10/2026)
+
+Details are in [INVENTORY-LEDGER-SPEC.md](INVENTORY-LEDGER-SPEC.md). Stock is calculated from the `StockMovements` ledger: opening + purchases − sales usage − dish waste − ingredient waste ± stocktake adjustments. The `stock` column is the server's running total of that ledger, and `getStockReport` / `getUsageReport` check that the two agree.
+
+**Updating an existing Sheet:**
+1. Paste the new `Code.gs` and save.
+2. Run `setup`. It:
+   - adds new columns to the end of Products, Sales, Waste and StockMovements
+   - creates `Recipes`, `Purchases`, `OpenContainers` and `StockCounts`
+   - fills `base_unit`, `max_open_containers` (1) and `track_open` (FALSE) on existing products
+
+   Nothing existing moves.
+3. Optional: add Script Property `COUNT_VARIANCE_PERCENT` (default 5).
+4. Deploy > Manage deployments > edit > New version.
+5. Optional: run `loadSampleIngredients`. It adds milk (ml), beans (g), caramel syrup (ml) and takeaway cups, with packs, reorder levels and open tracking.
+
+**How it works:**
+- **What a sale takes from stock.** A menu item takes **itself** if it tracks stock (a croissant), **plus** every recipe row (a paper bag, or milk and beans for a latte). An item with neither is sold with a "no recipe" warning. Recipes are per serving, in the ingredient's unit, and an item can't be in its own recipe.
+- **Made.** A paid order counts as made. Voiding asks whether it was made:
+  - **no** puts all the usage back
+  - **yes** keeps the usage, moves it to dish waste and logs a Waste entry `void-<sale_id>` with reason `cancelled_after_made`
+- **Two kinds of waste:**
+  - Waste of a menu item is **dish waste**: it takes out what a sale would, at dish cost.
+  - Waste of an ingredient is **ingredient waste**.
+  - They are reported separately, and voids and discounts stay in their own reports.
+- **Purchases:**
+  - Received in packs. The server works out the quantity from the product's pack size and keeps a **weighted average cost** to 6 decimals per base unit.
+  - A wrong delivery is reversed, never edited.
+- **Open containers:**
+  - Opening one needs a sealed pack in stock.
+  - When the station already has `max_open_containers` open, the till shows who opened it, when and how much is left, and asks for a reason.
+  - Recipe usage is put against the oldest open container first. **Finish** gives the variance (size − recipe usage). **Discard** logs the rest as ingredient waste.
+- **Stocktake:**
+  - The server works out the expected quantity, the variance and its value, then writes an adjustment so stock equals the count.
+  - A line more than `COUNT_VARIANCE_PERCENT` off needs a reason.
+- **Cost precision:** money is whole sen. Unit cost is RM to 6 decimals per base unit (syrup RM 0.053333 per ml), so ingredients can now be kept in g and ml. Existing kg/l ingredients keep their unit, because a unit can't change while stock is tracked.
+- **Until the new screens are in:**
+  - A void from the current till counts as "not made".
+  - The Waste screen still offers all reasons; the server refuses ones that don't fit (for example "quality low" on milk).
+
+**Size and speed:**
+- A sale reads Products and Recipes once.
+- With several hundred sales a day and recipes, `StockMovements` grows by about 1,000–2,000 rows a day. Once a month, export it to CSV, then use File > Make a copy to keep an archive. If calls start taking more than about 3 seconds, that is the signal to move to the database (see `docs/pos-waste-integration.md`).
 
 ## Security limits (please read)
 
@@ -95,4 +165,5 @@ They don't replace the in-browser checklist, which comes after step 3.
 3. **Money columns are RM decimals** (`12.90`), not sen. Either import them as `numeric(10,2)`, or multiply by 100 into integer sen columns.
 4. `datetime` is ISO text with `+08:00`; import it as `timestamptz`.
 5. `stock` blank = not tracked, so map it to NULL.
+6. Also export **Waste** and **StockMovements**, importing them after Products. In Waste, the key is (`waste_id`, `line_no`), and `cost` and `unit_cost` are RM decimals (blank = unknown). In StockMovements, `change_qty` and `balance_after` are numbers with up to 3 decimals.
 6. The column names already match the planned tables. After the move, only `api.js` and the backend change.

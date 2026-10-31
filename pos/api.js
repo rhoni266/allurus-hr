@@ -64,12 +64,65 @@
 
     getSale: function (saleId) { return call('getSale', { sale_id: saleId }); },
 
-    voidSale: function (saleId, reason) { return call('voidSale', { sale_id: saleId, reason: reason }); },
+    // made: true = the order was already made (usage stays and is logged as dish waste); false = put the usage back.
+    voidSale: function (saleId, reason, made) { return call('voidSale', { sale_id: saleId, reason: reason, made: made === true }); },
 
     // date: 'YYYY-MM-DD' in Malaysia time; omit for today.
     getDailySummary: function (date) { return call('getDailySummary', date ? { date: date } : {}); },
 
-    // product: { id?, name, price (RM), stock ('' = not tracked), category, active }
-    saveProduct: function (product) { return call('saveProduct', product); }
+    // product: { id?, name, price (RM), category, active, unit, cost (RM per unit, '' = unknown), kind: 'menu'|'ingredient',
+    //            track_stock, stock (starting stock; only used when the product is new or starts being tracked) }
+    saveProduct: function (product) { return withDevice(product, 'saveProduct'); },
+
+    // entry: { waste_id (newSaleId()), items: [{ product_id, qty, reason, note }], staff_name }
+    // Resolves with { waste_id, lines (server cost), duplicate, warnings }. Same waste_id again = the saved entry.
+    logWaste: function (entry) { return withDevice(entry, 'logWaste'); },
+
+    reverseWaste: function (wasteId, reason, staffName) {
+      return withDevice({ waste_id: wasteId, reason: reason, staff_name: staffName }, 'reverseWaste');
+    },
+
+    // dates 'YYYY-MM-DD' (Malaysia time); omit both for today.
+    getWaste: function (dateFrom, dateTo) { return call('getWaste', { date_from: dateFrom || '', date_to: dateTo || '' }); },
+
+    // move: { movement_id (newSaleId()), product_id, change_qty, reason_type: 'stock_in'|'adjustment', note, staff_name }
+    stockAdjust: function (move) { return withDevice(move, 'stockAdjust'); },
+
+    // ---- inventory ledger (INVENTORY-LEDGER-SPEC.md). Ids come from newSaleId() and are reused on every retry. ----
+
+    // delivery: { purchase_id, supplier, invoice_no, received_by, lines: [{ ingredient_id, pack_qty, pack_cost, batch_no, expiry_date }] }
+    receivePurchase: function (delivery) { return withDevice(delivery, 'receivePurchase'); },
+    reversePurchase: function (purchaseId, reason, staffName) {
+      return withDevice({ purchase_id: purchaseId, reason: reason, staff_name: staffName }, 'reversePurchase');
+    },
+    getPurchases: function (dateFrom, dateTo) { return call('getPurchases', { date_from: dateFrom || '', date_to: dateTo || '' }); },
+
+    // Every menu item with its recipe lines, cost, margin and what a sale deducts.
+    getRecipes: function () { return call('getRecipes', {}); },
+    // Replaces one menu item's recipe. lines: [{ ingredient_id, qty (per serving, ingredient's unit), note }]
+    saveRecipe: function (menuProductId, lines) { return call('saveRecipe', { menu_product_id: menuProductId, lines: lines }); },
+
+    // open: { container_id, ingredient_id, station, reason?, note?, staff_name }. May resolve with { needs_reason, message, open }
+    // instead of opening: show the message, ask for a reason, then call again with the same container_id.
+    openContainer: function (open) { return withDevice(open, 'openContainer'); },
+    finishContainer: function (containerId, staffName) { return withDevice({ container_id: containerId, staff_name: staffName }, 'finishContainer'); },
+    // remaining: '50%' or a quantity in the ingredient's unit
+    discardContainer: function (containerId, reason, remaining, note, staffName) {
+      return withDevice({ container_id: containerId, reason: reason, remaining_estimate: remaining, note: note, staff_name: staffName }, 'discardContainer');
+    },
+    getContainers: function (dateFrom, dateTo) { return call('getContainers', { date_from: dateFrom || '', date_to: dateTo || '' }); },
+
+    // count: { count_id, counted_by, lines: [{ ingredient_id, counted_qty } | { ingredient_id, sealed_packs, open: ['50%'] }, note] }
+    stockCount: function (count) { return withDevice(count, 'stockCount'); },
+
+    getStockReport: function () { return call('getStockReport', {}); },
+    getUsageReport: function (dateFrom, dateTo) { return call('getUsageReport', { date_from: dateFrom || '', date_to: dateTo || '' }); }
   };
+
+  function withDevice(data, action) {
+    var d = {};
+    for (var k in data) d[k] = data[k];
+    d.device_id = cfg.DEVICE_ID || '';
+    return call(action, d);
+  }
 })();

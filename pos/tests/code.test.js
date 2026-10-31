@@ -16,6 +16,7 @@ function load(props = {}) {
       setValues(v) { v.forEach((r, i) => { const t = tabs[name]; while (t.length < row + i) t.push([]); r.forEach((x, j) => { t[row - 1 + i][col - 1 + j] = x; }); }); return this; },
       setValue(x) { tabs[name][row - 1][col - 1] = x; return this; },
       setFontWeight() { return this; }, setNumberFormat() { return this; },
+      clearContent() { const t = tabs[name]; for (let i = row - 1; i < row - 1 + nr && i < t.length; i++) t[i] = []; while (t.length && !t[t.length - 1].length) t.pop(); return this; },
     }),
   });
   const ss = {
@@ -30,7 +31,7 @@ function load(props = {}) {
     SpreadsheetApp: { getActiveSpreadsheet: () => ss },
     PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (k in P ? String(P[k]) : null) }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
-    Utilities: { getUuid: () => `uuid-${String(++uuid).padStart(8, '0')}`, formatDate: () => '2026-10-31T10:00:00+08:00' },
+    Utilities: { getUuid: () => `uuid-${String(++uuid).padStart(8, '0')}`, formatDate: (d, tz, f) => (f === 'yyyy-MM-dd' ? '2026-10-31' : '2026-10-31T10:00:00+08:00') },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (s) => ({ setMimeType: () => JSON.parse(s) }) },
   };
   vm.createContext(ctx);
@@ -39,7 +40,7 @@ function load(props = {}) {
   ctx.loadSampleMenu();
   const call = (action, data, key = P.SECRET_KEY) => ctx.doPost({ postData: { contents: JSON.stringify({ key, action, data }) } });
   const prods = Object.fromEntries(call('getProducts', {}).data.map((p) => [p.name.replace(' (sample)', ''), p]));
-  return { tabs, call, prods };
+  return { tabs, call, prods, ctx };
 }
 
 test('3 items cash: server totals, 5-sen rounding, rows written, stock reduced', () => {

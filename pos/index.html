@@ -5,17 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
   <title>Cafe POS</title>
-  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="style.css?v=13">
 </head>
 <body>
+  <a class="skip" href="#view-till">Skip to checkout</a>
+  <div id="offline" class="offline no-print" role="status" hidden>You're offline. Sales can't be saved until the connection is back.</div>
   <header class="top no-print">
-    <strong id="biz">Cafe POS</strong>
-    <nav>
-      <button data-view="till" class="tab on">Till</button>
-      <button data-view="summary" class="tab">Today</button>
-      <button data-view="products" class="tab">Products</button>
-    </nav>
+    <div class="brand"><span class="logo" aria-hidden="true">P</span><strong id="biz">Cafe POS</strong></div>
+    <nav class="pillnav" aria-label="Screens"><span class="nav-thumb" aria-hidden="true"></span><button data-view="till" class="tab on"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h15l-1.5 9h-12z"/><path d="M6 6 5 3H2"/><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/></svg><span>Checkout</span></button><button data-view="waste" class="tab"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg><span>Waste</span></button><button data-view="stock" class="tab"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8l9-5 9 5-9 5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg><span>Stock</span></button><button data-view="summary" class="tab"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Today</span></button><button data-view="products" class="tab"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/></svg><span>Products</span></button></nav>
+    <div class="top-right">
+      <span class="chip" id="netChip"><span class="dot"></span><span>Online</span></span>
+      <span class="chip staff" id="staffChip" title="Staff name on this device"><span class="avatar" id="staffAv">?</span><span id="staffName">No name</span><span class="muted" id="clock"></span></span>
+    </div>
   </header>
+  <aside class="rail no-print" aria-label="Shortcuts"><button data-view="till" class="rail-btn on" aria-label="Checkout" title="Checkout (F1)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h15l-1.5 9h-12z"/><path d="M6 6 5 3H2"/><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/></svg></button><button data-view="waste" class="rail-btn" aria-label="Waste" title="Waste"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg></button><button data-view="stock" class="rail-btn" aria-label="Stock" title="Stock"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8l9-5 9 5-9 5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg></button><button data-view="summary" class="rail-btn" aria-label="Today" title="Today"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button><button data-view="products" class="rail-btn" aria-label="Products" title="Products"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/></svg></button><span class="rail-gap"></span><button id="fxToggle" class="rail-btn" aria-label="Reduce visual effects" title="Reduce visual effects (for slower tablets)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg></button></aside>
+  <div id="live" class="sr-only" aria-live="polite"></div>
 
   <main id="view-till" class="view till no-print">
     <section class="menu">
@@ -44,7 +48,45 @@
     </section>
   </main>
 
+  <main id="view-waste" class="view till no-print" hidden>
+    <div class="page-head"><h1>Waste<br><span>log</span></h1><div class="kpis" id="wasteKpis"></div></div>
+    <section class="menu">
+      <input id="wSearch" type="search" placeholder="Search products and ingredients" autocomplete="off">
+      <div id="wChips" class="chips"></div>
+      <div id="wGrid" class="grid"><p class="muted">Loading…</p></div>
+      <h3>Today's waste</h3>
+      <div id="wList"><p class="muted">Loading…</p></div>
+    </section>
+    <section class="cart">
+      <h3 class="flat">Log waste</h3>
+      <ul id="wLines" class="lines"></ul>
+      <p class="label">Reason</p>
+      <div id="wReasons" class="reasons"></div>
+      <label class="row">Note <input id="wNote" maxlength="100" placeholder="required for Other"></label>
+      <label class="row">Staff <input id="wStaff" maxlength="40" placeholder="your name"></label>
+      <p id="wMsg"></p>
+      <div class="actions two"><button id="wClear" class="ghost">Clear</button><button id="wLog" class="primary" disabled>Log waste</button></div>
+    </section>
+  </main>
+
+  <main id="view-stock" class="view no-print" hidden>
+    <div class="page-head"><h1>Stock &amp;<br><span>inventory</span></h1><div class="kpis" id="stockKpis"></div></div>
+    <div class="chips" id="invTabs">
+      <button data-inv="stock" class="on">Stock</button><button data-inv="receive">Receive</button>
+      <button data-inv="recipes">Recipes</button><button data-inv="containers">Containers</button><button data-inv="count">Count</button>
+    </div>
+    <div id="inv-stock">
+      <div class="row wrap"><input id="sSearch" type="search" placeholder="Search stock" autocomplete="off"><button id="sRefresh" class="ghost">Refresh</button></div>
+      <div id="slist"><p class="muted">Loading…</p></div>
+    </div>
+    <div id="inv-receive" hidden></div>
+    <div id="inv-recipes" hidden></div>
+    <div id="inv-containers" hidden></div>
+    <div id="inv-count" hidden></div>
+  </main>
+
   <main id="view-summary" class="view no-print" hidden>
+    <div class="page-head"><h1>Today's<br><span>sales</span></h1><div class="kpis" id="sumKpis"></div></div>
     <div class="row wrap">
       <input id="day" type="date">
       <button id="refreshSum" class="ghost">Refresh</button>
@@ -54,16 +96,18 @@
   </main>
 
   <main id="view-products" class="view no-print" hidden>
+    <div class="page-head"><h1>Menu &amp;<br><span>products</span></h1><div class="kpis" id="prodKpis"></div></div>
     <div class="row wrap"><button id="addProduct" class="primary">Add product</button></div>
     <div id="plist"><p class="muted">Loading…</p></div>
   </main>
 
+  <button id="cartBar" class="cart-bar no-print" hidden></button>
   <div id="modal" class="modal no-print" hidden><div class="sheet" id="sheet"></div></div>
   <div id="toast" class="toast no-print" role="status" aria-live="polite"></div>
   <div id="print" class="print-only"></div>
 
   <script src="config.js"></script>
-  <script src="api.js?v=1"></script>
-  <script src="app.js?v=2"></script>
+  <script src="api.js?v=6"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>
