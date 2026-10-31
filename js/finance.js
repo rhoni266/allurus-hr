@@ -354,7 +354,7 @@ window.AllurusFinance = (function () {
     // after that only payments, notes and Void (with a reason). The rules are in js/invoice-rules.js.
     const IR = window.AllurusInvoiceRules;
     const store = () => ctx.invoices;
-    const reopen = (id) => setTimeout(() => viewInvoice(id), 50);
+    const reopen = (id) => setTimeout(() => openDoc(id), 50);
     // A refused change: say why. "This invoice changed" reopens it with the latest copy.
     const failed = (r, id) => { if (r.error === 'busy') return; toast(r.message, 'error'); if (r.error === 'changed' && id) { closeOverlay(); reopen(id); } };
     const submitBtn = () => ctx.$('#overlay-root button[type=submit]');
@@ -362,191 +362,639 @@ window.AllurusFinance = (function () {
     // Money received on an invoice, as payments (older paid invoices: the whole balance on the day it was paid).
     const paymentsOf = (i) => (i.payments && i.payments.length ? i.payments : i.status === 'Paid' && i.paidOn ? [{ date: i.paidOn, amount: invoiceTotals(i).balance }] : []);
 
-    VIEWS.invoices = () => {
-      const f = fin();
-      const FILTERS = [['all', 'All'], ['Draft', 'Draft'], ['Sent', 'Sent'], ['Partially paid', 'Part paid'], ['Overdue', 'Overdue'], ['Paid', 'Paid'], ['Void', 'Void'], ['Notes', 'Credit, debit and refund notes']];
-      const list = f.invoices.map((i) => ({ ...i, st: invoiceStatus(i, T()), tot: invoiceTotals(i) })).filter((i) => fui.inv === 'all' || (fui.inv === 'Notes' ? !isInvoice(i) : isInvoice(i) && i.st === fui.inv)).sort((a, b) => b.issue.localeCompare(a.issue) || b.no.localeCompare(a.no));
-      const open = f.invoices.filter((i) => isInvoice(i) && IR.canPay(i));
-      const overdue = open.filter((i) => invoiceStatus(i, T()) === 'Overdue');
-      const received = f.invoices.filter(isInvoice).flatMap(paymentsOf).filter((p) => String(p.date || '').startsWith(cur()));
-      const actionsFor = (i) => {
-        if (isAuditor() || !isInvoice(i)) return '';
-        const dup = `<button class="btn btn-sm btn-icon btn-ghost" data-act="fin-dup-inv" data-id="${i.id}" aria-label="Duplicate ${esc(i.no)}" title="Duplicate">${icon('copy')}</button>`;
-        if (i.st === 'Draft') return `<button class="btn btn-sm" data-act="fin-edit-inv" data-id="${i.id}">${icon('edit')}Edit</button><button class="btn btn-sm" data-act="fin-send-inv" data-id="${i.id}">Mark sent</button>${dup}`;
-        if (IR.canPay(i)) return `<button class="btn btn-sm btn-ok" data-act="fin-pay-inv" data-id="${i.id}">Record payment</button>${dup}`;
-        return dup;
-      };
-      return `
-        <div class="page-head"><div><div class="eyebrow">Finance & Accounting</div><h1>Invoices</h1><p class="sub">Drafts can be changed until you mark them as sent; then they are locked. Recording a payment adds it to the books.</p></div>
-          <div class="actions"><button class="btn" data-act="fin-export-inv">${icon('download')}Export CSV</button>${isAuditor() ? '' : `<button class="btn btn-primary" data-act="fin-new-inv">${icon('plus')}New invoice</button>`}</div></div>
-        <div class="grid g-4 keep-2">
-          <div class="card kpi"><div class="kpi-label">Outstanding</div><div class="kpi-value">${compactMoney(sum(open, (i) => invoiceTotals(i).due))}</div><div class="kpi-foot">${open.length} invoices</div></div>
-          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--bad)"></span>Overdue</div><div class="kpi-value">${compactMoney(sum(overdue, (i) => invoiceTotals(i).due))}</div><div class="kpi-foot">${overdue.length} invoices</div></div>
-          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>Received this month</div><div class="kpi-value">${compactMoney(sum(received, (p) => Number(p.amount) || 0))}</div><div class="kpi-foot">${received.length} payments</div></div>
-          <div class="card kpi"><div class="kpi-label">Drafts</div><div class="kpi-value">${f.invoices.filter((i) => isInvoice(i) && i.status === 'Draft').length}</div><div class="kpi-foot">Not sent yet, still editable</div></div>
-        </div>
-        <div class="card card-flush">
-          <div class="toolbar"><div class="seg">${FILTERS.map(([s, l]) => `<button data-act="fin-inv-filter" data-v="${s}" class="${fui.inv === s ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-          <div class="table-wrap"><table>
-            <thead><tr><th>Number</th><th>Customer</th><th class="hide-sm">Items</th><th class="hide-sm">Issued</th><th class="hide-sm">Due</th><th class="r">Total</th><th>Status</th><th class="hide-sm">e-Invoice</th><th></th></tr></thead>
-            <tbody>${list.map((i) => `<tr class="clickable" data-act="fin-view-inv" data-id="${i.id}">
-              <td class="num inv-no">${esc(i.no)}${isInvoice(i) ? '' : `<div><span class="tag ${i.type === 'credit' ? 'warn' : i.type === 'refund' ? 'bad' : 'info'}">${esc(noteName(i))}</span></div>`}</td><td>${esc(i.customer)}</td>
-              <td class="hide-sm muted inv-items">${esc((i.items || []).slice(0, 2).map((it) => `${it.desc} · ${IR.fmtQty(it.qty, it.unit)}`).join('; '))}${(i.items || []).length > 2 ? ` +${i.items.length - 2}` : ''}</td>
-              <td class="hide-sm muted num">${U.fmtDate(i.issue, { month: 'short', day: 'numeric' })}</td>
-              <td class="muted num hide-sm">${isInvoice(i) ? U.fmtDate(i.due, { month: 'short', day: 'numeric' }) : '—'}</td>
-              <td class="r num">${isInvoice(i) ? m2(i.tot.balance) : `${i.type === 'debit' ? '' : '−'}${m2(i.tot.total)}`}${isInvoice(i) && i.tot.balance !== i.tot.total ? `<div class="person-sub">was ${m2(i.tot.total)}</div>` : ''}${i.st === 'Partially paid' || (i.st === 'Overdue' && i.tot.paid > 0) ? `<div class="person-sub">${m2(i.tot.due)} due</div>` : ''}</td>
-              <td>${isInvoice(i) ? invPill(i.st) : '<span class="pill">Issued</span>'}</td><td class="hide-sm">${ctx.einvoice ? ctx.einvoice.pill(i.einvoice) : ''}</td>
-              <td><div class="row-actions">${actionsFor(i)}</div></td></tr>`).join('')}</tbody>
-          </table>${list.length ? '' : '<div class="empty"><strong>No invoices here</strong>Create one with New invoice.</div>'}</div>
-        </div>`;
-    };
-
-    // New invoice, or edit a draft. Lines: description, quantity, unit, unit price; as many as needed.
-    function invoiceModal(id) {
-      const inv = id ? fin().invoices.find((x) => x.id === id) : null;
-      if (id && !inv) return;
-      if (inv && !IR.canEdit(inv)) { toast(`${inv.no} is ${inv.status.toLowerCase()} and locked. Duplicate it to make a new draft.`, 'error'); return; }
-      const rate = fin().settings.taxRate, label = fin().settings.taxLabel, memo = () => fin().unitMemo || {};
-      const custs = [...new Set([...(fin().contacts || []).filter((c) => c.kind === 'customer').map((c) => c.name), ...fin().invoices.map((i) => i.customer)])].sort();
-      const unitSel = (n, u) => `<select class="select inv-unit" name="u${n}" aria-label="Line ${n + 1} unit">${IR.UNITS.map((x) => `<option value="${x.code}" ${x.code === u ? 'selected' : ''}>${x.label}</option>`).join('')}</select>`;
-      const row = (n, it = {}) => `<div class="inv-line" data-line="${n}">
-          <input class="input" name="d${n}" value="${esc(it.desc || '')}" placeholder="Description" aria-label="Line ${n + 1} description" maxlength="200">
-          <input class="input num" name="q${n}" type="number" min="0" step="any" inputmode="decimal" value="${it.qty ?? ''}" placeholder="Qty" aria-label="Line ${n + 1} quantity">
-          ${unitSel(n, it.unit || IR.DEFAULT_UNIT)}
-          <input class="input num" name="p${n}" type="number" min="0" step="0.01" inputmode="decimal" value="${it.price ?? ''}" placeholder="Unit price (RM)" aria-label="Line ${n + 1} unit price in RM">
-          <span class="inv-amt num" data-amt></span>
-          <button type="button" class="btn btn-icon btn-ghost inv-del" aria-label="Remove line ${n + 1}">${icon('x')}</button></div>`;
-      const items = inv ? inv.items : [{ qty: 1, unit: IR.DEFAULT_UNIT }];
-      const taxNow = inv ? inv.taxRate : rate;
-      openModal({
-        title: inv ? `Edit draft ${inv.no}` : 'New invoice', submit: 'Save draft',
-        body: `<div class="form-grid">
-          ${inv?.duplicatedFrom ? `<p class="field full faint">${icon('copy')} Duplicated from ${esc(inv.duplicatedFrom.no)}</p>` : ''}
-          <div class="field"><label for="in-cust">Customer</label><input class="input" id="in-cust" name="customer" list="cust-list" required value="${esc(inv?.customer || '')}"><datalist id="cust-list">${custs.map((c) => `<option value="${esc(c)}">`).join('')}</datalist><span class="field-hint" id="in-cust-hint">Pick a saved customer so the e-Invoice has their TIN and address.</span></div>
-          <div class="field"><label for="in-email">Customer email</label><input class="input" id="in-email" name="email" type="email" value="${esc(inv?.email || '')}"></div>
-          <div class="field"><label for="in-issue">Issue date</label><input class="input" id="in-issue" name="issue" type="date" required value="${inv?.issue || T()}"></div>
-          <div class="field"><label for="in-due">Due date</label><input class="input" id="in-due" name="due" type="date" required value="${inv?.due || U.addDays(T(), 30)}"></div>
-          <div class="field full"><label id="inv-lines-label">Items</label>
-            <div class="inv-head" aria-hidden="true"><span>Description</span><span>Qty</span><span>Unit</span><span>Unit price</span><span>Amount</span><span></span></div>
-            <div class="inv-lines" id="inv-lines" role="group" aria-labelledby="inv-lines-label">${items.map((it, n) => row(n, it)).join('')}</div>
-            <div class="inv-lines-foot"><button type="button" class="btn btn-sm" id="inv-add">${icon('plus')}Add a line</button><span class="faint">kg, g, l, ml, m, hours, days and months can have decimals; the others are whole numbers.</span></div></div>
-          <div class="field"><label for="in-tax">${esc(label)}</label><select class="select" id="in-tax" name="taxRate">${[...new Set([taxNow, rate, 0])].map((r) => `<option value="${r}" ${r === taxNow ? 'selected' : ''}>${r ? `${r}%` : `No ${esc(label)}`}</option>`).join('')}</select></div>
-          <div class="field inv-total"><span class="faint">Total</span><strong class="num" id="inv-total">—</strong></div>
-          <div class="field full"><label for="in-notes">Notes on the invoice</label><textarea class="input" id="in-notes" name="notes" rows="2" maxlength="500" placeholder="Payment details, thanks…">${esc(inv?.notes || '')}</textarea><span class="field-hint">Shown on the invoice. No card numbers or personal ID numbers.</span></div>
-          <div class="field full"><div class="inv-errors" id="inv-errors" role="alert" hidden></div></div></div>`,
-        onSubmit(d) {
-          const lines = readLines();
-          const contact = (fin().contacts || []).find((c) => c.kind === 'customer' && c.name.toLowerCase() === String(d.customer || '').trim().toLowerCase());
-          const draft = { customer: contact?.name || String(d.customer || '').trim(), contactId: contact?.id || '', email: String(d.email || '').trim() || contact?.email || '',
-            issue: d.issue, due: d.due, items: lines, taxRate: Number(d.taxRate), notes: String(d.notes || '').trim() };
-          const errs = IR.draftErrors(draft);
-          if (errs.length) { showErrors(errs); return false; }
-          working(true, 'Saving…');
-          (inv ? store().saveDraft(inv.id, draft) : store().createDraft(draft)).then((r) => {
-            if (r.ok) { closeOverlay(); fui.inv = 'all'; reopen(inv ? inv.id : r.id); return; }
-            working(false, 'Save draft');
-            if (r.error === 'changed' && inv) { showErrors([r.message], true); return; }
-            showErrors([r.message]);
-          });
-          return false;
-        },
-      });
-      const box = ctx.$('#inv-lines');
-      function readLines() {
-        return ctx.$$('.inv-line', box).map((el) => {
-          const v = (n) => el.querySelector(`[name^="${n}"]`).value;
-          return { desc: v('d').trim(), qty: v('q') === '' ? 0 : Number(v('q')), unit: v('u'), price: v('p') === '' ? 0 : Number(v('p')), classification: '022' };
-        }).filter((it) => it.desc || it.qty || it.price);
-      }
-      function showErrors(errs, reload) {
-        const el = ctx.$('#inv-errors'); if (!el) return;
-        el.hidden = false;
-        el.innerHTML = `<ul>${errs.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>${reload ? `<button type="button" class="btn btn-sm" id="inv-reload">${icon('check')}Reload</button>` : ''}`;
-        ctx.$('#inv-reload')?.addEventListener('click', () => { closeOverlay(); invoiceModal(inv.id); });
-      }
-      function refresh() {
-        let sub = 0;
-        ctx.$$('.inv-line', box).forEach((el, n) => {
-          const q = Number(el.querySelector('[name^="q"]').value || 0), p = Number(el.querySelector('[name^="p"]').value || 0), u = el.querySelector('[name^="u"]').value;
-          const err = q ? IR.qtyError(q, u) : '', amt = IR.lineSen({ qty: q, price: p });
-          sub += amt;
-          el.querySelector('[data-amt]').textContent = q && p ? m2(amt / 100) : '';
-          const qi = el.querySelector('[name^="q"]'); qi.setAttribute('step', IR.unitOf(u).decimal ? 'any' : '1');
-          if (err) { qi.setAttribute('aria-invalid', 'true'); qi.title = err; } else { qi.removeAttribute('aria-invalid'); qi.title = ''; }
-          el.querySelectorAll('[aria-label]').forEach((x) => { x.setAttribute('aria-label', x.getAttribute('aria-label').replace(/Line \d+/, `Line ${n + 1}`)); });
+    // ----- Document lists (SQL Account style): Invoices and Bills share one grid -----
+    // Toolbar (acts on the selected row; a button that can't be used says why), filter bar, sortable columns with a
+    // chooser remembered per user, a totals row and paging. Click selects, double-click or Enter opens, arrows move.
+    function makeList(cfg) {
+      const lf = { from: '', to: '', status: 'all', who: '', ref: '', min: '', max: '', sort: 'date', dir: -1, page: 1, size: 50, sel: '' };
+      const colsKey = () => `allurus-${cfg.id}-cols:${ctx.account()?.email || 'guest'}`;
+      const hiddenCols = () => { try { const v = JSON.parse(localStorage.getItem(colsKey()) || 'null'); return Array.isArray(v) ? v : cfg.hidden; } catch (e) { return cfg.hidden; } };
+      const numeric = cfg.cols.filter((c) => c[2]).map((c) => c[0]);
+      function rows() {
+        const q = (s) => String(s || '').toLowerCase();
+        return cfg.rows().filter((r) => {
+          if (!cfg.match(r, lf.status)) return false;
+          if (lf.from && r.date < lf.from) return false;
+          if (lf.to && r.date > lf.to) return false;
+          if (lf.who && !q(r.who).includes(q(lf.who))) return false;
+          if (lf.ref && !q(r.ref).includes(q(lf.ref))) return false;
+          const amt = Math.abs(r[cfg.amountKey]);
+          if (lf.min !== '' && amt < Number(lf.min)) return false;
+          if (lf.max !== '' && amt > Number(lf.max)) return false;
+          return true;
+        }).sort((a, b) => {
+          const x = a[lf.sort], y = b[lf.sort], c = typeof x === 'number' ? x - y : String(x ?? '').localeCompare(String(y ?? ''));
+          return (c || String(a.ref).localeCompare(String(b.ref))) * lf.dir;
         });
-        const tax = Math.round((sub * Number(ctx.$('#in-tax').value || 0)) / 100);
-        ctx.$('#inv-total').textContent = m2((sub + tax) / 100);
       }
-      let next = items.length;
-      ctx.$('#inv-add').addEventListener('click', () => { box.insertAdjacentHTML('beforeend', row(next++, { unit: IR.DEFAULT_UNIT })); box.lastElementChild.querySelector('input').focus(); refresh(); });
-      box.addEventListener('click', (ev) => { const b = ev.target.closest('.inv-del'); if (!b) return; const line = b.closest('.inv-line'); if (ctx.$$('.inv-line', box).length > 1) line.remove(); else line.querySelectorAll('input').forEach((x) => { x.value = ''; }); refresh(); });
-      box.addEventListener('input', refresh);
-      box.addEventListener('change', (ev) => {
-        // A description used before suggests its unit, unless the unit was already picked.
-        if (!/^d\d+/.test(ev.target.name)) return;
-        const line = ev.target.closest('.inv-line'), sel = line.querySelector('[name^="u"]'), u = IR.unitFor(memo(), ev.target.value);
-        if (u && sel.value === IR.DEFAULT_UNIT) { sel.value = u; refresh(); }
-      });
-      ctx.$('#in-tax').addEventListener('change', refresh);
-      refresh();
-      ctx.$('#in-cust')?.addEventListener('change', (ev) => {
-        const c = (fin().contacts || []).find((x) => x.kind === 'customer' && x.name.toLowerCase() === ev.target.value.trim().toLowerCase());
-        const em = ctx.$('#in-email'); if (c && em && !em.value) em.value = c.email || '';
-        const h = ctx.$('#in-cust-hint'); if (h) h.textContent = c ? (ctx.einvoice?.contactReady(c) ? 'Saved customer, ready for e-Invoice.' : 'Saved customer, but some e-Invoice details are missing.') : 'New name: add them under Customers & suppliers for the e-Invoice.';
-      });
-    }
-
-    // The invoice (or note) as a document. Used on screen and for printing.
-    function invoiceDoc(i, forPrint) {
-      const t = invoiceTotals(i), st = isInvoice(i) ? invoiceStatus(i, T()) : 'Issued', s = ctx.state.settings, e = s.einvoice || {}, c = contactOf(i);
-      const orig = i.ref ? fin().invoices.find((x) => x.id === i.ref) : null;
-      const notes = isInvoice(i) ? fin().invoices.filter((x) => x.ref === i.id) : [];
-      const pays = isInvoice(i) ? paymentsOf(i) : [];
-      const party = (p) => p ? [p.tin && `TIN ${esc(p.tin)}`, p.idNo && `${esc(p.idType || 'BRN')} ${esc(p.idNo)}`, p.sst && p.sst !== 'NA' && `SST ${esc(p.sst)}`].filter(Boolean).join(' · ') : '';
-      const addr = (a) => (a ? [a.line1, a.line2, a.line3, [a.postcode, a.city].filter(Boolean).join(' '), window.AllurusEInvoiceRules?.STATES[a.state]].filter(Boolean).map(esc).join(', ') : '');
-      const link = (x, text) => (forPrint ? esc(text) : `<button class="link-btn" data-act="fin-view-inv" data-id="${x.id}">${esc(text)}</button>`);
-      const when = (ms) => (ms ? U.fmtDate(new Date(ms).toISOString().slice(0, 10)) : '');
-      return `<div class="doc">
-          <div class="doc-head"><div style="display:flex;align-items:center;gap:12px">${ctx.LOGO_MARK}<div><div style="font-weight:600;letter-spacing:.2em">${esc(s.company.toUpperCase())}</div><div class="faint" style="font-size:12px">${esc(addr(e.address) || s.office || '')}</div>${e.tin ? `<div class="faint" style="font-size:12px">TIN ${esc(e.tin)}${e.brn ? ` · SSM ${esc(e.brn)}` : ''}${e.sst && e.sst !== 'NA' ? ` · SST ${esc(e.sst)}` : ''}</div>` : ''}</div></div>
-            <div style="text-align:right"><div class="doc-title">${st === 'Draft' ? 'Draft invoice' : esc(noteName(i))}</div><div class="num muted">${esc(i.no)}</div>${isInvoice(i) ? invPill(st) : ''}</div></div>
-          ${st === 'Void' ? `<p class="inv-void"><strong>Void.</strong> ${esc(i.voidReason || '')}</p>` : ''}
-          <div class="doc-meta"><div><div class="faint">Bill to</div><strong>${esc(i.customer)}</strong><div class="muted">${esc(i.email || c?.email || '')}</div>${c ? `<div class="faint" style="font-size:12px">${party(c)}</div><div class="faint" style="font-size:12px">${addr(c.address)}</div>` : ''}</div>
-            <div><div class="faint">Issued</div>${U.fmtDate(i.issue)}</div>${isInvoice(i) ? `<div><div class="faint">Due</div>${U.fmtDate(i.due)}</div>` : `<div><div class="faint">For invoice</div>${orig ? link(orig, orig.no) : '—'}</div>`}
-            ${i.sentAt && isInvoice(i) ? `<div><div class="faint">Sent</div>${when(i.sentAt)}</div>` : ''}${i.paidOn ? `<div><div class="faint">Paid</div>${U.fmtDate(i.paidOn)}</div>` : ''}</div>
-          ${i.duplicatedFrom && !forPrint ? `<p class="faint">${icon('copy')} Duplicated from ${(() => { const o = fin().invoices.find((x) => x.id === i.duplicatedFrom.id); return o ? link(o, i.duplicatedFrom.no) : esc(i.duplicatedFrom.no); })()}</p>` : ''}
-          ${i.reason ? `<p class="muted"><strong>Reason:</strong> ${esc(i.reason)}</p>` : ''}
-          <div class="table-wrap"><table class="inv-table"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Amount</th></tr></thead>
-            <tbody>${i.items.map((it) => `<tr><td>${esc(it.desc)}</td><td class="r num">${esc(IR.fmtQty(it.qty, it.unit))}</td><td class="r num">${m2(it.price)}</td><td class="r num">${m2(IR.lineSen(it) / 100)}</td></tr>`).join('')}</tbody></table></div>
-          <div class="doc-totals"><div><span>Subtotal</span><span class="num">${m2(t.sub)}</span></div><div><span>${esc(fin().settings.taxLabel)} ${i.taxRate}%</span><span class="num">${m2(t.tax)}</span></div><div class="grand"><span>Total</span><span class="num">${m2(t.total)}</span></div>
-            ${notes.map((n) => `<div><span>${link(n, `${noteName(n)} ${n.no}`)}</span><span class="num">${n.type === 'debit' ? '+' : '−'}${m2(invoiceTotals(n).total)}</span></div>`).join('')}
-            ${pays.map((p) => `<div><span>Paid ${U.fmtDate(p.date)}</span><span class="num">−${m2(Number(p.amount) || 0)}</span></div>`).join('')}
-            ${isInvoice(i) && (notes.length || pays.length) && st !== 'Void' ? `<div class="grand"><span>${t.due > 0 ? 'Still owed' : 'Paid in full'}</span><span class="num">${m2(t.due)}</span></div>` : ''}</div>
-          ${i.notes ? `<p class="inv-notes">${esc(i.notes)}</p>` : ''}
+      function screen() {
+        return `<div class="ledger lg-list-screen" data-list="${cfg.id}">
+          <div class="lg-title"><div><h1>${cfg.title}</h1> <span class="lg-faint">Finance &amp; Accounting</span></div><div class="lg-title-r"><span class="lg-faint" id="lg-count"></span></div></div>
+          <div class="lg-toolbar" role="toolbar" aria-label="${cfg.title} actions" id="lg-toolbar"></div>
+          <form class="lg-filters" id="lg-filters" role="search" aria-label="Filter ${cfg.title.toLowerCase()}" onsubmit="return false">
+            <label>From <input class="lg-in" type="date" name="from" value="${lf.from}"></label>
+            <label>To <input class="lg-in" type="date" name="to" value="${lf.to}"></label>
+            <label>Status <select class="lg-in" name="status">${cfg.statuses.map(([v, l]) => `<option value="${v}" ${lf.status === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+            <label>${cfg.whoLabel} <input class="lg-in" type="search" name="who" value="${esc(lf.who)}" placeholder="Name"></label>
+            <label>${cfg.refLabel} <input class="lg-in" type="search" name="ref" value="${esc(lf.ref)}" placeholder="${cfg.refHint}"></label>
+            <label>Amount <input class="lg-in num lg-amt-in" name="min" inputmode="decimal" value="${lf.min}" placeholder="min" aria-label="Amount from"> – <input class="lg-in num lg-amt-in" name="max" inputmode="decimal" value="${lf.max}" placeholder="max" aria-label="Amount to"></label>
+            <button type="button" class="lg-linkbtn" data-lg="clear">Clear filters</button>
+            <details class="lg-cols"><summary>Columns</summary><div class="lg-cols-pop">${cfg.cols.slice(1).map(([k, l]) => `<label><input type="checkbox" data-col="${k}" ${hiddenCols().includes(k) ? '' : 'checked'}> ${l}</label>`).join('')}</div></details>
+          </form>
+          <div id="lg-list"></div>
         </div>`;
-    }
-
-    function viewInvoice(id) {
-      const i = fin().invoices.find((x) => x.id === id); if (!i) return;
-      const st = isInvoice(i) ? invoiceStatus(i, T()) : 'Issued';
-      const b = (act, label, cls = '', v = '') => `<button class="btn ${cls}" data-act="${act}" data-id="${i.id}"${v ? ` data-v="${v}"` : ''}>${label}</button>`;
-      const print = b('fin-print-inv', `${icon('printer')}Print or PDF`);
-      const dup = isInvoice(i) ? b('fin-dup-inv', `${icon('copy')}Duplicate`) : '';
-      let actions = print;
-      if (!isAuditor() && isInvoice(i)) {
-        if (st === 'Draft') actions = `${b('fin-del-inv', `${icon('trash')}Delete draft`, 'btn-ghost')}${dup}${print}${b('fin-edit-inv', `${icon('edit')}Edit`)}${b('fin-send-inv', 'Mark as sent', 'btn-primary')}`;
-        else if (IR.canPay(i)) actions = `${b('fin-note', 'Credit note', '', 'credit')}${b('fin-note', 'Debit note', '', 'debit')}${IR.canVoid(i) ? b('fin-void-inv', 'Void', 'btn-ghost') : ''}${dup}${print}${b('fin-pay-inv', `${icon('check')}Record payment`, 'btn-primary')}`;
-        else if (i.status === 'Paid') actions = `${b('fin-note', 'Refund note', '', 'refund')}${dup}${print}`;
-        else actions = `${dup}${print}`;
       }
-      openModal({
-        title: `${st === 'Draft' ? 'Draft invoice' : noteName(i)} ${i.no}`, size: 'lg', submit: null,
-        body: `${st === 'Draft' ? `<p class="inv-state">${icon('edit')} Draft: you can still change everything. <strong>Mark as sent</strong> locks it.</p>` : isInvoice(i) && st !== 'Void' ? `<p class="inv-state locked">${icon('shield')} Sent and locked. To change it, issue a credit note${IR.canVoid(i) ? ', or void it and duplicate' : ''}.</p>` : ''}
-          ${invoiceDoc(i, false)}
-          ${ctx.einvoice && st !== 'Void' ? ctx.einvoice.panel(i) : ''}
-          <div class="ci-actions" style="justify-content:flex-end;flex-wrap:wrap">${actions}</div>`,
+      function draw() {
+        const box = ctx.$('#lg-list'); if (!box) return;
+        const all = rows(), hide = hiddenCols(), cols = cfg.cols.filter(([k]) => !hide.includes(k));
+        const pages = Math.max(1, Math.ceil(all.length / lf.size)); lf.page = Math.min(lf.page, pages);
+        const shown = all.slice((lf.page - 1) * lf.size, lf.page * lf.size);
+        if (lf.sel && !all.some((r) => r.id === lf.sel)) lf.sel = '';
+        const counted = all.filter(cfg.counted), sumOf = (k) => counted.reduce((s, r) => s + (Number(r[k]) || 0), 0);
+        const mark = (k) => (lf.sort === k ? (lf.dir > 0 ? ' ▲' : ' ▼') : '');
+        const lead = Math.max(1, cols.findIndex(([k]) => numeric.includes(k)));
+        box.innerHTML = `<div class="lg-grid-wrap lg-list-wrap"><table class="lg-grid lg-list" aria-label="${cfg.title}" aria-rowcount="${all.length}">
+            <thead><tr>${cols.map(([k, l]) => `<th class="${numeric.includes(k) ? 'r' : ''}" aria-sort="${lf.sort === k ? (lf.dir > 0 ? 'ascending' : 'descending') : 'none'}"><button type="button" class="lg-sort" data-sort="${k}">${l}${mark(k)}</button></th>`).join('')}</tr></thead>
+            <tbody>${shown.map((r, n) => `<tr class="lg-row ${lf.sel === r.id ? 'is-sel' : ''}" data-id="${r.id}" tabindex="${lf.sel === r.id || (!lf.sel && n === 0) ? 0 : -1}" aria-selected="${lf.sel === r.id}">${cols.map(([k]) => cfg.cell(r, k)).join('')}</tr>`).join('')
+              || `<tr><td colspan="${cols.length}" class="lg-empty">No ${cfg.title.toLowerCase()} match these filters.</td></tr>`}</tbody>
+            ${all.length ? `<tfoot><tr class="lg-totals"><td colspan="${lead}"><strong>Total</strong> <span class="lg-faint">${counted.length} ${cfg.totalsNote}</span></td>${cols.slice(lead).map(([k]) => (numeric.includes(k) ? `<td class="r num">${n2(sumOf(k))}</td>` : '<td></td>')).join('')}</tr></tfoot>` : ''}
+          </table></div>
+          <div class="lg-pager"><span>${all.length ? `${(lf.page - 1) * lf.size + 1}–${Math.min(all.length, lf.page * lf.size)} of ${all.length}` : '0 of 0'}</span>
+            <label>Rows per page <select class="lg-in" data-lg="size">${[25, 50, 100, 200].map((n) => `<option ${lf.size === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+            <button type="button" class="lg-btn" data-lg="prev" ${lf.page <= 1 ? 'disabled' : ''}>‹ Prev</button><span class="num">Page ${lf.page} of ${pages}</span><button type="button" class="lg-btn" data-lg="next" ${lf.page >= pages ? 'disabled' : ''}>Next ›</button></div>`;
+        ctx.$('#lg-count').textContent = `${all.length} document${all.length === 1 ? '' : 's'}`;
+        toolbar();
+      }
+      function toolbar() {
+        const tb = ctx.$('#lg-toolbar'); if (!tb) return;
+        const sel = lf.sel ? cfg.find(lf.sel) : null;
+        const btn = ([lg, label, off, cls = '']) => `<button type="button" class="lg-btn ${cls}" data-lg="${lg}" ${off ? `disabled title="${esc(off)}"` : ''}>${label}</button>`;
+        tb.innerHTML = `${cfg.tools(sel).map(btn).join('')}<span class="lg-sep" aria-hidden="true"></span>${btn(['csv', 'Export CSV', ''])}${btn(['refresh', 'Refresh', ''])}`;
+      }
+      function bind() {
+        const root = ctx.$('.lg-list-screen'); if (!root) return;
+        draw();
+        const form = ctx.$('#lg-filters');
+        let typing = null;
+        const read = () => { const f = new FormData(form); ['from', 'to', 'status', 'who', 'ref', 'min', 'max'].forEach((k) => { lf[k] = String(f.get(k) ?? '').trim(); }); lf.page = 1; draw(); };
+        form.addEventListener('input', (ev) => { if (ev.target.dataset.col) return; clearTimeout(typing); typing = setTimeout(read, 200); });
+        form.addEventListener('change', (ev) => {
+          if (!ev.target.dataset.col) return;
+          const hide = cfg.cols.slice(1).map(([k]) => k).filter((k) => !ctx.$(`[data-col="${k}"]`, form).checked);
+          try { localStorage.setItem(colsKey(), JSON.stringify(hide)); } catch (e) { /* storage unavailable */ }
+          draw();
+        });
+        const select = (id, focus) => { lf.sel = id; ctx.$$('.lg-row', root).forEach((tr) => { const on = tr.dataset.id === id; tr.classList.toggle('is-sel', on); tr.setAttribute('aria-selected', String(on)); tr.tabIndex = on ? 0 : -1; if (on && focus) tr.focus(); }); toolbar(); };
+        root.addEventListener('click', (ev) => {
+          const s = ev.target.closest('[data-sort]');
+          if (s) { const k = s.dataset.sort; lf.dir = lf.sort === k ? -lf.dir : (k === 'date' || k === 'due' || numeric.includes(k) ? -1 : 1); lf.sort = k; draw(); return; }
+          const tr = ev.target.closest('.lg-row');
+          if (tr && !ev.target.closest('a')) { select(tr.dataset.id); return; }
+          const b = ev.target.closest('[data-lg]'); if (!b || b.disabled) return;
+          const k = b.dataset.lg, id = lf.sel;
+          if (cfg.act[k]) { cfg.act[k](id); return; }
+          ({
+            csv: () => cfg.csv(rows()), refresh: () => { ctx.render(); toast('Refreshed', 'info'); },
+            clear: () => { Object.assign(lf, { from: '', to: '', status: 'all', who: '', ref: '', min: '', max: '', page: 1 }); ctx.$$('input[name], select[name]', form).forEach((x) => { x.value = x.name === 'status' ? 'all' : ''; }); draw(); },
+            prev: () => { lf.page--; draw(); }, next: () => { lf.page++; draw(); },
+          }[k] || (() => {}))();
+        });
+        root.addEventListener('change', (ev) => { if (ev.target.dataset.lg === 'size') { lf.size = Number(ev.target.value); lf.page = 1; draw(); } });
+        root.addEventListener('dblclick', (ev) => { const tr = ev.target.closest('.lg-row'); if (tr) cfg.open(tr.dataset.id); });
+        root.addEventListener('keydown', (ev) => {
+          const tr = ev.target.closest?.('.lg-row'); if (!tr) return;
+          if (ev.key === 'Enter') { ev.preventDefault(); cfg.open(tr.dataset.id); }
+          if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); const nx = ev.key === 'ArrowDown' ? tr.nextElementSibling : tr.previousElementSibling; if (nx?.dataset.id) select(nx.dataset.id, true); }
+        });
+      }
+      return { screen, bind, rows };
+    }
+    const moneyCell = (v, cls = '') => `<td class="r num ${cls}">${v < 0 ? `(${n2(-v)})` : n2(v)}</td>`;
+
+    // Invoices (and credit, debit and refund notes) in the list.
+    const invList = makeList({
+      id: 'inv', title: 'Invoices', whoLabel: 'Customer', refLabel: 'Doc No', refHint: 'INV-', amountKey: 'amount', totalsNote: 'sent invoices; drafts, void and notes left out',
+      cols: [['ref', 'Doc No'], ['date', 'Date'], ['who', 'Customer'], ['items', 'Items'], ['terms', 'Terms'], ['due', 'Due Date'], ['currency', 'Currency'], ['amount', 'Amount (RM)', 1], ['paid', 'Paid', 1], ['balance', 'Balance', 1], ['st', 'Status'], ['einv', 'e-Invoice']],
+      hidden: ['currency', 'terms'],
+      statuses: [['all', 'All'], ['Draft', 'Draft'], ['Sent', 'Sent'], ['Partially paid', 'Part paid'], ['Overdue', 'Overdue'], ['Paid', 'Paid'], ['Void', 'Void'], ['Notes', 'Credit / debit / refund notes']],
+      rows: () => fin().invoices.map((i) => {
+        const t = invoiceTotals(i), st = isInvoice(i) ? invoiceStatus(i, T()) : 'Issued', note = !isInvoice(i), sign = note && i.type !== 'debit' ? -1 : 1;
+        return { id: i.id, i, st, note, ref: i.no, date: i.issue, who: i.customer, terms: isInvoice(i) ? termsText(contactOf(i)) : '', due: isInvoice(i) ? i.due : '', currency: i.currency || 'MYR',
+          amount: note ? sign * t.total : t.balance, paid: note ? 0 : t.paid, balance: note || st === 'Void' || st === 'Draft' ? 0 : t.due,
+          items: (i.items || []).map((it) => `${it.desc} · ${IR.fmtQty(it.qty, it.unit)}`).join('; ') };
+      }),
+      match: (r, s) => (s === 'Notes' ? r.note : s === 'all' || (!r.note && r.st === s)),
+      counted: (r) => !r.note && r.st !== 'Void' && r.st !== 'Draft',
+      find: (id) => fin().invoices.find((x) => x.id === id),
+      cell: (r, k) => {
+        const bad = r.st === 'Overdue' ? ' lg-bad' : '';
+        if (k === 'ref') return `<td class="num lg-docno"><a href="#invoices?doc=${r.id}" tabindex="-1">${esc(r.ref)}</a>${r.note ? ` <span class="lg-tag">${esc(noteName(r.i))}</span>` : ''}</td>`;
+        if (k === 'date') return `<td class="num">${fmtD(r.date)}</td>`;
+        if (k === 'due') return `<td class="num${bad}">${fmtD(r.due)}</td>`;
+        if (k === 'who') return `<td><div class="lg-ellip lg-w-cust" title="${esc(r.who)}">${esc(r.who)}</div></td>`;
+        if (k === 'items') return `<td><div class="lg-ellip lg-w-items lg-faint inv-items" title="${esc(r.items)}">${esc(r.items)}</div></td>`;
+        if (k === 'amount') return moneyCell(r.amount, `${r.amount < 0 ? 'lg-neg' : ''}${r.st === 'Void' ? ' lg-strike' : ''}`);
+        if (k === 'paid') return r.note ? '<td></td>' : moneyCell(r.paid);
+        if (k === 'balance') return r.note || r.st === 'Void' || r.st === 'Draft' ? '<td></td>' : moneyCell(r.balance, bad);
+        if (k === 'st') return `<td>${r.note ? '<span class="pill">Issued</span>' : invPill(r.st)}</td>`;
+        if (k === 'einv') return `<td>${ctx.einvoice ? ctx.einvoice.pill(r.i.einvoice) : ''}</td>`;
+        return `<td>${esc(r[k] ?? '')}</td>`;
+      },
+      tools: (i) => {
+        const ro = isAuditor(), inv = i && isInvoice(i), why = !i ? 'Select an invoice first' : ro ? 'Auditors can only view' : '';
+        return [
+          ['new', '+ New', ro ? 'Auditors can only view' : '', 'lg-primary'],
+          ['edit', 'Edit', why || (!inv ? 'Notes are issued final' : !IR.canEdit(i) ? `${i.status === 'Void' ? 'Void' : 'Sent'} invoices can’t be edited; duplicate it instead` : '')],
+          ['dup', 'Duplicate', why || (!inv ? 'Notes can’t be duplicated' : '')],
+          ['send', 'Mark as Sent', why || (!IR.canSend(i) ? 'Only a draft can be marked as sent' : '')],
+          ['void', 'Void', why || (!IR.canVoid(i) ? ((i.payments || []).length ? 'Has payments: issue a credit note instead' : 'Only a sent invoice with no payments can be voided') : '')],
+          ['print', 'Print', !i ? 'Select an invoice first' : ''],
+        ];
+      },
+      act: { new: () => openDoc('new'), edit: (id) => openDoc(id), dup: (id) => duplicateInvoice(id), send: (id) => sendInvoice(id), void: (id) => voidInvoice(id), print: (id) => printInvoice(id) },
+      open: (id) => openDoc(id),
+      csv: (rs) => exportInvoices(rs.map((r) => r.i)),
+    });
+
+    VIEWS.invoices = () => (docParam() ? docScreen(docParam()) : invList.screen());
+
+    // ----- Bills: the same list, a bill screen, and a printout -----
+    const openBill = (id) => { const h = `bills?doc=${id}`; if (location.hash.slice(1) === h) ctx.render(); else location.hash = h; };
+    const supOf = (name) => (fin().contacts || []).find((c) => c.kind === 'supplier' && c.name.toLowerCase() === String(name || '').trim().toLowerCase());
+    const billContact = (b) => (fin().contacts || []).find((c) => c.id === b.contactId) || supOf(b.supplier);
+    const billTotal = (b) => r2((Number(b.amount) || 0) + (Number(b.tax) || 0));
+    // The same supplier invoice number from the same supplier again: allowed, but warned about.
+    const dupBill = (supplier, ref, exceptId) => fin().bills.find((x) => x.id !== exceptId && String(x.ref || '').trim().toLowerCase() === String(ref || '').trim().toLowerCase() && String(x.supplier || '').trim().toLowerCase() === String(supplier || '').trim().toLowerCase());
+    const billList = makeList({
+      id: 'bill', title: 'Bills', whoLabel: 'Supplier', refLabel: 'Supplier Inv No', refHint: 'Ref', amountKey: 'total', totalsNote: 'bills',
+      cols: [['ref', 'Supplier Inv No'], ['date', 'Date'], ['who', 'Supplier'], ['category', 'Category'], ['terms', 'Terms'], ['due', 'Due Date'], ['amount', 'Amount (RM)', 1], ['tax', 'Tax', 1], ['total', 'Total', 1], ['paid', 'Paid', 1], ['balance', 'Balance', 1], ['st', 'Status']],
+      hidden: ['terms', 'tax'],
+      statuses: [['all', 'All'], ['Unpaid', 'Unpaid'], ['Overdue', 'Overdue'], ['Paid', 'Paid']],
+      rows: () => fin().bills.map((b) => { const total = billTotal(b), paid = b.status === 'Paid' ? total : 0; return { id: b.id, b, st: billStatus(b, T()), ref: b.ref, date: b.issue, who: b.supplier, category: b.category, terms: termsText(billContact(b)), due: b.due, amount: Number(b.amount) || 0, tax: Number(b.tax) || 0, total, paid, balance: r2(total - paid) }; }),
+      match: (r, s) => s === 'all' || r.st === s,
+      counted: () => true,
+      find: (id) => fin().bills.find((x) => x.id === id),
+      cell: (r, k) => {
+        const bad = r.st === 'Overdue' ? ' lg-bad' : '';
+        if (k === 'ref') return `<td class="num lg-docno"><a href="#bills?doc=${r.id}" tabindex="-1">${esc(r.ref || '—')}</a>${r.b.selfBilled ? ' <span class="lg-tag">Self-billed</span>' : ''}</td>`;
+        if (k === 'date') return `<td class="num">${fmtD(r.date)}</td>`;
+        if (k === 'due') return `<td class="num${bad}">${fmtD(r.due)}</td>`;
+        if (k === 'who') return `<td><div class="lg-ellip lg-w-cust" title="${esc(r.who)}">${esc(r.who)}</div></td>`;
+        if (['amount', 'tax', 'total', 'paid'].includes(k)) return moneyCell(r[k]);
+        if (k === 'balance') return moneyCell(r.balance, bad);
+        if (k === 'st') return `<td>${billPill(r.st)}</td>`;
+        return `<td>${esc(r[k] ?? '')}</td>`;
+      },
+      tools: (b) => {
+        const ro = isAuditor(), why = !b ? 'Select a bill first' : ro ? 'Auditors can only view' : '';
+        return [
+          ['new', '+ New', ro ? 'Auditors can only view' : '', 'lg-primary'],
+          ['open', 'Open', !b ? 'Select a bill first' : ''],
+          ['pay', 'Pay today', why || (b.status === 'Paid' ? 'Already paid' : '')],
+          ['del', 'Delete', why || (b.status === 'Paid' ? 'Paid bills can’t be deleted' : '')],
+          ['print', 'Print', !b ? 'Select a bill first' : ''],
+        ];
+      },
+      act: { new: () => openBill('new'), open: (id) => openBill(id), pay: (id) => payBill(id), del: (id) => deleteBill(id), print: (id) => printBill(id) },
+      open: (id) => openBill(id),
+      csv: (rs) => downloadCSV(`bills-${T()}.csv`, [['Supplier Inv No', 'Self-billed No', 'Date', 'Supplier', 'Category', 'Description', 'Due Date', 'Amount', fin().settings.taxLabel, 'Total', 'Status', 'Paid On'],
+        ...rs.map((r) => [r.ref, r.b.selfNo || '', r.date, r.who, r.category, r.b.note || '', r.due, r.amount, r.tax, r.total, r.st, r.b.paidOn || ''])]),
+    });
+
+    VIEWS.bills = () => (docParam() ? billScreen(docParam()) : billList.screen());
+    AFTER.bills = () => { if (docParam()) bindBill(); else billList.bind(); };
+
+    // A new bill (as before: a single amount with its tax) or a saved bill, read-only.
+    function billScreen(param) {
+      const isNew = param === 'new', b = isNew ? null : fin().bills.find((x) => x.id === param);
+      if (!isNew && !b) return `<div class="ledger lg-doc"><p class="lg-pad">That bill isn’t here any more. <a href="#bills">Back to bills</a></p></div>`;
+      if (isNew && isAuditor()) return `<div class="ledger lg-doc"><p class="lg-pad">Auditors can’t add bills. <a href="#bills">Back to bills</a></p></div>`;
+      const rate = fin().settings.taxRate, label = fin().settings.taxLabel, c = b ? billContact(b) : null, st = b ? billStatus(b, T()) : 'Unpaid';
+      const ro = (v) => `<span class="lg-ro">${v || '<span class="lg-faint">—</span>'}</span>`;
+      const fld = (id, lbl, html) => `<div class="lg-f"><label ${id ? `for="${id}"` : ''}>${lbl}</label>${html}</div>`;
+      const sups = (fin().contacts || []).filter((x) => x.kind === 'supplier').map((x) => x.name).sort();
+      const cats = EXPENSE_CATS.filter((x) => x !== 'Payroll');
+      let bar = '<button type="button" class="lg-btn" data-lg="close">Close</button>';
+      if (b) bar += `<button type="button" class="lg-btn" data-lg="print">Print / PDF</button>`;
+      if (b?.selfBilled) bar += `<button type="button" class="lg-btn" data-act="einv-bill" data-id="${b.id}">Self-billed e-Invoice</button>`;
+      if (b && !isAuditor() && b.status !== 'Paid') bar += '<button type="button" class="lg-btn" data-lg="del">Delete</button><button type="button" class="lg-btn lg-primary" data-lg="pay">Pay today</button>';
+      if (isNew) bar += '<button type="button" class="lg-btn lg-primary" data-lg="save">Save Bill</button>';
+      const amtRow = isNew
+        ? `<tr><td class="lg-no num">1</td><td><input class="lg-in" id="bl-desc" name="desc" maxlength="140" placeholder="Google Ads campaign, office rental, aircond servicing" aria-label="What is it for"></td>
+            <td><select class="lg-in" id="bl-cat" name="category" aria-label="Category">${cats.map((x) => `<option>${x}</option>`).join('')}</select></td>
+            <td class="r"><input class="lg-in num" id="bl-amt" name="amount" inputmode="decimal" required aria-label="Amount before tax"></td>
+            <td><select class="lg-in" id="bl-tax" name="taxRate" aria-label="${esc(label)}"><option value="0">No ${esc(label)}</option><option value="${rate}">${rate}%</option></select></td>
+            <td class="r num lg-amt" id="bl-total"></td></tr>`
+        : `<tr><td class="lg-no num">1</td><td class="lg-desc">${esc(b.note || b.category)}</td><td>${esc(b.category)}</td><td class="r num">${n2(b.amount)}</td><td class="r num">${n2(b.tax)}</td><td class="r num">${n2(billTotal(b))}</td></tr>`;
+      return `<div class="ledger lg-doc ${isNew ? 'is-edit' : 'is-read'}" data-bill="${b ? b.id : 'new'}">
+        <div class="lg-title"><div><a class="lg-back" href="#bills">Bills</a> / <h1>Bill</h1></div>
+          <div class="lg-title-r"><span class="lg-lock">${isNew ? 'New: editable' : 'Saved'}</span>${billPill(st)}<strong class="num">${b ? esc(b.ref) : '(new)'}</strong></div></div>
+        ${b ? `<div class="lg-history">Bill date ${fmtD(b.issue)}${b.selfNo ? ` · Self-billed ${esc(b.selfNo)}` : ''}${b.paidOn ? ` · Paid ${fmtD(b.paidOn)}` : ''}</div>` : ''}
+        <form id="bl-form" onsubmit="return false">
+        <div class="lg-head">
+          <div class="lg-col">
+            ${fld('bl-sup', 'Supplier', isNew ? `<input class="lg-in" id="bl-sup" name="supplier" list="bl-sup-list" required autocomplete="off"><datalist id="bl-sup-list">${sups.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>` : ro(esc(b.supplier)))}
+            ${fld('', 'Address', `<span class="lg-ro lg-addr" id="bl-addr">${addrLines(c?.address).map(esc).join('<br>') || '<span class="lg-faint">No address on file</span>'}</span>`)}
+            ${fld('', 'Phone', `<span class="lg-ro" id="bl-phone">${esc(c?.phone || '') || '<span class="lg-faint">—</span>'}</span>`)}
+          </div>
+          <div class="lg-col">
+            ${fld('bl-ref', 'Supplier Inv No', isNew ? `<input class="lg-in" id="bl-ref" name="ref" required autocomplete="off"><small class="lg-cell-err" id="bl-dup" role="status" hidden></small>` : ro(`<span class="num">${esc(b.ref)}</span>`))}
+            ${fld('bl-issue', 'Bill Date', isNew ? `<input class="lg-in num" id="bl-issue" name="issue" type="date" value="${T()}" required>` : ro(fmtD(b.issue)))}
+            ${fld('', 'Terms', `<span class="lg-ro" id="bl-terms">${termsText(c) || '<span class="lg-faint">—</span>'}</span>`)}
+            ${fld('bl-due', 'Due Date', isNew ? `<input class="lg-in num" id="bl-due" name="due" type="date" value="${U.addDays(T(), 30)}" required>` : ro(`<span class="${st === 'Overdue' ? 'lg-bad' : ''}">${fmtD(b.due)}</span>`))}
+          </div>
+          <div class="lg-col">
+            ${isNew ? `<label class="lg-check"><input type="checkbox" name="selfBilled"> Self-billed: we issue the e-Invoice for this supplier (for example a freelancer, an agent or a foreign supplier)</label>` : b.selfBilled ? fld('', 'e-Invoice', ro(ctx.einvoice ? ctx.einvoice.pill(b.einvoice) : '')) : ''}
+            ${!isNew && b.purpose ? fld('', 'Purpose', ro(esc(b.purpose))) : ''}
+            ${!isNew && b.bizPct != null && b.bizPct < 100 ? fld('', 'Business use', ro(`${b.bizPct}%`)) : ''}
+          </div>
+        </div>
+        <div class="lg-grid-wrap"><table class="lg-grid lg-bill-grid" aria-label="Bill amount">
+          <thead><tr><th class="lg-no">No</th><th>Description</th><th>Category</th><th class="r">Amount (RM)</th><th>${esc(label)}</th><th class="r">Total (RM)</th></tr></thead>
+          <tbody>${amtRow}</tbody></table></div>
+        ${isNew ? `<div class="lg-taxfields form-grid">${window.AllurusTax.formFields()}</div>` : ''}
+        </form>
+        <div class="lg-errors" id="lg-errors" role="alert" hidden></div>
+        <div class="lg-foot"><div class="lg-foot-l"><p class="lg-words" id="bl-words">${b ? esc(IR.amountInWords(billTotal(b))) : ''}</p></div>
+          <div class="lg-sum">
+            <div><span>Amount</span><span class="num" id="bl-s-amt">${n2(b?.amount || 0)}</span></div>
+            <div><span>${esc(label)}</span><span class="num" id="bl-s-tax">${n2(b?.tax || 0)}</span></div>
+            <div class="lg-total"><span>Total (RM)</span><span class="num" id="bl-s-total">${n2(b ? billTotal(b) : 0)}</span></div>
+            ${b ? `<div><span>Paid</span><span class="num">${n2(b.status === 'Paid' ? billTotal(b) : 0)}</span></div><div class="lg-total"><span>Balance</span><span class="num ${st === 'Overdue' ? 'lg-bad' : ''}">${n2(b.status === 'Paid' ? 0 : billTotal(b))}</span></div>` : ''}
+          </div></div>
+        <div class="lg-bar">${isNew ? '<span class="lg-keys">Tab next field · Ctrl+S save · Esc close</span>' : '<span></span>'}<div class="lg-bar-btns">${bar}</div></div>
+      </div>`;
+    }
+    function bindBill() {
+      const root = ctx.$('.lg-doc[data-bill]'); if (!root) return;
+      lg.dirty = false;
+      const id = root.dataset.bill === 'new' ? null : root.dataset.bill;
+      ctx.$('[data-lg=close]', root).addEventListener('click', () => closeDoc());
+      ctx.$('[data-lg=print]', root)?.addEventListener('click', () => printBill(id));
+      ctx.$('[data-lg=pay]', root)?.addEventListener('click', () => payBill(id));
+      ctx.$('[data-lg=del]', root)?.addEventListener('click', () => deleteBill(id));
+      if (id) return;
+      const form = ctx.$('#bl-form');
+      window.AllurusTax.bindForm(form, { desc: ['#bl-sup', '#bl-desc'], cat: '#bl-cat' });
+      const refresh = () => {
+        const amount = r2(Number(ctx.$('#bl-amt').value) || 0), tax = r2((amount * Number(ctx.$('#bl-tax').value)) / 100);
+        ctx.$('#bl-total').textContent = amount ? n2(amount + tax) : '';
+        ctx.$('#bl-s-amt').textContent = n2(amount); ctx.$('#bl-s-tax').textContent = n2(tax); ctx.$('#bl-s-total').textContent = n2(amount + tax);
+        ctx.$('#bl-words').textContent = amount ? IR.amountInWords(amount + tax) : '';
+        const dup = dupBill(ctx.$('#bl-sup').value, ctx.$('#bl-ref').value), w = ctx.$('#bl-dup');
+        w.hidden = !dup; w.textContent = dup ? `Already entered: a bill from this supplier with this number (${fmtD(dup.issue)}, RM ${n2(billTotal(dup))}).` : '';
+      };
+      root.addEventListener('input', () => { lg.dirty = true; refresh(); });
+      root.addEventListener('change', (ev) => {
+        lg.dirty = true;
+        if (ev.target.id === 'bl-sup' || ev.target.id === 'bl-issue') {
+          const c = supOf(ctx.$('#bl-sup').value);
+          ctx.$('#bl-addr').innerHTML = addrLines(c?.address).map(esc).join('<br>') || '<span class="lg-faint">No address on file</span>';
+          ctx.$('#bl-phone').textContent = c?.phone || '—'; ctx.$('#bl-terms').textContent = termsText(c) || '—';
+          if (c) { ctx.$('#bl-due').value = U.addDays(ctx.$('#bl-issue').value, termDays(c)); if (c.category && [...ctx.$('#bl-cat').options].some((o) => o.value === c.category)) ctx.$('#bl-cat').value = c.category; }
+        }
+        refresh();
+      });
+      const save = () => {
+        const d = Object.fromEntries(new FormData(form).entries()), box = ctx.$('#lg-errors'), errs = [];
+        if (!String(d.supplier || '').trim()) errs.push('Add the supplier');
+        if (!String(d.ref || '').trim()) errs.push('Add the supplier invoice number');
+        if (!(Number(d.amount) > 0)) errs.push('Enter an amount above zero');
+        if (d.due && d.issue && d.due < d.issue) errs.push('The due date must be on or after the bill date');
+        if (errs.length) { box.hidden = false; box.innerHTML = `<ul>${errs.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>`; return; }
+        const dup = dupBill(d.supplier, d.ref);
+        if (dup && !confirm(`A bill from ${d.supplier.trim()} with number ${d.ref.trim()} is already entered (${fmtD(dup.issue)}). Save this one too?`)) return;
+        const nb = createBill(d);
+        lg.dirty = false;
+        openBill(nb.id);
+      };
+      ctx.$('[data-lg=save]', root).addEventListener('click', save);
+      root.addEventListener('keydown', (ev) => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); save(); } });
+      refresh();
+      setTimeout(() => ctx.$('#bl-sup')?.focus(), 0);
+    }
+    // Adding a bill: exactly as before (a single amount, its tax, the tax-relief details and the self-billed number).
+    function createBill(d) {
+      const amount = r2(Number(d.amount));
+      const extra = window.AllurusTax.readForm(d, `${d.supplier} ${d.desc}`);
+      const sup = supOf(d.supplier);
+      const self = d.selfBilled === 'on';
+      const nb = { id: U.uid('b'), supplier: sup?.name || d.supplier.trim(), contactId: sup?.id || '', ref: d.ref.trim(), category: d.category, issue: d.issue, due: d.due, amount, tax: r2((amount * Number(d.taxRate)) / 100), status: 'Unpaid', paidOn: '', note: (d.desc || '').trim(), ...extra, ...(self ? { selfBilled: true, selfNo: `SBI-${d.issue.slice(0, 7).replace('-', '')}-${U.pad(fin().bills.filter((x) => x.selfBilled && x.issue.slice(0, 7) === d.issue.slice(0, 7)).length + 1)}`, einvoice: { status: 'Draft' } } : {}) };
+      fin().bills.push(nb);
+      if (self) setTimeout(() => ctx.ACTIONS['einv-bill']?.(nb.id), 60);
+      commit('Bill added', `Bill from ${d.supplier.trim()} added, ${money(amount)}`);
+      return nb;
+    }
+    function payBill(id) {
+      const b = fin().bills.find((x) => x.id === id); if (!b || b.status === 'Paid') return;
+      confirmInv(`Pay ${b.supplier} today?`, `<p>Records RM ${n2(billTotal(b))} paid today for ${esc(b.ref)}, and adds it to the books.</p>`, 'Pay today', () => {
+        ctx.ACTIONS['fin-pay-bill'](id); closeOverlay(); if (docParam()) openBill(id); return Promise.resolve({ ok: true });
       });
     }
+    function deleteBill(id) {
+      const b = fin().bills.find((x) => x.id === id); if (!b || b.status === 'Paid') return;
+      confirmInv(`Delete bill ${b.ref}?`, `<p>The bill from ${esc(b.supplier)} is removed. Paid bills can’t be deleted.</p>`, 'Delete bill', () => {
+        ctx.ACTIONS['fin-del-bill'](id); closeOverlay(); lg.dirty = false; location.hash = 'bills'; return Promise.resolve({ ok: true });
+      });
+    }
+    // The bill printed for the file (A4, the same layout as invoices).
+    function printBill(id) {
+      const b = fin().bills.find((x) => x.id === id); if (!b) return;
+      const s = ctx.state.settings, c = billContact(b), st = billStatus(b, T()), total = billTotal(b);
+      const kv = (k, v) => (v ? `<tr><th>${k}</th><td>${v}</td></tr>` : '');
+      const html = `<div class="pdoc">
+        <header class="pdoc-top"><div class="pdoc-co"><div class="pdoc-coname">${esc(s.company)}</div><div>Purchase record</div></div>
+          <div class="pdoc-title"><div class="pdoc-h">${b.selfBilled ? 'SELF-BILLED INVOICE' : 'SUPPLIER BILL'}</div><table class="pdoc-kv">${kv('Supplier Inv No', `<strong>${esc(b.ref)}</strong>`)}${b.selfNo ? kv('Self-billed No', esc(b.selfNo)) : ''}${kv('Date', fmtD(b.issue))}</table></div></header>
+        <div class="pdoc-boxes"><div class="pdoc-box"><div class="pdoc-boxh">Supplier</div><strong>${esc(b.supplier)}</strong>${addrLines(c?.address).map((l) => `<div>${esc(l)}</div>`).join('')}${c?.tin ? `<div>TIN: ${esc(c.tin)}</div>` : ''}${c?.phone ? `<div>Tel: ${esc(c.phone)}</div>` : ''}</div>
+          <div class="pdoc-box"><table class="pdoc-kv">${kv('Bill Date', fmtD(b.issue))}${kv('Terms', esc(termsText(c)))}${kv('Due Date', fmtD(b.due))}${kv('Category', esc(b.category))}${kv('Status', esc(st))}${b.paidOn ? kv('Paid on', fmtD(b.paidOn)) : ''}</table></div></div>
+        <table class="pdoc-lines"><thead><tr><th class="c">No</th><th>Description</th><th class="r">Amount (RM)</th></tr></thead>
+          <tbody><tr><td class="c">1</td><td class="pdoc-desc">${esc(b.note || b.category)}</td><td class="r">${n2(b.amount)}</td></tr></tbody></table>
+        <div class="pdoc-end"><div class="pdoc-words"><div class="pdoc-boxh">Amount in words</div>${esc(IR.amountInWords(total))}</div>
+          <table class="pdoc-sum"><tr><th>Amount</th><td>${n2(b.amount)}</td></tr><tr><th>${esc(fin().settings.taxLabel)}</th><td>${n2(b.tax)}</td></tr><tr class="pdoc-grand"><th>Total (RM)</th><td>${n2(total)}</td></tr>
+            ${b.status === 'Paid' ? `<tr><th>Paid</th><td>-${n2(total)}</td></tr><tr class="pdoc-grand"><th>Balance (RM)</th><td>0.00</td></tr>` : ''}</table></div>
+        <div class="pdoc-sign"><div><span></span>Checked by</div><div><span></span>Approved by</div></div>
+      </div>`;
+      ctx.docs.printDocs(html, `Bill ${b.ref}`);
+    }
+
+    AFTER.invoices = () => { if (docParam()) bindDoc(); else invList.bind(); };
+
+    // ----- The document screen (SQL Account style): #invoices?doc=<id> or #invoices?doc=new -----
+    // One screen for entering a draft and for reading a sent invoice or a note: header fields, a line grid, totals
+    // with the amount in words, and an action bar. A draft is edited in place; anything else is read-only text.
+    // Keyboard: Tab across the grid, Enter to the next cell (a new line from the last one), Ctrl+S saves, Esc closes.
+    const docParam = () => new URLSearchParams(location.hash.split('?')[1] || '').get('doc');
+    const openDoc = (id) => { const h = `invoices?doc=${id}`; if (location.hash.slice(1) === h) ctx.render(); else location.hash = h; };
+    const lg = { dirty: false, saving: false };
+    const MIN_ROWS = 10;
+    const termDays = (c) => (c?.terms === 'COD' ? 0 : Number(c?.terms) || 30);
+    const termsText = (c) => (!c ? '' : c.terms === 'COD' ? 'COD' : `Net ${termDays(c)}`);
+    const addrLines = (a) => (a ? [a.line1, a.line2, a.line3, [a.postcode, a.city].filter(Boolean).join(' '), window.AllurusEInvoiceRules?.STATES[a.state]].filter(Boolean) : []);
+    const custOf = (name) => (fin().contacts || []).find((c) => c.kind === 'customer' && c.name.toLowerCase() === String(name || '').trim().toLowerCase());
+    const fmtD = (d) => (d ? String(d).slice(0, 10).split('-').reverse().join('/') : '');   // DD/MM/YYYY, whatever the browser's language
+    const when = (ms) => (ms ? fmtD(new Date(ms).toISOString().slice(0, 10)) : '');
+    const n2 = (n) => Number(n || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    function docScreen(param) {
+      const isNew = param === 'new', i = isNew ? null : fin().invoices.find((x) => x.id === param);
+      if (!isNew && !i) return `<div class="ledger lg-doc"><p class="lg-pad">That invoice isn’t here any more. <a href="#invoices">Back to invoices</a></p></div>`;
+      if (isNew && isAuditor()) return `<div class="ledger lg-doc"><p class="lg-pad">Auditors can’t create invoices. <a href="#invoices">Back to invoices</a></p></div>`;
+      const edit = isNew || (IR.canEdit(i) && !isAuditor());
+      const d = i || { customer: '', email: '', issue: T(), due: U.addDays(T(), 30), items: [], taxRate: fin().settings.taxRate, notes: '' };
+      const st = i ? (isInvoice(i) ? invoiceStatus(i, T()) : 'Issued') : 'Draft';
+      const c = custOf(d.customer) || (i ? contactOf(i) : null);
+      const t = invoiceTotals(d), label = fin().settings.taxLabel;
+      const custs = [...new Set([...(fin().contacts || []).filter((x) => x.kind === 'customer').map((x) => x.name), ...fin().invoices.map((x) => x.customer)])].sort();
+      const ro = (v) => `<span class="lg-ro">${v || '<span class="lg-faint">—</span>'}</span>`;
+      const fld = (id, lbl, html) => `<div class="lg-f"><label ${id ? `for="${id}"` : ''}>${lbl}</label>${html}</div>`;
+      const lockNote = st === 'Draft' ? '<span class="lg-lock">Draft: editable</span>' : st === 'Void' ? '<span class="lg-lock">Void: locked</span>' : isInvoice(d) ? '<span class="lg-lock">Sent: locked</span>' : '<span class="lg-lock">Issued: locked</span>';
+      // Lines: a draft always shows at least 10 rows to type into.
+      const unitSel = (u, n) => `<select class="lg-in" name="u" aria-label="Line ${n} unit">${IR.UNITS.map((x) => `<option value="${x.code}" ${x.code === u ? 'selected' : ''}>${x.label}</option>`).join('')}</select>`;
+      const editRow = (it, n) => `<tr class="lg-line">
+          <td class="lg-no num">${n}</td>
+          <td><textarea class="lg-in" name="d" rows="1" maxlength="200" aria-label="Line ${n} description">${esc(it.desc || '')}</textarea></td>
+          <td class="r"><input class="lg-in num" name="q" inputmode="decimal" value="${it.qty ?? ''}" aria-label="Line ${n} quantity" autocomplete="off"><small class="lg-cell-err" role="alert" hidden></small></td>
+          <td>${unitSel(it.unit || IR.DEFAULT_UNIT, n)}</td>
+          <td class="r"><input class="lg-in num" name="p" inputmode="decimal" value="${it.price ?? ''}" aria-label="Line ${n} unit price" autocomplete="off"></td>
+          <td class="r num lg-amt"></td>
+          <td class="lg-rowact"><button type="button" data-row="up" aria-label="Move line ${n} up" title="Move up">↑</button><button type="button" data-row="down" aria-label="Move line ${n} down" title="Move down">↓</button><button type="button" data-row="ins" aria-label="Insert a line above line ${n}" title="Insert above">⊕</button><button type="button" data-row="del" aria-label="Delete line ${n}" title="Delete">✕</button></td></tr>`;
+      const readRow = (it, n) => `<tr><td class="lg-no num">${n}</td><td class="lg-desc">${esc(it.desc)}</td><td class="r num">${Number(it.qty).toLocaleString('en-MY', { maximumFractionDigits: 3 })}</td><td>${esc(IR.unitOf(it.unit).label)}</td><td class="r num">${n2(it.price)}</td><td class="r num">${n2(IR.lineSen(it) / 100)}</td><td></td></tr>`;
+      const items = d.items || [];
+      const rows = edit ? [...items, ...Array(Math.max(0, MIN_ROWS - items.length)).fill({})].map((it, k) => editRow(it, k + 1)).join('') : items.map((it, k) => readRow(it, k + 1)).join('');
+      // Payments and history for a saved document.
+      const pays = i && isInvoice(i) ? paymentsOf(i) : [];
+      const notes = i && isInvoice(i) ? fin().invoices.filter((x) => x.ref === i.id) : [];
+      const orig = i?.ref ? fin().invoices.find((x) => x.id === i.ref) : null;
+      const history = i ? [
+        i.createdAt ? `Created ${when(i.createdAt)}` : '',
+        i.duplicatedFrom ? `Duplicated from <a href="#invoices?doc=${esc(i.duplicatedFrom.id)}">${esc(i.duplicatedFrom.no)}</a>` : '',
+        i.sentAt ? `Sent ${when(i.sentAt)}` : '',
+        ...pays.map((p) => `Paid RM ${n2(p.amount)} on ${fmtD(p.date)}`),
+        ...notes.map((x) => `${esc(noteName(x))} <a href="#invoices?doc=${x.id}">${esc(x.no)}</a>`),
+        orig ? `For invoice <a href="#invoices?doc=${orig.id}">${esc(orig.no)}</a>` : '',
+        i.voidedAt || i.status === 'Void' ? `Voided ${when(i.voidedAt)}${i.voidReason ? `: ${esc(i.voidReason)}` : ''}` : '',
+      ].filter(Boolean) : [];
+      // The action bar.
+      const b = (act, txt, cls = '', v = '', dis = '') => `<button type="button" class="lg-btn ${cls}" data-act="${act}" ${i ? `data-id="${i.id}"` : ''}${v ? ` data-v="${v}"` : ''}${dis ? ` disabled title="${esc(dis)}"` : ''}>${txt}</button>`;
+      let bar = `<button type="button" class="lg-btn" data-lg="close">Close</button>`;
+      if (i) bar += b('fin-print-inv', 'Print / PDF');
+      if (i && isInvoice(i) && !isAuditor()) bar += b('fin-dup-inv', 'Duplicate');
+      if (edit) bar += `${i ? b('fin-del-inv', 'Delete draft') : ''}<button type="button" class="lg-btn" data-lg="send">Mark as Sent</button><button type="button" class="lg-btn lg-primary" data-lg="save">Save Draft</button>`;
+      else if (i && isInvoice(i) && !isAuditor()) {
+        if (IR.canPay(i)) bar += `${b('fin-note', 'Credit note', '', 'credit')}${b('fin-note', 'Debit note', '', 'debit')}${b('fin-void-inv', 'Void', '', '', IR.canVoid(i) ? '' : 'An invoice with payments can’t be voided; issue a credit note')}${b('fin-pay-inv', 'Record payment', 'lg-primary')}`;
+        else if (i.status === 'Paid') bar += b('fin-note', 'Refund note');
+      }
+      return `<div class="ledger lg-doc ${edit ? 'is-edit' : 'is-read'}" data-doc="${i ? i.id : 'new'}">
+        <div class="lg-title"><div><a class="lg-back" href="#invoices">Invoices</a> / <h1>${i && !isInvoice(i) ? esc(noteName(i)) : 'Invoice'}</h1></div>
+          <div class="lg-title-r">${lockNote}${i ? (isInvoice(i) ? invPill(st) : '<span class="pill">Issued</span>') : invPill('Draft')}<strong class="num">${i ? esc(i.no) : '(new)'}</strong></div></div>
+        ${history.length ? `<div class="lg-history">${history.join('<span aria-hidden="true"> · </span>')}</div>` : ''}
+        <div class="lg-head">
+          <div class="lg-col">
+            ${fld('lg-cust', 'Customer', edit ? `<input class="lg-in" id="lg-cust" list="lg-cust-list" value="${esc(d.customer)}" autocomplete="off" required><datalist id="lg-cust-list">${custs.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>` : ro(esc(d.customer)))}
+            ${fld('', 'Bill To', `<span class="lg-ro lg-addr" id="lg-addr">${addrLines(c?.address).map(esc).join('<br>') || '<span class="lg-faint">No address on file</span>'}${c ? ` <a href="#contacts" class="lg-link">Edit</a>` : ''}</span>`)}
+            ${fld('', 'Phone', `<span class="lg-ro" id="lg-phone">${esc(c?.phone || '') || '<span class="lg-faint">—</span>'}</span>`)}
+            ${fld('lg-email', 'Email', edit ? `<input class="lg-in" id="lg-email" type="email" value="${esc(d.email || '')}">` : ro(esc(d.email || c?.email || '')))}
+          </div>
+          <div class="lg-col">
+            ${fld('', 'Doc No', ro(`<span class="num">${i ? esc(i.no) : 'Given when saved'}</span>`))}
+            ${fld('lg-issue', 'Date', edit ? `<input class="lg-in num" id="lg-issue" type="date" value="${d.issue}" required>` : ro(fmtD(d.issue)))}
+            ${isInvoice(d) ? fld('', 'Terms', `<span class="lg-ro" id="lg-terms">${termsText(c) || '<span class="lg-faint">—</span>'}</span>`) : ''}
+            ${isInvoice(d) ? fld('lg-due', 'Due Date', edit ? `<input class="lg-in num" id="lg-due" type="date" value="${d.due}" required>` : ro(`<span class="${st === 'Overdue' ? 'lg-bad' : ''}">${fmtD(d.due)}</span>`)) : ''}
+            ${d.currency && d.currency !== 'MYR' ? fld('', 'Currency', ro(esc(d.currency))) : ''}
+          </div>
+          <div class="lg-col">
+            ${i?.reason ? fld('', 'Reason', ro(esc(i.reason))) : ''}
+            ${st === 'Void' ? fld('', 'Void reason', ro(`<span class="lg-bad">${esc(i.voidReason || '')}</span>`)) : ''}
+            ${i && ctx.einvoice ? fld('', 'e-Invoice', ro(ctx.einvoice.pill(i.einvoice))) : ''}
+          </div>
+        </div>
+        <div class="lg-grid-wrap"><table class="lg-grid" aria-label="Invoice lines">
+          <thead><tr><th class="lg-no">No</th><th>Description</th><th class="r">Qty</th><th>Unit</th><th class="r">Unit Price</th><th class="r">Amount (RM)</th><th><span class="sr-only">Line actions</span></th></tr></thead>
+          <tbody id="lg-lines">${rows}</tbody>
+          ${edit ? '<tfoot><tr><td colspan="7"><button type="button" class="lg-add" data-lg="add">+ Add line</button></td></tr></tfoot>' : ''}
+        </table></div>
+        <div class="lg-errors" id="lg-errors" role="alert" hidden></div>
+        <div class="lg-foot">
+          <div class="lg-foot-l">
+            ${fld('lg-notes', 'Notes (printed)', edit ? `<textarea class="lg-in" id="lg-notes" rows="3" maxlength="500" placeholder="Payment details, thanks…">${esc(d.notes || '')}</textarea>` : ro(esc(d.notes || '')))}
+            <p class="lg-words" id="lg-words">${IR.amountInWords(t.total)}</p>
+          </div>
+          <div class="lg-sum">
+            <div><span>Sub Total</span><span class="num" id="lg-sub">${n2(t.sub)}</span></div>
+            <div><span>${edit ? `<label for="lg-tax">${esc(label)}</label> <select class="lg-in lg-tax" id="lg-tax">${[...new Set([d.taxRate, fin().settings.taxRate, 0])].map((r) => `<option value="${r}" ${r === d.taxRate ? 'selected' : ''}>${r ? `${r}%` : 'None'}</option>`).join('')}</select>` : `${esc(label)} ${d.taxRate}%`}</span><span class="num" id="lg-taxamt">${n2(t.tax)}</span></div>
+            <div class="lg-total"><span>Total (RM)</span><span class="num" id="lg-total">${n2(t.total)}</span></div>
+            ${i && isInvoice(i) && (t.balance !== t.total) ? `<div><span>After notes</span><span class="num">${n2(t.balance)}</span></div>` : ''}
+            ${i && isInvoice(i) && st !== 'Draft' && st !== 'Void' ? `<div><span>Paid</span><span class="num">${n2(t.paid)}</span></div><div class="lg-total"><span>Balance</span><span class="num ${st === 'Overdue' ? 'lg-bad' : ''}">${n2(t.due)}</span></div>` : ''}
+          </div>
+        </div>
+        ${pays.length ? `<table class="lg-grid lg-pays" aria-label="Payments"><thead><tr><th>Payment date</th><th class="r">Amount (RM)</th></tr></thead><tbody>${pays.map((p) => `<tr><td class="num">${fmtD(p.date)}</td><td class="r num">${n2(p.amount)}</td></tr>`).join('')}</tbody></table>` : ''}
+        ${i && ctx.einvoice && st !== 'Void' && st !== 'Draft' ? `<div class="lg-einv">${ctx.einvoice.panel(i)}</div>` : ''}
+        <div class="lg-bar">${edit ? '<span class="lg-keys">Tab next cell · Enter next cell or new line · Ctrl+S save · Esc close</span>' : '<span></span>'}<div class="lg-bar-btns">${bar}</div></div>
+      </div>`;
+    }
+
+    // The draft as typed (lines with nothing in them are left out).
+    function readDoc(root) {
+      const lines = ctx.$$('.lg-line', root).map((tr) => {
+        const v = (n) => tr.querySelector(`[name="${n}"]`).value;
+        return { desc: v('d').trim(), qty: v('q').trim() === '' ? 0 : Number(v('q')), unit: v('u'), price: v('p').trim() === '' ? 0 : Number(v('p')), classification: '022' };
+      }).filter((it) => it.desc || it.qty || it.price);
+      const name = ctx.$('#lg-cust').value.trim(), c = custOf(name);
+      return { customer: c?.name || name, contactId: c?.id || '', email: ctx.$('#lg-email').value.trim() || c?.email || '', issue: ctx.$('#lg-issue').value, due: ctx.$('#lg-due').value,
+        items: lines, taxRate: Number(ctx.$('#lg-tax').value), notes: ctx.$('#lg-notes').value.trim() };
+    }
+    function bindDoc() {
+      const root = ctx.$('.lg-doc'); if (!root) return;
+      lg.dirty = false;
+      ctx.$('[data-lg=close]', root)?.addEventListener('click', () => closeDoc());
+      if (!root.classList.contains('is-edit')) return;
+      const id = root.dataset.doc === 'new' ? null : root.dataset.doc, body = ctx.$('#lg-lines');
+      const renumber = () => ctx.$$('.lg-line', root).forEach((tr, k) => {
+        tr.querySelector('.lg-no').textContent = k + 1;
+        tr.querySelectorAll('[aria-label]').forEach((x) => x.setAttribute('aria-label', x.getAttribute('aria-label').replace(/line \d+|Line \d+/, (m) => `${m.split(' ')[0]} ${k + 1}`)));
+      });
+      const blank = () => { const tmp = document.createElement('tbody'); tmp.innerHTML = ctx.$('.lg-line', root).outerHTML; const tr = tmp.firstElementChild; tr.querySelectorAll('input, textarea').forEach((x) => { x.value = ''; }); tr.querySelector('select').value = IR.DEFAULT_UNIT; tr.querySelector('.lg-cell-err').hidden = true; tr.querySelector('[name=q]').removeAttribute('aria-invalid'); return tr; };
+      // Live amounts, totals and words; quantity checked against its unit, shown under the cell.
+      const refresh = () => {
+        const d = readDoc(root);
+        ctx.$$('.lg-line', root).forEach((tr) => {
+          const q = tr.querySelector('[name=q]'), qv = q.value.trim(), u = tr.querySelector('[name=u]').value, p = tr.querySelector('[name=p]').value.trim();
+          const err = qv === '' ? '' : !/^\d*\.?\d+$/.test(qv) ? 'Enter a number' : IR.qtyError(Number(qv), u);
+          const e = tr.querySelector('.lg-cell-err'); e.textContent = err; e.hidden = !err;
+          if (err) q.setAttribute('aria-invalid', 'true'); else q.removeAttribute('aria-invalid');
+          tr.querySelector('.lg-amt').textContent = qv && p && !err ? n2(IR.lineSen({ qty: Number(qv), price: Number(p) }) / 100) : '';
+        });
+        const t = invoiceTotals(d);
+        ctx.$('#lg-sub').textContent = n2(t.sub); ctx.$('#lg-taxamt').textContent = n2(t.tax); ctx.$('#lg-total').textContent = n2(t.total);
+        ctx.$('#lg-words').textContent = IR.amountInWords(t.total);
+      };
+      root.addEventListener('input', () => { lg.dirty = true; refresh(); });
+      root.addEventListener('change', (ev) => {
+        lg.dirty = true;
+        // A description used before suggests its unit.
+        if (ev.target.name === 'd') { const tr = ev.target.closest('.lg-line'), sel = tr.querySelector('[name=u]'), u = IR.unitFor(fin().unitMemo, ev.target.value); if (u && sel.value === IR.DEFAULT_UNIT) sel.value = u; }
+        // The customer fills the address, phone, email, terms and due date.
+        if (ev.target.id === 'lg-cust' || ev.target.id === 'lg-issue') {
+          const c = custOf(ctx.$('#lg-cust').value);
+          ctx.$('#lg-addr').innerHTML = `${addrLines(c?.address).map(esc).join('<br>') || '<span class="lg-faint">No address on file</span>'}${c ? ' <a href="#contacts" class="lg-link">Edit</a>' : ''}`;
+          ctx.$('#lg-phone').textContent = c?.phone || '—';
+          ctx.$('#lg-terms').textContent = termsText(c) || '—';
+          if (c && ev.target.id === 'lg-cust' && !ctx.$('#lg-email').value) ctx.$('#lg-email').value = c.email || '';
+          if (c) ctx.$('#lg-due').value = U.addDays(ctx.$('#lg-issue').value, termDays(c));
+        }
+        refresh();
+      });
+      // Row actions: move up or down, insert above, delete (a draft keeps at least one row).
+      root.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('[data-row]'); if (!btn) return;
+        const tr = btn.closest('.lg-line'), act = btn.dataset.row;
+        if (act === 'up' && tr.previousElementSibling) tr.parentNode.insertBefore(tr, tr.previousElementSibling);
+        if (act === 'down' && tr.nextElementSibling) tr.parentNode.insertBefore(tr.nextElementSibling, tr);
+        if (act === 'ins') tr.parentNode.insertBefore(blank(), tr);
+        if (act === 'del') { if (ctx.$$('.lg-line', root).length > 1) tr.remove(); else tr.replaceWith(blank()); }
+        lg.dirty = true; renumber(); refresh();
+      });
+      ctx.$('[data-lg=add]', root).addEventListener('click', () => { body.appendChild(blank()); renumber(); body.lastElementChild.querySelector('[name=d]').focus(); });
+      // Enter moves to the next cell; from the last cell of the last line it adds a line. Shift+Enter: a new line in a description.
+      body.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Enter' || ev.shiftKey || ev.ctrlKey || ev.metaKey) return;
+        ev.preventDefault();
+        const cells = ctx.$$('.lg-line .lg-in', root), k = cells.indexOf(ev.target);
+        if (k === cells.length - 1) { body.appendChild(blank()); renumber(); body.lastElementChild.querySelector('[name=d]').focus(); return; }
+        cells[k + 1]?.focus();
+      });
+      const save = async (thenSend) => {
+        if (lg.saving) return;
+        const d = readDoc(root), errs = IR.draftErrors(d), box = ctx.$('#lg-errors');
+        if (errs.length) { box.hidden = false; box.innerHTML = `<ul>${errs.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>`; box.scrollIntoView({ block: 'nearest' }); return; }
+        box.hidden = true; lg.saving = true;
+        ctx.$$('[data-lg=save], [data-lg=send]', root).forEach((x) => { x.disabled = true; });
+        const r = await (id ? store().saveDraft(id, d) : store().createDraft(d));
+        lg.saving = false;
+        if (!r.ok) {
+          ctx.$$('[data-lg=save], [data-lg=send]', root).forEach((x) => { x.disabled = false; });
+          box.hidden = false; box.innerHTML = `<ul><li>${esc(r.message)}</li></ul>${r.error === 'changed' ? '<button type="button" class="lg-btn" data-lg="reload">Reload</button>' : ''}`;
+          ctx.$('[data-lg=reload]', box)?.addEventListener('click', () => { lg.dirty = false; ctx.render(); });
+          return;
+        }
+        lg.dirty = false;
+        const newId = id || r.id;
+        if (thenSend) { openDoc(newId); setTimeout(() => sendInvoice(newId), 60); } else if (!id) openDoc(newId); else ctx.render();
+      };
+      ctx.$('[data-lg=save]', root).addEventListener('click', () => save(false));
+      ctx.$('[data-lg=send]', root).addEventListener('click', () => save(true));
+      root.addEventListener('keydown', (ev) => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 's') { ev.preventDefault(); save(false); } });
+      refresh();
+      // (After the app's own focus on the page heading.)
+      if (!id) setTimeout(() => ctx.$('#lg-cust')?.focus(), 0);
+    }
+    // Leaving a draft with unsaved changes asks first.
+    function closeDoc() { if (lg.dirty && !confirm('Leave without saving?')) return; lg.dirty = false; location.hash = location.hash.slice(1).split('?')[0]; }
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Escape' || !ctx.$('.lg-doc') || ctx.$('#overlay-root')?.children.length) return;
+      ev.preventDefault(); closeDoc();
+    });
+    document.addEventListener('click', (ev) => {
+      if (!lg.dirty || !ctx.$('.lg-doc.is-edit')) return;
+      const a = ev.target.closest('a[href^="#"]'); if (!a || a.closest('.lg-grid')) return;
+      if (!confirm('Leave without saving this draft?')) { ev.preventDefault(); ev.stopPropagation(); } else lg.dirty = false;
+    }, true);
+    window.addEventListener('beforeunload', (ev) => { if (lg.dirty && ctx.$('.lg-doc.is-edit')) { ev.preventDefault(); ev.returnValue = ''; } });
+    // The printed invoice (A4, black on white, fine on a mono printer): company at the top left, the document title,
+    // number and date at the top right, Bill To and document boxes, the lines (their header repeats on every page),
+    // then the amount in words and totals once at the end, and signature boxes. "Page x of y" is printed in the page
+    // margin; drafts and void invoices carry a light DRAFT / VOID watermark on every page. "TAX INVOICE" only when the
+    // company has an SST number (Settings → Company → e-Invoice).
+    function invoiceDoc(i) {
+      const s = ctx.state.settings, e = s.einvoice || {}, er = s.employer || {}, c = contactOf(i), t = invoiceTotals(i);
+      const st = isInvoice(i) ? invoiceStatus(i, T()) : 'Issued', sst = e.sst && e.sst !== 'NA' ? e.sst : '';
+      const title = isInvoice(i) ? (sst ? 'TAX INVOICE' : 'INVOICE') : noteName(i).toUpperCase();
+      const coAddr = addrLines(e.address).length ? addrLines(e.address) : String(er.address || s.office || '').split(/,\s*/).filter(Boolean);
+      const reg = e.brn || er.ssm || '';
+      const pays = isInvoice(i) ? paymentsOf(i) : [], notes = isInvoice(i) ? fin().invoices.filter((x) => x.ref === i.id) : [];
+      const orig = i.ref ? fin().invoices.find((x) => x.id === i.ref) : null;
+      const kv = (k, v) => (v ? `<tr><th>${k}</th><td>${v}</td></tr>` : '');
+      const mark = st === 'Draft' ? 'DRAFT' : st === 'Void' ? 'VOID' : '';
+      return `<div class="pdoc">
+        ${mark ? `<div class="pdoc-mark" aria-hidden="true">${mark}</div>` : ''}
+        <header class="pdoc-top">
+          <div class="pdoc-co"><div class="pdoc-coname">${esc(s.company)}</div>
+            ${reg ? `<div>Company No: ${esc(reg)}</div>` : ''}
+            ${coAddr.map((l) => `<div>${esc(l)}</div>`).join('')}
+            ${[e.phone || er.phone ? `Tel: ${esc(e.phone || er.phone)}` : '', e.email ? `Email: ${esc(e.email)}` : ''].filter(Boolean).map((l) => `<div>${l}</div>`).join('')}
+            ${e.tin ? `<div>TIN: ${esc(e.tin)}</div>` : ''}${sst ? `<div>SST Reg No: ${esc(sst)}</div>` : ''}</div>
+          <div class="pdoc-title"><div class="pdoc-h">${title}</div><table class="pdoc-kv">${kv('No.', `<strong>${esc(i.no)}</strong>`)}${kv('Date', fmtD(i.issue))}</table></div>
+        </header>
+        <div class="pdoc-boxes">
+          <div class="pdoc-box"><div class="pdoc-boxh">Bill To</div><strong>${esc(i.customer)}</strong>
+            ${addrLines(c?.address).map((l) => `<div>${esc(l)}</div>`).join('')}
+            ${c?.tin ? `<div>TIN: ${esc(c.tin)}</div>` : ''}${c?.idNo ? `<div>${esc(c.idType || 'BRN')}: ${esc(c.idNo)}</div>` : ''}
+            ${c?.phone ? `<div>Tel: ${esc(c.phone)}</div>` : ''}${i.email || c?.email ? `<div>Email: ${esc(i.email || c.email)}</div>` : ''}</div>
+          <div class="pdoc-box"><table class="pdoc-kv">
+            ${kv('Doc No', esc(i.no))}${kv('Date', fmtD(i.issue))}
+            ${isInvoice(i) ? kv('Terms', esc(termsText(c))) + kv('Due Date', fmtD(i.due)) : kv('For invoice', orig ? esc(orig.no) : '')}
+            ${kv('Currency', esc(i.currency || 'MYR'))}${i.reason ? kv('Reason', esc(i.reason)) : ''}${st === 'Void' ? kv('Void', esc(i.voidReason || '')) : ''}</table></div>
+        </div>
+        <table class="pdoc-lines">
+          <thead><tr><th class="c">No</th><th>Description</th><th class="r">Qty</th><th>Unit</th><th class="r">Unit Price (RM)</th><th class="r">Amount (RM)</th></tr></thead>
+          <tbody>${i.items.map((it, k) => `<tr><td class="c">${k + 1}</td><td class="pdoc-desc">${esc(it.desc)}</td><td class="r">${Number(it.qty).toLocaleString('en-MY', { maximumFractionDigits: 3 })}</td><td>${esc(IR.unitOf(it.unit).label)}</td><td class="r">${n2(it.price)}</td><td class="r">${n2(IR.lineSen(it) / 100)}</td></tr>`).join('')}</tbody>
+        </table>
+        <div class="pdoc-end">
+          <div class="pdoc-words"><div class="pdoc-boxh">Amount in words</div>${esc(IR.amountInWords(t.total))}${i.notes ? `<div class="pdoc-notes"><div class="pdoc-boxh">Notes</div>${esc(i.notes)}</div>` : ''}</div>
+          <table class="pdoc-sum">
+            <tr><th>Sub Total</th><td>${n2(t.sub)}</td></tr>
+            <tr><th>${esc(fin().settings.taxLabel)} ${i.taxRate}%</th><td>${n2(t.tax)}</td></tr>
+            <tr class="pdoc-grand"><th>Total (RM)</th><td>${n2(t.total)}</td></tr>
+            ${notes.map((n) => `<tr><th>${esc(noteName(n))} ${esc(n.no)}</th><td>${n.type === 'debit' ? '' : '-'}${n2(invoiceTotals(n).total)}</td></tr>`).join('')}
+            ${pays.length ? `<tr><th>Paid</th><td>-${n2(t.paid)}</td></tr><tr class="pdoc-grand"><th>Balance Due (RM)</th><td>${n2(t.due)}</td></tr>` : ''}
+          </table>
+        </div>
+        <div class="pdoc-sign"><div><span></span>Received by</div><div><span></span>Authorised by</div></div>
+      </div>`;
+    }
+
+    // Opening an invoice or note shows its document screen.
+    function viewInvoice(id) { closeOverlay(); openDoc(id); }
 
     // Confirm a status change in a small dialog; the change is the store's.
     function confirmInv(title, body, submit, run) {
@@ -584,15 +1032,15 @@ window.AllurusFinance = (function () {
         }));
     }
     function duplicateInvoice(id) {
-      return store().duplicate(id).then((r) => { if (r.ok) { closeOverlay(); fui.inv = 'all'; setTimeout(() => invoiceModal(r.id), 60); } else failed(r, id); });
+      return store().duplicate(id).then((r) => { if (r.ok) { closeOverlay(); fui.inv = 'all'; openDoc(r.id); } else failed(r, id); });
     }
     function printInvoice(id) {
       const i = fin().invoices.find((x) => x.id === id); if (!i) return;
-      ctx.docs.printDocs(invoiceDoc(i, true), `${noteName(i)} ${i.no}`);
+      ctx.docs.printDocs(invoiceDoc(i), `${noteName(i)} ${i.no}`);
     }
-    function exportInvoices() {
+    function exportInvoices(only) {
       const rows = [['Number', 'Type', 'Status', 'Customer', 'Issued', 'Due', 'Item', 'Qty', 'Unit', 'Unit price', 'Amount', `${fin().settings.taxLabel} %`, 'Invoice total', 'Paid', 'Still owed', 'Duplicated from', 'Void reason']];
-      fin().invoices.slice().sort((a, b) => a.issue.localeCompare(b.issue) || a.no.localeCompare(b.no)).forEach((i) => {
+      (only || fin().invoices).slice().sort((a, b) => a.issue.localeCompare(b.issue) || a.no.localeCompare(b.no)).forEach((i) => {
         const t = invoiceTotals(i);
         i.items.forEach((it, n) => rows.push([i.no, noteName(i), isInvoice(i) ? invoiceStatus(i, T()) : 'Issued', i.customer, i.issue, isInvoice(i) ? i.due : '', it.desc, it.qty, IR.unitOf(it.unit).label, it.price, IR.lineSen(it) / 100, i.taxRate,
           n ? '' : t.total, n ? '' : t.paid, n ? '' : t.due, n ? '' : i.duplicatedFrom?.no || '', n ? '' : i.voidReason || '']));
@@ -631,63 +1079,6 @@ window.AllurusFinance = (function () {
       });
     }
 
-    // ----- Bills -----
-    VIEWS.bills = () => {
-      const f = fin();
-      const list = f.bills.map((b) => ({ ...b, st: billStatus(b, T()) })).filter((b) => fui.bill === 'all' || b.st === fui.bill).sort((a, b) => (a.status === 'Paid') - (b.status === 'Paid') || a.due.localeCompare(b.due));
-      const unpaid = f.bills.filter((b) => b.status !== 'Paid');
-      const overdue = unpaid.filter((b) => billStatus(b, T()) === 'Overdue');
-      const soon = unpaid.filter((b) => b.due >= T() && b.due <= U.addDays(T(), 14));
-      const paidMonth = f.bills.filter((b) => b.status === 'Paid' && b.paidOn.startsWith(cur()));
-      return `
-        <div class="page-head"><div><div class="eyebrow">Finance & Accounting</div><h1>Bills</h1><p class="sub">What you owe suppliers. Paying a bill adds it to the books with its ${esc(f.settings.taxLabel)}.</p></div>
-          <div class="actions">${isAuditor() ? '' : `<button class="btn btn-primary" data-act="fin-new-bill">${icon('plus')}Add bill</button>`}</div></div>
-        <div class="grid g-4 keep-2">
-          <div class="card kpi"><div class="kpi-label">Unpaid</div><div class="kpi-value">${compactMoney(sum(unpaid, (b) => b.amount + b.tax))}</div><div class="kpi-foot">${unpaid.length} bills</div></div>
-          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--bad)"></span>Overdue</div><div class="kpi-value">${compactMoney(sum(overdue, (b) => b.amount + b.tax))}</div><div class="kpi-foot">${overdue.length} bills</div></div>
-          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--warn)"></span>Due in 14 days</div><div class="kpi-value">${compactMoney(sum(soon, (b) => b.amount + b.tax))}</div><div class="kpi-foot">${soon.length} bills</div></div>
-          <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>Paid this month</div><div class="kpi-value">${compactMoney(sum(paidMonth, (b) => b.amount + b.tax))}</div><div class="kpi-foot">${paidMonth.length} bills</div></div>
-        </div>
-        <div class="card card-flush">
-          <div class="toolbar"><div class="seg">${['all', 'Unpaid', 'Overdue', 'Paid'].map((s) => `<button data-act="fin-bill-filter" data-v="${s}" class="${fui.bill === s ? 'on' : ''}">${s === 'all' ? 'All' : s}</button>`).join('')}</div></div>
-          <div class="table-wrap"><table>
-            <thead><tr><th>Supplier</th><th class="hide-sm">Reference</th><th class="hide-sm">Category</th><th>Due</th><th class="r">Amount</th><th>Status</th><th></th></tr></thead>
-            <tbody>${list.map((b) => `<tr><td>${esc(b.supplier)}${b.selfBilled ? `<div><button class="link-btn" data-act="einv-bill" data-id="${b.id}"><span class="tag info">Self-billed</span></button> ${ctx.einvoice ? ctx.einvoice.pill(b.einvoice) : ''}</div>` : ''}</td><td class="hide-sm muted num">${esc(b.ref)}</td><td class="hide-sm">${esc(b.category)}</td>
-              <td class="muted num">${U.fmtDate(b.due, { month: 'short', day: 'numeric' })}</td><td class="r num">${m2(b.amount + b.tax)}</td><td>${billPill(b.st)}</td>
-              <td><div class="row-actions">${isAuditor() || b.status === 'Paid' ? (b.paidOn ? `<span class="faint num">Paid ${U.fmtDate(b.paidOn, { month: 'short', day: 'numeric' })}</span>` : '') : `<button class="btn btn-sm btn-ok" data-act="fin-pay-bill" data-id="${b.id}">Pay today</button><button class="btn btn-sm btn-icon btn-ghost" data-act="fin-del-bill" data-id="${b.id}" aria-label="Delete bill">${icon('trash')}</button>`}</div></td></tr>`).join('')}</tbody>
-          </table>${list.length ? '' : '<div class="empty"><strong>No bills here</strong></div>'}</div>
-        </div>`;
-    };
-
-    function billModal() {
-      const rate = fin().settings.taxRate, label = fin().settings.taxLabel;
-      openModal({
-        title: 'Add bill', size: 'sm', submit: 'Add bill',
-        body: `<div class="form-grid">
-          <div class="field full"><label for="bl-sup">Supplier</label><input class="input" id="bl-sup" name="supplier" required list="sup-list"><datalist id="sup-list">${(fin().contacts || []).filter((c) => c.kind === 'supplier').map((c) => `<option value="${esc(c.name)}">`).join('')}</datalist></div>
-          <div class="field"><label for="bl-ref">Supplier’s reference</label><input class="input" id="bl-ref" name="ref" required></div>
-          <div class="field"><label for="bl-cat">Category</label><select class="select" id="bl-cat" name="category">${EXPENSE_CATS.filter((c) => c !== 'Payroll').map((c) => `<option>${c}</option>`).join('')}</select></div>
-          <div class="field"><label for="bl-issue">Bill date</label><input class="input" id="bl-issue" name="issue" type="date" required value="${T()}"></div>
-          <div class="field"><label for="bl-due">Due date</label><input class="input" id="bl-due" name="due" type="date" required value="${U.addDays(T(), 30)}"></div>
-          <div class="field"><label for="bl-amt">Amount before tax</label><input class="input num" id="bl-amt" name="amount" type="number" min="0.01" step="0.01" required></div>
-          <div class="field"><label for="bl-tax">${esc(label)}</label><select class="select" id="bl-tax" name="taxRate"><option value="0">No ${esc(label)}</option><option value="${rate}">${rate}%</option></select></div>
-          <div class="field full"><label for="bl-desc">What is it for?</label><input class="input" id="bl-desc" name="desc" placeholder="Google Ads campaign, office rental, aircond servicing"></div>
-          <label class="check field full"><input type="checkbox" name="selfBilled"><span>Self-billed: we issue the e-Invoice for this supplier (for example a freelancer, an agent or a foreign supplier)</span></label>
-          ${window.AllurusTax.formFields()}</div>`,
-        onSubmit(d) {
-          const amount = r2(Number(d.amount));
-          if (!(amount > 0)) { toast('Enter an amount above zero', 'error'); return false; }
-          const extra = window.AllurusTax.readForm(d, `${d.supplier} ${d.desc}`);
-          const sup = (fin().contacts || []).find((c) => c.kind === 'supplier' && c.name.toLowerCase() === d.supplier.trim().toLowerCase());
-          const self = d.selfBilled === 'on';
-          const nb = { id: U.uid('b'), supplier: sup?.name || d.supplier.trim(), contactId: sup?.id || '', ref: d.ref.trim(), category: d.category, issue: d.issue, due: d.due, amount, tax: r2((amount * Number(d.taxRate)) / 100), status: 'Unpaid', paidOn: '', note: (d.desc || '').trim(), ...extra, ...(self ? { selfBilled: true, selfNo: `SBI-${d.issue.slice(0, 7).replace('-', '')}-${U.pad(fin().bills.filter((x) => x.selfBilled && x.issue.slice(0, 7) === d.issue.slice(0, 7)).length + 1)}`, einvoice: { status: 'Draft' } } : {}) };
-          fin().bills.push(nb);
-          if (self) setTimeout(() => ctx.ACTIONS['einv-bill']?.(nb.id), 60);
-          commit('Bill added', `Bill from ${d.supplier.trim()} added, ${money(amount)}`);
-        },
-      });
-      window.AllurusTax.bindForm(ctx.$('#overlay-root form'), { desc: ['#bl-sup', '#bl-desc'], cat: '#bl-cat' });
-    }
 
     // ----- Budget -----
     VIEWS.budget = () => {
@@ -870,11 +1261,11 @@ window.AllurusFinance = (function () {
       'fin-bk-type': (_, v) => { fui.type = v; ctx.render(); },
       'fin-export-books': () => csv(`books-${fui.month}.csv`, [['Date', 'Description', 'Reference', 'Source', 'Category', 'Type', 'Amount', fin().settings.taxLabel, 'Total', 'Reconciled'],
         ...allTxns(fin(), pay()).filter((t) => fui.month === 'all' || t.date.startsWith(fui.month)).map((t) => [t.date, t.desc, t.ref, SOURCE[t.source], t.category, t.type === 'in' ? 'In' : 'Out', t.amount, t.tax, r2(t.amount + t.tax), t.reconciled ? 'Yes' : 'No'])]),
-      'fin-new-inv': () => invoiceModal(),
+      'fin-new-inv': () => openDoc('new'),
       'fin-view-inv': (id) => viewInvoice(id),
       'fin-note': (id, v) => noteModal(id, v),
       'fin-inv-filter': (_, v) => { fui.inv = v; ctx.render(); },
-      'fin-edit-inv': (id) => { closeOverlay(); setTimeout(() => invoiceModal(id), 30); },
+      'fin-edit-inv': (id) => { closeOverlay(); openDoc(id); },
       'fin-send-inv': (id) => { closeOverlay(); setTimeout(() => sendInvoice(id), 30); },
       'fin-del-inv': (id) => { closeOverlay(); setTimeout(() => deleteDraft(id), 30); },
       'fin-void-inv': (id) => { closeOverlay(); setTimeout(() => voidInvoice(id), 30); },
@@ -882,7 +1273,7 @@ window.AllurusFinance = (function () {
       'fin-dup-inv': (id) => duplicateInvoice(id),
       'fin-print-inv': (id) => printInvoice(id),
       'fin-export-inv': () => exportInvoices(),
-      'fin-new-bill': () => billModal(),
+      'fin-new-bill': () => openBill('new'),
       'fin-bill-filter': (_, v) => { fui.bill = v; ctx.render(); },
       'fin-pay-bill': (id) => {
         const b = fin().bills.find((x) => x.id === id);

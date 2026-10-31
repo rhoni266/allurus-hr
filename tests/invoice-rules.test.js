@@ -123,6 +123,19 @@ test('draft checks: customer, dates, lines, quantities per unit and 2-decimal pr
   assert.deepEqual(plain(R.draftErrors({ customer: 'A', issue: '2026-10-01', items: [] })), ['Add at least one item']);
 });
 
+test('amount in words: ringgit and cents, zero, teens, thousands and millions', () => {
+  assert.equal(R.amountInWords(1234.5), 'Ringgit Malaysia One Thousand Two Hundred Thirty Four and Cents Fifty Only');
+  assert.equal(R.amountInWords(59.94), 'Ringgit Malaysia Fifty Nine and Cents Ninety Four Only');
+  assert.equal(R.amountInWords(0), 'Ringgit Malaysia Zero Only');
+  assert.equal(R.amountInWords(0.05), 'Ringgit Malaysia Zero and Cents Five Only');
+  assert.equal(R.amountInWords(100), 'Ringgit Malaysia One Hundred Only');
+  assert.equal(R.amountInWords(11.11), 'Ringgit Malaysia Eleven and Cents Eleven Only');
+  assert.equal(R.amountInWords(1000000), 'Ringgit Malaysia One Million Only');
+  assert.equal(R.amountInWords(2500010.9), 'Ringgit Malaysia Two Million Five Hundred Thousand Ten and Cents Ninety Only');
+  assert.equal(R.amountInWords(-12), 'Minus Ringgit Malaysia Twelve Only');
+  assert.equal(R.amountInWords(4.2 * 3), 'Ringgit Malaysia Twelve and Cents Sixty Only', 'floating point does not leak into cents');
+});
+
 test('remembers the last unit used for an item', () => {
   const m = R.rememberUnits({}, [{ desc: '  Rice 5kg  Bag ', unit: 'kg' }, { desc: 'Cups', unit: 'pcs' }]);
   assert.equal(R.unitFor(m, 'rice 5kg bag'), 'kg');

@@ -1766,3 +1766,192 @@ tr.ops-low td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
   .inv-line > .inv-del { position: absolute; top: 10px; right: 8px; }
   .inv-line .input, .inv-line .select, .inv-line .btn { min-height: 44px; }
 }
+/* ---------- Ledger: Invoices and Bills in a plain accounting-package style (SQL Account / UBS) ----------
+   Flat, dense, 1px lines, 2-4px corners, tabular figures. Light: white with grey header bars; dark: the same in dark grey. */
+:root { --lg-bg: #ffffff; --lg-head: #eef0f2; --lg-line: #cfd4da; --lg-row: #e3e6ea; --lg-fg: #1d2329; --lg-fg2: #4f5963; --lg-in: #ffffff; --lg-ro: #f6f7f8; --lg-hover: #f2f6fb; --lg-bad: #b42318; --lg-accent: var(--brand); --lg-accent-fg: var(--on-brand); }
+:root[data-theme="dark"] { --lg-bg: #171a1e; --lg-head: #20242a; --lg-line: #343a42; --lg-row: #2a2f36; --lg-fg: #e7e9ec; --lg-fg2: #a7b0ba; --lg-in: #101317; --lg-ro: #1c2026; --lg-hover: #1f2731; --lg-bad: #ff8a7a; --lg-accent: var(--brand); --lg-accent-fg: var(--on-brand); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --lg-bg: #171a1e; --lg-head: #20242a; --lg-line: #343a42; --lg-row: #2a2f36; --lg-fg: #e7e9ec; --lg-fg2: #a7b0ba; --lg-in: #101317; --lg-ro: #1c2026; --lg-hover: #1f2731; --lg-bad: #ff8a7a; --lg-accent: var(--brand); --lg-accent-fg: var(--on-brand); } }
+.ledger { background: var(--lg-bg); color: var(--lg-fg); border: 1px solid var(--lg-line); border-radius: 4px; font-size: 13.5px; line-height: 1.35; box-shadow: none; }
+.ledger .num, .ledger .r { font-variant-numeric: tabular-nums; }
+.ledger .r { text-align: right; }
+.ledger a { color: var(--lg-accent); text-decoration: underline; }
+:root:not([data-theme="dark"]) .ledger a { color: #1f5aa6; }
+.ledger .pill { border-radius: 3px; font-size: 11.5px; padding: 1px 6px; font-weight: 600; }
+.lg-pad { padding: 16px; }
+.lg-faint { color: var(--lg-fg2); }
+.lg-bad { color: var(--lg-bad); font-weight: 600; }
+.lg-title { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 12px; background: var(--lg-head); border-bottom: 1px solid var(--lg-line); flex-wrap: wrap; }
+.lg-title h1 { display: inline; font-size: 16px; font-weight: 700; letter-spacing: 0; }
+.lg-back { font-size: 13px; }
+.lg-title-r { display: flex; align-items: center; gap: 10px; }
+.lg-title-r strong { font-size: 14px; }
+.lg-lock { font-size: 12px; color: var(--lg-fg2); border: 1px solid var(--lg-line); padding: 1px 6px; border-radius: 3px; }
+.lg-history { padding: 6px 12px; border-bottom: 1px solid var(--lg-line); font-size: 12.5px; color: var(--lg-fg2); }
+.lg-head { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 20px; padding: 10px 12px; border-bottom: 1px solid var(--lg-line); }
+.lg-f { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: start; gap: 8px; padding: 3px 0; }
+.lg-f > label { font-size: 12px; color: var(--lg-fg2); padding-top: 5px; }
+.lg-ro { display: block; padding: 4px 0; min-height: 26px; }
+.lg-addr { font-size: 12.5px; line-height: 1.4; }
+.lg-in { width: 100%; height: 28px; padding: 3px 6px; border: 1px solid var(--lg-line); border-radius: 2px; background: var(--lg-in); color: var(--lg-fg); font: inherit; font-size: 13.5px; }
+textarea.lg-in { height: auto; min-height: 28px; resize: vertical; line-height: 1.35; }
+select.lg-in { padding-right: 2px; }
+.lg-in:focus { outline: 2px solid var(--lg-accent); outline-offset: -1px; border-color: var(--lg-accent); }
+.lg-in[aria-invalid="true"] { border-color: var(--lg-bad); background: color-mix(in srgb, var(--lg-bad) 8%, var(--lg-in)); }
+.lg-grid-wrap { overflow-x: auto; }
+.lg-grid { width: 100%; border-collapse: collapse; }
+.lg-grid th { background: var(--lg-head); color: var(--lg-fg2); font-size: 12px; font-weight: 600; text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--lg-line); border-right: 1px solid var(--lg-row); position: sticky; top: 0; white-space: nowrap; }
+.lg-grid th.r { text-align: right; }
+.lg-grid td { padding: 3px 6px; border-bottom: 1px solid var(--lg-row); border-right: 1px solid var(--lg-row); vertical-align: top; height: 34px; }
+.lg-grid tbody tr:hover { background: var(--lg-hover); }
+.lg-grid .lg-no { width: 38px; text-align: right; color: var(--lg-fg2); padding-top: 8px; }
+.lg-doc .lg-grid th:nth-child(2), .lg-doc .lg-grid td:nth-child(2) { min-width: 260px; }
+.lg-doc .lg-grid td:nth-child(3) { width: 96px; } .lg-doc .lg-grid td:nth-child(4) { width: 82px; } .lg-doc .lg-grid td:nth-child(5) { width: 110px; } .lg-doc .lg-grid td:nth-child(6) { width: 120px; }
+.is-read .lg-grid td { padding: 7px 8px; }
+.lg-amt { padding-top: 8px !important; }
+.lg-desc { white-space: pre-wrap; }
+.lg-cell-err { display: block; color: var(--lg-bad); font-size: 11.5px; text-align: left; margin-top: 2px; }
+.lg-rowact { width: 112px; white-space: nowrap; }
+.lg-rowact button { width: 24px; height: 26px; border: 1px solid transparent; background: none; color: var(--lg-fg2); border-radius: 2px; cursor: pointer; font-size: 13px; }
+.lg-rowact button:hover { border-color: var(--lg-line); color: var(--lg-fg); }
+.lg-grid tfoot td { border-right: 0; height: auto; }
+.lg-add { border: 0; background: none; color: var(--lg-accent); cursor: pointer; padding: 6px 2px; font: inherit; font-weight: 600; }
+:root:not([data-theme="dark"]) .lg-add { color: #1f5aa6; }
+.lg-errors { margin: 8px 12px 0; padding: 8px 12px; border: 1px solid var(--lg-bad); color: var(--lg-bad); border-radius: 3px; }
+.lg-errors ul { margin: 0 0 4px; padding-left: 18px; }
+.lg-foot { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; padding: 10px 12px; border-top: 1px solid var(--lg-line); }
+.lg-foot-l .lg-f { grid-template-columns: 1fr; }
+.lg-words { font-size: 12.5px; color: var(--lg-fg2); margin-top: 8px; font-style: italic; }
+.lg-sum { border: 1px solid var(--lg-line); border-radius: 2px; align-self: start; }
+.lg-sum > div { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 5px 10px; border-bottom: 1px solid var(--lg-row); }
+.lg-sum > div:last-child { border-bottom: 0; }
+.lg-sum .lg-tax { width: auto; height: 24px; display: inline-block; }
+.lg-total { font-weight: 700; font-size: 15px; background: var(--lg-head); }
+.lg-pays { margin: 0 12px 12px; width: min(420px, calc(100% - 24px)); border: 1px solid var(--lg-line); }
+.lg-einv { padding: 0 12px 12px; }
+.lg-bar { position: sticky; bottom: 0; z-index: 5; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 12px; background: var(--lg-head); border-top: 1px solid var(--lg-line); flex-wrap: wrap; }
+.lg-keys { font-size: 12px; color: var(--lg-fg2); }
+.lg-bar-btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
+.lg-btn { height: 30px; padding: 0 12px; border: 1px solid var(--lg-line); border-radius: 3px; background: var(--lg-bg); color: var(--lg-fg); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.lg-btn:hover { background: var(--lg-hover); }
+.lg-btn:focus-visible, .lg-rowact button:focus-visible, .lg-add:focus-visible { outline: 2px solid var(--lg-accent); outline-offset: 1px; }
+.lg-btn[disabled] { opacity: .5; cursor: not-allowed; }
+.lg-primary { background: var(--lg-accent); color: var(--lg-accent-fg); border-color: var(--lg-accent); }
+.lg-primary:hover { filter: brightness(1.05); background: var(--lg-accent); }
+.lg-link { font-size: 12px; }
+@media (max-width: 900px) {
+  .lg-head { grid-template-columns: minmax(0, 1fr); }
+  .lg-foot { grid-template-columns: minmax(0, 1fr); }
+  .lg-grid { min-width: 760px; }
+  .lg-grid .lg-no { position: sticky; left: 0; background: var(--lg-bg); z-index: 1; }
+  .lg-grid th.lg-no { background: var(--lg-head); z-index: 2; }
+  .lg-keys { display: none; }
+}
+@media (pointer: coarse) {
+  .lg-in, .lg-btn { min-height: 44px; }
+  .lg-rowact button { width: 36px; height: 44px; }
+  .lg-rowact { width: 156px; }
+}@media (max-width: 767px) { .lg-bar { bottom: 84px; } }
+/* Ledger list (Invoices): toolbar, filters, grid with selection, totals and paging. */
+.lg-toolbar { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--lg-line); background: var(--lg-bg); }
+.lg-sep { width: 1px; background: var(--lg-line); margin: 2px 6px; }
+.lg-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 12px; border-bottom: 1px solid var(--lg-line); background: var(--lg-head); font-size: 12px; color: var(--lg-fg2); }
+.lg-filters label { display: inline-flex; align-items: center; gap: 6px; }
+.lg-filters .lg-in { width: auto; min-width: 0; height: 28px; }
+.lg-filters input[type=search] { width: 150px; }
+.lg-amt-in { width: 80px !important; }
+.lg-linkbtn { border: 0; background: none; color: var(--lg-accent); text-decoration: underline; cursor: pointer; font: inherit; font-size: 12.5px; padding: 0; }
+:root:not([data-theme="dark"]) .lg-linkbtn { color: #1f5aa6; }
+.lg-cols { position: relative; margin-left: auto; }
+.lg-cols summary { cursor: pointer; list-style: none; border: 1px solid var(--lg-line); border-radius: 3px; padding: 4px 10px; background: var(--lg-bg); color: var(--lg-fg); font-size: 12.5px; }
+.lg-cols summary::-webkit-details-marker { display: none; }
+.lg-cols-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; background: var(--lg-bg); border: 1px solid var(--lg-line); border-radius: 3px; padding: 8px 12px; display: grid; gap: 6px; min-width: 160px; box-shadow: 0 6px 16px rgba(0, 0, 0, .18); color: var(--lg-fg); }
+.lg-list-wrap { max-height: calc(100vh - 300px); overflow: auto; }
+.lg-list td { height: 32px; padding: 5px 8px; vertical-align: middle; white-space: nowrap; }
+.lg-list th { padding: 0; z-index: 2; }
+.lg-sort { width: 100%; height: 30px; padding: 0 8px; border: 0; background: none; color: inherit; font: inherit; font-weight: 600; text-align: inherit; cursor: pointer; white-space: nowrap; }
+.lg-list th.r .lg-sort { text-align: right; }
+.lg-sort:focus-visible { outline: 2px solid var(--lg-accent); outline-offset: -2px; }
+.lg-list tbody tr:nth-child(even) { background: color-mix(in srgb, var(--lg-head) 45%, var(--lg-bg)); }
+.lg-row { cursor: default; }
+.lg-row.is-sel, .lg-row.is-sel:hover { background: color-mix(in srgb, var(--lg-accent) 20%, var(--lg-bg)) !important; }
+.lg-row:focus-visible { outline: 2px solid var(--lg-accent); outline-offset: -2px; }
+.lg-docno a { text-decoration: none; font-weight: 600; color: var(--lg-fg); }
+.lg-docno a:hover { text-decoration: underline; }
+.lg-tag { font-size: 11px; border: 1px solid var(--lg-line); border-radius: 2px; padding: 0 4px; color: var(--lg-fg2); }
+.lg-ellip { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.lg-neg { color: var(--lg-bad); }
+.lg-strike { text-decoration: line-through; color: var(--lg-fg2); }
+.lg-totals td { position: sticky; bottom: 0; background: var(--lg-head); font-weight: 700; border-top: 2px solid var(--lg-line); }
+.lg-empty { text-align: center; color: var(--lg-fg2); padding: 18px !important; }
+.lg-pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 6px 12px; border-top: 1px solid var(--lg-line); font-size: 12.5px; color: var(--lg-fg2); flex-wrap: wrap; }
+.lg-pager .lg-in { width: auto; height: 26px; }
+.ledger .pill.void { text-decoration: line-through; }
+@media (max-width: 900px) {
+  .lg-list { min-width: 760px; }
+  .lg-list td:first-child, .lg-list th:first-child { position: sticky; left: 0; background: var(--lg-bg); z-index: 1; }
+  .lg-list th:first-child { background: var(--lg-head); z-index: 3; }
+  .lg-cols { margin-left: 0; }
+  .lg-list-wrap { max-height: none; }
+}
+/* The grid's scroll box contains everything in it (positioned bits in cells would otherwise widen the page). */
+.lg-grid-wrap { position: relative; }
+
+.lg-ellip { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lg-w-cust { max-width: 230px; }
+.lg-w-items { max-width: 220px; }
+.lg-list td.lg-docno { width: 1%; }
+.lg-filters select[name=status] { max-width: 170px; }
+
+/* ---------- Printed invoice (A4): js/finance.js invoiceDoc. Black on white, thin lines, mono-printer safe. ---------- */
+#print-root .pdoc { page: invoice; color: #000; background: #fff; font: 10pt/1.35 Arial, "Helvetica Neue", Helvetica, sans-serif; position: relative; }
+@page invoice {
+  size: A4 portrait; margin: 14mm 12mm 16mm;
+  @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8.5pt Arial, sans-serif; color: #000; }
+  @bottom-left { content: "Allurus HR"; font: 8pt Arial, sans-serif; color: #555; }
+}
+.pdoc-mark { position: fixed; top: 38%; left: 0; right: 0; text-align: center; font-size: 110pt; font-weight: 700; letter-spacing: .12em; color: #000; opacity: .08; transform: rotate(-24deg); pointer-events: none; z-index: 0; }
+.pdoc-top { display: flex; justify-content: space-between; gap: 20px; padding-bottom: 8px; border-bottom: 1.5px solid #000; }
+.pdoc-co { font-size: 9pt; }
+.pdoc-coname { font-size: 13pt; font-weight: 700; margin-bottom: 2px; }
+.pdoc-title { text-align: right; }
+.pdoc-h { font-size: 18pt; font-weight: 700; letter-spacing: .06em; margin-bottom: 4px; }
+.pdoc-kv { border-collapse: collapse; margin-left: auto; font-size: 9.5pt; }
+.pdoc-kv th { text-align: left; font-weight: normal; padding: 1px 10px 1px 0; white-space: nowrap; vertical-align: top; }
+.pdoc-kv td { padding: 1px 0; }
+.pdoc-boxes { display: grid; grid-template-columns: 1.3fr 1fr; gap: 10px; margin: 10px 0; }
+.pdoc-box { border: 1px solid #000; padding: 6px 8px; font-size: 9.5pt; min-height: 80px; }
+.pdoc-box .pdoc-kv { margin-left: 0; }
+.pdoc-boxh { font-size: 8pt; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 3px; }
+.pdoc-lines { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+.pdoc-lines thead { display: table-header-group; }
+.pdoc-lines th { border: 1px solid #000; background: #eee; padding: 4px 6px; text-align: left; font-weight: 700; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.pdoc-lines td { border-left: 1px solid #000; border-right: 1px solid #000; border-bottom: .5px solid #999; padding: 3px 6px; vertical-align: top; }
+.pdoc-lines tbody tr:last-child td { border-bottom: 1px solid #000; }
+.pdoc-lines tr { break-inside: avoid; page-break-inside: avoid; }
+.pdoc-lines .r, .pdoc-sum td { text-align: right; font-variant-numeric: tabular-nums; }
+.pdoc-lines .c { text-align: center; width: 28px; }
+.pdoc-desc { white-space: pre-wrap; word-break: break-word; }
+.pdoc-lines th:nth-child(3), .pdoc-lines th:nth-child(4) { width: 52px; }
+.pdoc-lines th:nth-child(5), .pdoc-lines th:nth-child(6) { width: 92px; }
+.pdoc-end { display: grid; grid-template-columns: 1fr 250px; gap: 14px; margin-top: 8px; break-inside: avoid; page-break-inside: avoid; }
+.pdoc-words { font-size: 9.5pt; }
+.pdoc-notes { margin-top: 8px; white-space: pre-wrap; }
+.pdoc-sum { border-collapse: collapse; width: 100%; font-size: 9.5pt; }
+.pdoc-sum th { text-align: left; font-weight: normal; padding: 3px 6px; border: 1px solid #000; }
+.pdoc-sum td { padding: 3px 6px; border: 1px solid #000; white-space: nowrap; }
+.pdoc-grand th, .pdoc-grand td { font-weight: 700; font-size: 10.5pt; }
+.pdoc-sign { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; margin-top: 46px; font-size: 9pt; break-inside: avoid; page-break-inside: avoid; }
+.pdoc-sign span { display: block; border-top: 1px solid #000; margin-bottom: 3px; }/* Printing is always black on white, whatever the screen theme. */
+@media print {
+  html.printing, html.printing body { background: #fff !important; color: #000 !important; }
+  html.printing #print-root .pdoc th, html.printing #print-root .pdoc td, html.printing #print-root .pdoc { color: #000 !important; text-transform: none; letter-spacing: normal; }
+  html.printing #print-root .pdoc .pdoc-boxh { text-transform: uppercase; letter-spacing: .05em; }
+}@media print { html.printing { color-scheme: light !important; } }
+@page invoice { background: #fff; }
+
+/* Bill screen: one amount line; the self-billed tick and tax-relief fields. */
+.lg-doc .lg-bill-grid td:nth-child(3) { width: 190px; } .lg-doc .lg-bill-grid td:nth-child(4) { width: 130px; } .lg-doc .lg-bill-grid td:nth-child(5) { width: 120px; } .lg-doc .lg-bill-grid td:nth-child(6) { width: 130px; }
+.lg-check { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; color: var(--lg-fg2); padding: 4px 0; }
+.lg-check input { margin-top: 2px; }
+.lg-taxfields { padding: 8px 12px 0; }
+.lg-taxfields:empty, .lg-taxfields > [hidden] { display: none; }

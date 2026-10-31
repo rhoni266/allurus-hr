@@ -105,5 +105,23 @@ window.AllurusInvoiceRules = (function () {
   const rememberUnits = (memo, items) => { const m = { ...(memo || {}) }; (items || []).forEach((it) => { const k = itemKey(it.desc); if (k && it.unit) m[k] = it.unit; }); return m; };
   const unitFor = (memo, desc) => (memo || {})[itemKey(desc)] || '';
 
-  return { UNITS, DEFAULT_UNIT, unitOf, qtyError, fmtQty, sen, lineSen, totals, STATUSES, isInvoice, canEdit, canDelete, canSend, canPay, canVoid, counts, shown, draftErrors, pay, duplicate, nextNo, rememberUnits, unitFor };
+  // ---------- Amount in words, as on a Malaysian invoice ----------
+  // 1234.5 → "Ringgit Malaysia One Thousand Two Hundred Thirty Four and Cents Fifty Only"; 0 → "Ringgit Malaysia Zero Only".
+  const ONES = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  function words(n) {
+    if (n < 20) return ONES[n];
+    if (n < 100) return TENS[Math.floor(n / 10)] + (n % 10 ? ` ${ONES[n % 10]}` : '');
+    if (n < 1000) return `${ONES[Math.floor(n / 100)]} Hundred${n % 100 ? ` ${words(n % 100)}` : ''}`;
+    for (const [size, name] of [[1e9, 'Billion'], [1e6, 'Million'], [1e3, 'Thousand']]) {
+      if (n >= size) return `${words(Math.floor(n / size))} ${name}${n % size ? ` ${words(n % size)}` : ''}`;
+    }
+    return '';
+  }
+  function amountInWords(amount) {
+    const s = sen(amount), a = Math.abs(s), r = Math.floor(a / 100), c = a % 100;
+    return `${s < 0 ? 'Minus ' : ''}Ringgit Malaysia ${words(r)}${c ? ` and Cents ${words(c)}` : ''} Only`;
+  }
+
+  return { amountInWords, UNITS, DEFAULT_UNIT, unitOf, qtyError, fmtQty, sen, lineSen, totals, STATUSES, isInvoice, canEdit, canDelete, canSend, canPay, canVoid, counts, shown, draftErrors, pay, duplicate, nextNo, rememberUnits, unitFor };
 })();
