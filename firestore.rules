@@ -80,20 +80,36 @@ service cloud.firestore {
     function isDriverBucket(b) { return b.matches('ops[.]dos~.+'); }
     function driverOf(b) { return b.split('~')[1]; }
     function opsShared(b) { return b in ['ops.machines', 'ops.products', 'ops.breakdowns']; }
+    // Grievances (with who raised them), candidates and hiring requests: admins with the talent area.
+    function isTalent(b) { return b in ['grievances', 'candidates', 'requisitions']; }
+    // Per-person lists, one bucket each ("documents~e5"): HR letters and documents, requests to change personal
+    // details. Read by that person and admins with the people area; class 'u:people:<empId>'.
+    function isOwned(b) { return b.matches('(documents|editRequests)~.+'); }
+    function ownerOf(b) { return b.split('~')[1]; }
     function bucketClass(b) {
-      return b in ['payroll', 'payChanges', 'loans', 'insurance'] ? 'p' : (isFinance(b) ? 'f' : (b in ['savedReports', 'importData'] ? 'a'
-        : (isDriverBucket(b) ? 'd:' + driverOf(b) : (isOps(b) && !opsShared(b) ? 'o' : 'm'))));
+      return b in ['payroll', 'payChanges', 'loans', 'insurance', 'statutory'] ? 'p' : (isFinance(b) ? 'f' : (b in ['savedReports', 'importData', 'activity'] ? 'a'
+        : (isTalent(b) ? 't' : (isOwned(b) ? 'u:people:' + ownerOf(b)
+        : (isDriverBucket(b) ? 'd:' + driverOf(b) : (isOps(b) && !opsShared(b) ? 'o' : 'm'))))));
     }
+    // An admin's area, from values looked up once (a query is checked for every class it asks for, and rules may
+    // evaluate at most 1,000 expressions). No perms list means every area (Owner).
+    function inArea(adm, p, a) { return adm && (p == null || a in p); }
+    // Callers check member(t) first.
     function readsClass(t, r) {
-      return r == 'm' || (r == 'a' && admin(t)) || (r == 'p' && hasArea(t, 'payroll')) || (r == 'f' && hasArea(t, 'finance'))
-        || (r == 'o' && hasArea(t, 'operations'))
+      let adm = admin(t);
+      let p = me().get('perms', null);
+      let emp = me().get('empId', '');
+      return r == 'm' || (r == 'a' && adm) || (r == 'p' && inArea(adm, p, 'payroll')) || (r == 'f' && inArea(adm, p, 'finance'))
+        || (r == 'o' && inArea(adm, p, 'operations')) || (r == 't' && inArea(adm, p, 'talent'))
         // A driver's deliveries. Written as a range (not a pattern) so the operations admins' query on 'd:'…'d;' passes.
-        || (r >= 'd:' && r < 'd;' && (hasArea(t, 'operations') || (member(t) && r == 'd:' + me().empId)));
+        || (r >= 'd:' && r < 'd;' && (inArea(adm, p, 'operations') || r == 'd:' + emp))
+        // A person's own documents and requests; the people area reads everyone's (a range query on 'u:people:'…).
+        || (r >= 'u:people:' && r < 'u:people;' && (inArea(adm, p, 'people') || r == 'u:people:' + emp));
     }
     function bucketArea(b) {
       return b in ['payroll', 'payChanges', 'loans', 'insurance', 'statutory'] ? 'payroll'
         : (isFinance(b) ? 'finance' : (b == 'settings' ? 'settings' : (b in ['departments', 'directory', 'importData'] ? 'people'
-        : (b == 'cycles' ? 'talent' : (b == 'savedReports' ? 'admin' : (isOps(b) && b != 'ops.breakdowns' ? 'operations' : ''))))));
+        : (b == 'cycles' || isTalent(b) ? 'talent' : (isOwned(b) ? 'people' : (b in ['savedReports', 'activity'] ? 'admin' : (isOps(b) && b != 'ops.breakdowns' ? 'operations' : '')))))));
     }
     // A breakdown report added by someone without the operations area: new records only, nothing changed or removed.
     function onlyAdds() {
@@ -102,6 +118,7 @@ service cloud.firestore {
     }
     function writesBucket(t, b) {
       return (isDriverBucket(b) && member(t) && driverOf(b) == me().empId)
+        || (isOwned(b) && member(t) && ownerOf(b) == me().empId)
         || (b == 'ops.breakdowns' && (hasArea(t, 'operations') || (member(t) && onlyAdds())))
         || (b != 'ops.breakdowns' && (bucketArea(b) == '' ? member(t) : (bucketArea(b) == 'admin' ? admin(t) : hasArea(t, bucketArea(b)))));
     }
@@ -481,7 +498,9 @@ service cloud.firestore {
       match /pos_audit/{id} { allow read: if onTill(['manager']) && canRead(t); allow write: if false; }
 
       match /blobs/{id} {
-        allow read: if member(t) && canRead(t);
+        // One file at a time, by its id (a hash of the content). Listing every photo and file is not allowed.
+        allow get: if member(t) && canRead(t);
+        allow list: if false;
         allow create: if member(t) && request.resource.data.d is string && request.resource.data.d.size() < 1048000 && working(t);
         allow delete: if admin(t) && working(t);
       }

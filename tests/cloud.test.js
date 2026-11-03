@@ -38,7 +38,9 @@ test('every workspace key except the private ones survives the round trip', () =
     if (ws[k] === undefined) return;
     // Invoices travel as one document each (tenants/{t}/invoices, cloud.js), not in the finance buckets.
     const want = k === 'settings' ? { ...ws.settings, theme: undefined } : k === 'finance' ? { ...ws.finance, invoices: undefined } : ws[k];
-    assert.equal(M.stable(out[k]), M.stable(want), `key ${k}`);
+    // Per-person lists come back grouped by person: compare them by record, not by order.
+    const byId = (v) => (M.OWNED[k] && Array.isArray(v) ? [...v].sort((a, b) => String(a.id).localeCompare(String(b.id))) : v);
+    assert.equal(M.stable(byId(out[k])), M.stable(byId(want)), `key ${k}`);
   });
 });
 
@@ -60,8 +62,8 @@ test('payroll and loans need the payroll area, the books the finance area; leave
 test('role templates: each admin reads and writes only their areas', () => {
   const HR = ['people', 'time', 'payroll', 'claims', 'talent', 'settings'], FIN = ['finance', 'claims'], PAY = ['people', 'time', 'payroll', 'claims'];
   const r = (admin, perms) => plain(M.readable(admin, perms)).sort().join(',');
-  assert.equal(r(true, null), 'a,f,m,o,p', 'Owner');
-  assert.equal(r(true, HR), 'a,m,p', 'HR admin: no books');
+  assert.equal(r(true, null), 'a,f,m,o,p,t', 'Owner');
+  assert.equal(r(true, HR), 'a,m,p,t', 'HR admin: no books');
   assert.equal(r(true, FIN), 'a,f,m', 'Finance: no payroll');
   assert.equal(r(false, null), 'm', 'Employee');
   assert.equal(M.canWrite('finance.invoices', true, HR), false);
@@ -226,9 +228,9 @@ test('operations buckets: admins with the operations area; drivers their own del
   assert.equal(docs['ops.dos~e26'].r, 'd:e26');
   ['ops.machines', 'ops.products', 'ops.breakdowns'].forEach((b) => assert.equal(docs[b].r, 'm', b));
   const r = (admin, perms, empId) => plain(M.readable(admin, perms, empId)).sort().join(',');
-  assert.equal(r(true, OPS, 'e19'), 'a,d:e19,m,o', 'storekeeper');
-  assert.equal(r(true, FIN, 'e3'), 'a,d:e3,f,m', 'accounts: no stock or production');
-  assert.equal(r(false, null, 'e26'), 'd:e26,m', 'driver: own deliveries only');
+  assert.equal(r(true, OPS, 'e19'), 'a,d:e19,m,o,u:people:e19', 'storekeeper (and their own documents)');
+  assert.equal(r(true, FIN, 'e3'), 'a,d:e3,f,m,u:people:e3', 'accounts: no stock or production');
+  assert.equal(r(false, null, 'e26'), 'd:e26,m,u:people:e26', 'driver: own deliveries and own documents only');
   assert.equal(M.canWrite('ops.pos', true, OPS), true);
   assert.equal(M.canWrite('ops.pos', true, FIN), false);
   assert.equal(M.canWrite('ops.pos', false, null, 'e26'), false);
@@ -245,8 +247,8 @@ test('operations buckets: admins with the operations area; drivers their own del
 test('firestore.rules agree with the operations classes', () => {
   const rules = fs.readFileSync(path.join(root, 'firestore.rules'), 'utf8');
   assert.match(rules, /function opsShared\(b\) \{ return b in \['ops\.machines', 'ops\.products', 'ops\.breakdowns'\]; \}/);
-  assert.match(rules, /r == 'o' && hasArea\(t, 'operations'\)/);
-  assert.match(rules, /r == 'd:' \+ me\(\)\.empId/);
+  assert.match(rules, /r == 'o' && inArea\(adm, p, 'operations'\)/);
+  assert.match(rules, /r == 'd:' \+ emp\)/);
   assert.match(rules, /isDriverBucket\(b\) && member\(t\) && driverOf\(b\) == me\(\)\.empId/);
   assert.match(rules, /b == 'ops\.breakdowns' && \(hasArea\(t, 'operations'\) \|\| \(member\(t\) && onlyAdds\(\)\)\)/);
   assert.match(rules, /changedKeys\(\)\.hasOnly\(\['~ord'\]\)/);
@@ -260,4 +262,24 @@ test('the public demo shares only its check-in point, for the demo companies', (
   // The demo companies the rule names are exactly the ones in the app.
   const ids = vm.runInContext('Object.keys(AllurusSeed.companies)', sandbox);
   assert.deepEqual(plain(ids).sort(), ['banafsha', 'majorfe', 'serimaju', 'suria']);
+});
+
+test('privacy phase A: talent lists, statutory, the activity log and per-person documents', () => {
+  const { docs } = roundTrip(seed());
+  ['grievances', 'candidates', 'requisitions'].forEach((b) => { if (docs[b]) assert.equal(docs[b].r, 't', b); });
+  if (docs.statutory) assert.equal(docs.statutory.r, 'p');
+  if (docs.activity) assert.equal(docs.activity.r, 'a');
+  assert.equal(docs.documents, undefined, 'documents are split per person');
+  const own = Object.keys(docs).filter((id) => id.startsWith('documents~'));
+  assert.ok(own.length > 0);
+  own.forEach((id) => assert.equal(docs[id].r, `u:people:${id.split('~')[1]}`));
+  assert.equal(M.canWrite('documents~e1', false, null, 'e1'), true, 'a person writes their own');
+  assert.equal(M.canWrite('documents~e2', false, null, 'e1'), false, 'not a colleague’s');
+  assert.equal(M.canWrite('documents~e2', true, ['people'], 'e9'), true, 'the people area writes any');
+  assert.equal(M.canWrite('grievances', false, null, 'e1'), false);
+  assert.equal(M.canWrite('activity', false, null, 'e1'), false, 'staff actions stay on their own device');
+  const rules = fs.readFileSync(path.join(root, 'firestore.rules'), 'utf8');
+  assert.match(rules, /function isTalent\(b\) \{ return b in \['grievances', 'candidates', 'requisitions'\]; \}/);
+  assert.match(rules, /function isOwned\(b\) \{ return b\.matches\('\(documents\|editRequests\)~\.\+'\); \}/);
+  assert.match(rules, /allow list: if false;/);
 });

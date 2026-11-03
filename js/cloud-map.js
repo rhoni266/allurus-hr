@@ -24,28 +24,39 @@
   // area, 'f' admins with the finance area, 'o' admins with the operations area, 'd:<empId>' that driver and admins
   // with the operations area. Writing needs an admin with the bucket's area; other buckets are for every member
   // (leave, claims, attendance…). `perms` is a person's list of areas; null means every area (Owner).
-  const PAYROLL = ['payroll', 'payChanges', 'loans', 'insurance'];
-  const ADMIN_ONLY = ['savedReports', 'importData'];
+  const PAYROLL = ['payroll', 'payChanges', 'loans', 'insurance', 'statutory'];
+  // The activity log names people and what they did: admins only (staff actions stay on their own device).
+  const ADMIN_ONLY = ['savedReports', 'importData', 'activity'];
+  // Grievances (with who raised them), candidates and hiring requests: admins with the talent area ('t').
+  const TALENT = ['grievances', 'candidates', 'requisitions'];
+  // Lists kept per person, one bucket each ('documents~e5'): read by the person and admins with the area, class
+  // 'u:<area>:<empId>'. HR letters and documents, and requests to change personal details.
+  const OWNED = { documents: 'people', editRequests: 'people' };
+  const ownerOf = (b) => { const m = /^([A-Za-z]+)~(.+)$/.exec(b); return m && OWNED[m[1]] ? { list: m[1], area: OWNED[m[1]], who: m[2] } : null; };
   const WRITE_AREA = { settings: 'settings', departments: 'people', directory: 'people', statutory: 'payroll', cycles: 'talent', importData: 'people' };
   const isFinance = (b) => b === 'finance' || b.startsWith('finance.');
   const isOps = (b) => b === 'ops' || b.startsWith('ops.');
   const OPS_SHARED = ['ops.machines', 'ops.products', 'ops.breakdowns'];
   // The driver whose deliveries a bucket holds ("ops.dos~e26" → "e26"), or ''.
   const driverOf = (b) => (b.startsWith('ops.dos~') ? b.slice(8) : '');
-  const readClass = (b) => (PAYROLL.includes(b) ? 'p' : isFinance(b) ? 'f' : ADMIN_ONLY.includes(b) ? 'a' : driverOf(b) ? `d:${driverOf(b)}` : isOps(b) && !OPS_SHARED.includes(b) ? 'o' : 'm');
+  const readClass = (b) => (PAYROLL.includes(b) ? 'p' : isFinance(b) ? 'f' : ADMIN_ONLY.includes(b) ? 'a' : TALENT.includes(b) ? 't' : ownerOf(b) ? `u:${ownerOf(b).area}:${ownerOf(b).who}` : driverOf(b) ? `d:${driverOf(b)}` : isOps(b) && !OPS_SHARED.includes(b) ? 'o' : 'm');
   const has = (admin, perms, area) => !!admin && (!perms || perms.includes(area));
-  const writeArea = (b) => (PAYROLL.includes(b) ? 'payroll' : isFinance(b) ? 'finance' : isOps(b) && b !== 'ops.breakdowns' ? 'operations' : WRITE_AREA[b] || (ADMIN_ONLY.includes(b) ? 'admin' : ''));
+  const writeArea = (b) => (PAYROLL.includes(b) ? 'payroll' : isFinance(b) ? 'finance' : TALENT.includes(b) ? 'talent' : ownerOf(b) ? ownerOf(b).area : isOps(b) && b !== 'ops.breakdowns' ? 'operations' : WRITE_AREA[b] || (ADMIN_ONLY.includes(b) ? 'admin' : ''));
   // Whether a person may write a bucket. empId lets a driver update their own deliveries. Breakdowns are open to
   // every member, but the rules let someone without the operations area only add new reports.
   function canWrite(b, admin, perms, empId = '') {
     const a = writeArea(b);
     if (!a) return true;
     if (driverOf(b) && driverOf(b) === empId) return true;
+    if (ownerOf(b) && ownerOf(b).who === empId) return true;
     return a === 'admin' ? !!admin : has(admin, perms, a);
   }
   // The read classes a person may query. Admins with the operations area also read every driver's deliveries,
   // with a second query on the 'd:' range (see js/cloud.js).
-  const readable = (admin, perms, empId = '') => ['m', ...(admin ? ['a'] : []), ...(has(admin, perms, 'payroll') ? ['p'] : []), ...(has(admin, perms, 'finance') ? ['f'] : []), ...(has(admin, perms, 'operations') ? ['o'] : []), ...(empId ? [`d:${empId}`] : [])];
+  // Admins with an area of per-person lists read every person's bucket with a range query on 'u:<area>:'.
+  const readable = (admin, perms, empId = '') => ['m', ...(admin ? ['a'] : []), ...(has(admin, perms, 'payroll') ? ['p'] : []), ...(has(admin, perms, 'finance') ? ['f'] : []), ...(has(admin, perms, 'operations') ? ['o'] : []), ...(has(admin, perms, 'talent') ? ['t'] : []), ...(empId ? [`d:${empId}`, ...[...new Set(Object.values(OWNED))].map((a) => `u:${a}:${empId}`)] : [])];
+  // The per-person areas a person reads in full (one range query each in js/cloud.js).
+  const ownedAreas = (admin, perms) => [...new Set(Object.values(OWNED))].filter((a) => has(admin, perms, a));
   // Full staff records (pay, bank, IC) are for admins with the people or payroll area; payslips for payroll.
   const seesPeople = (admin, perms) => has(admin, perms, 'people') || has(admin, perms, 'payroll');
   const seesPayroll = (admin, perms) => has(admin, perms, 'payroll');
@@ -176,6 +187,11 @@
           Object.keys(day).forEach((emp) => { if (day[emp] !== undefined) months[m][`${date}|${emp}`] = enc(day[emp], onBlob); });
         });
         Object.keys(months).forEach((m) => put(`${k}~${m}`, 'm', months[m]));
+      } else if (Array.isArray(v) && OWNED[k]) {
+        // One bucket per person (documents~e5), each readable by that person and admins with the area.
+        const groups = {};
+        v.forEach((x) => { const o = String((isPlain(x) && x.empId) || '_'); (groups[o] = groups[o] || []).push(x); });
+        Object.keys(groups).forEach((o) => put(`${k}~${o}`, 's', arrayFields(groups[o], onBlob)));
       } else if (Array.isArray(v)) put(k, 'a', arrayFields(v, onBlob));
       else if (isPlain(v)) put(k, 'o', objectFields(v, onBlob, k === 'settings' ? LOCAL_SETTINGS : null));
       else meta[k] = enc(v, onBlob);
@@ -186,7 +202,8 @@
 
   // Apply one bucket's fields to a workspace (in place).
   function applyBucket(ws, id, t, fields, lookup) {
-    if (OWN_DOCS.has(id)) return;
+    // Kept elsewhere now: invoices (own documents) and the old shared copy of per-person lists (an admin-only backup).
+    if (OWN_DOCS.has(id) || OWNED[id]) return;
     const keys = Object.keys(fields);
     if (t === 'a') {
       const k = id.includes('.') ? id.split('.') : [id];
@@ -194,10 +211,9 @@
       if (k.length === 2) { ws[k[0]] = isPlain(ws[k[0]]) ? ws[k[0]] : {}; ws[k[0]][k[1]] = arr; } else ws[id] = arr;
     } else if (t === 's') {
       // One owner's records replace that owner's records in the list; everyone else's stay.
-      const [path, who] = id.split('~'), [k, p] = path.split('.'), by = SPLIT[path];
-      ws[k] = isPlain(ws[k]) ? ws[k] : {};
-      const rest = (Array.isArray(ws[k][p]) ? ws[k][p] : []).filter((x) => String((isPlain(x) && x[by]) || '_') !== who);
-      ws[k][p] = [...rest, ...arrayFrom(fields, lookup)];
+      const [path, who] = id.split('~'), by = SPLIT[path] || (OWNED[path] ? 'empId' : '');
+      const merged = (list) => [...(Array.isArray(list) ? list : []).filter((x) => String((isPlain(x) && x[by]) || '_') !== who), ...arrayFrom(fields, lookup)];
+      if (path.includes('.')) { const [k, p] = path.split('.'); ws[k] = isPlain(ws[k]) ? ws[k] : {}; ws[k][p] = merged(ws[k][p]); } else ws[path] = merged(ws[path]);
     } else if (t === 'o') {
       const keep = id === 'settings' && isPlain(ws.settings) ? Object.fromEntries([...LOCAL_SETTINGS].filter((x) => ws.settings[x] !== undefined).map((x) => [x, ws.settings[x]])) : {};
       const o = {}; keys.forEach((f) => { o[f] = dec(fields[f], lookup); });
@@ -289,7 +305,7 @@
   const docBytes = (f) => Object.keys(f).reduce((s, k) => s + k.length + (f[k] || '').length + 2, 0);
 
   root.AllurusCloudMap = {
-    PAYROLL, WRITE_AREA, isAdminRead, isAdminWrite, readClass, canWrite, writeArea, readable, driverOf, isOps, SPLIT, seesPeople, seesPayroll, has, DIRECTORY_FIELDS, SELF_FIELDS, MARK, BLOB_MAX,
+    PAYROLL, WRITE_AREA, TALENT, OWNED, ownerOf, ownedAreas, isAdminRead, isAdminWrite, readClass, canWrite, writeArea, readable, driverOf, isOps, SPLIT, seesPeople, seesPayroll, has, DIRECTORY_FIELDS, SELF_FIELDS, MARK, BLOB_MAX,
     stable, blobId, extract, restore, enc, dec, bucketsOf, applyBucket, arrayFrom, personFields, personFrom, directoryEntry, directoryFields, directoryFrom,
     employeesFor, payslipFields, payrollFrom, personalFields, applyPersonal, merge3, diff, sameFields, docBytes,
   };
