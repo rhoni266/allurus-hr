@@ -6,6 +6,9 @@
 // How it works:
 //   • Sign-in is email and password. A company admin registers the company; HR invites staff under
 //     Settings → Team access; a staff member then sets their password with "First time here?" and confirms their email.
+//   • Staff with no work email use their IC instead: HR sends a join link (WhatsApp), the person opens it, enters
+//     their IC and chooses a password, and signs in later with the company code, IC and password. Behind the scenes
+//     the IC becomes a made-up address (see staff* in js/cloud-map.js); firestore.rules checks the invite and the link.
 //   • On sign-in the workspace is read from the cloud and replaces this browser's copy. From then on every change
 //     here is sent within a second, and every change elsewhere arrives live, record by record.
 //   • Firestore keeps a copy on the device, so check-ins and requests made offline are sent when back online.
@@ -35,6 +38,12 @@ const AUTH_MSG = {
   'auth/requires-recent-login': 'For your security, sign out and in again, then change your password.',
 };
 const authMsg = (e) => AUTH_MSG[e?.code] || 'Something went wrong. Please try again.';
+const STAFF_BAD = 'That IC and password don’t match. Check the company code too, or ask HR to reset your sign-in.';
+const staffMsg = (e) => (['auth/invalid-credential', 'auth/wrong-password', 'auth/user-not-found'].includes(e?.code) ? STAFF_BAD
+  : e?.code === 'auth/invalid-email' ? 'Enter your IC number.' : authMsg(e));
+// Random text from letters and digits that can't be mistaken for each other (no 0/O, 1/l/I).
+const CHARS = 'abcdefghijkmnpqrstuvwxyz23456789';
+const random = (n) => { const a = new Uint32Array(n); crypto.getRandomValues(a); return Array.from(a, (x) => CHARS[x % CHARS.length]).join(''); };
 
 // ---------- Sync state ----------
 const S = {
@@ -322,6 +331,27 @@ async function profileFor(user) {
   return { uid: user.uid, ...prof };
 }
 
+// A person with no work email, joining with HR's invite and the link's secret. They are already signed in as their
+// made-up address, which is what lets them read the invite meant for them.
+async function staffProfileFor(user, token) {
+  const id = lower(user.email).split('@')[0];
+  let inv;
+  try { inv = await getDoc(doc(db, `staffInvites/${id}`)); } catch (e) { inv = null; }
+  if (!inv?.exists()) return { error: 'no-invite' };
+  const i = inv.data();
+  const prof = { email: lower(user.email), name: i.name || 'Staff', tenantId: i.tenantId, roles: i.roles, empId: i.empId, via: token, joinedAt: serverTimestamp() };
+  if (Array.isArray(i.perms)) prof.perms = i.perms;
+  await setDoc(doc(db, `users/${user.uid}`), prof);
+  return { uid: user.uid, ...prof };
+}
+// The current sign-in generation for an IC in a company, or 0 when HR hasn't invited that IC.
+async function staffGen(tid, ic) {
+  try { const k = await getDoc(doc(db, `staffKeys/${M.staffKey(tid, ic)}`)); return k.exists() ? k.data().gen : 0; } catch (e) { return 0; }
+}
+async function codeToTenant(code) {
+  try { const c = await getDoc(doc(db, `companyCodes/${M.companyCode(code)}`)); return c.exists() ? { tid: c.data().tenantId, name: c.data().name } : null; } catch (e) { return null; }
+}
+
 // ---------- Public API used by app.js ----------
 const api = {
   on: true,
@@ -349,6 +379,52 @@ const api = {
       await Auth.signOut(auth);
       return { ok: true };
     } catch (e) { return { error: authMsg(e) }; }
+  },
+  // What a join link is for: the company's name and code, or an error if the link is not (or no longer) valid.
+  async joinInfo(token) {
+    try {
+      const l = await getDoc(doc(db, `joinLinks/${String(token || '').trim()}`));
+      if (!l.exists()) return { error: 'This link is no longer valid. Ask HR to send a new one.' };
+      return { ok: true, name: l.data().name || '', code: l.data().code || '', tenantId: l.data().tenantId };
+    } catch (e) { return { error: 'Couldn’t check this link. Check your connection and try again.' }; }
+  },
+  // First time for someone with no work email: HR's join link, their IC and a password they choose. Opening the
+  // link again later (say the first try was cut off) simply continues, as long as the password is the same.
+  async joinStaff(token, ic, password) {
+    try {
+      const info = await api.joinInfo(token);
+      if (!info.ok) return info;
+      if (!M.staffIdOk(ic)) return { error: 'Enter your IC number as it is on your MyKad, for example 990101-06-1234.' };
+      const gen = await staffGen(info.tenantId, ic);
+      if (!gen) return { error: `We couldn’t find that IC in ${info.name || 'this company'}. Check the number, or ask HR to add you.` };
+      const email = M.staffEmail(info.tenantId, ic, gen);
+      let cred;
+      try { cred = await Auth.createUserWithEmailAndPassword(auth, email, password); }
+      catch (e) {
+        if (e.code !== 'auth/email-already-in-use') throw e;
+        try { cred = await Auth.signInWithEmailAndPassword(auth, email, password); }
+        catch (e2) { return { error: 'This IC has already been set up. Sign in with your password, or ask HR to reset your sign-in.' }; }
+      }
+      let prof;
+      const snap = await getDoc(doc(db, `users/${cred.user.uid}`));
+      prof = snap.exists() ? { uid: cred.user.uid, ...snap.data() } : await staffProfileFor(cred.user, String(token).trim());
+      if (prof.error) { await Auth.signOut(auth); return { error: 'HR hasn’t finished inviting you yet. Ask them to invite you in Team access.' }; }
+      await start(prof);
+      return { ok: true, profile: prof, code: info.code };
+    } catch (e) { console.warn('[Allurus cloud] join', e); return { error: staffMsg(e) }; }
+  },
+  async signInStaff(code, ic, password) {
+    try {
+      const co = await codeToTenant(code);
+      if (!co) return { error: 'We don’t know that company code. Ask HR for it.' };
+      const gen = await staffGen(co.tid, ic);
+      if (!gen || !M.staffIdOk(ic)) return { error: STAFF_BAD };
+      const cred = await Auth.signInWithEmailAndPassword(auth, M.staffEmail(co.tid, ic, gen), password);
+      const prof = await profileFor(cred.user);
+      if (prof.error) { await Auth.signOut(auth); return { error: 'HR hasn’t given this IC access, or has reset it. Ask HR to invite you again.' }; }
+      await start(prof);
+      return { ok: true, profile: prof };
+    } catch (e) { console.warn('[Allurus cloud] staff sign-in', e); return { error: staffMsg(e) }; }
   },
   async resetPassword(email) {
     try { await Auth.sendPasswordResetEmail(auth, lower(email)); return { ok: true }; } catch (e) { return { error: authMsg(e) }; }
@@ -384,11 +460,66 @@ const api = {
   // ----- Team access (Settings, admins) -----
   async access() {
     const tid = S.profile.tenantId;
-    const [inv, users] = await Promise.all([
+    const [inv, users, staff] = await Promise.all([
       getDocs(query(collection(db, 'invites'), where('tenantId', '==', tid))).catch(() => ({ docs: [] })),
       getDocs(query(collection(db, 'users'), where('tenantId', '==', tid))).catch(() => ({ docs: [] })),
+      getDocs(query(collection(db, 'staffInvites'), where('tenantId', '==', tid))).catch(() => ({ docs: [] })),
     ]);
-    return { invites: inv.docs.map((d) => ({ email: d.id, ...d.data() })), users: users.docs.map((d) => ({ uid: d.id, ...d.data() })) };
+    return {
+      invites: inv.docs.map((d) => ({ email: d.id, ...d.data() })),
+      users: users.docs.map((d) => ({ uid: d.id, ...d.data() })),
+      staff: staff.docs.map((d) => ({ id: d.id, ...d.data() })),
+    };
+  },
+  // ----- Staff without a work email (Settings → Team access, admins) -----
+  // The join link HR sends on WhatsApp: the current one, or a new one (which stops the old link working).
+  async staffLink(fresh) {
+    const tid = S.profile.tenantId;
+    try {
+      const old = await getDocs(query(collection(db, 'joinLinks'), where('tenantId', '==', tid)));
+      let code = old.docs[0]?.data().code, name = old.docs[0]?.data().name;
+      if (old.docs.length && !fresh) return { ok: true, token: old.docs[0].id, code };
+      if (!name) { try { name = (await getDoc(doc(db, `tenants/${tid}`))).data().name || ''; } catch (e) { name = ''; } }
+      for (let tries = 0; !code && tries < 5; tries++) {
+        const c = random(6).toUpperCase();
+        try { await setDoc(doc(db, `companyCodes/${c}`), { tenantId: tid, name }); code = c; } catch (e) { /* taken: try another */ }
+      }
+      if (!code) return { error: 'Couldn’t make a company code. Please try again.' };
+      const token = random(24);
+      await setDoc(doc(db, `joinLinks/${token}`), { tenantId: tid, code, name, createdAt: serverTimestamp() });
+      await Promise.all(old.docs.map((d) => FS.deleteDoc(d.ref)));
+      return { ok: true, token, code };
+    } catch (e) { return { error: e.code === 'permission-denied' ? 'Only an admin with the Settings area can make the link.' : 'Couldn’t make the link. Check your connection.' }; }
+  },
+  // Invite someone by IC (or passport) number. template as for invite(). Calling it again for someone who is
+  // invited already just refreshes the invite.
+  async inviteStaff(emp, template = 'employee', fresh) {
+    const ic = emp.ic || emp.passportNo;
+    if (!M.staffIdOk(ic)) return { error: `${emp.first} has no IC number on their profile. Add it first.` };
+    const tid = S.profile.tenantId;
+    try {
+      const cur = await staffGen(tid, ic);
+      const gen = fresh ? cur + 1 : cur || 1;
+      const b = writeBatch(db);
+      b.set(doc(db, `staffKeys/${M.staffKey(tid, ic)}`), { tenantId: tid, gen });
+      b.set(doc(db, `staffInvites/${M.staffLogin(tid, ic, gen)}`), { tenantId: tid, empId: emp.id, name: `${emp.first} ${emp.last}`.trim(), ...access(template), invitedBy: S.profile.email, invitedAt: serverTimestamp() });
+      if (fresh && cur) b.delete(doc(db, `staffInvites/${M.staffLogin(tid, ic, cur)}`));
+      await b.commit();
+      return { ok: true };
+    } catch (e) { return { error: e.code === 'permission-denied' ? 'You can only give access you have yourself.' : 'Couldn’t save the invite. Check your connection.' }; }
+  },
+  // Take access away, or (reset) also let them join again with a new password. The generation moves up either way,
+  // so the old password stops working for good.
+  async endStaff(emp, uid, reinvite, template = 'employee') {
+    const ic = emp.ic || emp.passportNo, tid = S.profile.tenantId;
+    try {
+      const cur = await staffGen(tid, ic);
+      const b = writeBatch(db);
+      if (uid) b.delete(doc(db, `users/${uid}`));
+      if (cur) { b.delete(doc(db, `staffInvites/${M.staffLogin(tid, ic, cur)}`)); b.set(doc(db, `staffKeys/${M.staffKey(tid, ic)}`), { tenantId: tid, gen: cur + 1 }); }
+      await b.commit();
+      return reinvite ? api.inviteStaff(emp, template) : { ok: true };
+    } catch (e) { return { error: 'Couldn’t change access. You can only change access you have yourself.' }; }
   },
   // template: 'employee', or a role template from app.js ('owner', 'hr', 'payroll', 'finance').
   async invite(emp, template = 'employee') {

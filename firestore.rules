@@ -4,6 +4,11 @@ rules_version = '2';
 //
 //   users/{uid}            Each person's link to their company: tenantId, roles, empId.
 //   invites/{email}        HR's invitation for a work email. Joining needs that email, confirmed.
+//   staffInvites/{id}      HR's invitation for someone with no work email, signing in with their IC. {id} is
+//                          <ic>.<companyId>.g<n>; the person is the one signed in as <id>@staff.allurus.invalid.
+//   staffKeys/{co}~{ic}    Which sign-in generation (g<n>) is current for that IC, so the sign-in screen can find it.
+//   joinLinks/{token}      The secret in the link HR sends to staff (WhatsApp). Joining needs it.
+//   companyCodes/{code}    A short company code, so staff can sign in again from a new phone.
 //   tenants/{t}            The company. Members read; admins update.
 //     buckets/{id}         Shared records. Field r says who reads: 'm' every member, 'a' any Company Admin,
 //                          'p' admins with the payroll area, 'f' admins with the finance area, 'o' admins with
@@ -30,6 +35,13 @@ service cloud.firestore {
     function myEmail() { return request.auth.token.email.lower(); }
     function verified() { return request.auth.token.email_verified == true; }
     function inviteFor(email) { return get(/databases/$(database)/documents/invites/$(email)).data; }
+    // Staff with no work email sign in as <id>@staff.allurus.invalid (see js/cloud-map.js). They join with HR's
+    // invite for that id and the link's secret, which is kept on their profile as `via`.
+    function isStaff() { return myEmail().matches('[a-z0-9]+[.][a-z0-9]+[.]g[0-9]+@staff[.]allurus[.]invalid'); }
+    function staffId() { return myEmail().split('@')[0]; }
+    function staffInviteDoc() { return /databases/$(database)/documents/staffInvites/$(staffId()); }
+    function staffInvite() { return get(staffInviteDoc()).data; }
+    function linkFor(token) { return get(/databases/$(database)/documents/joinLinks/$(token)).data; }
 
     // Areas of the company console (see AREAS in js/app.js and js/cloud-map.js).
     function owner() { return !('perms' in me()); }
@@ -83,6 +95,13 @@ service cloud.firestore {
             && inviteFor(myEmail()).roles == request.resource.data.roles
             && inviteFor(myEmail()).empId == request.resource.data.empId
             && samePerms(request.resource.data, inviteFor(myEmail())))
+          || (isStaff() && exists(staffInviteDoc())
+            && staffInvite().tenantId == request.resource.data.tenantId
+            && staffInvite().roles == request.resource.data.roles
+            && staffInvite().empId == request.resource.data.empId
+            && samePerms(request.resource.data, staffInvite())
+            && request.resource.data.via is string
+            && linkFor(request.resource.data.via).tenantId == request.resource.data.tenantId)
           || (get(/databases/$(database)/documents/tenants/$(request.resource.data.tenantId)).data.owner == uid
             && request.resource.data.roles == ['admin', 'employee'] && request.resource.data.empId == 'e1'
             && !('perms' in request.resource.data))
@@ -99,6 +118,36 @@ service cloud.firestore {
       allow list: if hasProfile() && resource.data.tenantId == me().tenantId && hasArea(me().tenantId, 'settings');
       allow create, update: if email == email.lower() && hasArea(request.resource.data.tenantId, 'settings')
         && validRoles(request.resource.data) && grantable(request.resource.data);
+      allow delete: if hasArea(resource.data.tenantId, 'settings');
+    }
+
+    // Staff with no work email. An invite is readable by the person it is for (they are signed in as its id) and by
+    // admins with the settings area. Keys, links and codes are looked up by people who are not signed in yet, so
+    // anyone may read one document if they know its id; they cannot list them.
+    match /staffInvites/{id} {
+      allow get: if signedIn() && (myEmail() == id + '@staff.allurus.invalid' || hasArea(resource.data.tenantId, 'settings'));
+      allow list: if hasProfile() && resource.data.tenantId == me().tenantId && hasArea(me().tenantId, 'settings');
+      allow create, update: if id == id.lower() && hasArea(request.resource.data.tenantId, 'settings')
+        && validRoles(request.resource.data) && grantable(request.resource.data);
+      allow delete: if hasArea(resource.data.tenantId, 'settings');
+    }
+    match /staffKeys/{key} {
+      allow get: if true;
+      allow create, update: if hasArea(request.resource.data.tenantId, 'settings')
+        && request.resource.data.keys().hasOnly(['tenantId', 'gen']) && request.resource.data.gen is int && request.resource.data.gen >= 1;
+      allow delete: if hasArea(resource.data.tenantId, 'settings');
+    }
+    match /joinLinks/{token} {
+      allow get: if true;
+      allow list: if hasProfile() && resource.data.tenantId == me().tenantId && hasArea(me().tenantId, 'settings');
+      allow create: if hasArea(request.resource.data.tenantId, 'settings') && token.size() >= 20
+        && request.resource.data.keys().hasOnly(['tenantId', 'code', 'name', 'createdAt']);
+      allow delete: if hasArea(resource.data.tenantId, 'settings');
+    }
+    match /companyCodes/{code} {
+      allow get: if true;
+      allow create: if hasArea(request.resource.data.tenantId, 'settings') && request.resource.data.keys().hasOnly(['tenantId', 'name']);
+      allow update: if false;
       allow delete: if hasArea(resource.data.tenantId, 'settings');
     }
 

@@ -283,9 +283,28 @@
   // Rough size of a document in bytes, to stay under Firestore's 1 MiB limit.
   const docBytes = (f) => Object.keys(f).reduce((s, k) => s + k.length + (f[k] || '').length + 2, 0);
 
+  // ---------- Staff without a work email ----------
+  // Firebase sign-in needs an email, so a person with none signs in as a made-up address built from their IC (or
+  // passport) number and their company: <id>.<companyId>.g<n>@staff.allurus.invalid. Nothing is ever sent to it.
+  // `g<n>` is the sign-in's generation: HR's "Reset sign-in" moves it up, which retires a forgotten password.
+  // firestore.rules reads the same shape (staffInvites, users), so keep the two in step.
+  const STAFF_HOST = 'staff.allurus.invalid';
+  const staffId = (raw) => String(raw || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const staffIdOk = (raw) => { const id = staffId(raw); return id.length >= 6 && id.length <= 20; };
+  const staffLogin = (tid, id, gen) => `${staffId(id)}.${String(tid).toLowerCase()}.g${gen}`;
+  const staffEmail = (tid, id, gen) => `${staffLogin(tid, id, gen)}@${STAFF_HOST}`;
+  const staffKey = (tid, id) => `${tid}~${staffId(id)}`;
+  // The ID inside a made-up address, or '' for a real email.
+  const staffFromEmail = (email) => { const m = /^([a-z0-9]+)\.[a-z0-9]+\.g\d+@staff\.allurus\.invalid$/.exec(String(email || '').toLowerCase()); return m ? m[1] : ''; };
+  // 990101-06-1234 → "••••••••1234": enough for HR to tell people apart without showing the whole number.
+  const maskId = (raw) => { const id = staffId(raw); return id ? `${'•'.repeat(Math.max(0, id.length - 4))}${id.slice(-4)}` : ''; };
+  // What the person types as a company code: upper case, no spaces or dashes.
+  const companyCode = (raw) => String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
   root.AllurusCloudMap = {
     PAYROLL, WRITE_AREA, isAdminRead, isAdminWrite, readClass, canWrite, writeArea, readable, driverOf, isOps, SPLIT, seesPeople, seesPayroll, has, DIRECTORY_FIELDS, SELF_FIELDS, MARK, BLOB_MAX,
     stable, blobId, extract, restore, enc, dec, bucketsOf, applyBucket, arrayFrom, personFields, personFrom, directoryEntry, directoryFields, directoryFrom,
     employeesFor, payslipFields, payrollFrom, personalFields, applyPersonal, merge3, diff, sameFields, docBytes,
+    STAFF_HOST, staffId, staffIdOk, staffLogin, staffEmail, staffKey, staffFromEmail, maskId, companyCode,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
