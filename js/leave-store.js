@@ -47,3 +47,5 @@ window.AllurusRequestStore = (function () {
 })();
 window.AllurusLeaveStore = { install: (ctx, cloud) => window.AllurusRequestStore.make(ctx, cloud, { coll: 'leaves', what: 'leave request', calColl: 'leaveCal', cal: (l) => ({ empId: l.empId, from: l.from, to: l.to, half: l.half || '', status: l.status }) }) };
 window.AllurusClaimStore = { install: (ctx, cloud) => window.AllurusRequestStore.make(ctx, cloud, { coll: 'claims', what: 'claim' }) };
+// Overtime and attendance-correction requests (tenants/{t}/timeRequests).
+window.AllurusTimeRequestStore = { install: (ctx, cloud) => window.AllurusRequestStore.make(ctx, cloud, { coll: 'timeRequests', what: 'request' }) };

@@ -560,6 +560,18 @@
     const mb = $('#me-btn'); if (mb) mb.innerHTML = esc(String(who).split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase());
   }
 
+  // Approved leave and attendance corrections are written into attendance by the person's own app (or HR's for
+  // everyone), never by the approver: per-person attendance is written only by its owner and the time area
+  // (firestore.rules). Runs when the cloud copy loads or changes; does nothing in the demo.
+  function applyApprovedAttendance() {
+    if (!CLOUD || !fire()?.live || !leaveApi || !timeApi) return;
+    const mine = me()?.id, hr = can('time');
+    let changed = false;
+    (state.leaves || []).filter((l) => l.status === 'Approved' && !l.masked && (hr || l.empId === mine)).forEach((l) => { if (leaveApi.applyLeaveDays(l)) changed = true; });
+    (state.timeRequests || []).filter((q) => q.status === 'Approved' && q.kind === 'correction' && (hr || q.empId === mine)).forEach((q) => { if (timeApi.applyCorrection(q)) changed = true; });
+    if (changed) save();
+  }
+
   // Page header: the title on two lines, and up to three key numbers beside it (company console pages only).
   function pageKpis(r) {
     if (role() !== 'admin') return [];
@@ -2918,7 +2930,7 @@
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
     downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
     save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
-    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, get einvoice() { return einvApi; }, get lms() { return lmsApi; }, get recruit() { return recruitApi; }, get ops() { return opsApi; }, get invoices() { return invStore; }, get leaveStore() { return lvStore; }, get claimStore() { return clStore; }, get ui() { return ui; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
+    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, get einvoice() { return einvApi; }, get lms() { return lmsApi; }, get recruit() { return recruitApi; }, get ops() { return opsApi; }, get invoices() { return invStore; }, get leaveStore() { return lvStore; }, get claimStore() { return clStore; }, get timeRequestStore() { return trStore; }, get ui() { return ui; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
   };
   AllurusUX.install(moduleCtx);
   // Every invoice change goes through this (js/invoice-store.js): checked, audited, and in the cloud one document each.
@@ -2926,6 +2938,7 @@
   // Leave requests in the cloud: one document each, so the rules stop anyone deciding their own (js/leave-store.js).
   const lvStore = AllurusLeaveStore.install(moduleCtx, fire);
   const clStore = AllurusClaimStore.install(moduleCtx, fire);
+  const trStore = AllurusTimeRequestStore.install(moduleCtx, fire);
   finApi = AllurusFinance.install(moduleCtx);
   AllurusTax.install(moduleCtx);
   AllurusGuide.install(moduleCtx);
@@ -3217,6 +3230,7 @@
     },
     // Show changes that arrived from elsewhere, unless someone is mid-way through a form.
     refresh(force) {
+      applyApprovedAttendance();
       saveLocal();
       if (cloudWaiting) return;
       if (force || (!$('#overlay-root').children.length && !AllurusUX.isEditing() && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName))) render();

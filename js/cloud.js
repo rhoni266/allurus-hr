@@ -77,7 +77,7 @@ function localDocs(onBlob) {
   // A per-person bucket whose last record was removed is emptied (it no longer comes out of bucketsOf).
   S.base.forEach((f, path) => {
     const id = tail(path);
-    if (fam(path) === 'buckets' && M.ownerOf(id) && !out.has(path) && Object.keys(f).length && M.canWrite(id, S.admin, S.perms, p.empId)) put(path, {}, { t: 's', r: M.readClass(id) });
+    if (fam(path) === 'buckets' && M.ownerOf(id) && !out.has(path) && Object.keys(f).length && M.canWrite(id, S.admin, S.perms, p.empId)) put(path, {}, { t: S.meta.get(path)?.t || 's', r: M.readClass(id) });
   });
   if (seePay()) {
     const payFields = {}; Object.keys(st.payroll || {}).forEach((m) => { payFields[m] = M.enc(st.payroll[m], onBlob); });
@@ -365,9 +365,11 @@ function listenInvoices() {
 //   leaves (+ the safe calendar copy leaveCal): HR (time or people area) reads every request; anyone else reads
 //     their own, the ones they approve, and the calendar copy of the rest (shown as "Off": no type, reason or MC).
 //   claims: the claims or payroll area reads every claim; anyone else their own and the ones they approve.
+//   timeRequests (overtime, attendance corrections): the time area reads all; anyone else as for claims.
 const REQ = {
   leaves: { key: 'leaves', hrAreas: ['time', 'people'], calColl: 'leaveCal' },
   claims: { key: 'claims', hrAreas: ['claims', 'payroll'] },
+  timeRequests: { key: 'timeRequests', hrAreas: ['time'] },
 };
 const RQ = {};
 const docFrom = (d) => { const x = d.data({ serverTimestamps: 'estimate' }), o = { id: d.id }; Object.keys(x).forEach((k) => { o[k] = plainTime(x[k]); }); return o; };

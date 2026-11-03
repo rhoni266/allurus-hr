@@ -32,7 +32,12 @@
   // Lists kept per person, one bucket each ('documents~e5'): read by the person and admins with the area, class
   // 'u:<area>:<empId>'. HR letters and documents, and requests to change personal details.
   const OWNED = { documents: 'people', editRequests: 'people' };
-  const ownerOf = (b) => { const m = /^([A-Za-z]+)~(.+)$/.exec(b); return m && OWNED[m[1]] ? { list: m[1], area: OWNED[m[1]], who: m[2] } : null; };
+  // Attendance: one bucket per person per month ('attendance~2026-11~e5'), read by that person and the time area,
+  // class 'u:time:<empId>'. Approved leave and corrections are written by the person's own app or HR's, never by
+  // an approver or supervisor (js/app.js applyApprovedAttendance).
+  const attOf = (b) => { const m = /^attendance~(\d{4}-\d{2})~(.+)$/.exec(b); return m ? { list: 'attendance', area: 'time', month: m[1], who: m[2] } : null; };
+  const ownerOf = (b) => { const m = /^([A-Za-z]+)~(.+)$/.exec(b); return m && OWNED[m[1]] ? { list: m[1], area: OWNED[m[1]], who: m[2] } : attOf(b); };
+  const AREAS_OWNED = [...new Set([...Object.values(OWNED), 'time'])];
   const WRITE_AREA = { settings: 'settings', departments: 'people', directory: 'people', statutory: 'payroll', cycles: 'talent', importData: 'people' };
   const isFinance = (b) => b === 'finance' || b.startsWith('finance.');
   const isOps = (b) => b === 'ops' || b.startsWith('ops.');
@@ -54,9 +59,9 @@
   // The read classes a person may query. Admins with the operations area also read every driver's deliveries,
   // with a second query on the 'd:' range (see js/cloud.js).
   // Admins with an area of per-person lists read every person's bucket with a range query on 'u:<area>:'.
-  const readable = (admin, perms, empId = '') => ['m', ...(admin ? ['a'] : []), ...(has(admin, perms, 'payroll') ? ['p'] : []), ...(has(admin, perms, 'finance') ? ['f'] : []), ...(has(admin, perms, 'operations') ? ['o'] : []), ...(has(admin, perms, 'talent') ? ['t'] : []), ...(empId ? [`d:${empId}`, ...[...new Set(Object.values(OWNED))].map((a) => `u:${a}:${empId}`)] : [])];
+  const readable = (admin, perms, empId = '') => ['m', ...(admin ? ['a'] : []), ...(has(admin, perms, 'payroll') ? ['p'] : []), ...(has(admin, perms, 'finance') ? ['f'] : []), ...(has(admin, perms, 'operations') ? ['o'] : []), ...(has(admin, perms, 'talent') ? ['t'] : []), ...(empId ? [`d:${empId}`, ...AREAS_OWNED.map((a) => `u:${a}:${empId}`)] : [])];
   // The per-person areas a person reads in full (one range query each in js/cloud.js).
-  const ownedAreas = (admin, perms) => [...new Set(Object.values(OWNED))].filter((a) => has(admin, perms, a));
+  const ownedAreas = (admin, perms) => AREAS_OWNED.filter((a) => has(admin, perms, a));
   // Full staff records (pay, bank, IC) are for admins with the people or payroll area; payslips for payroll.
   const seesPeople = (admin, perms) => has(admin, perms, 'people') || has(admin, perms, 'payroll');
   const seesPayroll = (admin, perms) => has(admin, perms, 'payroll');
@@ -72,7 +77,7 @@
   // Lists kept as one document per record elsewhere (cloud.js), so the rules can check each one: invoices
   // (tenants/{t}/invoices), leave requests (tenants/{t}/leaves) and claims (tenants/{t}/claims). Their old buckets are kept as a backup and no
   // longer read or written.
-  const OWN_DOCS = new Set(['finance.invoices', 'leaves', 'claims']);
+  const OWN_DOCS = new Set(['finance.invoices', 'leaves', 'claims', 'timeRequests']);
   const MONTHLY = new Set(['attendance']);
   // Per-person display choices that must not follow the company around.
   const LOCAL_SETTINGS = new Set(['theme']);
@@ -184,10 +189,10 @@
         Object.keys(v).forEach((date) => {
           const day = v[date]; if (!isPlain(day)) return;
           const m = date.slice(0, 7);
-          months[m] = months[m] || {};
-          Object.keys(day).forEach((emp) => { if (day[emp] !== undefined) months[m][`${date}|${emp}`] = enc(day[emp], onBlob); });
+          Object.keys(day).forEach((emp) => { if (day[emp] !== undefined) { const key = `${m}~${emp}`; (months[key] = months[key] || {})[`${date}|${emp}`] = enc(day[emp], onBlob); } });
         });
-        Object.keys(months).forEach((m) => put(`${k}~${m}`, 'm', months[m]));
+        // One bucket per person per month.
+        Object.keys(months).forEach((mk) => put(`${k}~${mk}`, 'm', months[mk]));
       } else if (Array.isArray(v) && OWNED[k]) {
         // One bucket per person (documents~e5), each readable by that person and admins with the area.
         const groups = {};
@@ -223,9 +228,11 @@
       ws[id] = isPlain(ws[id]) ? ws[id] : {};
       keys.forEach((f) => { ws[id][f] = dec(fields[f], lookup); });
     } else if (t === 'm') {
-      const [k, m] = id.split('~');
+      // A person's month replaces that person's records for the month; older month-wide buckets are a backup, ignored.
+      const [k, m, who] = id.split('~');
+      if (!who) return;
       ws[k] = isPlain(ws[k]) ? ws[k] : {};
-      Object.keys(ws[k]).forEach((date) => { if (date.slice(0, 7) === m) delete ws[k][date]; });
+      Object.keys(ws[k]).forEach((date) => { if (date.slice(0, 7) === m && ws[k][date]) delete ws[k][date][who]; });
       keys.forEach((f) => { const [date, emp] = f.split('|'); (ws[k][date] = ws[k][date] || {})[emp] = dec(fields[f], lookup); });
     } else if (t === 'v') keys.forEach((f) => { ws[f] = dec(fields[f], lookup); });
   }

@@ -213,6 +213,13 @@ window.AllurusLeave = (function () {
     refresh();
   }
 
+  // An approved leave's days in the person's attendance; false when they were already there.
+  function applyLeaveDays(l) {
+    const c = R.countDays({ from: l.from, to: l.to, calendar: false }, calCtx(l.from, l.to));
+    let changed = false;
+    c.dates.forEach((d) => { if (st().attendance[d]?.[l.empId]?.s !== 'leave') { st().attendance[d] = st().attendance[d] || {}; st().attendance[d][l.empId] = { s: 'leave', in: '' }; changed = true; } });
+    return changed;
+  }
   function markAttendance(l) {
     const c = R.countDays({ from: l.from, to: l.to, calendar: false }, calCtx(l.from, l.to));
     c.dates.forEach((d) => { st().attendance[d] = st().attendance[d] || {}; st().attendance[d][l.empId] = { s: 'leave', in: '' }; });
@@ -587,7 +594,7 @@ window.AllurusLeave = (function () {
       },
     });
     return {
-      readAttachment, typeOf, typeName, balance, onLeave, offOn, isApprover, forMe, pendingCount: () => st().leaves.filter((l) => l.status === 'Pending').length,
+      readAttachment, typeOf, typeName, balance, onLeave, offOn, isApprover, forMe, applyLeaveDays, pendingCount: () => st().leaves.filter((l) => l.status === 'Pending').length,
       myCount: (empId) => forMe(empId).length, whoOffCard, insights, settingsCards, bindSettings, myDepts,
       // Approved unpaid leave in a pay month, and what it costs: basic ÷ divisor × days.
       unpaidFor(empId, mk, base) {

@@ -1,4 +1,4 @@
-// Moves each company's leave requests and claims from the shared buckets into one document each (tenants/{t}/leaves,
+// Moves each company's leave requests, claims and time requests (overtime, corrections) from the shared buckets into one document each (tenants/{t}/leaves,
 // with a safe calendar copy in leaveCal; tenants/{t}/claims), so firestore.rules can stop anyone deciding their own.
 // The old buckets are kept as admin-only backups (class 'a'); the app no longer reads them.
 //
@@ -16,7 +16,7 @@ const approverIds = (l) => [...new Set((l.chain || []).flatMap((s) => [s.approve
   const fb = admin(), db = fb.firestore(), now = fb.firestore.FieldValue.serverTimestamp();
   const tenants = ONLY ? [await db.doc(`tenants/${ONLY}`).get()] : (await db.collection('tenants').get()).docs;
   const total = { found: 0, move: 0, already: 0, bad: 0 };
-  for (const t of tenants) for (const [list, withCal] of [['leaves', true], ['claims', false]]) {
+  for (const t of tenants) for (const [list, withCal] of [['leaves', true], ['claims', false], ['timeRequests', false]]) {
     if (!t.exists) { console.log(`${ONLY}: no such company`); break; }
     const s = await db.doc(`tenants/${t.id}/buckets/${list}`).get();
     if (!s.exists) continue;

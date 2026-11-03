@@ -357,6 +357,7 @@ window.AllurusTime = (function () {
         const L = st().settings.leave;
         q.chain = LR.buildChain({ applicant: e.id, chain: L.chains?.[e.dept], hr: L.hr, hrBackup: L.hrBackup });
         reqs().push(q);
+    ctx.timeRequestStore?.created(q);   // cloud: its own document, checked by the rules
         const n = LR.nextStep(q.chain);
         ctx.notify?.request(q.kind, q, 'submitted', { summary: `${fmtDay(q.date)}${q.kind === 'ot' ? `, ${hrs(q.minutes)}` : ''}` });
         ctx.commit(`Sent to ${n ? firstOf(n.approver) : 'HR'}`, `${ctx.fullName(e)} asked for ${KINDS[q.kind].toLowerCase()} on ${U.fmtDate(q.date)}`);
@@ -401,6 +402,13 @@ window.AllurusTime = (function () {
           <div class="ci-actions" style="justify-content:flex-end"><button class="btn btn-danger" data-act="tm-reject" data-id="${q.id}">Decline</button><button class="btn btn-primary" data-act="tm-approve" data-id="${q.id}">${ctx.icon('check')}${esc(actLabel)}</button></div></div>` : ''}`,
     });
   }
+  // An approved correction in the person's attendance, once (the record keeps the request id in corr). In the cloud
+  // the approver's own app can't write it; the person's app or HR's applies it (js/app.js applyApprovedAttendance).
+  function applyCorrection(q) {
+    if (recOf(q.date, q.empId)?.corr === q.id) return false;
+    setRecord(q.date, q.empId, { s: q.s || 'present', in: q.in, out: q.out, corr: q.id }, `Correction approved: ${q.reason}`);
+    return true;
+  }
   function decide(id, approve) {
     const q = reqs().find((x) => x.id === id); if (!q) return;
     const as = canActOn(q);
@@ -411,7 +419,8 @@ window.AllurusTime = (function () {
     const r = LR.decide(chain, { by: actor(), approve, note, at: T(), actedAs: as });
     q.chain = r.chain; q.status = r.status;
     if (r.status !== 'Pending') q.decidedAt = T();
-    if (r.status === 'Approved' && q.kind === 'correction') setRecord(q.date, q.empId, { s: q.s || 'present', in: q.in, out: q.out }, `Correction approved: ${q.reason}`);
+    ctx.timeRequestStore?.changed(q, ['chain', 'status', 'decidedAt']);
+    if (r.status === 'Approved' && q.kind === 'correction') applyCorrection(q);
     ctx.closeOverlay();
     const n = ctx.fullName(ctx.emp(q.empId)), nx = LR.nextStep(q.chain);
     ctx.notify?.request(q.kind, q, !approve ? 'rejected' : r.status === 'Approved' ? 'approved' : 'step', { summary: `${fmtDay(q.date)}${q.kind === 'ot' ? `, ${hrs(q.minutes)}` : ''}`, note });
@@ -660,7 +669,7 @@ window.AllurusTime = (function () {
       'tm-review': (id) => openReview(id),
       'tm-approve': (id) => decide(id, true),
       'tm-reject': (id) => decide(id, false),
-      'tm-cancel': (id) => { const q = reqs().find((x) => x.id === id); if (!q || q.status !== 'Pending') return; q.status = 'Cancelled'; ctx.commit('Request cancelled'); },
+      'tm-cancel': (id) => { const q = reqs().find((x) => x.id === id); if (!q || q.status !== 'Pending') return; q.status = 'Cancelled'; ctx.timeRequestStore?.changed(q, ['status']); ctx.commit('Request cancelled'); },
       'tm-open-requests': () => { location.hash = 'attendance'; setTimeout(() => ctx.$('#time-requests')?.scrollIntoView({ block: 'start' }), 80); },
       'tm-edit': (id, day) => openEdit(id, day),
       'tm-batch': () => openBatch(),
@@ -687,7 +696,7 @@ window.AllurusTime = (function () {
     return {
       dayInfo, monthFor, forPayroll, attCells, dayTotals, tagsFor, shiftCell, todayShift, setRecord, auditFor, historyHtml,
       requestsCard, myRequestsCard, myShiftsCard, approvalsCard, settingsCards, bindSettings, insights,
-      pendingCount: () => reqs().filter((q) => q.status === 'Pending').length, myCount: (empId) => forMe(empId).length,
+      applyCorrection, pendingCount: () => reqs().filter((q) => q.status === 'Pending').length, myCount: (empId) => forMe(empId).length,
       shiftStart: (e, day) => { const x = dayInfo(e, day); return x.pattern && !x.off ? (x.pattern.flexible ? x.pattern.coreStart : x.pattern.start) : ''; },
     };
   }

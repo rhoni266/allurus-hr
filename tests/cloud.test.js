@@ -35,7 +35,7 @@ test('every workspace key except the private ones survives the round trip', () =
   const ws = seed();
   const { out } = roundTrip(ws);
   WS_KEYS.filter((k) => !['employees', 'payroll', 'plans'].includes(k)).forEach((k) => {
-    if (ws[k] === undefined || k === 'leaves' || k === 'claims') return;   // one document per request (js/leave-store.js)
+    if (ws[k] === undefined || ['leaves', 'claims', 'timeRequests'].includes(k)) return;   // one document per request (js/leave-store.js)
     // Invoices travel as one document each (tenants/{t}/invoices, cloud.js), not in the finance buckets.
     const want = k === 'settings' ? { ...ws.settings, theme: undefined } : k === 'finance' ? { ...ws.finance, invoices: undefined } : ws[k];
     // Per-person lists come back grouped by person: compare them by record, not by order.
@@ -54,7 +54,7 @@ test('payroll and loans need the payroll area, the books the finance area; leave
   assert.equal(docs.finance.r, 'f');
   assert.equal(docs.loans.r, 'p');
   assert.equal(docs.payChanges.r, 'p');
-  assert.ok(Object.keys(docs).some((id) => id.startsWith('attendance~') && docs[id].r === 'm'));
+  assert.ok(Object.keys(docs).some((id) => id.startsWith('attendance~') && docs[id].r === `u:time:${id.split('~')[2]}`));
   assert.equal(docs.payroll, undefined, 'raw payroll goes to its own bucket only via the payroll path');
   assert.equal(M.canWrite('settings', false, null), false);
   assert.equal(M.canWrite('leaves', false, null), true);
@@ -84,12 +84,14 @@ test('no document comes near the 1 MiB limit', () => {
   Object.entries(docs).forEach(([id, d]) => assert.ok(M.docBytes(d.f) < 900000, `${id} is ${M.docBytes(d.f)} bytes`));
 });
 
-test('attendance is one document per month with one field per person per day', () => {
+test('attendance is one document per person per month, with one field per day, readable by that person and the time area', () => {
   const ws = seed();
   const { docs, out } = roundTrip(ws);
   const date = Object.keys(ws.attendance)[0], emp = Object.keys(ws.attendance[date])[0];
-  const d = docs[`attendance~${date.slice(0, 7)}`];
+  const d = docs[`attendance~${date.slice(0, 7)}~${emp}`];
   assert.ok(d.f[`${date}|${emp}`]);
+  assert.equal(d.r, `u:time:${emp}`);
+  assert.equal(docs[`attendance~${date.slice(0, 7)}`], undefined, 'no month-wide document any more');
   assert.deepEqual(out.attendance[date][emp], ws.attendance[date][emp]);
 });
 
@@ -100,14 +102,14 @@ test('large photos move to blobs and come back', () => {
   ws.attendance[date][emp].photo = photo;
   const blobs = {};
   const { docs, out } = roundTrip(ws, blobs);
-  const field = docs[`attendance~${date.slice(0, 7)}`].f[`${date}|${emp}`];
+  const field = docs[`attendance~${date.slice(0, 7)}~${emp}`].f[`${date}|${emp}`];
   assert.ok(!field.includes('AAAA'), 'the photo is not inside the record');
   assert.ok(field.includes(M.MARK));
   assert.equal(Object.keys(blobs).length, 1);
   assert.equal(out.attendance[date][emp].photo, photo);
   // Unknown blobs stay as markers until fetched.
-  const later = {}; const d = docs[`attendance~${date.slice(0, 7)}`];
-  M.applyBucket(later, `attendance~${date.slice(0, 7)}`, 'm', d.f, () => undefined);
+  const later = {}; const d = docs[`attendance~${date.slice(0, 7)}~${emp}`];
+  M.applyBucket(later, `attendance~${date.slice(0, 7)}~${emp}`, 'm', d.f, () => undefined);
   assert.ok(later.attendance[date][emp].photo.startsWith(M.MARK));
 });
 
@@ -230,9 +232,9 @@ test('operations buckets: admins with the operations area; drivers their own del
   assert.equal(docs['ops.dos~e26'].r, 'd:e26');
   ['ops.machines', 'ops.products', 'ops.breakdowns'].forEach((b) => assert.equal(docs[b].r, 'm', b));
   const r = (admin, perms, empId) => plain(M.readable(admin, perms, empId)).sort().join(',');
-  assert.equal(r(true, OPS, 'e19'), 'a,d:e19,m,o,u:people:e19', 'storekeeper (and their own documents)');
-  assert.equal(r(true, FIN, 'e3'), 'a,d:e3,f,m,u:people:e3', 'accounts: no stock or production');
-  assert.equal(r(false, null, 'e26'), 'd:e26,m,u:people:e26', 'driver: own deliveries and own documents only');
+  assert.equal(r(true, OPS, 'e19'), 'a,d:e19,m,o,u:people:e19,u:time:e19', 'storekeeper (and their own documents and attendance)');
+  assert.equal(r(true, FIN, 'e3'), 'a,d:e3,f,m,u:people:e3,u:time:e3', 'accounts: no stock or production');
+  assert.equal(r(false, null, 'e26'), 'd:e26,m,u:people:e26,u:time:e26', 'driver: own deliveries, documents and attendance only');
   assert.equal(M.canWrite('ops.pos', true, OPS), true);
   assert.equal(M.canWrite('ops.pos', true, FIN), false);
   assert.equal(M.canWrite('ops.pos', false, null, 'e26'), false);

@@ -86,10 +86,15 @@ service cloud.firestore {
     // details. Read by that person and admins with the people area; class 'u:people:<empId>'.
     function isOwned(b) { return b.matches('(documents|editRequests)~.+'); }
     function ownerOf(b) { return b.split('~')[1]; }
+    // Attendance, one bucket per person per month ("attendance~2026-11~e5"): read by that person and the time area,
+    // class 'u:time:<empId>'; written by the person (their own check-ins) and the time area. Approvers and supervisors
+    // never write someone else's: approved leave and corrections are applied by the person's own app or HR's.
+    function isAttendance(b) { return b.matches('attendance~[0-9]{4}-[0-9]{2}~.+'); }
+    function attOwner(b) { return b.split('~')[2]; }
     function bucketClass(b) {
       return b in ['payroll', 'payChanges', 'loans', 'insurance', 'statutory'] ? 'p' : (isFinance(b) ? 'f' : (b in ['savedReports', 'importData', 'activity'] ? 'a'
-        : (isTalent(b) ? 't' : (isOwned(b) ? 'u:people:' + ownerOf(b)
-        : (isDriverBucket(b) ? 'd:' + driverOf(b) : (isOps(b) && !opsShared(b) ? 'o' : 'm'))))));
+        : (isTalent(b) ? 't' : (isOwned(b) ? 'u:people:' + ownerOf(b) : (isAttendance(b) ? 'u:time:' + attOwner(b)
+        : (isDriverBucket(b) ? 'd:' + driverOf(b) : (isOps(b) && !opsShared(b) ? 'o' : 'm')))))));
     }
     // An admin's area, from values looked up once (a query is checked for every class it asks for, and rules may
     // evaluate at most 1,000 expressions). No perms list means every area (Owner).
@@ -104,12 +109,14 @@ service cloud.firestore {
         // A driver's deliveries. Written as a range (not a pattern) so the operations admins' query on 'd:'…'d;' passes.
         || (r >= 'd:' && r < 'd;' && (inArea(adm, p, 'operations') || r == 'd:' + emp))
         // A person's own documents and requests; the people area reads everyone's (a range query on 'u:people:'…).
-        || (r >= 'u:people:' && r < 'u:people;' && (inArea(adm, p, 'people') || r == 'u:people:' + emp));
+        || (r >= 'u:people:' && r < 'u:people;' && (inArea(adm, p, 'people') || r == 'u:people:' + emp))
+        // A person's own attendance; the time area reads everyone's (a range query on 'u:time:'…).
+        || (r >= 'u:time:' && r < 'u:time;' && (inArea(adm, p, 'time') || r == 'u:time:' + emp));
     }
     function bucketArea(b) {
       return b in ['payroll', 'payChanges', 'loans', 'insurance', 'statutory'] ? 'payroll'
         : (isFinance(b) ? 'finance' : (b == 'settings' ? 'settings' : (b in ['departments', 'directory', 'importData'] ? 'people'
-        : (b == 'cycles' || isTalent(b) ? 'talent' : (isOwned(b) ? 'people' : (b in ['savedReports', 'activity'] ? 'admin' : (isOps(b) && b != 'ops.breakdowns' ? 'operations' : '')))))));
+        : (b == 'cycles' || isTalent(b) ? 'talent' : (isOwned(b) ? 'people' : (isAttendance(b) ? 'time' : (b in ['savedReports', 'activity'] ? 'admin' : (isOps(b) && b != 'ops.breakdowns' ? 'operations' : ''))))))));
     }
     // A breakdown report added by someone without the operations area: new records only, nothing changed or removed.
     function onlyAdds() {
@@ -119,6 +126,7 @@ service cloud.firestore {
     function writesBucket(t, b) {
       return (isDriverBucket(b) && member(t) && driverOf(b) == me().empId)
         || (isOwned(b) && member(t) && ownerOf(b) == me().empId)
+        || (isAttendance(b) && member(t) && attOwner(b) == me().empId)
         || (b == 'ops.breakdowns' && (hasArea(t, 'operations') || (member(t) && onlyAdds())))
         || (b != 'ops.breakdowns' && (bucketArea(b) == '' ? member(t) : (bucketArea(b) == 'admin' ? admin(t) : hasArea(t, bucketArea(b)))));
     }
@@ -484,6 +492,27 @@ service cloud.firestore {
           // (paying an approved claim is bookkeeping, so payroll marks its own approved claim paid too)
           || (hrClaims() && (od().empId != emp() || nd().status == od().status || nd().status == 'Cancelled' || (od().status == 'Approved' && nd().status == 'Paid'))));
         allow delete: if hrClaims() && working(t);
+      }
+      // ---- Time requests (overtime, attendance corrections): one document each, as for leave ----
+      // Read by the person, their approvers and the time area. The person files and may cancel while pending; an
+      // approver (never the person) decides: chain, status, decision date. The time area may change anything except
+      // whose request it is, but doesn't decide its own. Needs Cloud Functions (Blaze): chain and step checks.
+      match /timeRequests/{id} {
+        function nd() { return request.resource.data; }
+        function od() { return resource.data; }
+        function emp() { return me().get('empId', ''); }
+        function hrTime() { return hasArea(t, 'time'); }
+        function stamped() { return nd().updatedBy == request.auth.uid && nd().updatedAt == request.time && nd().v == od().v + 1; }
+        function changed() { return nd().diff(od()).affectedKeys(); }
+        allow read: if member(t) && canRead(t) && (resource.data.empId == emp() || emp() in resource.data.get('approverIds', []) || hrTime());
+        allow create: if member(t) && working(t) && nd().v == 1 && nd().createdBy == request.auth.uid && nd().approverIds is list && nd().approverIds.size() <= 12
+          && ((nd().empId == emp() && nd().status == 'Pending' && !(emp() in nd().approverIds)) || hrTime());
+        allow update: if member(t) && working(t) && stamped() && nd().empId == od().empId && (
+          (od().empId == emp() && od().status == 'Pending' && nd().status == 'Cancelled' && changed().hasOnly(['status', 'v', 'updatedAt', 'updatedBy']))
+          || (od().empId != emp() && emp() in od().approverIds && od().status == 'Pending' && nd().status in ['Pending', 'Approved', 'Rejected']
+            && changed().hasOnly(['chain', 'status', 'decidedAt', 'v', 'updatedAt', 'updatedBy']))
+          || (hrTime() && (od().empId != emp() || nd().status == od().status || nd().status == 'Cancelled')));
+        allow delete: if hrTime() && working(t);
       }
       // Who did what to which invoice, and when. Added only; never changed or removed.
       match /invoiceAudit/{a} {
