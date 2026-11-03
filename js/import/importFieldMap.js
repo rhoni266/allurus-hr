@@ -11,7 +11,7 @@ window.AllurusImportFieldMap = [
     headers: ['staff no', 'staff number', 'staff id', 'emp id', 'employee id', 'employee no', 'employee number', 'emp no', 'no pekerja', 'no staf', 'nombor pekerja', 'id pekerja', 'id'] },
   { key: 'ic', label: 'IC / passport number', kind: 'ic',
     headers: ['ic', 'ic no', 'ic number', 'nric', 'mykad', 'no kp', 'no kad pengenalan', 'kad pengenalan', 'ic passport', 'ic or passport', 'ic or passport number', 'identity no', 'id no', 'passport', 'passport no ic'] },
-  { key: 'email', label: 'Work email', kind: 'email', required: true,
+  { key: 'email', label: 'Work email', kind: 'email',
     headers: ['email', 'e-mail', 'emel', 'work email', 'email address', 'alamat emel', 'emel kerja', 'office email'] },
   { key: 'personalEmail', label: 'Personal email', kind: 'email', headers: ['personal email', 'emel peribadi', 'private email'] },
   { key: 'phone', label: 'Phone', kind: 'phone',
