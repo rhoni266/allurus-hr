@@ -6,7 +6,7 @@ window.AllurusInvite = (function () {
   const DAYS = 7;
   const ms = (t) => (t == null ? null : typeof t === 'number' ? t : t instanceof Date ? t.getTime() : typeof t.toMillis === 'function' ? t.toMillis() : t.seconds != null ? t.seconds * 1000 : Date.parse(t));
   const expiry = (from = Date.now()) => new Date(ms(from) + DAYS * 864e5);
-  const LABEL = { none: ['Not invited', ''], invited: ['Invited', 'info'], expired: ['Invitation expired', 'warn'], active: ['Active', 'ok'], disabled: ['Disabled', 'bad'] };
+  const LABEL = { none: ['Not invited', ''], invited: ['Invited', 'info'], expired: ['Invitation expired', 'warn'], active: ['Active', 'ok'], disabled: ['Disabled', 'bad'], pending: ['Waiting for approval', 'warn'] };
   // user: the person's profile (users/{uid}) if they have one; invite: invites/{email} if one is waiting.
   function status({ user = null, invite = null, now = Date.now() } = {}) {
     let key = 'none';
@@ -34,8 +34,11 @@ window.AllurusInvite = (function () {
   const IC_TEXT = {
     hasEmail: 'Has an email: use Send invitation', noIc: 'IC missing', badIc: 'IC not valid',
     invited: 'Already invited (link still valid)', joined: 'Already joined', disabled: 'Access turned off',
-    inactive: 'Not an active employee', self: 'That’s you',
-    filters: { all: 'All', none: 'Not invited', invited: 'Link sent', expired: 'Expired', joined: 'Joined' },
+    inactive: 'Not an active employee', self: 'That’s you', pending: 'Registered, waiting for your approval',
+    filters: { all: 'All', none: 'Not registered', invited: 'Link sent', expired: 'Expired', pending: 'Waiting for approval', joined: 'Registered' },
+    // The open join page (allurus.my/join): one message for every mismatch, so nobody learns which part was wrong.
+    noMatch: 'We could not match these details. Check with HR.', closed: 'Registration is closed. Ask your HR.',
+    joinMessage: 'Join {company} on Allurus: {address}. You will need the company code {code} and your IC number. HR checks each registration before you can use the app. Registration closes on {date}.',
     warn: 'These links let someone join as that person. Send each link only to that person. Close this window when done; links are not shown again. You can make a new link any time.',
     remind: 'Links last 7 days. Send each link only to that person.',
   };
@@ -54,13 +57,13 @@ window.AllurusInvite = (function () {
       if (!validIc(e.ic)) return skip(e, IC_TEXT.badIc);
       const k = statusOf(e)?.key || 'none';
       if (k === 'none' || k === 'expired') invite.push(e);
-      else skip(e, k === 'invited' ? IC_TEXT.invited : k === 'joined' ? IC_TEXT.joined : IC_TEXT.disabled);
+      else skip(e, k === 'invited' ? IC_TEXT.invited : k === 'joined' ? IC_TEXT.joined : k === 'pending' ? IC_TEXT.pending : IC_TEXT.disabled);
     });
     return { invite, skipped };
   }
   // The registration tracker: counts of IC staff (no email, valid IC) by status, and "registered" = joined.
   function icCounts(employees, statusOf) {
-    const c = { total: 0, none: 0, invited: 0, expired: 0, joined: 0, disabled: 0 };
+    const c = { total: 0, none: 0, invited: 0, expired: 0, pending: 0, joined: 0, disabled: 0 };
     (employees || []).forEach((e) => {
       if (!e || (e.status && e.status !== 'Active') || String(e.email || '').trim() || !validIc(e.ic)) return;
       const k = statusOf(e)?.key || 'none';

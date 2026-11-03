@@ -2647,6 +2647,13 @@
     'acc-ic-bulk-all': () => teamAccess.icBulk(activeEmployees(), { all: true }),
     'acc-ic-bulk-expired': () => teamAccess.icBulk(activeEmployees().filter((e) => teamAccess.byIc(e) && teamAccess.status(e).key === 'expired')),
     'acc-ic-bulk-sel': () => { if (!teamAccess.data) { toast('Still loading who has access. Try again in a moment.', 'error'); teamAccess.load(); return; } teamAccess.icBulk([...(ui.empSel || [])].map(emp).filter(Boolean)); },
+    'acc-open-on': () => teamAccess.openSet(true),
+    'acc-open-off': () => teamAccess.openSet(false),
+    'acc-open-copy': async () => { try { await navigator.clipboard.writeText(teamAccess.joinMessage()); toast('Join message copied'); } catch (e) { toast('Couldn’t copy here. Use Share on WhatsApp.', 'error'); } },
+    'acc-open-wa': () => { window.open(`https://wa.me/?text=${encodeURIComponent(teamAccess.joinMessage())}`, '_blank', 'noopener'); },
+    'acc-open-msg': () => teamAccess.editJoinMessage(),
+    'acc-open-ok': (uid) => teamAccess.approve(uid),
+    'acc-open-no': (uid) => teamAccess.refuse(uid),
     'acc-ic-filter': (_, v) => { teamAccess.icFilter = v; teamAccess.draw(); },
     'acc-ic-fix': () => { ui.empOnly = new Set(teamAccess.fixIds || []); closeOverlay(); location.hash = 'employees'; render(); },
     'emp-only-clear': () => { ui.empOnly = null; render(); },
@@ -3114,8 +3121,18 @@
     async load() {
       try { this.data = await fire().access(); } catch (e) { this.data = { invites: [], users: [] }; }
       try { this.data.staff = await fire().staffInvites(); } catch (e) { this.data.staff = []; }
+      try { this.open = await fire().openStatus(); } catch (e) { this.open = { code: '', until: null }; }
       this.remindIc();
+      this.noticeRegistered();
       return this.data;
+    },
+    // Each new open-page registration: one in-app notice to HR and one log line (never the IC or password).
+    noticeRegistered() {
+      if (!notifyApi) return;
+      this.pending().forEach((u) => {
+        const e = this.claimed(u), who = e ? fullName(e) : 'Someone with no matching employee';
+        if (notifyApi.event('staff.registered', { who, href: '#settings/users' }, 'hr', { key: `reg-${u.uid}`, self: true })) log(`Registered on the join page: ${who} (waiting for approval)`);
+      });
     },
     // Once a day, in the app only: HR hears about IC staff whose link went unused for 3 days, or expired.
     remindIc() {
@@ -3153,12 +3170,58 @@
       const d = this.data || { users: [], staff: [] }, inv = (d.staff || []).find((i) => i.empId === e.id);
       // Their account for the current sign-in generation; after Reset sign-in the old one is turned off.
       const mine = d.users.filter((u) => u.empId === e.id && AllurusCloudMap.isStaffEmail(u.email));
+      // Registered on the open join page and waiting for HR: matched by the IC in their sign-in.
+      const waiting = this.pendingFor(e);
+      if (waiting) return { key: 'pending', label: AllurusInvite.LABEL.pending[0], pill: AllurusInvite.LABEL.pending[1], uid: waiting.uid, ic: true, template: 'employee', email: '' };
       const user = mine.find((u) => inv && u.email.endsWith(`.g${inv.gen}@${AllurusCloudMap.STAFF_HOST}`)) || (inv ? null : mine.find((u) => !u.disabled) || mine[0]);
       const s = AllurusInvite.status({ user, invite: user ? null : inv });
       return { ...s, key: s.key === 'active' ? 'joined' : s.key, ic: true, template: 'employee', email: '' };
     },
+    async openSet(on) {
+      const r = await fire().openRegistration(on, 7);
+      if (!r.ok) { toast(r.error, 'error'); return; }
+      if (r.code && state.settings.staffCode !== r.code) state.settings.staffCode = r.code;
+      log(on ? `Open registration turned on until ${U.fmtDate(r.until.toISOString().slice(0, 10))}` : 'Open registration turned off'); save();
+      toast(on ? `Registration is open until ${U.fmtDate(r.until.toISOString().slice(0, 10))}.` : 'Registration is closed. Nobody new can register on the join page.');
+      await this.refresh();
+    },
+    joinMessage() {
+      const o = this.open || {};
+      return (state.settings.joinMessage || AllurusInvite.IC_TEXT.joinMessage).replace(/\{company\}/g, state.settings.company || '').replace(/\{address\}/g, `${location.origin}/join`)
+        .replace(/\{code\}/g, o.code || '').replace(/\{date\}/g, o.until ? U.fmtDate(o.until.toISOString().slice(0, 10)) : '');
+    },
+    editJoinMessage() {
+      openModal({ title: 'Join message', size: 'sm', submit: 'Save', body: `<div class="field"><label for="jm">Message</label><textarea class="input" id="jm" name="msg" rows="6">${esc(state.settings.joinMessage || AllurusInvite.IC_TEXT.joinMessage)}</textarea><p class="field-hint">{company}, {address}, {code} and {date} are filled in for you.</p></div>`,
+        onSubmit: (d) => { state.settings.joinMessage = String(d.msg || '').trim().slice(0, 600) || ''; commit('Join message saved'); } });
+    },
+    async approve(uid) {
+      const u = (this.data?.users || []).find((x) => x.uid === uid), e = u && this.claimed(u);
+      if (!u || !e) { toast('There’s no active employee with no email and this IC to approve it as.', 'error'); return; }
+      const r = await fire().approveOpen(u, e);
+      if (r.ok) { log(`Approved join-page registration for ${fullName(e)}`); save(); }
+      toast(r.ok ? `${e.first} is approved and can sign in now.` : r.error, r.ok ? '' : 'error');
+      await this.refresh();
+    },
+    refuse(uid) {
+      const u = (this.data?.users || []).find((x) => x.uid === uid); if (!u) return;
+      const e = this.claimed(u), who = e ? fullName(e) : 'this registration';
+      openModal({ title: 'This is not them?', size: 'sm', submit: 'Turn it off', body: `<p>The account made for ${esc(who)} is turned off at once. ${e ? `${esc(e.first)} can then register again, or you can send a personal link.` : ''}</p>`,
+        onSubmit: () => { (async () => {
+          const r = await fire().rejectOpen(u, this.icOf(u));
+          if (r.ok) { log(`Join-page registration refused (not them): ${who}`); save(); }
+          toast(r.ok ? 'Turned off.' : r.error, r.ok ? '' : 'error');
+          await this.refresh();
+        })(); } });
+    },
+    // Open-page registrations waiting for HR (pending, not turned off), and the IC each one used.
+    pending() { return (this.data?.users || []).filter((u) => u.pending && !u.disabled && AllurusCloudMap.isStaffEmail(u.email)); },
+    icOf: (u) => String(u.email || '').split('.')[0],
+    pendingFor(e) { const ic = AllurusCloudMap.icDigits(e.ic); return ic ? this.pending().find((u) => this.icOf(u) === ic) : null; },
+    // The employee an open registration claims to be: active, no email, that IC. Otherwise HR can only refuse it.
+    claimed(u) { const ic = this.icOf(u); return activeEmployees().find((e) => !String(e.email || '').trim() && AllurusCloudMap.icDigits(e.ic) === ic) || null; },
     icActions(e) {
       const s = this.status(e), b = (act, label, cls = '') => `<button class="btn btn-sm ${cls}" data-act="${act}" data-id="${esc(e.id)}">${label}</button>`;
+      if (s.key === 'pending') return `<button class="btn btn-sm btn-primary" data-act="acc-open-ok" data-id="${esc(s.uid)}">Approve</button><button class="btn btn-sm btn-danger" data-act="acc-open-no" data-id="${esc(s.uid)}">This is not them</button>`;
       if (s.key === 'none') return b('acc-ic-invite', 'Invite with IC', 'btn-primary');
       if (s.key === 'invited' || s.key === 'expired') return b('acc-ic-link', 'Make a new link') + b('acc-ic-remove', 'Remove access', 'btn-danger');
       return b('acc-ic-reset', 'Reset sign-in') + b('acc-ic-remove', 'Remove access', 'btn-danger');
@@ -3283,9 +3346,20 @@
       const elig = AllurusInvite.icEligibility(all, of, self.empId).invite;
       const expiredN = elig.filter((e) => this.status(e).key === 'expired').length;
       const tracker = c.total ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-          <b>${c.joined} of ${c.total} registered</b><span class="muted">by IC · ${c.none} not invited · ${c.invited} link sent · ${c.expired} expired · ${c.joined} joined</span>
+          <b>${c.joined} of ${c.total} registered</b><span class="muted">by IC · ${c.none} not registered (not invited) · ${c.invited} link sent · ${c.expired} expired${c.pending ? ` · ${c.pending} waiting for approval` : ''} · ${c.joined} registered</span>
           <span style="flex:1"></span>${elig.length ? `<button class="btn btn-sm btn-primary" data-act="acc-ic-bulk-all">Invite all with IC (${elig.length})</button>` : ''}${expiredN ? `<button class="btn btn-sm" data-act="acc-ic-bulk-expired">Make new links for expired (${expiredN})</button>` : ''}</div>
         <div class="seg" role="group" aria-label="Filter by registration" style="margin-bottom:12px">${Object.entries(IT.filters).map(([k, label]) => `<button data-act="acc-ic-filter" data-v="${k}" class="${f === k ? 'on' : ''}" aria-pressed="${f === k}">${esc(label)}${k === 'all' ? '' : ` (${c[k]})`}</button>`).join('')}</div>` : '';
+      // The company join page: one address for the staff WhatsApp group, open for a few days at a time.
+      const o = this.open || {}, until = o.until;
+      const joinCard = `<div class="card" style="margin-bottom:12px;padding:14px 16px"><div class="card-head" style="padding:0;margin-bottom:6px"><h3>Company join page</h3>${until ? `<span class="pill ok">Open until ${U.fmtDate(until.toISOString().slice(0, 10))}</span>` : '<span class="pill">Closed</span>'}</div>
+          <p class="muted" style="margin-bottom:8px">Share one address in the staff group. Staff with no email type the company code and their IC, then make a password. <b>You approve each one</b> here before they can see anything.</p>
+          <p style="margin-bottom:8px">Address: <b>${esc(location.origin)}/join</b>${o.code ? ` · Company code: <b>${esc(o.code)}</b>` : ''}</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${until ? '<button class="btn btn-sm" data-act="acc-open-off">Close registration now</button>' : '<button class="btn btn-sm btn-primary" data-act="acc-open-on">Open registration for 7 days</button>'}${until ? '<button class="btn btn-sm" data-act="acc-open-copy">Copy join message</button><button class="btn btn-sm" data-act="acc-open-wa">Share on WhatsApp</button><button class="btn btn-sm btn-ghost" data-act="acc-open-msg">Edit message</button>' : ''}</div></div>`;
+      const waitingList = this.pending();
+      const pendingCard = waitingList.length ? `<div class="card" style="margin-bottom:12px;padding:14px 16px;border-color:var(--warn, #d97706)"><h3 style="margin-bottom:6px">Waiting for approval (${waitingList.length})</h3>
+          <div class="table-wrap"><table class="table"><thead><tr><th>Registered as</th><th>IC</th><th>When</th><th></th></tr></thead><tbody>${waitingList.map((u) => { const e = this.claimed(u); const at = AllurusInvite.ms(u.joinedAt);
+            return `<tr><td>${e ? person(e) : `<span class="faint">No matching employee (active, no email, this IC)</span>`}</td><td>••••${esc(this.icOf(u).slice(-4))}</td><td>${at ? U.fmtDate(new Date(at).toISOString().slice(0, 10)) : '—'}</td>
+              <td class="r">${e ? `<button class="btn btn-sm btn-primary" data-act="acc-open-ok" data-id="${esc(u.uid)}">Approve</button>` : ''}<button class="btn btn-sm btn-danger" data-act="acc-open-no" data-id="${esc(u.uid)}">This is not them</button></td></tr>`; }).join('')}</tbody></table></div></div>` : '';
       const rows = people.map((e) => {
         const st = this.status(e), isMe = e.id === self.empId;
         return `<tr><td>${person(e)}</td><td class="muted">${e.email ? esc(e.email) : '<span class="faint">No email</span>'}</td>
@@ -3297,7 +3371,7 @@
       el.innerHTML = `<div class="card-head"><h3>Team access</h3>${waiting ? `<button class="btn btn-sm" data-act="acc-invite-all">Invite all ${waiting}</button>` : ''}</div>
         <p class="muted" style="margin-bottom:12px">Send someone an invitation and they get an email with a sign-in link to <b>allurus.my/activate</b>, where they create their password. Invitations last ${AllurusInvite.DAYS} days. Everyone gets the employee app; a role adds parts of the company console. Managers need no role: being an approver in the leave settings is enough. Staff with no work email can be invited with their IC: you send them a join link on WhatsApp, and they sign in with the company code, their IC and a password.</p>
         <div class="chips" style="margin-bottom:12px;flex-wrap:wrap">${shownTemplates().map(([, t]) => `<span class="tag" title="${esc(t.desc)}"><b>${esc(t.label)}</b>: ${esc(t.desc)}</span>`).join('')}</div>
-        ${tracker}
+        ${joinCard}${pendingCard}${tracker}
         <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="muted">Nobody here.</td></tr>`}</tbody></table></div>`;
       $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value)));
     },

@@ -43,7 +43,7 @@ test('tracker counts only IC staff, and the reminder finds late and expired link
   const people = [P('e1'), P('e2'), P('e3'), P('e4'), P('e5'), P('e6', { email: 'x@y.my' }), P('e7', { ic: '' })];
   const st = { e1: { key: 'joined' }, e2: { key: 'invited', sentAt: now - 4 * 864e5 }, e3: { key: 'invited', sentAt: now - 864e5 }, e4: { key: 'expired' } };
   const of = (e) => st[e.id] || { key: 'none' };
-  assert.deepEqual({ ...I.icCounts(people, of) }, { total: 5, none: 1, invited: 2, expired: 1, joined: 1, disabled: 0 });
+  assert.deepEqual({ ...I.icCounts(people, of) }, { total: 5, none: 1, invited: 2, expired: 1, pending: 0, joined: 1, disabled: 0 });
   const r = I.icReminder(people, of, now, 3);
   assert.deepEqual(ids(r.late), ['e2']);
   assert.deepEqual(ids(r.expired), ['e4']);
@@ -122,4 +122,18 @@ test('copy all: warning first, then name, phone and link per line', () => {
   assert.equal(lines[0], T.warn);
   assert.equal(lines[2], 'A Test · 0123 · u1');
   assert.equal(lines[3], 'B Test · No phone · u2');
+});
+
+test('open join page: someone waiting for approval is skipped by bulk invite and counted apart', () => {
+  const people = [P('e1'), P('e2'), P('e3')];
+  const st = { e1: 'pending', e2: 'joined' };
+  const of = (e) => ({ key: st[e.id] || 'none' });
+  const r = I.icEligibility(people, of);
+  assert.deepEqual(ids(r.invite), ['e3']);
+  assert.equal(r.skipped.find((s) => s.emp.id === 'e1').reason, T.pending);
+  const c = I.icCounts(people, of);
+  assert.equal(c.pending, 1); assert.equal(c.joined, 1); assert.equal(c.none, 1);
+  assert.equal(I.LABEL.pending[0], 'Waiting for approval');
+  assert.equal(T.noMatch, 'We could not match these details. Check with HR.');
+  assert.equal(T.filters.joined, 'Registered');
 });

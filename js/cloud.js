@@ -472,6 +472,7 @@ const api = {
       if (prof.error === 'no-invite') { await Auth.signOut(auth); return { error: 'There’s no Allurus workspace for this email yet. Ask your HR admin to invite you.' }; }
       if (prof.error === 'expired') { await Auth.signOut(auth); return { error: 'Your invitation has expired. Ask your HR admin to send a new one.' }; }
       if (prof.error === 'disabled') { await Auth.signOut(auth); return { error: 'Your access to Allurus has been turned off. Contact your HR admin.' }; }
+      if (prof.pending) { await Auth.signOut(auth); return { error: 'Your registration is waiting for HR to approve it. Try again once HR has checked it.' }; }
       if (prof.error === 'unverified') { await Auth.signOut(auth); return { error: `Confirm your email first. We’ve sent a link to ${lower(email)}; open it, then sign in again.` }; }
       await start(prof);
       return { ok: true, profile: prof };
@@ -611,9 +612,12 @@ const api = {
     try {
       const code = await api.companyCode();
       if (!code) return { error: 'Couldn’t make a company code. Try again.' };
-      const old = await getDoc(doc(db, `staffInvites/${key}`)).catch(() => null);
+      const [old, k] = await Promise.all([getDoc(doc(db, `staffInvites/${key}`)).catch(() => null), getDoc(doc(db, `staffKeys/${key}`)).catch(() => null)]);
       const was = old?.exists() ? old.data() : null;
-      const gen = (Number(was?.gen) || 0) + (reset || !was ? 1 : 0);
+      // The current generation is the higher of the invitation's and the sign-in key's (the open join page and
+      // "This is not them" move only the key).
+      const cur = Math.max(Number(was?.gen) || 0, Number(k?.exists() ? k.data().gen : 0) || 0);
+      const gen = cur + (reset || !cur ? 1 : 0);
       const link = M.joinSecret(crypto.getRandomValues(new Uint8Array(32)));
       const expiresAt = FS.Timestamp.fromDate(window.AllurusInvite.expiry());
       const b = writeBatch(db);
@@ -631,6 +635,51 @@ const api = {
     const s = await getDoc(doc(db, `staffInvites/${M.staffKey(S.profile.tenantId, emp.ic)}`));
     return !s.exists() || !window.AllurusInvite.usable(s.data());
   },
+  // ----- The open join page (allurus.my/join): Open registration on or off, approve, "This is not them" -----
+  async openRegistration(on, days = 7) {
+    const code = await api.companyCode();
+    if (!code) return { error: 'Couldn’t make a company code. Try again.' };
+    const until = on ? FS.Timestamp.fromMillis(Date.now() + Math.min(31, Math.max(1, days)) * 864e5 - 60e3) : null;
+    try {
+      await setDoc(doc(db, `companyCodes/${code}`), { tenantId: S.profile.tenantId, openUntil: until, company: String(app.state.settings?.company || '').slice(0, 120) });
+      return { ok: true, code, until: until ? until.toDate() : null };
+    } catch (e) { return { error: e?.code === 'permission-denied' ? 'You need the Settings area for this.' : 'Couldn’t save. Check your connection.' }; }
+  },
+  async openStatus() {
+    const code = app.state.settings?.staffCode;
+    if (!code) return { code: '', until: null };
+    const c = await getDoc(doc(db, `companyCodes/${code}`)).catch(() => null);
+    const u = c?.exists() ? c.data().openUntil : null;
+    return { code, until: u && u.toMillis() > Date.now() ? u.toDate() : null };
+  },
+  // Approve someone who registered on the open page as this employee: their profile gets the employee and is no
+  // longer pending; the sign-in key is set to their generation; any personal link for that IC stops working.
+  async approveOpen(u, emp) {
+    const key = M.staffKey(S.profile.tenantId, emp.ic), gen = Number((u.email.match(/\.g(\d+)@/) || [])[1]) || 1;
+    try {
+      const old = await getDoc(doc(db, `staffInvites/${key}`)).catch(() => null);
+      const b = writeBatch(db);
+      b.update(doc(db, `users/${u.uid}`), { pending: false, empId: emp.id });
+      b.set(doc(db, `staffKeys/${key}`), { tenantId: S.profile.tenantId, gen });
+      if (old?.exists()) { if (old.data().link) b.delete(doc(db, `joinLinks/${old.data().link}`)); b.delete(doc(db, `staffInvites/${key}`)); }
+      await b.commit();
+      return { ok: true };
+    } catch (e) { console.warn('[Allurus cloud] approve', e?.code); return { error: 'Couldn’t approve. Reload and try again.' }; }
+  },
+  // "This is not them": turn that account off and move the IC to the next generation, so the real person can
+  // register again (on the open page or with a personal link).
+  async rejectOpen(u, ic) {
+    const key = M.staffKey(S.profile.tenantId, ic), gen = Number((u.email.match(/\.g(\d+)@/) || [])[1]) || 1;
+    try {
+      const old = await getDoc(doc(db, `staffInvites/${key}`)).catch(() => null);
+      const b = writeBatch(db);
+      b.update(doc(db, `users/${u.uid}`), { disabled: true });
+      b.set(doc(db, `staffKeys/${key}`), { tenantId: S.profile.tenantId, gen: gen + 1 });
+      if (old?.exists()) { if (old.data().link) b.delete(doc(db, `joinLinks/${old.data().link}`)); b.delete(doc(db, `staffInvites/${key}`)); }
+      await b.commit();
+      return { ok: true };
+    } catch (e) { console.warn('[Allurus cloud] reject', e?.code); return { error: 'Couldn’t turn that account off. Reload and try again.' }; }
+  },
   // Reset sign-in: a new generation and link; their old account stops working at once.
   async staffReset(emp, uid) {
     const res = await api.staffInvite(emp, { reset: true });
@@ -641,10 +690,14 @@ const api = {
   async staffRemove(emp, uid) {
     const key = M.staffKey(S.profile.tenantId, emp.ic);
     try {
-      const old = await getDoc(doc(db, `staffInvites/${key}`)).catch(() => null);
+      const [old, k] = await Promise.all([getDoc(doc(db, `staffInvites/${key}`)).catch(() => null), getDoc(doc(db, `staffKeys/${key}`)).catch(() => null)]);
       const b = writeBatch(db);
       if (old?.data()?.link) b.delete(doc(db, `joinLinks/${old.data().link}`));
-      b.delete(doc(db, `staffInvites/${key}`)); b.delete(doc(db, `staffKeys/${key}`));
+      b.delete(doc(db, `staffInvites/${key}`));
+      // Keep the key one generation on (not deleted): their old account's email is used up, so a later invite or
+      // open registration must make a new one.
+      const cur = Math.max(Number(old?.data()?.gen) || 0, Number(k?.exists() ? k.data().gen : 0) || 0);
+      if (cur) b.set(doc(db, `staffKeys/${key}`), { tenantId: S.profile.tenantId, gen: cur + 1 });
       await b.commit();
       if (uid) { const d = await api.setDisabled(uid, true); if (d.error) return d; }
       return { ok: true };

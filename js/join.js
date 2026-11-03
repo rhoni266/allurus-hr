@@ -20,8 +20,90 @@ function page(title, sub, card) {
 }
 const problem = (title, text) => page(esc(title), '', `<p class="login-error" role="alert">${text}</p><a class="btn login-submit" href="/app">Go to sign in</a>`);
 
+// ---------- The open join page (no link): company code + IC, then a password; HR approves before any access ----------
+// Every mismatch gets the same words after the same wait, so the page never tells anyone which part was wrong or
+// whether an IC belongs to the company.
+const T = I.IC_TEXT;
+const steady = async (started, ms = 1400) => { const left = ms - (Date.now() - started); if (left > 0) await new Promise((r) => setTimeout(r, left)); };
+const masked = (ic) => (ic.length >= 4 ? `${'•'.repeat(Math.max(0, ic.length - 4))}${ic.slice(-4)}` : '');
+function openForm(msg = '') {
+  page('Join your company', 'Type the company code from HR and your IC number. HR checks each registration before you can use the app.', `
+    <form id="f" novalidate class="login-card" style="padding:0;box-shadow:none;max-width:none" autocomplete="off">
+      <div class="field"><label for="code">Company code</label><input class="input" id="code" name="code" autocapitalize="none" autocomplete="off" spellcheck="false" required></div>
+      <div class="field"><label for="ic">IC number</label><input class="input" id="ic" name="ic" type="password" inputmode="numeric" autocomplete="off" placeholder="12 digits, no dashes" required aria-describedby="ic-shown"><p class="field-hint" id="ic-shown" aria-live="polite"></p></div>
+      <p class="login-error" id="err" role="alert" ${msg ? '' : 'hidden'}>${esc(msg)}</p>
+      <button class="btn btn-primary login-submit" type="submit" id="go">Continue</button>
+    </form>`);
+  const f = document.getElementById('f');
+  f.ic.addEventListener('input', () => { const d = M.icDigits(f.ic.value); document.getElementById('ic-shown').textContent = d ? `IC ${masked(d)}` : ''; });
+  f.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const started = Date.now(), code = String(f.code.value || '').trim().toLowerCase(), ic = M.icDigits(f.ic.value);
+    const btn = document.getElementById('go'); btn.disabled = true; btn.textContent = 'Checking…';
+    if (!/^[a-z0-9]{3,12}$/.test(code) || !M.validIc(ic)) { await steady(started); openForm(T.noMatch); return; }
+    const c = await FS.getDoc(FS.doc(db, `companyCodes/${code}`)).catch(() => null);
+    if (!c?.exists()) { await steady(started); openForm(T.noMatch); return; }
+    const until = c.data().openUntil;
+    if (!until || until.toMillis() <= Date.now()) { await steady(started); problem('Registration is closed', esc(T.closed)); return; }
+    const k = await FS.getDoc(FS.doc(db, `staffKeys/${c.data().tenantId}~${ic}`)).catch(() => null);
+    const gen = k?.exists() ? Number(k.data().gen) || 1 : 1;
+    await steady(started, 600);
+    openPassword({ code, ic, tenantId: c.data().tenantId, company: c.data().company || '', gen });
+  });
+}
+async function openPassword(j) {
+  const common = await P.loadCommon('/js/vendor/common-passwords.txt');
+  page('Create your password', `${j.company ? `${esc(j.company)} · ` : ''}IC ${masked(j.ic)}`, `
+    <form id="f" novalidate class="login-card" style="padding:0;box-shadow:none;max-width:none">
+      <div class="field"><label for="pw">New password</label><div class="pw-wrap"><input class="input" id="pw" name="pw" type="password" autocomplete="new-password" required aria-describedby="rules"><button type="button" class="pw-toggle" id="show" aria-label="Show password">Show</button></div></div>
+      <ul class="ac-rules" id="rules" aria-live="polite"></ul>
+      <div class="field"><label for="pw2">Confirm password</label><input class="input" id="pw2" name="pw2" type="password" autocomplete="new-password" required></div>
+      <p class="login-error" id="err" role="alert" hidden></p>
+      <button class="btn btn-primary login-submit" type="submit" id="go">Register</button>
+      <button type="button" class="link-btn" id="back" style="margin-top:8px">Back</button>
+    </form>`);
+  const f = document.getElementById('f'), err = document.getElementById('err'), who = { ic: j.ic };
+  const draw = () => { document.getElementById('rules').innerHTML = P.check(f.pw.value, who, common).rules.map((r) => `<li class="${r.ok ? 'ok' : ''}">${esc(r.text)}</li>`).join(''); };
+  draw(); f.pw.addEventListener('input', draw);
+  document.getElementById('back').addEventListener('click', () => openForm());
+  document.getElementById('show').addEventListener('click', (ev) => { const s = f.pw.type === 'password'; f.pw.type = f.pw2.type = s ? 'text' : 'password'; ev.target.textContent = s ? 'Hide' : 'Show'; });
+  const fail = (m) => { err.textContent = m; err.hidden = false; const b = document.getElementById('go'); b.disabled = false; b.textContent = 'Register'; };
+  let busy = false;
+  f.addEventListener('submit', async (ev) => {
+    ev.preventDefault(); if (busy) return;                          // a double tap makes one account
+    err.hidden = true;
+    const pw = f.pw.value;
+    if (!P.check(pw, who, common).ok) { fail('Choose a password that meets every rule above.'); return; }
+    if (pw !== f.pw2.value) { fail('The two passwords don’t match.'); return; }
+    busy = true;
+    const btn = document.getElementById('go'); btn.disabled = true; btn.textContent = 'Checking…';
+    const seen = await P.breachCount(pw);
+    if (seen > 0) { busy = false; fail(`This password has appeared in ${seen.toLocaleString()} data breaches. Choose a different one.`); return; }
+    const started = Date.now(), email = M.staffEmail(j.ic, j.tenantId, j.gen);
+    let cred;
+    try { cred = await Auth.createUserWithEmailAndPassword(auth, email, pw); }
+    catch (e) {
+      // Already registered (or any other refusal): the same words as every other mismatch.
+      busy = false; await steady(started);
+      if (e?.code === 'auth/network-request-failed') { fail('You seem to be offline. Try again.'); return; }
+      openForm(T.noMatch); return;
+    }
+    try {
+      await FS.setDoc(FS.doc(db, `users/${cred.user.uid}`), { email, name: 'Waiting for approval', tenantId: j.tenantId, code: j.code, roles: ['employee'], empId: '', pending: true, via: 'open', joinedAt: FS.serverTimestamp() });
+    } catch (e) {
+      try { await cred.user.delete(); } catch (x) { /* signed out below */ }
+      await Auth.signOut(auth).catch(() => {});
+      busy = false; await steady(started);
+      openForm(e?.code === 'permission-denied' ? T.noMatch : 'Something went wrong. Check your connection and try again.'); return;
+    }
+    await Auth.signOut(auth).catch(() => {});
+    page('Thank you', '', `<p class="ac-ok" role="status">Your registration is sent to HR. Once HR has checked it, sign in with company code <b>${esc(j.code)}</b>, your IC and this password.</p><a class="btn login-submit" href="/app">Go to sign in</a>`);
+  });
+}
+
 async function start() {
   if (!window.ALLURUS_FIREBASE?.apiKey) { problem('Not available here', 'Joining needs the Allurus cloud.'); return; }
+  if (!secret) { openForm(); return; }
   const snap = secret.length >= 24 ? await FS.getDoc(FS.doc(db, `joinLinks/${secret}`)).catch(() => null) : null;
   if (!snap?.exists()) { problem('This link doesn’t work', 'It may have been replaced by a newer one. Ask HR to send you a new join link.'); return; }
   const link = snap.data();

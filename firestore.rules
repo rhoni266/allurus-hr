@@ -26,7 +26,8 @@ service cloud.firestore {
     function hasProfile() { return signedIn() && exists(userDoc()); }
     function me() { return get(userDoc()).data; }
     // A disabled person (users/{uid}.disabled, set by an admin) is no longer a member: blocked at once.
-    function member(t) { return hasProfile() && me().tenantId == t && me().get('disabled', false) != true; }
+    // Someone who registered on the open join page is "pending" until HR approves them: not a member yet.
+    function member(t) { return hasProfile() && me().tenantId == t && me().get('disabled', false) != true && me().get('pending', false) != true; }
     function admin(t) { return member(t) && ('admin' in me().roles); }
     function myEmail() { return request.auth.token.email.lower(); }
 
@@ -146,7 +147,7 @@ service cloud.firestore {
       allow create: if signedIn() && request.auth.uid == uid && !hasProfile()
         && request.resource.data.email == myEmail()
         && !('disabled' in request.resource.data)
-        && (staffJoin() || verified() && (
+        && (staffJoin() || openJoin() || verified() && (
           (exists(/databases/$(database)/documents/invites/$(myEmail()))
             && inviteFor(myEmail()).expiresAt is timestamp && inviteFor(myEmail()).expiresAt > request.time
             && inviteFor(myEmail()).tenantId == request.resource.data.tenantId
@@ -161,8 +162,13 @@ service cloud.firestore {
         ));
       // Admins with the settings area change someone else's access in their company, or disable them; nobody
       // changes their own.
+      // Approving someone from the open join page: pending goes to false (never back on) and their employee is set
+      // then, once only.
       allow update: if signedIn() && request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings')
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole', 'pending', 'empId'])
+        && request.resource.data.get('pending', false) is bool
+        && (request.resource.data.get('pending', false) == false || resource.data.get('pending', false) == true)
+        && (request.resource.data.empId == resource.data.empId || resource.data.get('pending', false) == true)
         && request.resource.data.get('posRole', '') in ['', 'manager', 'cashier', 'waiter', 'kitchen']
         && request.resource.data.get('disabled', false) is bool
         && validRoles(request.resource.data) && grantable(request.resource.data) && grantable(resource.data);
@@ -202,6 +208,23 @@ service cloud.firestore {
         && get(key).data.expiresAt > request.time
         && d.empId == get(key).data.empId && d.roles == ['employee'] && !('perms' in d) && d.via == 'ic';
     }
+    // The open join page (allurus.my/join, no link): company code + IC + password, while HR has Open registration
+    // on. The profile is pending (sees nothing) with no employee until HR approves it in Team access. The
+    // generation must be the current one for that IC (1 if HR never invited it), so after "This is not them" the
+    // impostor's account can't be used and the real person can register again.
+    function openJoin() {
+      let e = myEmail();
+      let p = e.split('@')[0].split('[.]');
+      let d = request.resource.data;
+      let code = /databases/$(database)/documents/companyCodes/$(d.get('code', '-'));
+      let key = /databases/$(database)/documents/staffKeys/$(d.tenantId + '~' + p[0]);
+      return e.matches('[0-9]{12}[.][a-z0-9_-]+[.]g[0-9]{1,4}@staff[.]allurus[.]invalid')
+        && d.tenantId is string && d.tenantId.lower() == p[1] && d.code is string && exists(code)
+        && get(code).data.tenantId == d.tenantId && get(code).data.get('openUntil', null) is timestamp
+        && get(code).data.openUntil > request.time
+        && (exists(key) ? get(key).data.gen : 1) == int(p[2].replace('g', ''))
+        && d.pending == true && d.empId == '' && d.roles == ['employee'] && !('perms' in d) && d.via == 'open';
+    }
     function staffDoc(t) {
       return request.resource.data.tenantId == t && hasArea(t, 'settings');
     }
@@ -230,11 +253,18 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['tenantId', 'company', 'code', 'gen', 'empId', 'name', 'expiresAt']) && validExpiry();
       allow delete: if hasArea(resource.data.tenantId, 'settings');
     }
-    // A short company code typed at IC sign-in, pointing to the company.
+    // A short company code typed at IC sign-in, pointing to the company. openUntil: the open join page works
+    // until then.
     match /companyCodes/{code} {
       allow get: if true;
       allow create: if staffDoc(request.resource.data.tenantId) && code.matches('[a-z0-9]{3,12}')
         && request.resource.data.keys().hasOnly(['tenantId']);
+      // HR turns Open registration on (at most 31 days ahead) or off (openUntil null), and sets the name shown.
+      allow update: if staffDoc(resource.data.tenantId) && request.resource.data.tenantId == resource.data.tenantId
+        && request.resource.data.keys().hasOnly(['tenantId', 'openUntil', 'company'])
+        && (request.resource.data.get('openUntil', null) == null || (request.resource.data.openUntil is timestamp
+          && request.resource.data.openUntil < request.time + duration.value(31, 'd')))
+        && shortText(request.resource.data.get('company', ''), 120);
       allow delete: if hasArea(resource.data.tenantId, 'settings');
     }
 
