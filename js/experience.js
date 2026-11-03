@@ -367,7 +367,7 @@ window.AllurusUX = (function () {
     ctx.routes().forEach((rt) => items.push({ key: 'page:' + rt.id, group: 'Go to', label: rt.label, sub: rt.group, icon: rt.icon, run: () => go(rt.id) }));
     ROLE_ACTIONS.filter((a) => (a.roles.includes('*') || a.roles.includes(r)) && (!a.when || a.when())).forEach((a) => items.push({ key: 'act:' + a.label, group: 'Actions', label: a.label, icon: a.icon, keywords: a.keywords, run: a.run }));
     ctx.state.session.roles.filter((x) => x !== r).forEach((x) => items.push({ key: 'role:' + x, group: 'Switch view', label: `Switch to ${ctx.ROLES[x].label} view`, icon: 'people', run: () => ctx.switchRole(x) }));
-    if (r === 'admin' || r === 'employee') ctx.activeEmployees().forEach((e) => items.push({ key: 'person:' + e.id, group: 'People', label: ctx.fullName(e), sub: e.role, person: e, keywords: `${e.email} ${e.role}`, run: () => (r === 'admin' ? ctx.openProfile(e.id) : go('directory')) }));
+    if (r === 'admin' || r === 'employee') ctx.activeEmployees().forEach((e) => items.push({ key: 'person:' + e.id, group: 'People', label: ctx.fullName(e), sub: e.role, person: e, keywords: `${e.email || ''} ${e.role || ''}`, run: () => (r === 'admin' ? ctx.openProfile(e.id) : go('directory')) }));
     return items;
   }
   function score(q, s) {

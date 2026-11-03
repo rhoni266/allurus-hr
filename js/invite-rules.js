@@ -19,5 +19,14 @@ window.AllurusInvite = (function () {
   const usable = (invite, now = Date.now()) => !!invite && ms(invite.expiresAt) != null && ms(invite.expiresAt) > ms(now);
   // The company code in the activation link: the tenant id, which is not secret (it identifies, never authorises).
   const link = (origin, tenantId) => `${origin}/activate?c=${encodeURIComponent(tenantId)}`;
-  return { DAYS, status, usable, expiry, link, ms, LABEL };
+  // A work email is optional. When given it must look like an email and belong to nobody else in the company;
+  // two people with no email are fine. Returns the problem in words, or ''.
+  function emailProblem(email, employees = [], selfId = '') {
+    const e = String(email || '').trim().toLowerCase();
+    if (!e) return '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return `“${String(email).trim()}” isn’t a valid email.`;
+    const other = employees.find((x) => x.id !== selfId && String(x.email || '').trim().toLowerCase() === e);
+    return other ? `${e} already belongs to ${`${other.first || ''} ${other.last || ''}`.trim() || 'someone else'}.` : '';
+  }
+  return { DAYS, status, usable, expiry, link, ms, LABEL, emailProblem };
 })();

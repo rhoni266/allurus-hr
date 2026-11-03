@@ -27,6 +27,16 @@ test('every type builds an in-app message and an email', () => {
   assert.equal(N.build('reminder.contract', { who: 'Samuel A', date: '2026-11-18', left: 30 }).title, 'Samuel A’s contract ends in 30 days');
 });
 
+test('a person with no email gets in-app notices only, and no email is queued', () => {
+  const out = N.deliver('request.approved', { kind: 'claim', summary: 'RM 10', by: 'Noah' }, [
+    { id: 'e1', email: '', first: 'Ali', prefs: {} },
+    { id: 'e2', first: 'Siti', prefs: { requests: 'email' } },          // email only, but no email: shown in the app
+    { id: 'e3', email: 'b@x.my', first: 'Bo', prefs: {} },
+  ], { ids });
+  assert.deepEqual(Array.from(out.notifications, (x) => x.to), ['e1', 'e2', 'e3']);
+  assert.deepEqual(Array.from(out.emails, (x) => x.toId), ['e3']);
+});
+
 test('channel preferences: both, in-app, email, off, and defaults', () => {
   const d = N.defaultPrefs();
   assert.equal(d.requests, 'both');

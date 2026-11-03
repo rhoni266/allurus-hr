@@ -152,7 +152,7 @@ window.AllurusNotify = (function () {
     if (!e) return '';
     const p = { ...N.defaultPrefs(), ...(e.notifyPrefs || {}) };
     const perm = canPush() ? Notification.permission : 'unsupported';
-    return `<div class="card" id="nt-prefs"><div class="card-head"><h3>Notifications</h3><span class="hint">${esc(e.email)}</span></div>
+    return `<div class="card" id="nt-prefs"><div class="card-head"><h3>Notifications</h3><span class="hint">${esc(e.email || 'No email: notices appear in the app only')}</span></div>
       ${Object.entries(N.CATEGORIES).map(([k, l]) => `<div class="settings-row"><div><div class="label"><label for="ntp-${k}">${l}</label></div></div><select class="select" id="ntp-${k}" data-ntp="${k}" style="width:auto">${Object.entries(N.CHANNELS).map(([v, t]) => `<option value="${v}" ${p[k] === v ? 'selected' : ''}>${t}</option>`).join('')}</select></div>`).join('')}
       <div class="settings-row"><div><div class="label">Browser notifications</div><div class="desc">${perm === 'granted' ? 'On. New notifications pop up while Allurus is open.' : perm === 'denied' ? 'Blocked in this browser. Allow notifications for this site in your browser settings.' : perm === 'unsupported' ? 'This browser can’t show notifications.' : 'Pop up new notifications while Allurus is open in a tab.'}</div></div>${perm === 'default' ? '<button class="btn" data-act="nt-push">Turn on</button>' : perm === 'granted' ? '<button class="btn btn-ghost" data-act="nt-test">Send a test</button>' : ''}</div>
       <p class="faint" style="font-size:12.5px">Emails are queued now and sent once your company connects an email service.</p></div>`;

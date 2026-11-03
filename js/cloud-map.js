@@ -264,18 +264,26 @@
     return f;
   }
   function payrollFrom(fields) { const p = {}; Object.keys(fields || {}).forEach((m) => { p[m] = JSON.parse(fields[m]); }); return p; }
+  // Tax reliefs and tax profiles are kept by employee id. Older copies were kept by email: read (and copied to the
+  // id, leaving the old one in place) until they are removed.
+  const pick = (map, empId, email) => (map?.[empId] !== undefined ? map[empId] : email ? map?.[email] : undefined);
+  function personal(map, empId, email, blank) {
+    if (map[empId] === undefined) map[empId] = email && map[email] !== undefined ? JSON.parse(JSON.stringify(map[email])) : blank;
+    return map[empId];
+  }
   function personalFields(state, empId, email) {
     const f = {};
     if (state.plans && state.plans[empId] !== undefined) f.plan = stable(state.plans[empId]);
-    if (email && state.reliefs && state.reliefs[email] !== undefined) f.reliefs = stable(state.reliefs[email]);
-    if (email && state.taxProfiles && state.taxProfiles[email] !== undefined) f.tax = stable(state.taxProfiles[email]);
+    const rel = pick(state.reliefs, empId, email), tax = pick(state.taxProfiles, empId, email);
+    if (rel !== undefined) f.reliefs = stable(rel);
+    if (tax !== undefined) f.tax = stable(tax);
     return f;
   }
-  function applyPersonal(state, fields, empId, email) {
+  function applyPersonal(state, fields, empId) {
     state.plans = { ...(state.plans || {}) }; state.reliefs = { ...(state.reliefs || {}) }; state.taxProfiles = { ...(state.taxProfiles || {}) };
     if (fields.plan !== undefined) state.plans[empId] = JSON.parse(fields.plan);
-    if (email && fields.reliefs !== undefined) state.reliefs[email] = JSON.parse(fields.reliefs);
-    if (email && fields.tax !== undefined) state.taxProfiles[email] = JSON.parse(fields.tax);
+    if (fields.reliefs !== undefined) state.reliefs[empId] = JSON.parse(fields.reliefs);
+    if (fields.tax !== undefined) state.taxProfiles[empId] = JSON.parse(fields.tax);
   }
 
   // ---------- Merging ----------
@@ -329,7 +337,7 @@
   root.AllurusCloudMap = {
     PAYROLL, WRITE_AREA, TALENT, OWNED, ownerOf, ownedAreas, isAdminRead, isAdminWrite, readClass, canWrite, writeArea, readable, driverOf, isOps, SPLIT, seesPeople, seesPayroll, has, DIRECTORY_FIELDS, SELF_FIELDS, MARK, BLOB_MAX,
     stable, blobId, extract, restore, enc, dec, bucketsOf, applyBucket, arrayFrom, personFields, personFrom, directoryEntry, directoryFields, directoryFrom,
-    employeesFor, payslipFields, payrollFrom, personalFields, applyPersonal, merge3, diff, sameFields, docBytes,
+    employeesFor, payslipFields, payrollFrom, personal, personalFields, applyPersonal, merge3, diff, sameFields, docBytes,
     STAFF_HOST, icDigits, validIc, staffEmail, isStaffEmail, staffKey, companyCode, joinSecret,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

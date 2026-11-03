@@ -197,8 +197,24 @@ test('personal plans and reliefs round-trip for their owner only', () => {
   const f = M.personalFields(ws, 'e2', 'daniel.lim@serimaju.com.my');
   const out = {}; M.applyPersonal(out, f, 'e2', 'daniel.lim@serimaju.com.my');
   assert.deepEqual(out.plans.e2, ws.plans.e2);
-  assert.deepEqual(out.reliefs['daniel.lim@serimaju.com.my'], ws.reliefs['daniel.lim@serimaju.com.my']);
+  // The old email-keyed copy is read, and comes back kept by employee id.
+  assert.deepEqual(out.reliefs.e2, ws.reliefs['daniel.lim@serimaju.com.my']);
   assert.equal(out.reliefs['aisyah.rahman@serimaju.com.my'], undefined);
+});
+
+test('reliefs and tax profiles are kept by employee id, so people with no email have them too', () => {
+  const ws = { reliefs: { e9: [{ id: 'r1', claim: 100 }] }, taxProfiles: { e9: { 2026: { epf: 1 } } } };
+  const out = {}; M.applyPersonal(out, M.personalFields(ws, 'e9', ''), 'e9');
+  assert.deepEqual(out.reliefs.e9, ws.reliefs.e9);
+  assert.deepEqual(out.taxProfiles.e9, ws.taxProfiles.e9);
+  // The id copy wins over an older email copy; with neither, a blank one is made under the id.
+  const both = { e1: ['new'], 'a@x.my': ['old'] };
+  assert.deepEqual(M.personal(both, 'e1', 'a@x.my', []), ['new']);
+  const old = { 'a@x.my': ['old'] };
+  assert.deepEqual(M.personal(old, 'e1', 'a@x.my', []), ['old']);
+  assert.deepEqual(old['a@x.my'], ['old']);                     // the old copy is kept
+  const none = {}; M.personal(none, 'e5', '', []).push('x');
+  assert.deepEqual(none, { e5: ['x'] });
 });
 
 // ---------- Operations (the Suria Enterprise demo) ----------

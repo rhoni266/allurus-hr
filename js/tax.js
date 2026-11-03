@@ -225,8 +225,10 @@ window.AllurusTax = (function () {
     }
 
     // ----- Personal: Tax reliefs -----
-    const key = () => ctx.account()?.email || 'me';
-    const myList = () => { ctx.state.reliefs = ctx.state.reliefs || {}; return (ctx.state.reliefs[key()] = ctx.state.reliefs[key()] || []); };
+    // Kept by employee id, so staff with no email have them too; an older copy kept by email is still read.
+    const key = () => ctx.me()?.id || ctx.account()?.email || 'me';
+    const oldKey = () => ctx.account()?.email || ctx.me()?.email || '';
+    const myList = () => { ctx.state.reliefs = ctx.state.reliefs || {}; return AllurusCloudMap.personal(ctx.state.reliefs, key(), oldKey(), []); };
     VIEWS['my-tax'] = () => {
       const list = claims(myList(), tui.ryear);
       const usedBy = (id) => list.filter((x) => x.cat === id).reduce((s, x) => s + x.claim, 0);
@@ -261,7 +263,7 @@ window.AllurusTax = (function () {
     // ----- BE form helper: pulls income and PCB from this person's paid payslips -----
     const profile = (year) => {
       ctx.state.taxProfiles = ctx.state.taxProfiles || {};
-      const p = (ctx.state.taxProfiles[key()] = ctx.state.taxProfiles[key()] || {});
+      const p = AllurusCloudMap.personal(ctx.state.taxProfiles, key(), oldKey(), {});
       return (p[year] = p[year] || { epf: null });
     };
     function beFigures(list) {

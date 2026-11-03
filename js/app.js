@@ -898,7 +898,7 @@
     const list = state.employees.filter((e) => {
       if (ui.empDept !== 'all' && e.dept !== ui.empDept) return false;
       if (ui.empStatus !== 'all' && empStatus(e) !== ui.empStatus) return false;
-      return !q || `${fullName(e)} ${e.email} ${e.role}`.toLowerCase().includes(q);
+      return !q || `${fullName(e)} ${e.email || ''} ${e.role || ''}`.toLowerCase().includes(q);
     }).sort((a, b) => a.first.localeCompare(b.first));
     const acc = teamAccess.on();
     return `
@@ -942,7 +942,7 @@
     return `<div class="form-grid">
       <div class="field"><label for="f-first">First name</label><input class="input" id="f-first" name="first" required value="${esc(e.first)}"></div>
       <div class="field"><label for="f-last">Last name</label><input class="input" id="f-last" name="last" required value="${esc(e.last)}"></div>
-      <div class="field"><label for="f-email">Work email</label><input class="input" id="f-email" name="email" type="email" required value="${esc(e.email)}"></div>
+      <div class="field"><label for="f-email">Work email <span class="faint">(optional)</span></label><input class="input" id="f-email" name="email" type="email" value="${esc(e.email || '')}"></div>
       <div class="field"><label for="f-phone">Phone</label><input class="input" id="f-phone" name="phone" value="${esc(e.phone)}"></div>
       <div class="field"><label for="f-role">Job title</label><input class="input" id="f-role" name="role" required value="${esc(e.role)}"></div>
       <div class="field"><label for="f-dept">Department</label><select class="select" id="f-dept" name="dept">${opt(state.departments.map((d) => [d.id, d.name]), e.dept)}</select></div>
@@ -969,6 +969,9 @@
         d.salary = Number(d.salary) || 0;
         d.married = d.married === 'yes';
         if ('zakat' in d) d.zakat = Math.max(0, Number(d.zakat) || 0);
+        d.email = String(d.email || '').trim().toLowerCase();
+        const emailErr = AllurusInvite.emailProblem(d.email, state.employees, id);
+        if (emailErr) { const el = $('#f-email'); el.setAttribute('aria-invalid', 'true'); el.closest('.field').insertAdjacentHTML('beforeend', `<span class="field-error">${esc(emailErr)}</span>`); el.focus(); toast(emailErr, 'error'); return false; }
         if (!docsApi.validateEmployee(d, $('#overlay-root form'))) return false;
         if (id) {
           const before = { ...emp(id) };
@@ -1018,7 +1021,7 @@
         <div id="del-confirm"></div>
         ${hrApi.tabBar(e, 'summary')}
       </div>
-      <div class="drawer-section"><h4>Contact</h4><dl class="kv"><dt>Email</dt><dd>${esc(e.email)}</dd><dt>Phone</dt><dd>${esc(e.phone || '—')}</dd><dt>Location</dt><dd>${esc(e.location || '—')}</dd></dl></div>
+      <div class="drawer-section"><h4>Contact</h4><dl class="kv"><dt>Email</dt><dd>${e.email ? esc(e.email) : '<span class="faint">No email</span>'}</dd><dt>Phone</dt><dd>${esc(e.phone || '—')}</dd><dt>Location</dt><dd>${esc(e.location || '—')}</dd></dl></div>
       <div class="drawer-section"><h4>Employment</h4><dl class="kv">
         <dt>Type</dt><dd>${esc(e.type)}</dd><dt>Manager</dt><dd>${mgr ? esc(fullName(mgr)) : '—'}</dd>
         <dt>Start date</dt><dd>${U.fmtDate(e.start)}</dd><dt>Date of birth</dt><dd>${U.fmtDate(e.birthday)}</dd>
@@ -1990,7 +1993,7 @@
         <div>
           <div class="card">
             <div style="display:flex;align-items:center;gap:16px;margin-bottom:18px">${avatar(fullName(e), 'lg')}<div><h2 style="font-size:22px">${esc(fullName(e))}</h2><div class="muted">${esc(e.role)}</div><div style="margin-top:6px">${deptTag(e.dept)}</div></div></div>
-            <dl class="kv" style="margin:0"><dt>Work email</dt><dd>${esc(e.email)}</dd><dt>Reports to</dt><dd>${mgr ? esc(fullName(mgr)) : '—'}</dd><dt>Start date</dt><dd>${U.fmtDate(e.start)}</dd><dt>Type</dt><dd>${esc(e.type)}</dd><dt>Location</dt><dd>${esc(e.location || '—')}</dd></dl>
+            <dl class="kv" style="margin:0"><dt>Work email</dt><dd>${esc(e.email || '—')}</dd><dt>Reports to</dt><dd>${mgr ? esc(fullName(mgr)) : '—'}</dd><dt>Start date</dt><dd>${U.fmtDate(e.start)}</dd><dt>Type</dt><dd>${esc(e.type)}</dd><dt>Location</dt><dd>${esc(e.location || '—')}</dd></dl>
           </div>
           <div class="card">
             <div class="card-head"><h3>${esc(r?.cycle || 'Appraisal')}</h3>${r ? `<span class="pill ${({ Completed: 'ok', 'In progress': 'info', 'Not started': '' })[r.status]}">${r.status}</span>` : ''}</div>
@@ -2008,7 +2011,7 @@
     return `
       <div class="page-head"><div><h1>Directory</h1><p class="sub">${activeEmployees().length} people at ${esc(state.settings.company)}.</p></div>
         <input class="input" id="dir-q" type="search" placeholder="Search people or teams" value="${esc(ui.empQuery)}" style="width:min(320px,100%)"></div>
-      <div class="grid g-3">${list.map((e) => `<div class="card" style="display:flex;flex-direction:column;gap:12px">${person(e)}<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">${deptTag(e.dept)}${onLeaveOn(e.id, U.today()) ? '<span class="pill gold">Out today</span>' : ''}</div><div class="muted" style="font-size:13px;overflow-wrap:anywhere">${esc(e.email)} · ${esc(e.location)}</div></div>`).join('')}</div>
+      <div class="grid g-3">${list.map((e) => `<div class="card" style="display:flex;flex-direction:column;gap:12px">${person(e)}<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">${deptTag(e.dept)}${onLeaveOn(e.id, U.today()) ? '<span class="pill gold">Out today</span>' : ''}</div><div class="muted" style="font-size:13px;overflow-wrap:anywhere">${[e.email, e.location].filter(Boolean).map(esc).join(' · ') || '—'}</div></div>`).join('')}</div>
       ${list.length ? '' : '<div class="card empty"><strong>No one found</strong>Try another name or team.</div>'}`;
   };
   AFTER.directory = () => {
@@ -2869,7 +2872,7 @@
     'pay-export': () => {
       const run = state.payroll[ui.payMonth];
       downloadCSV(`payroll-${ui.payMonth}.csv`, [['Employee', 'Email', 'Base', 'Unpaid leave days', 'Unpaid leave deduction', 'Overtime', 'Allowances', 'Bonus', 'Gross', 'EPF (employee)', 'SOCSO (employee)', 'EIS (employee)', 'PCB', 'Zakat', 'Claims reimbursed', 'Net pay', 'EPF (employer)', 'SOCSO (employer)', 'EIS (employer)', 'HRD levy', 'Employer cost'],
-        ...run.items.map((i) => { const e = emp(i.empId); return [fullName(e), e?.email, i.base, i.unpaidDays || 0, i.unpaid || 0, U.round2((i.extraLines || []).filter((l) => l.key === 'ot').reduce((s, l) => s + l.amount, 0)), U.round2((i.extraLines || []).filter((l) => l.key !== 'ot').reduce((s, l) => s + l.amount, 0)), i.bonus, i.gross, i.epf ?? i.benefits, i.socso || 0, i.eis || 0, i.tax, i.zakat || 0, i.claims || 0, i.net, i.erEpf || 0, i.erSocso || 0, i.erEis || 0, i.hrdf || 0, U.round2(i.gross + (i.erCost || 0))]; })]);
+        ...run.items.map((i) => { const e = emp(i.empId); return [fullName(e), e?.email || '', i.base, i.unpaidDays || 0, i.unpaid || 0, U.round2((i.extraLines || []).filter((l) => l.key === 'ot').reduce((s, l) => s + l.amount, 0)), U.round2((i.extraLines || []).filter((l) => l.key !== 'ot').reduce((s, l) => s + l.amount, 0)), i.bonus, i.gross, i.epf ?? i.benefits, i.socso || 0, i.eis || 0, i.tax, i.zakat || 0, i.claims || 0, i.net, i.erEpf || 0, i.erSocso || 0, i.erEis || 0, i.hrdf || 0, U.round2(i.gross + (i.erCost || 0))]; })]);
     },
     'payslip': (id) => openPayslip(id),
     'job-filter': (_, v) => { ui.jobFilter = v; render(); },
@@ -3096,6 +3099,7 @@
   ACTIONS['onboard-hide'] = () => { state.settings.onboardDone = true; commit('Checklist hidden'); };
 
   // ---------- Team access (cloud mode): who can sign in, and as what ----------
+  const NO_EMAIL = 'Add an email, or use a registration link';
   const teamAccess = {
     data: null,
     on: () => CLOUD && can('settings') && !!fire()?.live,
@@ -3196,10 +3200,10 @@
       const people = activeEmployees(), self = fire().profile;
       const rows = people.map((e) => {
         const st = this.status(e), isMe = e.id === self.empId;
-        return `<tr><td>${person(e)}</td><td class="muted">${esc(e.email || 'No email')}</td>
+        return `<tr><td>${person(e)}</td><td class="muted">${e.email ? esc(e.email) : '<span class="faint">No email</span>'}</td>
           <td>${this.badge(e)}</td>
           <td>${isMe ? `<span class="muted">You · ${esc(roleLabel('admin'))}</span>` : `<select class="select" data-acc-role="${e.id}" aria-label="Access for ${esc(fullName(e))}">${this.options(st.template)}</select>`}</td>
-          <td class="r"><div class="row-actions" style="opacity:1">${isMe ? '' : e.email || this.byIc(e) ? this.actions(e) : '<span class="faint">No email or IC</span>'}</div></td></tr>`;
+          <td class="r"><div class="row-actions" style="opacity:1">${isMe ? '' : e.email || this.byIc(e) ? this.actions(e) : `<span class="faint">${NO_EMAIL}</span>`}</div></td></tr>`;
       }).join('');
       const waiting = people.filter((e) => e.email && this.status(e).key === 'none').length;
       el.innerHTML = `<div class="card-head"><h3>Team access</h3>${waiting ? `<button class="btn btn-sm" data-act="acc-invite-all">Invite all ${waiting}</button>` : ''}</div>
@@ -3229,9 +3233,11 @@
     async inviteAll() { this.bulk(activeEmployees().filter((e) => e.email && this.status(e).key === 'none').map((e) => e.id)); },
     // Several at once, after confirming the count.
     bulk(ids) {
-      const list = ids.map(emp).filter((e) => e?.email && ['none', 'invited', 'expired'].includes(this.status(e).key));
-      if (!list.length) { toast('None of those people can be invited: they need a work email and no active account.', 'error'); return; }
-      openModal({ title: 'Send invitations', size: 'sm', submit: `Send to ${list.length}`, body: `<p>Send an invitation email to ${list.length} ${list.length === 1 ? 'employee' : 'employees'}?</p><p class="muted" style="margin-top:8px">${list.slice(0, 8).map((e) => esc(fullName(e))).join(', ')}${list.length > 8 ? ` and ${list.length - 8} more` : ''}.</p>`,
+      const people = ids.map(emp).filter(Boolean), noEmail = people.filter((e) => !e.email);
+      const list = people.filter((e) => e.email && ['none', 'invited', 'expired'].includes(this.status(e).key));
+      const skipped = noEmail.length ? `${noEmail.length} skipped (no email): ${noEmail.slice(0, 5).map((e) => esc(fullName(e))).join(', ')}${noEmail.length > 5 ? '…' : ''}. ${NO_EMAIL}.` : '';
+      if (!list.length) { toast(noEmail.length ? `${noEmail.length === 1 ? 'That person has' : 'Those people have'} no email. ${NO_EMAIL}.` : 'None of those people can be invited: they already have an account.', 'error'); return; }
+      openModal({ title: 'Send invitations', size: 'sm', submit: `Send to ${list.length}`, body: `<p>Send an invitation email to ${list.length} ${list.length === 1 ? 'employee' : 'employees'}?</p><p class="muted" style="margin-top:8px">${list.slice(0, 8).map((e) => esc(fullName(e))).join(', ')}${list.length > 8 ? ` and ${list.length - 8} more` : ''}.</p>${skipped ? `<p class="muted" style="margin-top:8px">${skipped}</p>` : ''}`,
         onSubmit: () => {
           (async () => { let n = 0; for (const e of list) { if (await this.invite(e.id, true)) n++; } toast(`${n} of ${list.length} invitations sent`, n === list.length ? '' : 'error'); ui.empSel = new Set(); await this.refresh(); })();
         } });

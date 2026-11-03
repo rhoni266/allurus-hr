@@ -91,7 +91,8 @@ window.AllurusNotifyRules = (function () {
       seen.add(r.id);
       const m = build(type, { ...data, toFirst: r.first });
       const ch = route(r.prefs, m.cat);
-      if (ch.inApp) notifications.push({ id: `n-${ids()}`, to: r.id, type, cat: m.cat, icon: m.icon, title: m.title, body: m.body, href: m.href, at, read: false, from, key });
+      // No email: anything meant for email shows in the app instead.
+      if (ch.inApp || (ch.email && !r.email)) notifications.push({ id: `n-${ids()}`, to: r.id, type, cat: m.cat, icon: m.icon, title: m.title, body: m.body, href: m.href, at, read: false, from, key });
       if (ch.email && r.email) emails.push({ id: `m-${ids()}`, to: r.email, toId: r.id, type, subject: m.subject, body: m.email, at, status: 'queued', key });
     });
     return { notifications, emails };

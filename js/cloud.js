@@ -551,7 +551,7 @@ const api = {
   // person a one-time sign-in link to allurus.my/activate?c=<company>. Never automatic: an admin presses the button.
   async invite(emp, template = 'employee') {
     const email = lower(emp.email);
-    if (!email) return { error: `${emp.first} has no work email. Add one on their profile first.` };
+    if (!email) return { error: `${emp.first} has no email. Add an email, or use a registration link.` };
     const I = window.AllurusInvite, expiresAt = I.expiry();
     try {
       await setDoc(doc(db, `invites/${email}`), { tenantId: S.profile.tenantId, empId: emp.id, name: `${emp.first} ${emp.last}`.trim(), company: String(app.state.settings?.company || '').slice(0, 120), ...access(template), invitedBy: S.profile.email, invitedAt: serverTimestamp(), sentAt: serverTimestamp(), expiresAt: FS.Timestamp.fromDate(expiresAt) });

@@ -387,7 +387,7 @@ window.AllurusImportRules = (function () {
         if (changes.ic && v.idType) changes.idType = v.idType;
         action = errors.length ? 'error' : Object.keys(changes).length ? 'update' : 'same';
       } else {
-        const need = [['name', 'Full name'], ['email', 'Work email'], ['role', 'Job title'], ['start', 'Start date']].filter(([k]) => !v[k]).map(([, l]) => l);
+        const need = [['name', 'Full name'], ['role', 'Job title'], ['start', 'Start date']].filter(([k]) => !v[k]).map(([, l]) => l);
         if (need.length) errors.push(`Missing ${need.join(', ')}`);
         if (v.salary == null) warnings.push('No salary; set to 0');
         action = errors.length ? 'error' : 'add';

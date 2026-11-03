@@ -55,3 +55,13 @@ test('the activation link carries only the company code, never email, IC or a co
   const l = I.link('https://allurus.my', 'abc123');
   assert.equal(l, 'https://allurus.my/activate?c=abc123');
 });
+
+test('work email is optional: empty is fine (twice), a given one must be valid and unique', () => {
+  const staff = [{ id: 'e1', first: 'Siti', last: 'Aminah', email: 'siti@contoh.my' }, { id: 'e2', first: 'Ali', last: 'B', email: '' }, { id: 'e3', first: 'Bo', last: 'C' }];
+  assert.equal(I.emailProblem('', staff, ''), '');
+  assert.equal(I.emailProblem(undefined, staff, 'e2'), '');
+  assert.match(I.emailProblem('SITI@contoh.my ', staff, ''), /already belongs to Siti Aminah/);
+  assert.equal(I.emailProblem('siti@contoh.my', staff, 'e1'), '');                // their own email on edit
+  assert.match(I.emailProblem('not-an-email', staff, ''), /isn’t a valid email/);
+  assert.equal(I.emailProblem('new@contoh.my', staff, ''), '');
+});
