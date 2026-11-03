@@ -28,5 +28,93 @@ window.AllurusInvite = (function () {
     const other = employees.find((x) => x.id !== selfId && String(x.email || '').trim().toLowerCase() === e);
     return other ? `${e} already belongs to ${`${other.first || ''} ${other.last || ''}`.trim() || 'someone else'}.` : '';
   }
-  return { DAYS, status, usable, expiry, link, ms, LABEL, emailProblem };
+
+  // ---------- Bulk invite by IC (Settings → Team access) ----------
+  // Every word the bulk screens show, in one place so Bahasa Malaysia can be added.
+  const IC_TEXT = {
+    hasEmail: 'Has an email: use Send invitation', noIc: 'IC missing', badIc: 'IC not valid',
+    invited: 'Already invited (link still valid)', joined: 'Already joined', disabled: 'Access turned off',
+    inactive: 'Not an active employee', self: 'That’s you',
+    filters: { all: 'All', none: 'Not invited', invited: 'Link sent', expired: 'Expired', joined: 'Joined' },
+    warn: 'These links let someone join as that person. Send each link only to that person. Close this window when done; links are not shown again. You can make a new link any time.',
+    remind: 'Links last 7 days. Send each link only to that person.',
+  };
+  const validIc = (ic) => /^\d{12}$/.test(String(ic || '').replace(/[\s-]/g, ''));
+  // Who a bulk IC invite would reach. statusOf(e) → { key: none | invited | expired | joined | disabled }.
+  // Expired links get a new one; anyone invited (link still valid), joined or turned off is left alone.
+  function icEligibility(employees, statusOf, meId = '') {
+    const invite = [], skipped = [];
+    const skip = (emp, reason) => skipped.push({ emp, reason });
+    (employees || []).forEach((e) => {
+      if (!e) return;
+      if (e.id === meId) return skip(e, IC_TEXT.self);
+      if (e.status && e.status !== 'Active') return skip(e, IC_TEXT.inactive);
+      if (String(e.email || '').trim()) return skip(e, IC_TEXT.hasEmail);
+      if (!String(e.ic || '').trim()) return skip(e, IC_TEXT.noIc);
+      if (!validIc(e.ic)) return skip(e, IC_TEXT.badIc);
+      const k = statusOf(e)?.key || 'none';
+      if (k === 'none' || k === 'expired') invite.push(e);
+      else skip(e, k === 'invited' ? IC_TEXT.invited : k === 'joined' ? IC_TEXT.joined : IC_TEXT.disabled);
+    });
+    return { invite, skipped };
+  }
+  // The registration tracker: counts of IC staff (no email, valid IC) by status, and "registered" = joined.
+  function icCounts(employees, statusOf) {
+    const c = { total: 0, none: 0, invited: 0, expired: 0, joined: 0, disabled: 0 };
+    (employees || []).forEach((e) => {
+      if (!e || (e.status && e.status !== 'Active') || String(e.email || '').trim() || !validIc(e.ic)) return;
+      const k = statusOf(e)?.key || 'none';
+      c.total++; c[k in c ? k : 'none']++;
+    });
+    return c;
+  }
+  // HR's daily in-app reminder: IC staff whose link was sent more than `days` days ago and not used, or expired.
+  function icReminder(employees, statusOf, now = Date.now(), days = 3) {
+    const late = [], expired = [];
+    (employees || []).forEach((e) => {
+      if (!e || (e.status && e.status !== 'Active') || String(e.email || '').trim() || !validIc(e.ic)) return;
+      const s = statusOf(e) || {};
+      if (s.key === 'expired') expired.push(e);
+      else if (s.key === 'invited' && s.sentAt != null && ms(now) - ms(s.sentAt) > days * 864e5) late.push(e);
+    });
+    return { late, expired, due: late.length + expired.length > 0 };
+  }
+  // "Copy all": one block, a line per person (name, phone, link), with the warning first.
+  const icCopyAll = (rows) => [IC_TEXT.warn, '', ...rows.map((r) => [r.name, r.phone || 'No phone', r.url].join(' · '))].join('\n');
+
+  // Runs a bulk IC invite one person at a time, in order. make(e) → { ok, url, code } or { error }; recheck(e) →
+  // true if the person still needs a link (read just before, so a retry never makes a second one); stop() → true
+  // to cancel between people. A second run while one is going is refused ({ busy: true }), so a double click does
+  // nothing. Links are only returned, never logged.
+  function icBatch() {
+    let running = false;
+    return {
+      get running() { return running; },
+      async run(list, { make, recheck = async () => true, stop = () => false, progress = () => {} } = {}) {
+        if (running) return { busy: true };
+        running = true;
+        const made = [], failed = [], skipped = [];
+        let cancelled = false;
+        try {
+          for (let i = 0; i < list.length; i++) {
+            if (stop()) { cancelled = true; break; }
+            const e = list[i];
+            let still = false;
+            try { still = await recheck(e); } catch (x) { still = false; }
+            if (!still) skipped.push({ emp: e, reason: IC_TEXT.invited });
+            else {
+              let r;
+              try { r = await make(e); } catch (x) { r = { error: 'Couldn’t save the invitation.' }; }
+              if (r?.ok) made.push({ emp: e, url: r.url, code: r.code, expiresAt: r.expiresAt });
+              else failed.push({ emp: e, reason: r?.error || 'Couldn’t save the invitation.' });
+            }
+            progress(i + 1, list.length);
+          }
+        } finally { running = false; }
+        return { made, failed, skipped, cancelled, left: list.length - made.length - failed.length - skipped.length };
+      },
+    };
+  }
+
+  return { DAYS, status, usable, expiry, link, ms, LABEL, emailProblem, IC_TEXT, icEligibility, icCounts, icReminder, icCopyAll, icBatch };
 })();

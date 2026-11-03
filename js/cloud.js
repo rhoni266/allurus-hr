@@ -625,6 +625,12 @@ const api = {
       return { ok: true, url: `${location.origin}/join?k=${link}`, code, expiresAt: expiresAt.toDate() };
     } catch (e) { console.warn('[Allurus cloud] staff invite', e?.code); return { error: e?.code === 'permission-denied' ? 'You need the Settings area to invite people.' : 'Couldn’t save the invitation. Check your connection.' }; }
   },
+  // For a bulk invite: read the invitation fresh, just before. True if they have none or it has expired (so a
+  // retry or a second window never makes a second link for someone whose link still works).
+  async staffNeedsLink(emp) {
+    const s = await getDoc(doc(db, `staffInvites/${M.staffKey(S.profile.tenantId, emp.ic)}`));
+    return !s.exists() || !window.AllurusInvite.usable(s.data());
+  },
   // Reset sign-in: a new generation and link; their old account stops working at once.
   async staffReset(emp, uid) {
     const res = await api.staffInvite(emp, { reset: true });

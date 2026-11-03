@@ -37,6 +37,14 @@ test('a person with no email gets in-app notices only, and no email is queued', 
   assert.deepEqual(Array.from(out.emails, (x) => x.toId), ['e3']);
 });
 
+test('the IC join reminder is in the app only, even for someone who chose email for reminders', () => {
+  const out = N.deliver('reminder.icJoin', { count: 3, late: 2, expired: 1, days: 3 }, [{ id: 'hr', email: 'hr@x.my', first: 'H', prefs: { reminders: 'email' } }], { ids, self: true });
+  assert.equal(out.notifications.length, 1);
+  assert.equal(out.emails.length, 0);
+  assert.equal(out.notifications[0].title, '3 staff haven’t joined yet');
+  assert.match(out.notifications[0].body, /2 links sent over 3 days ago, 1 expired/);
+});
+
 test('channel preferences: both, in-app, email, off, and defaults', () => {
   const d = N.defaultPrefs();
   assert.equal(d.requests, 'both');

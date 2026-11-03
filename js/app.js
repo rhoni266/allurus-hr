@@ -896,6 +896,7 @@
   VIEWS.employees = () => {
     const q = ui.empQuery.toLowerCase();
     const list = state.employees.filter((e) => {
+      if (ui.empOnly && !ui.empOnly.has(e.id)) return false;      // "Fix these first" from a bulk IC invite
       if (ui.empDept !== 'all' && e.dept !== ui.empDept) return false;
       if (ui.empStatus !== 'all' && empStatus(e) !== ui.empStatus) return false;
       return !q || `${fullName(e)} ${e.email || ''} ${e.role || ''}`.toLowerCase().includes(q);
@@ -913,7 +914,8 @@
           <select class="select" id="emp-dept"><option value="all">All departments</option>${state.departments.map((d) => `<option value="${d.id}" ${ui.empDept === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
           <div class="seg" role="group" aria-label="Status">${['all', 'Active', 'On leave', 'Inactive'].map((s) => `<button data-act="emp-status" data-v="${s}" class="${ui.empStatus === s ? 'on' : ''}">${s === 'all' ? 'All' : s}</button>`).join('')}</div>
         </div>
-        ${acc && (ui.empSel || new Set()).size ? `<div class="toolbar" style="background:var(--brand-soft)"><span style="flex:1"><b>${ui.empSel.size}</b> selected</span><button class="btn btn-sm" data-act="emp-sel-none">Clear</button><button class="btn btn-sm btn-primary" data-act="acc-bulk">Send invitations</button></div>` : ''}
+        ${ui.empOnly ? `<div class="toolbar" style="background:var(--warn-soft, var(--brand-soft))"><span style="flex:1">Showing the <b>${ui.empOnly.size}</b> people a bulk IC invite skipped. Add a valid IC (and no email) to invite them by IC.</span><button class="btn btn-sm" data-act="emp-only-clear">Show everyone</button></div>` : ''}
+        ${acc && (ui.empSel || new Set()).size ? `<div class="toolbar" style="background:var(--brand-soft)"><span style="flex:1"><b>${ui.empSel.size}</b> selected</span><button class="btn btn-sm" data-act="emp-sel-none">Clear</button><button class="btn btn-sm" data-act="acc-ic-bulk-sel">Invite selected by IC</button><button class="btn btn-sm btn-primary" data-act="acc-bulk">Send invitations</button></div>` : ''}
         <div class="table-wrap"><table>
           <thead><tr>${acc ? `<th style="width:34px"><input type="checkbox" id="emp-sel-all" aria-label="Select everyone shown" ${list.length && list.every((e) => ui.empSel?.has(e.id)) ? 'checked' : ''}></th>` : ''}<th>Name</th><th class="hide-sm">Department</th><th>Status</th>${acc ? '<th>Sign-in</th>' : ''}<th class="hide-sm">Location</th><th class="hide-sm">Start date</th><th class="r">Salary</th><th></th></tr></thead>
           <tbody>${list.map((e) => `<tr class="clickable" data-act="view-emp" data-id="${e.id}">
@@ -2642,6 +2644,12 @@
     'acc-ic-link': (empId) => teamAccess.icInvite(empId, 'link'),
     'acc-ic-reset': (empId) => teamAccess.icInvite(empId, 'reset'),
     'acc-ic-remove': (empId) => teamAccess.icRemove(empId),
+    'acc-ic-bulk-all': () => teamAccess.icBulk(activeEmployees(), { all: true }),
+    'acc-ic-bulk-expired': () => teamAccess.icBulk(activeEmployees().filter((e) => teamAccess.byIc(e) && teamAccess.status(e).key === 'expired')),
+    'acc-ic-bulk-sel': () => { if (!teamAccess.data) { toast('Still loading who has access. Try again in a moment.', 'error'); teamAccess.load(); return; } teamAccess.icBulk([...(ui.empSel || [])].map(emp).filter(Boolean)); },
+    'acc-ic-filter': (_, v) => { teamAccess.icFilter = v; teamAccess.draw(); },
+    'acc-ic-fix': () => { ui.empOnly = new Set(teamAccess.fixIds || []); closeOverlay(); location.hash = 'employees'; render(); },
+    'emp-only-clear': () => { ui.empOnly = null; render(); },
     'toggle-pw': () => { const i = $('#login-password'), b = $('[data-act="toggle-pw"]'); const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.textContent = show ? 'Hide' : 'Show'; b.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); },
     'logout': () => {
       if (CLOUD) { closeOverlay(); fire()?.signOut().finally(() => { try { localStorage.removeItem(STORE_KEY); } catch (e) { /* storage unavailable */ } location.hash = ''; location.reload(); }); return; }
@@ -3106,7 +3114,14 @@
     async load() {
       try { this.data = await fire().access(); } catch (e) { this.data = { invites: [], users: [] }; }
       try { this.data.staff = await fire().staffInvites(); } catch (e) { this.data.staff = []; }
+      this.remindIc();
       return this.data;
+    },
+    // Once a day, in the app only: HR hears about IC staff whose link went unused for 3 days, or expired.
+    remindIc() {
+      const r = AllurusInvite.icReminder(activeEmployees(), (e) => this.status(e), Date.now(), 3);
+      if (!r.due || !notifyApi) return;
+      notifyApi.event('reminder.icJoin', { count: r.late.length + r.expired.length, late: r.late.length, expired: r.expired.length, days: 3, href: '#settings/users' }, 'hr', { key: `icjoin-${U.today()}`, self: true });
     },
     async mount() {
       const el = $('#team-access'); if (!el || !fire()?.live) return;
@@ -3164,9 +3179,73 @@
       if (how === 'reset') openModal({ title: 'Reset sign-in?', size: 'sm', submit: 'Reset sign-in', body: `<p>${esc(e.first)}’s current password stops working at once. They join again with a new link and choose a new password.</p>`, onSubmit: () => { setTimeout(go, 0); } });
       else await go();
     },
+    // The WhatsApp number (Malaysian 01x → 601x) and message for one person's join link.
+    waOf: (e) => String(e.phone || '').replace(/\D/g, '').replace(/^0/, '60'),
+    joinText: (e, r) => `Hi ${e.first}, join ${state.settings.company} on Allurus: ${r.url}\nYou’ll need your IC number. Afterwards sign in at ${location.origin}/app with company code ${r.code}, your IC and your password.`,
+    // ----- Bulk invite by IC: confirm, make the links one at a time, then show them once -----
+    // all: from "Invite all with IC", where only people with no email and an IC problem are worth listing as
+    // skipped (people with an email use Send invitation; invited or joined people need nothing).
+    icBulk(candidates, { all = false } = {}) {
+      const IT = AllurusInvite.IC_TEXT, me = fire()?.profile?.empId || '';
+      const { invite, skipped } = AllurusInvite.icEligibility(candidates, (e) => this.status(e), me);
+      const skipList = skipped.filter((s) => s.emp.id !== me && (!all || s.reason === IT.noIc || s.reason === IT.badIc));
+      if (!invite.length) { toast(skipList.length ? `Nobody to invite by IC. ${skipList.length} skipped: ${skipList.slice(0, 3).map((s) => `${fullName(s.emp)} (${s.reason})`).join(', ')}${skipList.length > 3 ? '…' : ''}` : 'Nobody to invite by IC.', 'error'); return; }
+      this.fixIds = skipList.map((s) => s.emp.id);
+      const names = invite.slice(0, 8).map((e) => esc(fullName(e))).join(', ') + (invite.length > 8 ? ` and ${invite.length - 8} more` : '');
+      const skippedHtml = skipList.length ? `<details style="margin-top:12px" ${skipList.length <= 5 ? 'open' : ''}><summary><b>Skipped (${skipList.length})</b></summary><ul style="margin:6px 0 0 18px">${skipList.map((s) => `<li>${esc(fullName(s.emp))}: ${esc(s.reason)}</li>`).join('')}</ul>
+          <button type="button" class="link-btn" data-act="acc-ic-fix" style="margin-top:6px">Fix these first</button></details>` : '';
+      openModal({ title: 'Invite by IC', size: 'sm', submit: `Make ${invite.length} link${invite.length === 1 ? '' : 's'}`,
+        body: `<p>Make join links for <b>${invite.length}</b> ${invite.length === 1 ? 'person' : 'people'}?</p><p class="muted" style="margin-top:6px">${names}.</p>${skippedHtml}<p class="muted" style="margin-top:12px">${esc(IT.remind)}</p>`,
+        onSubmit: () => { setTimeout(() => this.icRun(invite, skipList), 0); } });
+    },
+    async icRun(list, skippedBefore = []) {
+      this.batch = this.batch || AllurusInvite.icBatch();
+      if (this.batch.running) { toast('Links are already being made.', 'error'); return; }
+      let stop = false;
+      openModal({ title: 'Making join links', size: 'sm', submit: '', body: `<p id="ic-prog-t" role="status" aria-live="polite">0 of ${list.length}</p>
+        <div style="height:8px;border-radius:99px;background:var(--line, #ddd);overflow:hidden;margin:10px 0"><div id="ic-prog" style="height:100%;width:0;background:var(--brand, #0F766E);transition:width .2s"></div></div>
+        <button type="button" class="btn" id="ic-stop">Cancel</button><p class="muted" style="margin-top:8px">Cancel stops after the person being done now; links already made stay valid.</p>` });
+      $('#ic-stop')?.addEventListener('click', (ev) => { stop = true; ev.target.disabled = true; ev.target.textContent = 'Stopping…'; });
+      const res = await this.batch.run(list, {
+        recheck: (e) => fire().staffNeedsLink(e),
+        make: async (e) => {
+          const r = await fire().staffInvite(e);
+          if (r.ok && r.code && state.settings.staffCode !== r.code) state.settings.staffCode = r.code;
+          log(r.ok ? `Join link made by IC for ${fullName(e)} (bulk)` : `Join link not made for ${fullName(e)} (bulk)`);
+          return r;
+        },
+        stop: () => stop,
+        progress: (i, n) => { const t = $('#ic-prog-t'), b = $('#ic-prog'); if (t) t.textContent = `${i} of ${n}`; if (b) b.style.width = `${Math.round((i / n) * 100)}%`; },
+      });
+      if (res.busy) return;
+      const skippedN = skippedBefore.length + res.skipped.length;
+      log(`Bulk IC invite: ${res.made.length} made, ${skippedN} skipped, ${res.failed.length} failed${res.cancelled ? `, ${res.left} not done (cancelled)` : ''}`);
+      save();
+      this.icResults(res, skippedBefore);
+      await this.load(); if ($('#team-access')) this.draw();
+    },
+    // Shown once, right after the batch. The links live only in this window.
+    icResults(res, skippedBefore) {
+      const IT = AllurusInvite.IC_TEXT, sent = new Set();
+      const rows = res.made.map((m) => ({ id: m.emp.id, name: fullName(m.emp), phone: m.emp.phone || '', url: m.url, wa: this.waOf(m.emp), text: this.joinText(m.emp, m) }));
+      const other = [...skippedBefore, ...res.skipped];
+      const table = rows.map((r, i) => `<tr data-ic-row="${i}"><td>${esc(r.name)}</td><td>${r.phone ? esc(r.phone) : '<span class="faint">No phone</span>'}</td><td data-ic-st>Ready</td>
+          <td class="r" style="white-space:nowrap">${r.wa ? `<a class="btn btn-sm btn-primary" target="_blank" rel="noopener" data-ic-wa="${i}" href="https://wa.me/${r.wa}?text=${encodeURIComponent(r.text)}">Send on WhatsApp</a>` : ''}<button type="button" class="btn btn-sm" data-ic-copy="${i}">Copy link</button></td></tr>`).join('');
+      openModal({ title: 'Join links made', size: 'lg', submit: '', body: `
+        <p class="lock-banner" role="note" style="margin-bottom:12px">${esc(IT.warn)}</p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><b>${res.made.length} made · ${other.length} skipped · ${res.failed.length} failed${res.cancelled ? ` · ${res.left} not done (cancelled)` : ''}</b><span style="flex:1"></span>${rows.length ? '<button type="button" class="btn btn-sm" id="ic-copy-all">Copy all</button>' : ''}</div>
+        ${rows.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Name</th><th>Phone</th><th>Status</th><th></th></tr></thead><tbody>${table}</tbody></table></div>` : ''}
+        ${res.failed.length ? `<p style="margin-top:12px"><b>Failed (${res.failed.length})</b>: ${res.failed.map((f) => `${esc(fullName(f.emp))} (${esc(f.reason)})`).join(', ')}. Try them again from Team access.</p>` : ''}
+        ${other.length ? `<details style="margin-top:12px"><summary><b>Skipped (${other.length})</b></summary><ul style="margin:6px 0 0 18px">${other.map((s) => `<li>${esc(fullName(s.emp))}: ${esc(s.reason)}</li>`).join('')}</ul></details>` : ''}` });
+      const mark = (i) => { sent.add(i); const td = $(`[data-ic-row="${i}"] [data-ic-st]`); if (td) td.innerHTML = '<span class="pill ok">Sent</span>'; };
+      const copy = async (text) => { try { await navigator.clipboard.writeText(text); toast('Copied'); return true; } catch (x) { toast('Couldn’t copy here. Use Send on WhatsApp instead.', 'error'); return false; } };
+      $$('[data-ic-wa]').forEach((a) => a.addEventListener('click', () => mark(+a.dataset.icWa)));
+      $$('[data-ic-copy]').forEach((b) => b.addEventListener('click', async () => { if (await copy(rows[+b.dataset.icCopy].text)) mark(+b.dataset.icCopy); }));
+      $('#ic-copy-all')?.addEventListener('click', () => copy(AllurusInvite.icCopyAll(rows)));
+    },
     showLink(e, r) {
-      const phone = String(e.phone || '').replace(/\D/g, '').replace(/^0/, '60');
-      const text = `Hi ${e.first}, join ${state.settings.company} on Allurus: ${r.url}\nYou’ll need your IC number. Afterwards sign in at ${location.origin}/app with company code ${r.code}, your IC and your password.`;
+      const phone = this.waOf(e);
+      const text = this.joinText(e, r);
       openModal({ title: `Join link for ${fullName(e)}`, size: 'sm', submit: '', body: `<p class="muted">Send this link to ${esc(e.first)} only. It works until ${U.fmtDate(r.expiresAt.toISOString().slice(0, 10))}, and they must type their own IC to use it.</p>
         <div class="field" style="margin-top:12px"><label for="ic-url">Link</label><input class="input" id="ic-url" readonly value="${esc(r.url)}"></div>
         <p style="margin-top:8px">Company code: <b>${esc(r.code)}</b></p>
@@ -3197,7 +3276,16 @@
     },
     draw() {
       const el = $('#team-access'); if (!el) return;
-      const people = activeEmployees(), self = fire().profile;
+      const all = activeEmployees(), self = fire().profile, IT = AllurusInvite.IC_TEXT, of = (e) => this.status(e);
+      // The registration tracker and filter: IC staff (no email, valid IC) by status.
+      const c = AllurusInvite.icCounts(all, of), f = this.icFilter || 'all';
+      const people = f === 'all' ? all : all.filter((e) => this.byIc(e) && this.status(e).key === f);
+      const elig = AllurusInvite.icEligibility(all, of, self.empId).invite;
+      const expiredN = elig.filter((e) => this.status(e).key === 'expired').length;
+      const tracker = c.total ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+          <b>${c.joined} of ${c.total} registered</b><span class="muted">by IC · ${c.none} not invited · ${c.invited} link sent · ${c.expired} expired · ${c.joined} joined</span>
+          <span style="flex:1"></span>${elig.length ? `<button class="btn btn-sm btn-primary" data-act="acc-ic-bulk-all">Invite all with IC (${elig.length})</button>` : ''}${expiredN ? `<button class="btn btn-sm" data-act="acc-ic-bulk-expired">Make new links for expired (${expiredN})</button>` : ''}</div>
+        <div class="seg" role="group" aria-label="Filter by registration" style="margin-bottom:12px">${Object.entries(IT.filters).map(([k, label]) => `<button data-act="acc-ic-filter" data-v="${k}" class="${f === k ? 'on' : ''}" aria-pressed="${f === k}">${esc(label)}${k === 'all' ? '' : ` (${c[k]})`}</button>`).join('')}</div>` : '';
       const rows = people.map((e) => {
         const st = this.status(e), isMe = e.id === self.empId;
         return `<tr><td>${person(e)}</td><td class="muted">${e.email ? esc(e.email) : '<span class="faint">No email</span>'}</td>
@@ -3205,11 +3293,12 @@
           <td>${isMe ? `<span class="muted">You · ${esc(roleLabel('admin'))}</span>` : `<select class="select" data-acc-role="${e.id}" aria-label="Access for ${esc(fullName(e))}">${this.options(st.template)}</select>`}</td>
           <td class="r"><div class="row-actions" style="opacity:1">${isMe ? '' : e.email || this.byIc(e) ? this.actions(e) : `<span class="faint">${NO_EMAIL}</span>`}</div></td></tr>`;
       }).join('');
-      const waiting = people.filter((e) => e.email && this.status(e).key === 'none').length;
+      const waiting = all.filter((e) => e.email && this.status(e).key === 'none').length;
       el.innerHTML = `<div class="card-head"><h3>Team access</h3>${waiting ? `<button class="btn btn-sm" data-act="acc-invite-all">Invite all ${waiting}</button>` : ''}</div>
         <p class="muted" style="margin-bottom:12px">Send someone an invitation and they get an email with a sign-in link to <b>allurus.my/activate</b>, where they create their password. Invitations last ${AllurusInvite.DAYS} days. Everyone gets the employee app; a role adds parts of the company console. Managers need no role: being an approver in the leave settings is enough. Staff with no work email can be invited with their IC: you send them a join link on WhatsApp, and they sign in with the company code, their IC and a password.</p>
         <div class="chips" style="margin-bottom:12px;flex-wrap:wrap">${shownTemplates().map(([, t]) => `<span class="tag" title="${esc(t.desc)}"><b>${esc(t.label)}</b>: ${esc(t.desc)}</span>`).join('')}</div>
-        <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        ${tracker}
+        <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="muted">Nobody here.</td></tr>`}</tbody></table></div>`;
       $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value)));
     },
     // The templates this person may give: only ones within their own areas; Owner only by an Owner.

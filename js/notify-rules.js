@@ -66,6 +66,8 @@ window.AllurusNotifyRules = (function () {
     'reminder.anniversary': { cat: 'reminders', icon: 'star', text: (d) => [d.self ? `Happy ${d.years}-year work anniversary!` : `${d.who} has been with us ${d.years} year${d.years === 1 ? '' : 's'} today`, d.self ? 'Thank you for everything you do.' : 'A good day to say thank you.'] },
     'reminder.statutory': { cat: 'reminders', icon: 'shield', text: (d) => [d.title, d.detail] },
     'reminder.appraisal': { cat: 'reminders', icon: 'trend', text: (d) => [`Your ${d.cycle} appraisal is due ${inDays(d.left)}`, `It is ${d.status.toLowerCase()}. Update your goals by ${fmt(d.date)}.`] },
+    // In the app only (never emailed): IC staff who haven't joined from their link.
+    'reminder.icJoin': { cat: 'reminders', icon: 'people', inAppOnly: true, text: (d) => [`${d.count} staff haven’t joined yet`, `${d.late ? `${d.late} link${d.late === 1 ? '' : 's'} sent over ${d.days} days ago` : ''}${d.late && d.expired ? ', ' : ''}${d.expired ? `${d.expired} expired` : ''}. Open Team access to send new links.`] },
     'reminder.appraisals': { cat: 'reminders', icon: 'trend', text: (d) => [`${d.count} appraisal${d.count === 1 ? ' is' : 's are'} not submitted`, `${d.cycle} appraisals are due ${fmt(d.date)} (${inDays(d.left)}): ${d.names}.`] },
   };
   // The message for an event: in-app title and text, plus an email subject and body.
@@ -92,8 +94,9 @@ window.AllurusNotifyRules = (function () {
       const m = build(type, { ...data, toFirst: r.first });
       const ch = route(r.prefs, m.cat);
       // No email: anything meant for email shows in the app instead.
-      if (ch.inApp || (ch.email && !r.email)) notifications.push({ id: `n-${ids()}`, to: r.id, type, cat: m.cat, icon: m.icon, title: m.title, body: m.body, href: m.href, at, read: false, from, key });
-      if (ch.email && r.email) emails.push({ id: `m-${ids()}`, to: r.email, toId: r.id, type, subject: m.subject, body: m.email, at, status: 'queued', key });
+      const appOnly = !!TYPES[type].inAppOnly;
+      if (ch.inApp || appOnly || (ch.email && !r.email)) notifications.push({ id: `n-${ids()}`, to: r.id, type, cat: m.cat, icon: m.icon, title: m.title, body: m.body, href: m.href, at, read: false, from, key });
+      if (ch.email && r.email && !appOnly) emails.push({ id: `m-${ids()}`, to: r.email, toId: r.id, type, subject: m.subject, body: m.email, at, status: 'queued', key });
     });
     return { notifications, emails };
   }
