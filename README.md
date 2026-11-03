@@ -36,7 +36,7 @@ One login per person, by work email. Everyone has the employee app. A **role tem
 
 The demo password and a walkthrough for each role are in [`docs/demo-accounts.md`](docs/demo-accounts.md). Change it under **Settings → Your account**. Companies that register create their own admin account, and that account gets the Company Admin and Employee views.
 
-> Passwords are stored as SHA-256 hashes, but this is still a front-end demo: the hashes ship inside `js/seed.js`, so anyone can download them and try to guess the password offline, and short passwords fall quickly. Use real server-side authentication before handling real employee data.
+> **Two ways in.** On **allurus.my/app** companies sign in for real with Firebase Authentication (email and password, confirmed email, password rules with a breach check), and their data is in Cloud Firestore behind the rules in `firestore.rules`. The **demo** (`?demo`) runs in the browser only: its sample accounts use SHA-256 hashes shipped in `js/seed.js`, which is fine for sample data and nothing else.
 
 ## Finance & Accounting
 
@@ -361,11 +361,11 @@ Logging in isn't enough on its own, because people can share passwords. Each che
 
 All three can be switched off under **Settings → Check-in location**. Faces are biometric data under Malaysia's PDPA, so the app asks for consent before enrolling a face. A photo or video of the employee held up to the camera can still fool the face check. Stopping that needs a liveness check, such as a server-side service like AWS Rekognition Face Liveness, once there is a backend.
 
-Admins set the zone under **Settings → Check-in location**: paste coordinates from Google Maps or tap **Use my location**, then set the radius. You can also allow remote check-in, which still needs a selfie. Selfies are kept for 30 days.
+Admins set the zone under **Settings → Check-in location**: paste coordinates from Google Maps or tap **Use my location**, then set the radius. You can also allow remote check-in, which still needs a selfie. Selfies are meant to be kept for 30 days; the automatic deletion is **planned** (it needs a scheduled Cloud Function, so the Blaze plan) and doesn't run yet.
 
 GPS and the camera need HTTPS, such as the GitHub Pages site. The claude.ai preview link blocks both, so employees can't check in there.
 
-Clients can **Register company** from the sign-in screen. That creates a new workspace on a 14-day trial, optionally filled with a sample team.
+New companies start a **30-day free trial** in one of two ways: they sign themselves up at **allurus.my/signup** (email confirmed, one trial per mobile number), or Allurus opens the company from **/superadmin** and invites its first admin. In the demo, **Register company** on the sign-in screen makes a sample workspace in the browser only.
 
 ### Fake GPS, offline, kiosk and supervisor check-in
 

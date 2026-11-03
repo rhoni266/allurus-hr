@@ -422,6 +422,44 @@ service cloud.firestore {
         allow update: if nextV() && stamped() && (saveDraft() || markSent() || afterSent() || voided() || noteStatus()) && finOk();
         allow delete: if od().status == 'Draft' && finOk();
       }
+      // ---- Leave requests: one document each (js/leave-store.js) ----
+      // Read by the person, their approvers (approverIds) and HR (time or people area). The person files a pending
+      // request and may cancel it while pending; they are never one of its approvers and can't decide it. An approver
+      // (never the requester) changes only the decision: chain and status. HR may change anything except whose leave
+      // it is, but not decide their own. Needs Cloud Functions (Blaze), not rules: checking approverIds against the
+      // company's approval chains, and that each approver acts only at their own step and in order.
+      match /leaves/{id} {
+        function nd() { return request.resource.data; }
+        function od() { return resource.data; }
+        function emp() { return me().get('empId', ''); }
+        function hrLeave() { return hasArea(t, 'time') || hasArea(t, 'people'); }
+        function stamped() { return nd().updatedBy == request.auth.uid && nd().updatedAt == request.time && nd().v == od().v + 1; }
+        function changed() { return nd().diff(od()).affectedKeys(); }
+        allow read: if member(t) && canRead(t) && (resource.data.empId == emp() || emp() in resource.data.get('approverIds', []) || hrLeave());
+        allow create: if member(t) && working(t) && nd().v == 1 && nd().createdBy == request.auth.uid && nd().approverIds is list && nd().approverIds.size() <= 12
+          && ((nd().empId == emp() && nd().status == 'Pending' && !(emp() in nd().approverIds)) || hrLeave());
+        allow update: if member(t) && working(t) && stamped() && nd().empId == od().empId && (
+          // the person cancels their own pending request
+          (od().empId == emp() && od().status == 'Pending' && nd().status == 'Cancelled' && changed().hasOnly(['status', 'v', 'updatedAt', 'updatedBy']))
+          // an approver decides (never their own request)
+          || (od().empId != emp() && emp() in od().approverIds && od().status == 'Pending' && nd().status in ['Pending', 'Approved', 'Rejected']
+            && changed().hasOnly(['chain', 'status', 'v', 'updatedAt', 'updatedBy']))
+          // HR: anything but whose leave it is; HR doesn't decide their own either
+          || (hrLeave() && (od().empId != emp() || nd().status == od().status || nd().status == 'Cancelled')));
+        allow delete: if hrLeave() && working(t);
+      }
+      // The safe team calendar: who is off and when, nothing more. Every member reads it. Each entry must match its
+      // leave request in the same batch, so nobody can put a colleague on the calendar by hand.
+      match /leaveCal/{id} {
+        function lv() { return getAfter(/databases/$(database)/documents/tenants/$(t)/leaves/$(id)).data; }
+        allow read: if member(t) && canRead(t);
+        allow create, update: if member(t) && working(t)
+          && request.resource.data.keys().hasOnly(['empId', 'from', 'to', 'half', 'status'])
+          && existsAfter(/databases/$(database)/documents/tenants/$(t)/leaves/$(id))
+          && request.resource.data.empId == lv().empId && request.resource.data.from == lv().from && request.resource.data.to == lv().to
+          && request.resource.data.status == lv().status && request.resource.data.half == lv().get('half', '');
+        allow delete: if member(t) && working(t) && !existsAfter(/databases/$(database)/documents/tenants/$(t)/leaves/$(id));
+      }
       // Who did what to which invoice, and when. Added only; never changed or removed.
       match /invoiceAudit/{a} {
         allow read: if hasArea(t, 'finance') && canRead(t);

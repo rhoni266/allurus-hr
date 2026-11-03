@@ -35,7 +35,7 @@ test('every workspace key except the private ones survives the round trip', () =
   const ws = seed();
   const { out } = roundTrip(ws);
   WS_KEYS.filter((k) => !['employees', 'payroll', 'plans'].includes(k)).forEach((k) => {
-    if (ws[k] === undefined) return;
+    if (ws[k] === undefined || k === 'leaves') return;   // leave: one document per request (js/leave-store.js)
     // Invoices travel as one document each (tenants/{t}/invoices, cloud.js), not in the finance buckets.
     const want = k === 'settings' ? { ...ws.settings, theme: undefined } : k === 'finance' ? { ...ws.finance, invoices: undefined } : ws[k];
     // Per-person lists come back grouped by person: compare them by record, not by order.
@@ -46,7 +46,8 @@ test('every workspace key except the private ones survives the round trip', () =
 
 test('payroll and loans need the payroll area, the books the finance area; leave and attendance are for every member', () => {
   const { docs } = roundTrip(seed());
-  assert.equal(docs.leaves.r, 'm');
+  assert.equal(docs.claims.r, 'm');
+  assert.equal(docs.leaves, undefined, 'leave requests are their own documents (tenants/{t}/leaves), checked by the rules');
   assert.equal(docs['finance.invoices'], undefined, 'invoices are their own documents, locked by the rules once sent');
   assert.equal(docs['finance.bills'].r, 'f');
   assert.equal(docs.finance.r, 'f');
@@ -115,15 +116,15 @@ test('equal data always encodes the same, whatever the key order', () => {
 
 test('two people editing different records both keep their change', () => {
   const ws = seed();
-  const base = M.bucketsOf(ws, ['leaves']).leaves.f;
-  const mine = plain(ws); mine.leaves[0].status = 'Approved';
-  const theirs = plain(ws); theirs.leaves[1].reason = 'Family event';
-  const local = M.bucketsOf(mine, ['leaves']).leaves.f, remote = M.bucketsOf(theirs, ['leaves']).leaves.f;
+  const base = M.bucketsOf(ws, ['claims']).claims.f;
+  const mine = plain(ws); mine.claims[0].status = 'Approved';
+  const theirs = plain(ws); theirs.claims[1].reason = 'Family event';
+  const local = M.bucketsOf(mine, ['claims']).claims.f, remote = M.bucketsOf(theirs, ['claims']).claims.f;
   const merged = M.merge3(base, local, remote);
-  const out = {}; M.applyBucket(out, 'leaves', 'a', merged);
-  assert.equal(out.leaves[0].status, 'Approved');
-  assert.equal(out.leaves[1].reason, 'Family event');
-  assert.equal(out.leaves.length, ws.leaves.length);
+  const out = {}; M.applyBucket(out, 'claims', 'a', merged);
+  assert.equal(out.claims[0].status, 'Approved');
+  assert.equal(out.claims[1].reason, 'Family event');
+  assert.equal(out.claims.length, ws.claims.length);
 });
 
 test('a record added at the top elsewhere does not undo my edit to an older one', () => {
@@ -140,29 +141,29 @@ test('a record added at the top elsewhere does not undo my edit to an older one'
 
 test('a record I add and one someone else adds are both kept', () => {
   const ws = seed();
-  const base = M.bucketsOf(ws, ['leaves']).leaves.f;
-  const mine = plain(ws); mine.leaves.push({ id: 'l-mine', empId: 'e2', status: 'Pending' });
-  const theirs = plain(ws); theirs.leaves.push({ id: 'l-theirs', empId: 'e3', status: 'Pending' });
-  const merged = M.merge3(base, M.bucketsOf(mine, ['leaves']).leaves.f, M.bucketsOf(theirs, ['leaves']).leaves.f);
-  const out = {}; M.applyBucket(out, 'leaves', 'a', merged);
-  const ids = out.leaves.map((l) => l.id);
+  const base = M.bucketsOf(ws, ['claims']).claims.f;
+  const mine = plain(ws); mine.claims.push({ id: 'l-mine', empId: 'e2', status: 'Pending' });
+  const theirs = plain(ws); theirs.claims.push({ id: 'l-theirs', empId: 'e3', status: 'Pending' });
+  const merged = M.merge3(base, M.bucketsOf(mine, ['claims']).claims.f, M.bucketsOf(theirs, ['claims']).claims.f);
+  const out = {}; M.applyBucket(out, 'claims', 'a', merged);
+  const ids = out.claims.map((l) => l.id);
   assert.ok(ids.includes('l-mine') && ids.includes('l-theirs'));
 });
 
 test('a delete on the server wins when I had not touched the record', () => {
   const ws = seed();
-  const base = M.bucketsOf(ws, ['leaves']).leaves.f;
-  const theirs = plain(ws); const gone = theirs.leaves.shift().id;
-  const merged = M.merge3(base, base, M.bucketsOf(theirs, ['leaves']).leaves.f);
+  const base = M.bucketsOf(ws, ['claims']).claims.f;
+  const theirs = plain(ws); const gone = theirs.claims.shift().id;
+  const merged = M.merge3(base, base, M.bucketsOf(theirs, ['claims']).claims.f);
   assert.equal(merged[gone], undefined);
 });
 
 test('diff sends only what changed', () => {
   const ws = seed();
-  const base = M.bucketsOf(ws, ['leaves']).leaves.f;
-  const mine = plain(ws); mine.leaves[0].status = 'Rejected';
-  const d = M.diff(base, M.bucketsOf(mine, ['leaves']).leaves.f);
-  assert.deepEqual(plain(Object.keys(d.set)), [String(ws.leaves[0].id)]);
+  const base = M.bucketsOf(ws, ['claims']).claims.f;
+  const mine = plain(ws); mine.claims[0].status = 'Rejected';
+  const d = M.diff(base, M.bucketsOf(mine, ['claims']).claims.f);
+  assert.deepEqual(plain(Object.keys(d.set)), [String(ws.claims[0].id)]);
   assert.equal(d.del.length, 0);
 });
 

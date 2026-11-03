@@ -301,6 +301,7 @@ async function start(profile) {
   if (!profile.viewOnly && acc !== 'full') profile.billingOnly = true;
   await new Promise((ready) => listen(ready));
   if (can('finance')) await listenInvoices();
+  await listenLeaves();
   // Build the workspace from what the server has, on a blank company.
   const ws = app.blankWorkspace();
   ws.plans = {}; ws.reliefs = {}; ws.taxProfiles = {};
@@ -316,6 +317,7 @@ async function start(profile) {
   [...S.base.keys()].forEach(apply);
   ws.employees = employeesFrom();
   if (S.invoices) { ws.finance = ws.finance || {}; ws.finance.invoices = S.invoices; }
+  ws.leaves = leavesNow();
   app.adoptCloud(ws, profile);
   await loadFeatures(profile.tenantId);
   S.live = true;
@@ -357,6 +359,35 @@ function listenInvoices() {
       if (first) { first = false; ready(); return; }
       if (S.live && app.state.finance) { app.state.finance.invoices = S.invoices; app.refresh(); }
     }, (e) => { console.warn('[Allurus cloud] invoices', e.code || e); if (first) { first = false; ready(); } }));
+  });
+}
+// Leave: one document per request (tenants/{t}/leaves) and a safe calendar copy of each (leaveCal). HR (the time or
+// people area) reads every request; anyone else reads their own, the ones they approve, and the calendar copy of
+// the rest (shown as "Off": no type, reason or MC). Written by js/leave-store.js through api.recordWrite.
+const LV = { hr: false, all: new Map(), mine: new Map(), appr: new Map(), cal: new Map() };
+function leaveFrom(d) { const x = d.data({ serverTimestamps: 'estimate' }), o = { id: d.id }; Object.keys(x).forEach((k) => { o[k] = plainTime(x[k]); }); return o; }
+function leavesNow() {
+  if (LV.hr) return [...LV.all.values()];
+  const full = new Map([...LV.mine, ...LV.appr]);
+  const others = [...LV.cal].filter(([id]) => !full.has(id)).map(([id, c]) => ({ id, empId: c.empId, type: 'off', from: c.from, to: c.to, half: c.half || '', status: c.status, days: 0, chain: [], masked: true }));
+  return [...full.values(), ...others];
+}
+function listenLeaves() {
+  const t = T(), emp = S.profile.empId;
+  LV.hr = can('time') || can('people');
+  Object.assign(LV, { all: new Map(), mine: new Map(), appr: new Map(), cal: new Map() });
+  const sources = LV.hr ? [['all', collection(db, `${t}/leaves`)]]
+    : [['mine', query(collection(db, `${t}/leaves`), where('empId', '==', emp))], ['appr', query(collection(db, `${t}/leaves`), where('approverIds', 'array-contains', emp))], ['cal', collection(db, `${t}/leaveCal`)]];
+  return new Promise((ready) => {
+    let pending = sources.length;
+    const done = new Set();
+    sources.forEach(([key, src]) => {
+      S.unsubs.push(onSnapshot(src, (snap) => {
+        LV[key] = new Map(snap.docs.map((d) => [d.id, key === 'cal' ? d.data() : leaveFrom(d)]));
+        if (!done.has(key)) { done.add(key); if (--pending === 0) ready(); return; }
+        if (S.live) { app.state.leaves = leavesNow(); app.refresh(); }
+      }, (e) => { console.warn('[Allurus cloud] leave', key, e.code || e); if (!done.has(key)) { done.add(key); if (--pending === 0) ready(); } }));
+    });
   });
 }
 // Firestore can't store undefined; the store marks "server time" as { __now: true }.
@@ -401,6 +432,19 @@ const api = {
   resolve,
   // One invoice change as one batch: [{ op: 'set' | 'update' | 'delete', path: 'invoices/<id>' | 'invoiceNos/<no>' |
   // 'invoiceAudit/<id>', data }]. Refused by the rules → 'changed' (someone saved or sent it first).
+  // The same for other records kept one document each (leave): photos and files in them (an MC) are stored as
+  // blobs first, so the record holds only a reference, as in the shared lists.
+  async recordWrite(ops) {
+    if (!S.live || S.profile?.viewOnly || S.profile?.billingOnly) return { error: 'failed' };
+    const found = new Map();
+    const out = ops.map((o) => (o.data ? { ...o, data: M.extract(o.data, (id, d) => { if (id) found.set(id, d); else warnOnce('toolarge', 'A photo or file is too large to share (over 1 MB), so only this device has it.'); }) } : o));
+    for (const [id, d] of found) {
+      if (S.sentBlobs.has(id)) continue;
+      try { await setDoc(doc(db, `${T()}/blobs/${id}`), { d, at: serverTimestamp() }); } catch (e) { /* already there: blobs are create-only */ }
+      S.blobs.set(id, d); S.sentBlobs.add(id);
+    }
+    return api.invoiceWrite(out);
+  },
   async invoiceWrite(ops) {
     if (!S.live || S.profile?.viewOnly || S.profile?.billingOnly) return { error: 'failed' };
     const b = writeBatch(db);

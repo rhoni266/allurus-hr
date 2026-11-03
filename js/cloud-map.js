@@ -69,9 +69,10 @@
   const NAMESPACE = new Set(['finance', 'costing', 'ops']);
   // Lists split into one bucket per owner: the list → the record field that names the owner.
   const SPLIT = { 'ops.dos': 'driverId' };
-  // Lists kept as one document per record elsewhere (cloud.js), so the rules can check each one. Invoices:
-  // tenants/{t}/invoices. Their old bucket is kept as a backup and no longer read or written.
-  const OWN_DOCS = new Set(['finance.invoices']);
+  // Lists kept as one document per record elsewhere (cloud.js), so the rules can check each one: invoices
+  // (tenants/{t}/invoices) and leave requests (tenants/{t}/leaves). Their old buckets are kept as a backup and no
+  // longer read or written.
+  const OWN_DOCS = new Set(['finance.invoices', 'leaves']);
   const MONTHLY = new Set(['attendance']);
   // Per-person display choices that must not follow the company around.
   const LOCAL_SETTINGS = new Set(['theme']);
@@ -162,7 +163,7 @@
     const put = (id, t, f) => { out[id] = { t, r: readClass(id), f }; };
     const meta = {};
     keys.forEach((k) => {
-      if (SPECIAL.has(k)) return;
+      if (SPECIAL.has(k) || OWN_DOCS.has(k)) return;
       const v = ws[k];
       if (v === undefined) return;
       if (NAMESPACE.has(k) && isPlain(v)) {

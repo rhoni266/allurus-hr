@@ -11,7 +11,8 @@ window.AllurusLeave = (function () {
   const yearNow = () => +T().slice(0, 4);
   const types = () => cfg().types;
   const UNKNOWN = { id: '', name: 'Leave', color: '#8A8F98', paid: true, days: 0, tiers: [0, 0, 0], includes: [], on: false, calendar: false };
-  const typeOf = (id) => types().find((t) => t.id === id) || { ...UNKNOWN, id, name: id || 'Leave' };
+  // 'off': a colleague's leave from the safe calendar copy (cloud), shown without its type.
+  const typeOf = (id) => types().find((t) => t.id === id) || { ...UNKNOWN, id, name: id === 'off' ? 'Off' : id || 'Leave' };
   const typeName = (id) => typeOf(id).name;
   // Lower-case a type name inside a sentence, but keep names like “Sick (MC)” as they are.
   const lc = (name) => (/[A-Z]{2}/.test(name) ? name : name.toLowerCase());
@@ -158,6 +159,7 @@ window.AllurusLeave = (function () {
         const rec = { id: U.uid('l'), empId: e.id, type: t.id, from: d.from, to: d.to, half, days: c.days, reason: d.reason.trim(), attachment: att, status: 'Pending', created: T(), chain };
         if (!R.nextStep(chain)) { rec.status = 'Approved'; markAttendance(rec); }
         st().leaves.push(rec);
+        ctx.leaveStore?.created(rec);   // cloud: its own document and a calendar copy
         ui.filter = 'Pending';
         const next = R.nextStep(chain);
         if (next) ctx.notify?.request('leave', rec, 'submitted', { summary: `${daysLabel(c.days)} ${lc(t.name)}` });
@@ -261,6 +263,7 @@ window.AllurusLeave = (function () {
     const chain = l.chain?.length ? l.chain : [{ level: 'Final', label: 'HR', approver: actor(), backup: '', status: 'pending' }];
     const r = R.decide(chain, { by: actor(), approve, note, at: T(), actedAs: as });
     l.chain = r.chain; l.status = r.status;
+    ctx.leaveStore?.changed(l, ['chain', 'status']);
     if (r.status === 'Approved') markAttendance(l);
     ctx.closeOverlay();
     const n = ctx.fullName(ctx.emp(l.empId)), next = R.nextStep(l.chain);
@@ -529,7 +532,14 @@ window.AllurusLeave = (function () {
       'lv-review': (id) => openReview(id),
       'approve-leave': (id) => decide(id, true),
       'reject-leave': (id) => decide(id, false),
-      'del-leave': (id) => { const l = st().leaves.find((x) => x.id === id); st().leaves = st().leaves.filter((x) => x.id !== id); ctx.commit(l && l.status === 'Pending' && ctx.role() === 'employee' ? 'Request cancelled' : 'Request deleted'); },
+      // Cancelling your own pending request; HR deletes. In the cloud a cancelled request is kept, marked Cancelled.
+      'del-leave': (id) => {
+        const l = st().leaves.find((x) => x.id === id); if (!l) return;
+        const cancel = l.status === 'Pending' && l.empId === actor();
+        if (cancel && ctx.leaveStore?.live()) { l.status = 'Cancelled'; ctx.leaveStore.changed(l, ['status']); }
+        else { st().leaves = st().leaves.filter((x) => x.id !== id); ctx.leaveStore?.removed(l); }
+        ctx.commit(cancel ? 'Request cancelled' : 'Request deleted');
+      },
       'leave-filter': (_, v) => { ui.filter = v; ctx.render(); },
       'lv-tab': (_, v) => { ui.tab = v; ctx.render(); },
       'lv-open-cal': () => { ui.tab = 'calendar'; ui.calMonth = U.monthKey(T()); if (location.hash !== '#leave') location.hash = 'leave'; else ctx.render(); },

@@ -19,6 +19,8 @@ const company = { name: seed.settings.company, tin: cfg.tin, idType: 'BRN', idNo
 const contactOf = (r) => fin.contacts.find((c) => c.id === r.contactId);
 const inputFor = (inv) => E.fromInvoice(inv, { company, contact: contactOf(inv), original: inv.ref ? fin.invoices.find((x) => x.id === inv.ref) : null });
 const val = (node) => node[0]._;
+// "Today" is the seed's today (the demo data is built from the real date), so these tests never go stale.
+const TODAY = sb.U.today(), days = (n) => sb.U.addDays(TODAY, n);
 
 test('the seeded company and complete customers pass validation; the incomplete one is reported', () => {
   deq(E.partyProblems(company, 'supplier'), []);
@@ -73,7 +75,7 @@ test('builder: the credit note refers to its invoice; tax type follows the rate'
 test('builder: a self-billed bill puts the vendor as supplier and the company as buyer', () => {
   const b = fin.bills.find((x) => x.selfBilled), c = fin.contacts.find((x) => x.id === b.contactId);
   const input = E.fromBill(b, { company, contact: c });
-  deq(E.validate(input, '2026-10-19'), []);
+  deq(E.validate(input, TODAY), []);
   const d = E.build(input).Invoice[0];
   assert.equal(val(d.InvoiceTypeCode), '11');
   assert.equal(val(d.AccountingSupplierParty[0].Party[0].PartyLegalEntity[0].RegistrationName), 'Ahmad Fauzi bin Hassan');
@@ -85,18 +87,18 @@ test('builder: a self-billed bill puts the vendor as supplier and the company as
 test('validation lists each missing mandatory field', () => {
   const inv = fin.invoices.find((i) => i.type === 'invoice' && contactOf(i)?.tin);
   const base = inputFor(inv);
-  const fields = (x) => E.validate(x, '2026-10-19').map((p) => p.field);
+  const fields = (x) => E.validate(x, TODAY).map((p) => p.field);
   deq(fields({ ...base, supplier: { ...company, tin: '', msic: '6201', activity: '' } }), ['supplier.tin', 'supplier.msic', 'supplier.activity']);
   deq(fields({ ...base, supplier: { ...company, tin: '12345' } }), ['supplier.tin']);
   deq(fields({ ...base, buyer: { ...base.buyer, address: { ...base.buyer.address, postcode: '2500', city: '' }, phone: '' } }), ['buyer.address.city', 'buyer.address.postcode', 'buyer.phone']);
   deq(fields({ ...base, no: '', lines: [{ desc: '', qty: 0, price: 10, classification: '022' }] }), ['no', 'lines.0.desc', 'lines.0.qty']);
   deq(fields({ ...base, lines: [] }), ['lines']);
   deq(fields({ ...base, type: 'credit', original: null }), ['original']);
-  deq(fields({ ...base, issue: '2026-10-25' }), ['issue']);
+  deq(fields({ ...base, issue: days(6) }), ['issue']);   // in the future
   // A foreign buyer can use a non-Malaysian postcode and the general TIN.
   deq(fields({ ...base, buyer: { ...base.buyer, tin: E.GENERAL_TIN.foreignBuyer, address: { line1: '1 Raffles Place', city: 'Singapore', postcode: '048616', state: '17', country: 'SGP' } } }), []);
   // Warnings: an old issue date and a note whose invoice has no UUID yet.
-  assert.ok(E.warnings({ ...base, issue: '2026-10-10' }, '2026-10-19').some((w) => w.label === 'Issue date'));
+  assert.ok(E.warnings({ ...base, issue: days(-9) }, TODAY).some((w) => w.label === 'Issue date'));
   assert.ok(E.warnings({ ...base, type: 'credit', original: { no: 'INV-1', uuid: '' } }).some((w) => /UUID/.test(w.label)));
 });
 
@@ -110,10 +112,11 @@ test('cancellation is allowed only for a valid e-Invoice and only within 72 hour
   assert.match(E.canCancel({ status: 'Valid', validatedAt: at }, '2026-10-20T00:00:00.000Z').reason, /credit note/);
   assert.equal(E.canCancel({ status: 'Submitted', validatedAt: '' }, at).ok, false);
   assert.equal(E.canCancel({ status: 'Cancelled', validatedAt: at }, at).reason, 'Already cancelled');
-  // Seeded: the newest valid invoice is still cancellable on 19 October; older ones are not.
+  // Seeded: an hour after the newest validation, that invoice can still be cancelled; the oldest can't.
   const valid = fin.invoices.filter((i) => i.einvoice?.status === 'Valid' && i.type === 'invoice').sort((a, b) => b.einvoice.validatedAt.localeCompare(a.einvoice.validatedAt));
-  assert.equal(E.canCancel(valid[0].einvoice, '2026-10-19T10:00:00.000Z').ok, true);
-  assert.equal(E.canCancel(valid[valid.length - 1].einvoice, '2026-10-19T10:00:00.000Z').ok, false);
+  const hourAfter = new Date(Date.parse(valid[0].einvoice.validatedAt) + 3600e3).toISOString();
+  assert.equal(E.canCancel(valid[0].einvoice, hourAfter).ok, true);
+  assert.equal(E.canCancel(valid[valid.length - 1].einvoice, hourAfter).ok, false);
 });
 
 test('status moves and the stub', async () => {
