@@ -38,7 +38,7 @@ window.AllurusInvite = (function () {
     filters: { all: 'All', none: 'Not registered', invited: 'Link sent', expired: 'Expired', pending: 'Waiting for approval', joined: 'Registered' },
     // The open join page (allurus.my/join): one message for every mismatch, so nobody learns which part was wrong.
     noMatch: 'We could not match these details. Check with HR.', closed: 'Registration is closed. Ask your HR.',
-    joinMessage: 'Join {company} on Allurus: {address}. You will need the company code {code} and your IC number. HR checks each registration before you can use the app. Registration closes on {date}.',
+    joinMessage: 'Join {company} on Allurus: {address}. You will need the company code {code}, the join key HR gave you (if any) and your IC number. HR checks each registration before you can use the app. Registration closes on {date}.',
     warn: 'These links let someone join as that person. Send each link only to that person. Close this window when done; links are not shown again. You can make a new link any time.',
     remind: 'Links last 7 days. Send each link only to that person.',
   };
@@ -82,6 +82,16 @@ window.AllurusInvite = (function () {
     });
     return { late, expired, due: late.length + expired.length > 0 };
   }
+  // A warning for a weak company join key ('' if it looks fine). HR may still keep it after confirming.
+  const WEAK = ['password', 'katalaluan', 'allurus', 'welcome', 'selamat', 'qwerty', 'abc123', 'admin', 'staff', 'pekerja', 'company', 'syarikat', 'join', 'daftar', '123456', '12345678'];
+  function joinKeyWarning(key, company = '') {
+    const k = String(key || '').trim(), low = k.toLowerCase(), co = String(company || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!k) return 'Type a join key.';
+    if (k.length < 8) return 'This key is short (under 8 characters), so it is easy to guess.';
+    if (/^\d+$/.test(k) || /^(.)\1+$/.test(k)) return 'This key is only digits or one repeated character, so it is easy to guess.';
+    if (WEAK.some((w) => low.includes(w)) || (co.length >= 3 && low.replace(/[^a-z0-9]/g, '').includes(co.slice(0, 6)))) return 'This key contains a common word or the company name, so it is easy to guess.';
+    return '';
+  }
   // "Copy all": one block, a line per person (name, phone, link), with the warning first.
   const icCopyAll = (rows) => [IC_TEXT.warn, '', ...rows.map((r) => [r.name, r.phone || 'No phone', r.url].join(' · '))].join('\n');
 
@@ -119,5 +129,5 @@ window.AllurusInvite = (function () {
     };
   }
 
-  return { DAYS, status, usable, expiry, link, ms, LABEL, emailProblem, IC_TEXT, icEligibility, icCounts, icReminder, icCopyAll, icBatch };
+  return { DAYS, status, usable, expiry, link, ms, LABEL, emailProblem, IC_TEXT, icEligibility, icCounts, icReminder, icCopyAll, icBatch, joinKeyWarning };
 })();

@@ -4,7 +4,7 @@ const test = require('node:test');
 const fs = require('fs');
 const path = require('path');
 const { initializeTestEnvironment, assertSucceeds, assertFails } = require('@firebase/rules-unit-testing');
-const { doc, setDoc, getDoc, updateDoc, Timestamp } = require('firebase/firestore');
+const { doc, setDoc, getDoc, updateDoc, deleteDoc, deleteField, Timestamp } = require('firebase/firestore');
 
 let env;
 const T = 'Co1X';
@@ -83,4 +83,35 @@ test('HR opens and closes registration; at most 31 days; others can’t', async 
   const pay = env.authenticatedContext('pay', { email: 'pay@co1.my', email_verified: true }).firestore();
   await assertFails(setDoc(doc(pay, 'companyCodes/co1'), { tenantId: T, openUntil: later(7) }));
   await assertFails(setDoc(doc(env.unauthenticatedContext().firestore(), 'companyCodes/co1'), { tenantId: T, openUntil: later(7) }));
+});
+
+// ---------- The company join key (only its salted hash is stored; nobody can read it) ----------
+const SALT = 'a'.repeat(32), HASH = 'b'.repeat(64);
+const withKey = () => env.withSecurityRulesDisabled((ctx) => setDoc(doc(ctx.firestore(), `joinKeys/${T}`), { salt: SALT, hash: HASH }));
+
+test('with a join key set: the right proof joins; a wrong or missing one is refused', async () => {
+  await withKey();
+  await assertFails(setDoc(doc(staff('s1', mail(IC, 1)), 'users/s1'), prof(mail(IC, 1))));
+  await assertFails(setDoc(doc(staff('s2', mail(IC, 1)), 'users/s2'), prof(mail(IC, 1), { keyProof: 'c'.repeat(64) })));
+  await assertSucceeds(setDoc(doc(staff('s3', mail(IC, 1)), 'users/s3'), prof(mail(IC, 1), { keyProof: HASH })));
+});
+
+test('nobody can read the join key hash, not even HR; only HR with Settings sets or removes it', async () => {
+  await withKey();
+  await assertFails(getDoc(doc(hr(), `joinKeys/${T}`)));
+  await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), `joinKeys/${T}`)));
+  await assertSucceeds(setDoc(doc(hr(), `joinKeys/${T}`), { salt: 'c'.repeat(32), hash: 'd'.repeat(64) }));
+  await assertFails(setDoc(doc(hr(), `joinKeys/${T}`), { salt: 'c'.repeat(32), hash: 'plain-key' }));
+  await assertFails(setDoc(doc(hr(), `joinKeys/${T}`), { salt: 'c'.repeat(32), hash: 'd'.repeat(64), key: 'x' }));
+  const pay = env.authenticatedContext('pay', { email: 'pay@co1.my', email_verified: true }).firestore();
+  await assertFails(setDoc(doc(pay, `joinKeys/${T}`), { salt: 'c'.repeat(32), hash: 'd'.repeat(64) }));
+  await assertFails(setDoc(doc(hr(), 'joinKeys/otherco'), { salt: 'c'.repeat(32), hash: 'd'.repeat(64) }));
+  await assertSucceeds(deleteDoc(doc(hr(), `joinKeys/${T}`)));
+});
+
+test('approving removes the key proof; HR can’t add one to someone', async () => {
+  await withKey();
+  await setDoc(doc(staff('s1', mail(IC, 1)), 'users/s1'), prof(mail(IC, 1), { keyProof: HASH }));
+  await assertSucceeds(updateDoc(doc(hr(), 'users/s1'), { pending: false, empId: 'e7', keyProof: deleteField() }));
+  await assertFails(updateDoc(doc(hr(), 'users/s1'), { keyProof: HASH }));
 });

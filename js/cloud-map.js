@@ -329,6 +329,15 @@
   const staffKey = (tenantId, ic) => `${tenantId}~${icDigits(ic)}`;
   // A short company code typed at IC sign-in: letters of the name, then digits (3 to 12 characters, a-z and 0-9).
   const companyCode = (name, rand = Math.random) => `${String(name || '').toLowerCase().replace(/[^a-z]/g, '').slice(0, 6) || 'co'}${String(Math.floor(rand() * 900) + 100)}`;
+  // The company join key is stored only as sha256(salt + ':' + key) in hex (firestore.rules joinKeys). The same
+  // function runs in HR's browser when the key is set and on the join page when someone types it.
+  const joinKeyNorm = (k) => String(k || '').trim();
+  async function joinKeyHash(salt, key) {
+    const bytes = new TextEncoder().encode(`${salt}:${joinKeyNorm(key)}`);
+    const h = await root.crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(h), (b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  const newSalt = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
   // The join secret: 32 random letters and digits.
   const joinSecret = (bytes) => Array.from(bytes, (b) => 'abcdefghijkmnpqrstuvwxyz23456789'[b % 32]).join('');
   // Rough size of a document in bytes, to stay under Firestore's 1 MiB limit.
@@ -338,6 +347,6 @@
     PAYROLL, WRITE_AREA, TALENT, OWNED, ownerOf, ownedAreas, isAdminRead, isAdminWrite, readClass, canWrite, writeArea, readable, driverOf, isOps, SPLIT, seesPeople, seesPayroll, has, DIRECTORY_FIELDS, SELF_FIELDS, MARK, BLOB_MAX,
     stable, blobId, extract, restore, enc, dec, bucketsOf, applyBucket, arrayFrom, personFields, personFrom, directoryEntry, directoryFields, directoryFrom,
     employeesFor, payslipFields, payrollFrom, personal, personalFields, applyPersonal, merge3, diff, sameFields, docBytes,
-    STAFF_HOST, icDigits, validIc, staffEmail, isStaffEmail, staffKey, companyCode, joinSecret,
+    STAFF_HOST, icDigits, validIc, staffEmail, isStaffEmail, staffKey, companyCode, joinSecret, joinKeyHash, joinKeyNorm, newSalt,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -2652,6 +2652,8 @@
     'acc-open-copy': async () => { try { await navigator.clipboard.writeText(teamAccess.joinMessage()); toast('Join message copied'); } catch (e) { toast('Couldn’t copy here. Use Share on WhatsApp.', 'error'); } },
     'acc-open-wa': () => { window.open(`https://wa.me/?text=${encodeURIComponent(teamAccess.joinMessage())}`, '_blank', 'noopener'); },
     'acc-open-msg': () => teamAccess.editJoinMessage(),
+    'acc-key-set': () => teamAccess.joinKey(),
+    'acc-key-remove': () => teamAccess.removeJoinKey(),
     'acc-open-ok': (uid) => teamAccess.approve(uid),
     'acc-open-no': (uid) => teamAccess.refuse(uid),
     'acc-ic-filter': (_, v) => { teamAccess.icFilter = v; teamAccess.draw(); },
@@ -3185,6 +3187,33 @@
       toast(on ? `Registration is open until ${U.fmtDate(r.until.toISOString().slice(0, 10))}.` : 'Registration is closed. Nobody new can register on the join page.');
       await this.refresh();
     },
+    // The company join key: typed twice, never shown again; only its salted hash is saved. A weak key needs a
+    // second press to confirm.
+    joinKey() {
+      const had = !!this.open?.hasKey;
+      openModal({ title: had ? 'Change join key' : 'Set a join key', size: 'sm', submit: had ? 'Change key' : 'Set key', body: `
+        <p class="muted" style="margin-bottom:10px">Staff type this on the join page, with the company code and their IC. It only opens registration: it isn’t anyone’s password. Share it in the staff group; everyone who sees the chat will know it, so you still approve each registration.</p>
+        <div class="field"><label for="jk1">Join key</label><input class="input" id="jk1" name="k1" type="password" autocomplete="new-password" required></div>
+        <div class="field"><label for="jk2">Type it again</label><input class="input" id="jk2" name="k2" type="password" autocomplete="new-password" required></div>
+        <p class="field-hint" id="jk-warn" role="alert"></p>`,
+        onSubmit: (d) => {
+          const k = AllurusCloudMap.joinKeyNorm(d.k1), warn = AllurusInvite.joinKeyWarning(k, state.settings.company), w = $('#jk-warn');
+          if (k !== AllurusCloudMap.joinKeyNorm(d.k2)) { w.textContent = 'The two keys don’t match.'; return false; }
+          if (warn && w.dataset.ok !== k) { w.dataset.ok = k; w.textContent = `${warn} Press ${had ? 'Change key' : 'Set key'} again to use it anyway.`; return false; }
+          (async () => {
+            const r = await fire().setJoinKey(k);
+            if (r.ok) { if (r.code && state.settings.staffCode !== r.code) state.settings.staffCode = r.code; log(had ? 'Join key changed' : 'Join key set'); save(); }
+            toast(r.ok ? (had ? 'Join key changed. The old one no longer works.' : 'Join key set.') : r.error, r.ok ? '' : 'error');
+            await this.refresh();
+          })();
+        } });
+    },
+    async removeJoinKey() {
+      const r = await fire().removeJoinKey();
+      if (r.ok) { log('Join key removed'); save(); }
+      toast(r.ok ? 'Join key removed.' : r.error, r.ok ? '' : 'error');
+      await this.refresh();
+    },
     joinMessage() {
       const o = this.open || {};
       return (state.settings.joinMessage || AllurusInvite.IC_TEXT.joinMessage).replace(/\{company\}/g, state.settings.company || '').replace(/\{address\}/g, `${location.origin}/join`)
@@ -3354,6 +3383,7 @@
       const joinCard = `<div class="card" style="margin-bottom:12px;padding:14px 16px"><div class="card-head" style="padding:0;margin-bottom:6px"><h3>Company join page</h3>${until ? `<span class="pill ok">Open until ${U.fmtDate(until.toISOString().slice(0, 10))}</span>` : '<span class="pill">Closed</span>'}</div>
           <p class="muted" style="margin-bottom:8px">Share one address in the staff group. Staff with no email type the company code and their IC, then make a password. <b>You approve each one</b> here before they can see anything.</p>
           <p style="margin-bottom:8px">Address: <b>${esc(location.origin)}/join</b>${o.code ? ` · Company code: <b>${esc(o.code)}</b>` : ''}</p>
+          <p style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">Join key: ${o.hasKey ? '<span class="pill ok">Set</span><span class="muted">Nobody can register without it. Change it once everyone has registered.</span><button class="btn btn-sm" data-act="acc-key-set">Change key</button><button class="btn btn-sm btn-ghost" data-act="acc-key-remove">Remove key</button>' : '<span class="pill">Not set</span><span class="muted">Anyone with the code and an IC can register (you still approve each one).</span><button class="btn btn-sm" data-act="acc-key-set">Set a join key</button>'}</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${until ? '<button class="btn btn-sm" data-act="acc-open-off">Close registration now</button>' : '<button class="btn btn-sm btn-primary" data-act="acc-open-on">Open registration for 7 days</button>'}${until ? '<button class="btn btn-sm" data-act="acc-open-copy">Copy join message</button><button class="btn btn-sm" data-act="acc-open-wa">Share on WhatsApp</button><button class="btn btn-sm btn-ghost" data-act="acc-open-msg">Edit message</button>' : ''}</div></div>`;
       const waitingList = this.pending();
       const pendingCard = waitingList.length ? `<div class="card" style="margin-bottom:12px;padding:14px 16px;border-color:var(--warn, #d97706)"><h3 style="margin-bottom:6px">Waiting for approval (${waitingList.length})</h3>

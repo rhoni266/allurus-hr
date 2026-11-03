@@ -165,7 +165,8 @@ service cloud.firestore {
       // Approving someone from the open join page: pending goes to false (never back on) and their employee is set
       // then, once only.
       allow update: if signedIn() && request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings')
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole', 'pending', 'empId'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole', 'pending', 'empId', 'keyProof'])
+        && !('keyProof' in request.resource.data && !('keyProof' in resource.data))
         && request.resource.data.get('pending', false) is bool
         && (request.resource.data.get('pending', false) == false || resource.data.get('pending', false) == true)
         && (request.resource.data.empId == resource.data.empId || resource.data.get('pending', false) == true)
@@ -218,11 +219,14 @@ service cloud.firestore {
       let d = request.resource.data;
       let code = /databases/$(database)/documents/companyCodes/$(d.get('code', '-'));
       let key = /databases/$(database)/documents/staffKeys/$(d.tenantId + '~' + p[0]);
+      // The company's join key, when HR has set one: the salted hash of what the person typed must match.
+      let jk = /databases/$(database)/documents/joinKeys/$(d.tenantId);
       return e.matches('[0-9]{12}[.][a-z0-9_-]+[.]g[0-9]{1,4}@staff[.]allurus[.]invalid')
         && d.tenantId is string && d.tenantId.lower() == p[1] && d.code is string && exists(code)
         && get(code).data.tenantId == d.tenantId && get(code).data.get('openUntil', null) is timestamp
         && get(code).data.openUntil > request.time
         && (exists(key) ? get(key).data.gen : 1) == int(p[2].replace('g', ''))
+        && (!exists(jk) || d.get('keyProof', '') == get(jk).data.hash)
         && d.pending == true && d.empId == '' && d.roles == ['employee'] && !('perms' in d) && d.via == 'open';
     }
     function staffDoc(t) {
@@ -253,6 +257,15 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['tenantId', 'company', 'code', 'gen', 'empId', 'name', 'expiresAt']) && validExpiry();
       allow delete: if hasArea(resource.data.tenantId, 'settings');
     }
+    // The company join key for the open join page: only its salted hash (sha256 of salt + ':' + key, hex). No
+    // browser can read it, not even HR's; the rules compare against it when someone registers (openJoin).
+    match /joinKeys/{t} {
+      allow read: if false;
+      allow create, update: if hasArea(t, 'settings') && request.resource.data.keys().hasOnly(['salt', 'hash'])
+        && request.resource.data.salt is string && request.resource.data.salt.matches('[0-9a-f]{32}')
+        && request.resource.data.hash is string && request.resource.data.hash.matches('[0-9a-f]{64}');
+      allow delete: if hasArea(t, 'settings');
+    }
     // A short company code typed at IC sign-in, pointing to the company. openUntil: the open join page works
     // until then.
     match /companyCodes/{code} {
@@ -261,7 +274,8 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['tenantId']);
       // HR turns Open registration on (at most 31 days ahead) or off (openUntil null), and sets the name shown.
       allow update: if staffDoc(resource.data.tenantId) && request.resource.data.tenantId == resource.data.tenantId
-        && request.resource.data.keys().hasOnly(['tenantId', 'openUntil', 'company'])
+        && request.resource.data.keys().hasOnly(['tenantId', 'openUntil', 'company', 'salt'])
+        && shortText(request.resource.data.get('salt', ''), 64)
         && (request.resource.data.get('openUntil', null) == null || (request.resource.data.openUntil is timestamp
           && request.resource.data.openUntil < request.time + duration.value(31, 'd')))
         && shortText(request.resource.data.get('company', ''), 120);

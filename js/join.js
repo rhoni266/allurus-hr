@@ -30,6 +30,7 @@ function openForm(msg = '') {
   page('Join your company', 'Type the company code from HR and your IC number. HR checks each registration before you can use the app.', `
     <form id="f" novalidate class="login-card" style="padding:0;box-shadow:none;max-width:none" autocomplete="off">
       <div class="field"><label for="code">Company code</label><input class="input" id="code" name="code" autocapitalize="none" autocomplete="off" spellcheck="false" required></div>
+      <div class="field"><label for="jkey">Join key <span class="faint">(if HR gave you one)</span></label><input class="input" id="jkey" name="jkey" type="password" autocomplete="off" autocapitalize="none" spellcheck="false"></div>
       <div class="field"><label for="ic">IC number</label><input class="input" id="ic" name="ic" type="password" inputmode="numeric" autocomplete="off" placeholder="12 digits, no dashes" required aria-describedby="ic-shown"><p class="field-hint" id="ic-shown" aria-live="polite"></p></div>
       <p class="login-error" id="err" role="alert" ${msg ? '' : 'hidden'}>${esc(msg)}</p>
       <button class="btn btn-primary login-submit" type="submit" id="go">Continue</button>
@@ -48,7 +49,13 @@ function openForm(msg = '') {
     const k = await FS.getDoc(FS.doc(db, `staffKeys/${c.data().tenantId}~${ic}`)).catch(() => null);
     const gen = k?.exists() ? Number(k.data().gen) || 1 : 1;
     await steady(started, 600);
-    openPassword({ code, ic, tenantId: c.data().tenantId, company: c.data().company || '', gen });
+    // With a join key set, only its salted hash leaves this page (the rules compare it); a wrong or missing key
+    // gets the same words as any other mismatch, when the registration is saved.
+    const salt = c.data().salt || '', typed = M.joinKeyNorm(f.jkey.value);
+    if (salt && !typed) { await steady(started); openForm(T.noMatch); return; }
+    const keyProof = salt ? await M.joinKeyHash(salt, typed) : '';
+    f.jkey.value = '';
+    openPassword({ code, ic, tenantId: c.data().tenantId, company: c.data().company || '', gen, keyProof });
   });
 }
 async function openPassword(j) {
@@ -89,7 +96,7 @@ async function openPassword(j) {
       openForm(T.noMatch); return;
     }
     try {
-      await FS.setDoc(FS.doc(db, `users/${cred.user.uid}`), { email, name: 'Waiting for approval', tenantId: j.tenantId, code: j.code, roles: ['employee'], empId: '', pending: true, via: 'open', joinedAt: FS.serverTimestamp() });
+      await FS.setDoc(FS.doc(db, `users/${cred.user.uid}`), { email, name: 'Waiting for approval', tenantId: j.tenantId, code: j.code, roles: ['employee'], empId: '', pending: true, via: 'open', ...(j.keyProof ? { keyProof: j.keyProof } : {}), joinedAt: FS.serverTimestamp() });
     } catch (e) {
       try { await cred.user.delete(); } catch (x) { /* signed out below */ }
       await Auth.signOut(auth).catch(() => {});

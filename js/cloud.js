@@ -641,16 +641,40 @@ const api = {
     if (!code) return { error: 'Couldn’t make a company code. Try again.' };
     const until = on ? FS.Timestamp.fromMillis(Date.now() + Math.min(31, Math.max(1, days)) * 864e5 - 60e3) : null;
     try {
-      await setDoc(doc(db, `companyCodes/${code}`), { tenantId: S.profile.tenantId, openUntil: until, company: String(app.state.settings?.company || '').slice(0, 120) });
+      await setDoc(doc(db, `companyCodes/${code}`), { tenantId: S.profile.tenantId, openUntil: until, company: String(app.state.settings?.company || '').slice(0, 120) }, { merge: true });   // keeps the join key's salt
       return { ok: true, code, until: until ? until.toDate() : null };
     } catch (e) { return { error: e?.code === 'permission-denied' ? 'You need the Settings area for this.' : 'Couldn’t save. Check your connection.' }; }
   },
   async openStatus() {
     const code = app.state.settings?.staffCode;
-    if (!code) return { code: '', until: null };
+    if (!code) return { code: '', until: null, hasKey: false };
     const c = await getDoc(doc(db, `companyCodes/${code}`)).catch(() => null);
     const u = c?.exists() ? c.data().openUntil : null;
-    return { code, until: u && u.toMillis() > Date.now() ? u.toDate() : null };
+    return { code, until: u && u.toMillis() > Date.now() ? u.toDate() : null, hasKey: !!(c?.exists() && c.data().salt) };
+  },
+  // The company join key: a new random salt each time, and only the salted hash is saved (joinKeys/{company},
+  // which no browser can read). The salt goes on the public company code so the join page can hash what's typed.
+  async setJoinKey(key) {
+    const code = await api.companyCode();
+    if (!code) return { error: 'Couldn’t make a company code. Try again.' };
+    try {
+      const salt = M.newSalt(crypto.getRandomValues(new Uint8Array(16))), hash = await M.joinKeyHash(salt, key);
+      const b = writeBatch(db);
+      b.set(doc(db, `joinKeys/${S.profile.tenantId}`), { salt, hash });
+      b.set(doc(db, `companyCodes/${code}`), { salt }, { merge: true });
+      await b.commit();
+      return { ok: true, code };
+    } catch (e) { console.warn('[Allurus cloud] join key', e?.code); return { error: e?.code === 'permission-denied' ? 'You need the Settings area for this.' : 'Couldn’t save the key. Check your connection.' }; }
+  },
+  async removeJoinKey() {
+    const code = app.state.settings?.staffCode;
+    try {
+      const b = writeBatch(db);
+      b.delete(doc(db, `joinKeys/${S.profile.tenantId}`));
+      if (code) b.set(doc(db, `companyCodes/${code}`), { salt: deleteField() }, { merge: true });
+      await b.commit();
+      return { ok: true };
+    } catch (e) { return { error: 'Couldn’t remove the key. Check your connection.' }; }
   },
   // Approve someone who registered on the open page as this employee: their profile gets the employee and is no
   // longer pending; the sign-in key is set to their generation; any personal link for that IC stops working.
@@ -659,7 +683,7 @@ const api = {
     try {
       const old = await getDoc(doc(db, `staffInvites/${key}`)).catch(() => null);
       const b = writeBatch(db);
-      b.update(doc(db, `users/${u.uid}`), { pending: false, empId: emp.id });
+      b.update(doc(db, `users/${u.uid}`), { pending: false, empId: emp.id, ...(u.keyProof ? { keyProof: deleteField() } : {}) });
       b.set(doc(db, `staffKeys/${key}`), { tenantId: S.profile.tenantId, gen });
       if (old?.exists()) { if (old.data().link) b.delete(doc(db, `joinLinks/${old.data().link}`)); b.delete(doc(db, `staffInvites/${key}`)); }
       await b.commit();
