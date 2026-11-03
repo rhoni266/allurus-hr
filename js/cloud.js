@@ -704,7 +704,22 @@ const api = {
     if (!code) return { error: 'Couldn’t make a company code. Try again.' };
     const until = on ? FS.Timestamp.fromMillis(Date.now() + Math.min(31, Math.max(1, days)) * 864e5 - 60e3) : null;
     try {
-      await setDoc(doc(db, `companyCodes/${code}`), { tenantId: S.profile.tenantId, openUntil: until, company: String(app.state.settings?.company || '').slice(0, 120) }, { merge: true });   // keeps the join key's salt
+      const b = writeBatch(db);
+      b.set(doc(db, `companyCodes/${code}`), { tenantId: S.profile.tenantId, openUntil: until, company: String(app.state.settings?.company || '').slice(0, 120) }, { merge: true });   // keeps the join key's salt
+      if (on && Array.isArray(app.state.employees)) {
+        app.state.employees.filter((e) => e && e.ic && !String(e.email || '').trim()).forEach((e) => {
+          const ic = M.icDigits(e.ic);
+          if (M.validIc(ic)) {
+            b.set(doc(db, `staffKeys/${S.profile.tenantId}~${ic}`), {
+              tenantId: S.profile.tenantId,
+              gen: 1,
+              empId: e.id,
+              name: `${e.first || ''} ${e.last || ''}`.trim() || 'Staff'
+            }, { merge: true });
+          }
+        });
+      }
+      await b.commit();
       return { ok: true, code, until: until ? until.toDate() : null };
     } catch (e) { return { error: e?.code === 'permission-denied' ? 'You need the Settings area for this.' : 'Couldn’t save. Check your connection.' }; }
   },

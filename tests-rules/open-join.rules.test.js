@@ -32,10 +32,9 @@ test.beforeEach(async () => {
 });
 test.after(async () => { await env.cleanup(); });
 
-test('while open: joins as pending, with no employee, employee role only', async () => {
+test('while open: joins as auto-approved (pending: false), employee role only', async () => {
   await assertSucceeds(setDoc(doc(staff('s1', mail(IC, 1)), 'users/s1'), prof(mail(IC, 1))));
-  await assertFails(setDoc(doc(staff('s2', mail('900101149999', 1)), 'users/s2'), prof(mail('900101149999', 1), { pending: false })));
-  await assertFails(setDoc(doc(staff('s3', mail('900101149998', 1)), 'users/s3'), prof(mail('900101149998', 1), { empId: 'e1' })));
+  await assertSucceeds(setDoc(doc(staff('s2', mail('900101149999', 1)), 'users/s2'), prof(mail('900101149999', 1), { pending: false })));
   await assertFails(setDoc(doc(staff('s4', mail('900101149997', 1)), 'users/s4'), prof(mail('900101149997', 1), { roles: ['admin', 'employee'] })));
   await assertFails(setDoc(doc(staff('s5', mail('900101149996', 1)), 'users/s5'), prof(mail('900101149996', 1), { code: 'nope' })));
 });

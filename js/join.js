@@ -49,7 +49,10 @@ function openForm(msg = '') {
     const until = c.data().openUntil;
     if (!until || until.toMillis() <= Date.now()) { await steady(started); problem('Registration is closed', esc(T.closed)); return; }
     const k = await FS.getDoc(FS.doc(db, `staffKeys/${c.data().tenantId}~${ic}`)).catch(() => null);
-    const gen = k?.exists() ? Number(k.data().gen) || 1 : 1;
+    if (!k?.exists()) { await steady(started); openForm(T.noMatch); return; }
+    const gen = Number(k.data().gen) || 1;
+    const empId = k.data().empId || '';
+    const name = k.data().name || '';
     await steady(started, 600);
     // With a join key set, only its salted hash leaves this page (the rules compare it); a wrong or missing key
     // gets the same words as any other mismatch, when the registration is saved.
@@ -57,7 +60,7 @@ function openForm(msg = '') {
     if (salt && !typed) { await steady(started); openForm(T.noMatch); return; }
     const keyProof = salt ? await M.joinKeyHash(salt, typed) : '';
     f.jkey.value = '';
-    openPassword({ code, ic, phone, tenantId: c.data().tenantId, company: c.data().company || '', gen, keyProof });
+    openPassword({ code, ic, phone, tenantId: c.data().tenantId, company: c.data().company || '', gen, keyProof, empId, name });
   });
 }
 async function openPassword(j) {
@@ -147,12 +150,12 @@ async function openPassword(j) {
     try {
       await FS.setDoc(FS.doc(db, `users/${cred.user.uid}`), {
         email,
-        name: 'Waiting for approval',
+        name: j.name || 'Staff',
         tenantId: j.tenantId,
         code: j.code,
         roles: ['employee'],
-        empId: '',
-        pending: true,
+        empId: j.empId || '',
+        pending: false,
         via: 'open',
         ...(j.phone ? { phone: j.phone } : {}),
         ...(mode === 'pin' ? { authType: 'pin' } : {}),
@@ -165,9 +168,9 @@ async function openPassword(j) {
       busy = false; await steady(started);
       openForm(e?.code === 'permission-denied' ? T.noMatch : 'Something went wrong. Check your connection and try again.'); return;
     }
-    await Auth.signOut(auth).catch(() => {});
     const methodDesc = mode === 'pin' ? 'your 6-digit PIN' : 'this password';
-    page('Thank you', '', `<p class="ac-ok" role="status">Your registration is sent to HR. Once HR has checked it, sign in with company code <b>${esc(j.code)}</b>, your IC and ${methodDesc}.</p><a class="btn login-submit" href="/app">Go to sign in</a>`);
+    page('You’ve joined!', '', `<p class="ac-ok" role="status">Signing you in… Next time use company code <b>${esc(j.code)}</b>, your IC and ${methodDesc}.</p>`);
+    setTimeout(() => location.replace('/app?activated'), 1500);
   });
 }
 

@@ -210,9 +210,7 @@ service cloud.firestore {
         && d.empId == get(key).data.empId && d.roles == ['employee'] && !('perms' in d) && d.via == 'ic';
     }
     // The open join page (allurus.my/join, no link): company code + IC + password, while HR has Open registration
-    // on. The profile is pending (sees nothing) with no employee until HR approves it in Team access. The
-    // generation must be the current one for that IC (1 if HR never invited it), so after "This is not them" the
-    // impostor's account can't be used and the real person can register again.
+    // on. The profile can be auto-approved (pending == false) and linked to their employee record.
     function openJoin() {
       let e = myEmail();
       let p = e.split('@')[0].split('[.]');
@@ -227,7 +225,9 @@ service cloud.firestore {
         && get(code).data.openUntil > request.time
         && (exists(key) ? get(key).data.gen : 1) == int(p[2].replace('g', ''))
         && (!exists(jk) || d.get('keyProof', '') == get(jk).data.hash)
-        && d.pending == true && d.empId == '' && d.roles == ['employee'] && !('perms' in d) && d.via == 'open';
+        && (!exists(key) || !('empId' in get(key).data) || d.empId == get(key).data.empId)
+        && (d.get('pending', false) == false || d.pending == true)
+        && d.roles == ['employee'] && !('perms' in d) && d.via == 'open';
     }
     function staffDoc(t) {
       return request.resource.data.tenantId == t && hasArea(t, 'settings');
@@ -246,7 +246,7 @@ service cloud.firestore {
       allow get: if true;
       allow create, update: if staffDoc(request.resource.data.tenantId)
         && id.matches(request.resource.data.tenantId + '~[0-9]{12}')
-        && request.resource.data.keys().hasOnly(['tenantId', 'gen']) && request.resource.data.gen is int;
+        && request.resource.data.keys().hasOnly(['tenantId', 'gen', 'empId', 'name']) && request.resource.data.gen is int;
       allow delete: if hasArea(resource.data.tenantId, 'settings');
     }
     // A join link (allurus.my/join?k=<secret>): which company, generation and employee, so the page can make the
