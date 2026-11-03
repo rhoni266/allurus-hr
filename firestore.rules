@@ -460,6 +460,31 @@ service cloud.firestore {
           && request.resource.data.status == lv().status && request.resource.data.half == lv().get('half', '');
         allow delete: if member(t) && working(t) && !existsAfter(/databases/$(database)/documents/tenants/$(t)/leaves/$(id));
       }
+      // ---- Claims: one document each (js/leave-store.js) ----
+      // Read by the claimant, their approvers and HR (claims or payroll area; payroll marks claims paid). The
+      // claimant files a pending claim and may cancel it while pending; they are never its approver and can't decide
+      // it. An approver (never the claimant) changes only the decision: chain, status, approved amounts, decided
+      // by/on and the reason. HR corrects (kept in `edits`) and pays, but doesn't decide their own claim.
+      // Needs Cloud Functions (Blaze): checking approverIds against the company's chains, step order, and that an
+      // approver changes only the approved amounts on the lines (not what was claimed) within the policy limits.
+      match /claims/{id} {
+        function nd() { return request.resource.data; }
+        function od() { return resource.data; }
+        function emp() { return me().get('empId', ''); }
+        function hrClaims() { return hasArea(t, 'claims') || hasArea(t, 'payroll'); }
+        function stamped() { return nd().updatedBy == request.auth.uid && nd().updatedAt == request.time && nd().v == od().v + 1; }
+        function changed() { return nd().diff(od()).affectedKeys(); }
+        allow read: if member(t) && canRead(t) && (resource.data.empId == emp() || emp() in resource.data.get('approverIds', []) || hrClaims());
+        allow create: if member(t) && working(t) && nd().v == 1 && nd().createdBy == request.auth.uid && nd().approverIds is list && nd().approverIds.size() <= 12
+          && ((nd().empId == emp() && nd().status == 'Pending' && !(emp() in nd().approverIds)) || hrClaims());
+        allow update: if member(t) && working(t) && stamped() && nd().empId == od().empId && (
+          (od().empId == emp() && od().status == 'Pending' && nd().status == 'Cancelled' && changed().hasOnly(['status', 'v', 'updatedAt', 'updatedBy']))
+          || (od().empId != emp() && emp() in od().approverIds && od().status == 'Pending' && nd().status in ['Pending', 'Approved', 'Rejected']
+            && changed().hasOnly(['chain', 'status', 'lines', 'approved', 'decidedOn', 'decidedBy', 'reason', 'v', 'updatedAt', 'updatedBy']))
+          // (paying an approved claim is bookkeeping, so payroll marks its own approved claim paid too)
+          || (hrClaims() && (od().empId != emp() || nd().status == od().status || nd().status == 'Cancelled' || (od().status == 'Approved' && nd().status == 'Paid'))));
+        allow delete: if hrClaims() && working(t);
+      }
       // Who did what to which invoice, and when. Added only; never changed or removed.
       match /invoiceAudit/{a} {
         allow read: if hasArea(t, 'finance') && canRead(t);

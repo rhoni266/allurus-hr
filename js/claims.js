@@ -212,6 +212,7 @@ window.AllurusClaims = (function () {
           if (errs.length) { toast(errs[0], 'error'); return false; }
           c.chain = chainFor(e);
           list().push(c);
+          ctx.claimStore?.created(c);   // cloud: its own document, checked by the rules
           const nx = LR.nextStep(c.chain);
           ctx.notify?.request('claim', c, 'submitted', { summary: `${c.title}, ${m2(R.claimTotal(c))}` });
           commit(`Claim sent to ${nx ? firstOf(nx.approver) : 'HR'}`, `${ctx.fullName(e)} claimed ${m2(R.claimTotal(c))} for ${c.title}`);
@@ -327,6 +328,7 @@ window.AllurusClaims = (function () {
       c.chain = r.chain; c.status = r.status;
       if (r.status === 'Approved') Object.assign(c, { approved: R.approvedTotal(c), decidedOn: T(), decidedBy: ctx.account()?.name || nameOf(actor()) });
       if (r.status === 'Rejected') { c.lines.forEach((l) => { l.approved = null; }); Object.assign(c, { approved: null, reason: note, decidedOn: T(), decidedBy: ctx.account()?.name || nameOf(actor()) }); }
+      ctx.claimStore?.changed(c, ['chain', 'status', 'lines', 'approved', 'decidedOn', 'decidedBy', 'reason']);
       closeOverlay();
       const n = ctx.fullName(ctx.emp(c.empId)), nx = LR.nextStep(c.chain);
       ctx.notify?.request('claim', c, !approve ? 'rejected' : r.status === 'Approved' ? 'approved' : 'step', { summary: `${c.title}, ${m2(r.status === 'Approved' ? c.approved : R.claimTotal(c))}`, note });
@@ -349,6 +351,7 @@ window.AllurusClaims = (function () {
             if (d.field === 'approved') { const lim = limitsOf(r.claim).lines[i]; if (r.claim.lines[i].approved > lim.max + 0.001) { toast(`Up to ${m2(lim.max)} under the limits`, 'error'); return false; } }
             Object.assign(c, r.claim);
             if (c.status === 'Approved') c.approved = R.approvedTotal(c);
+            ctx.claimStore?.changed(c, ['lines', 'edits', 'approved']);
             commit(`Item ${i + 1} corrected`, `${FIELD_LABEL[d.field]} on ${nameOf(c.empId)}'s claim “${c.title}” corrected: ${d.reason.trim()}`);
             setTimeout(() => review(id), 50);
           } catch (err) { toast(err.message, 'error'); return false; }
@@ -361,6 +364,7 @@ window.AllurusClaims = (function () {
     // Pay an approved claim now (outside payroll) and post it to the books under each GL category.
     function payNow(c) {
       Object.assign(c, { status: 'Paid', paidIn: 'now', paidOn: T() });
+      ctx.claimStore?.changed(c, ['status', 'paidIn', 'paidOn']);
       const fin = st().finance;
       if (fin) R.glRows(c, cats()).forEach((g, i) => fin.txns.push({ id: U.uid('x'), date: T(), desc: `Claim: ${nameOf(c.empId)}, ${c.title}`, type: 'out', category: g.gl, amount: g.amount, tax: 0, ref: `${c.id.toUpperCase()}${i ? '-' + (i + 1) : ''}`, source: 'claim', reconciled: false }));
     }
@@ -496,7 +500,8 @@ window.AllurusClaims = (function () {
 
     Object.assign(ACTIONS, {
       'cl-new': (_, v) => newClaim(v),
-      'cl-cancel': (id) => { const c = find(id); if (!c || c.status !== 'Pending') return; st().claims = list().filter((x) => x.id !== id); commit('Claim cancelled', `${nameOf(c.empId)} cancelled the claim “${c.title}”`); },
+      // Cancelling a pending claim: in the cloud it is kept, marked Cancelled (the rules let the claimant do only that).
+      'cl-cancel': (id) => { const c = find(id); if (!c || c.status !== 'Pending') return; if (ctx.claimStore?.live()) { c.status = 'Cancelled'; ctx.claimStore.changed(c, ['status']); } else st().claims = list().filter((x) => x.id !== id); commit('Claim cancelled', `${nameOf(c.empId)} cancelled the claim “${c.title}”`); },
       'cl-receipt': (id, lineId) => { const l = find(id)?.lines.find((x) => x.id === lineId); if (l?.img) openModal({ title: `Receipt · ${l.merchant || ''}`, submit: null, body: `<img class="rc-photo" src="${l.img}" alt="Receipt" style="width:100%;max-height:none">` }); },
       'cl-filter': (_, v) => { cui.filter = v; ctx.render(); },
       'cl-tab': (_, v) => { cui.tab = v; ctx.render(); },
@@ -543,7 +548,7 @@ window.AllurusClaims = (function () {
         const cl = list().filter((c) => c.empId === empId && c.status === 'Approved' && c.date <= U.monthEnd(mk));
         return { claims: cl, ...R.payrollSplit(cl, cats()) };
       },
-      markPaid: (ids, mk) => list().forEach((c) => { if (ids.includes(c.id)) { c.status = 'Paid'; c.paidIn = mk; c.paidOn = U.today(); } }),
+      markPaid: (ids, mk) => list().forEach((c) => { if (ids.includes(c.id)) { c.status = 'Paid'; c.paidIn = mk; c.paidOn = U.today(); ctx.claimStore?.changed(c, ['status', 'paidIn', 'paidOn']); } }),
       approvalsCard, settingsCards, bindSettings, insights,
     };
   }

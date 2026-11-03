@@ -301,7 +301,7 @@ async function start(profile) {
   if (!profile.viewOnly && acc !== 'full') profile.billingOnly = true;
   await new Promise((ready) => listen(ready));
   if (can('finance')) await listenInvoices();
-  await listenLeaves();
+  await Promise.all(Object.keys(REQ).map(listenRequests));
   // Build the workspace from what the server has, on a blank company.
   const ws = app.blankWorkspace();
   ws.plans = {}; ws.reliefs = {}; ws.taxProfiles = {};
@@ -317,7 +317,7 @@ async function start(profile) {
   [...S.base.keys()].forEach(apply);
   ws.employees = employeesFrom();
   if (S.invoices) { ws.finance = ws.finance || {}; ws.finance.invoices = S.invoices; }
-  ws.leaves = leavesNow();
+  Object.keys(REQ).forEach((c) => { ws[REQ[c].key] = requestsNow(c); });
   app.adoptCloud(ws, profile);
   await loadFeatures(profile.tenantId);
   S.live = true;
@@ -361,32 +361,38 @@ function listenInvoices() {
     }, (e) => { console.warn('[Allurus cloud] invoices', e.code || e); if (first) { first = false; ready(); } }));
   });
 }
-// Leave: one document per request (tenants/{t}/leaves) and a safe calendar copy of each (leaveCal). HR (the time or
-// people area) reads every request; anyone else reads their own, the ones they approve, and the calendar copy of
-// the rest (shown as "Off": no type, reason or MC). Written by js/leave-store.js through api.recordWrite.
-const LV = { hr: false, all: new Map(), mine: new Map(), appr: new Map(), cal: new Map() };
-function leaveFrom(d) { const x = d.data({ serverTimestamps: 'estimate' }), o = { id: d.id }; Object.keys(x).forEach((k) => { o[k] = plainTime(x[k]); }); return o; }
-function leavesNow() {
-  if (LV.hr) return [...LV.all.values()];
-  const full = new Map([...LV.mine, ...LV.appr]);
-  const others = [...LV.cal].filter(([id]) => !full.has(id)).map(([id, c]) => ({ id, empId: c.empId, type: 'off', from: c.from, to: c.to, half: c.half || '', status: c.status, days: 0, chain: [], masked: true }));
+// Requests kept one document each, written by js/leave-store.js through api.recordWrite:
+//   leaves (+ the safe calendar copy leaveCal): HR (time or people area) reads every request; anyone else reads
+//     their own, the ones they approve, and the calendar copy of the rest (shown as "Off": no type, reason or MC).
+//   claims: the claims or payroll area reads every claim; anyone else their own and the ones they approve.
+const REQ = {
+  leaves: { key: 'leaves', hrAreas: ['time', 'people'], calColl: 'leaveCal' },
+  claims: { key: 'claims', hrAreas: ['claims', 'payroll'] },
+};
+const RQ = {};
+const docFrom = (d) => { const x = d.data({ serverTimestamps: 'estimate' }), o = { id: d.id }; Object.keys(x).forEach((k) => { o[k] = plainTime(x[k]); }); return o; };
+function requestsNow(coll) {
+  const q = RQ[coll];
+  if (q.hr) return [...q.all.values()];
+  const full = new Map([...q.mine, ...q.appr]);
+  const others = [...q.cal].filter(([id]) => !full.has(id)).map(([id, c]) => ({ id, empId: c.empId, type: 'off', from: c.from, to: c.to, half: c.half || '', status: c.status, days: 0, chain: [], masked: true }));
   return [...full.values(), ...others];
 }
-function listenLeaves() {
-  const t = T(), emp = S.profile.empId;
-  LV.hr = can('time') || can('people');
-  Object.assign(LV, { all: new Map(), mine: new Map(), appr: new Map(), cal: new Map() });
-  const sources = LV.hr ? [['all', collection(db, `${t}/leaves`)]]
-    : [['mine', query(collection(db, `${t}/leaves`), where('empId', '==', emp))], ['appr', query(collection(db, `${t}/leaves`), where('approverIds', 'array-contains', emp))], ['cal', collection(db, `${t}/leaveCal`)]];
+function listenRequests(coll) {
+  const t = T(), emp = S.profile.empId, cfg = REQ[coll];
+  const q = RQ[coll] = { hr: cfg.hrAreas.some((a) => can(a)), all: new Map(), mine: new Map(), appr: new Map(), cal: new Map() };
+  const sources = q.hr ? [['all', collection(db, `${t}/${coll}`)]]
+    : [['mine', query(collection(db, `${t}/${coll}`), where('empId', '==', emp))], ['appr', query(collection(db, `${t}/${coll}`), where('approverIds', 'array-contains', emp))],
+      ...(cfg.calColl ? [['cal', collection(db, `${t}/${cfg.calColl}`)]] : [])];
   return new Promise((ready) => {
     let pending = sources.length;
     const done = new Set();
     sources.forEach(([key, src]) => {
       S.unsubs.push(onSnapshot(src, (snap) => {
-        LV[key] = new Map(snap.docs.map((d) => [d.id, key === 'cal' ? d.data() : leaveFrom(d)]));
+        q[key] = new Map(snap.docs.map((d) => [d.id, key === 'cal' ? d.data() : docFrom(d)]));
         if (!done.has(key)) { done.add(key); if (--pending === 0) ready(); return; }
-        if (S.live) { app.state.leaves = leavesNow(); app.refresh(); }
-      }, (e) => { console.warn('[Allurus cloud] leave', key, e.code || e); if (!done.has(key)) { done.add(key); if (--pending === 0) ready(); } }));
+        if (S.live) { app.state[cfg.key] = requestsNow(coll); app.refresh(); }
+      }, (e) => { console.warn('[Allurus cloud]', coll, key, e.code || e); if (!done.has(key)) { done.add(key); if (--pending === 0) ready(); } }));
     });
   });
 }

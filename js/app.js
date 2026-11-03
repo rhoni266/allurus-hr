@@ -2918,13 +2918,14 @@
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
     downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
     save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
-    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, get einvoice() { return einvApi; }, get lms() { return lmsApi; }, get recruit() { return recruitApi; }, get ops() { return opsApi; }, get invoices() { return invStore; }, get leaveStore() { return lvStore; }, get ui() { return ui; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
+    get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, get einvoice() { return einvApi; }, get lms() { return lmsApi; }, get recruit() { return recruitApi; }, get ops() { return opsApi; }, get invoices() { return invStore; }, get leaveStore() { return lvStore; }, get claimStore() { return clStore; }, get ui() { return ui; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
   };
   AllurusUX.install(moduleCtx);
   // Every invoice change goes through this (js/invoice-store.js): checked, audited, and in the cloud one document each.
   const invStore = AllurusInvoiceStore.install(moduleCtx, fire);
   // Leave requests in the cloud: one document each, so the rules stop anyone deciding their own (js/leave-store.js).
   const lvStore = AllurusLeaveStore.install(moduleCtx, fire);
+  const clStore = AllurusClaimStore.install(moduleCtx, fire);
   finApi = AllurusFinance.install(moduleCtx);
   AllurusTax.install(moduleCtx);
   AllurusGuide.install(moduleCtx);

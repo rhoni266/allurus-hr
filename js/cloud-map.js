@@ -70,9 +70,9 @@
   // Lists split into one bucket per owner: the list → the record field that names the owner.
   const SPLIT = { 'ops.dos': 'driverId' };
   // Lists kept as one document per record elsewhere (cloud.js), so the rules can check each one: invoices
-  // (tenants/{t}/invoices) and leave requests (tenants/{t}/leaves). Their old buckets are kept as a backup and no
+  // (tenants/{t}/invoices), leave requests (tenants/{t}/leaves) and claims (tenants/{t}/claims). Their old buckets are kept as a backup and no
   // longer read or written.
-  const OWN_DOCS = new Set(['finance.invoices', 'leaves']);
+  const OWN_DOCS = new Set(['finance.invoices', 'leaves', 'claims']);
   const MONTHLY = new Set(['attendance']);
   // Per-person display choices that must not follow the company around.
   const LOCAL_SETTINGS = new Set(['theme']);
