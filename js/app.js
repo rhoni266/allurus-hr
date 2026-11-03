@@ -1621,12 +1621,15 @@
       <h1>Sign in to Allurus</h1>
       <p class="sub">People operations for growing companies.</p>
       <form class="login-card" id="login-form" novalidate>
-        <div class="field"><label for="login-email">Email</label><input class="input" id="login-email" name="email" type="email" autocomplete="username" placeholder="you@company.com" required></div>
+        ${CLOUD && ui.loginIc ? `<div class="field"><label for="login-code">Company code</label><input class="input" id="login-code" name="code" autocomplete="organization" autocapitalize="none" placeholder="From your join message" required></div>
+        <div class="field"><label for="login-email">IC number</label><input class="input" id="login-email" name="email" inputmode="numeric" autocomplete="username" placeholder="12 digits, no dashes" required></div>`
+    : '<div class="field"><label for="login-email">Email</label><input class="input" id="login-email" name="email" type="email" autocomplete="username" placeholder="you@company.com" required></div>'}
         <div class="field"><label for="login-password">Password</label>
           <div class="pw-wrap"><input class="input" id="login-password" name="password" type="password" autocomplete="current-password" required><button type="button" class="pw-toggle" data-act="toggle-pw" aria-label="Show password">Show</button></div></div>
         <p class="login-error" id="login-error" role="alert" hidden></p>
         <button class="btn btn-primary login-submit" type="submit">Sign in</button>
-        ${CLOUD ? '<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px"><button type="button" class="link-btn" data-act="cloud-reset">Forgot password?</button><a class="link-btn" href="/activate">First time? Activate your account</a></div>' : ''}
+        ${CLOUD && ui.loginIc ? '<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px"><span class="muted">Forgot your password? Ask HR to reset your sign-in.</span><button type="button" class="link-btn" data-act="login-ic" data-v="0">Sign in with email instead</button></div>'
+    : CLOUD ? '<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px"><button type="button" class="link-btn" data-act="cloud-reset">Forgot password?</button><a class="link-btn" href="/activate">First time? Activate your account</a></div><div style="font-size:13.5px;margin-top:6px"><button type="button" class="link-btn" data-act="login-ic" data-v="1">No work email? Sign in with your IC</button></div>' : ''}
       </form>
       ${CLOUD ? '' : `<div class="card demo-pick" style="width:100%;max-width:440px;margin:0 auto 16px;padding:18px 20px"><div style="font-weight:600;margin-bottom:4px">Explore the demo company</div>${Object.keys(AllurusSeed.companies).length > 1 ? `<div class="seg demo-co" role="group" aria-label="Demo company" style="margin:4px 0 8px;width:100%">${Object.values(AllurusSeed.companies).map((c) => `<button type="button" data-act="demo-company" data-v="${c.id}" class="${c.id === DEMO.id ? 'on' : ''}" aria-pressed="${c.id === DEMO.id}" style="flex:1">${esc(c.short)}</button>`).join('')}</div>` : ''}<p class="muted" style="font-size:13.5px;margin-bottom:12px">${esc(state.settings.company)}${DEMO.blurb ? ` · ${esc(DEMO.blurb)}` : ''}. A sample business; changes stay in this browser.</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${DEMO.logins.filter(([e]) => state.accounts.some((a) => a.email === e)).map(([e, label, sub]) => `<button type="button" class="btn" style="flex-direction:column;align-items:flex-start;height:auto;padding:10px 12px;text-align:left" data-act="demo-as" data-v="${e}"><span style="font-weight:600">${label}</span><span class="muted" style="font-size:12px;font-weight:400">${sub}</span></button>`).join('')}</div></div>`}
@@ -1639,8 +1642,8 @@
     setTimeout(() => $('#login-email')?.focus(), 30);
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
-      const email = form.email.value.trim().toLowerCase(), pw = form.password.value;
-      if (!email || !pw) { err.textContent = 'Enter your email and password.'; err.hidden = false; return; }
+      const email = form.email.value.trim().toLowerCase(), pw = form.password.value, byIc = !!form.code;
+      if (!email || !pw || (byIc && !form.code.value.trim())) { err.textContent = byIc ? 'Enter your company code, IC number and password.' : 'Enter your email and password.'; err.hidden = false; return; }
       const btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Signing in…';
       if (CLOUD) {
         if (!fire()) { btn.disabled = false; btn.textContent = 'Sign in'; err.textContent = 'Still connecting to the server. Try again in a moment.'; err.hidden = false; return; }
@@ -1648,7 +1651,7 @@
         const FAIL_KEY = 'allurus-signin-fails';
         let fails = 0; try { fails = +sessionStorage.getItem(FAIL_KEY) || 0; } catch (e) { /* no storage */ }
         if (fails >= 5) { btn.textContent = 'Please wait…'; await new Promise((r) => setTimeout(r, Math.min(30, 2 ** (fails - 4)) * 1000)); }
-        const res = await fire().signIn(email, pw);
+        const res = byIc ? await fire().signInIC(form.code.value.trim(), email, pw) : await fire().signIn(email, pw);
         try { sessionStorage.setItem(FAIL_KEY, res.ok ? '0' : String(fails + 1)); } catch (e) { /* no storage */ }
         if (!res.ok) { btn.disabled = false; btn.textContent = 'Sign in'; err.textContent = res.error; err.hidden = false; form.password.value = ''; form.password.focus(); return; }
         startSession(state.accounts[0]);
@@ -2631,6 +2634,11 @@
     'acc-disable': (uid) => teamAccess.setDisabled(uid, true),
     'acc-enable': (uid) => teamAccess.setDisabled(uid, false),
     'acc-revoke': (email) => teamAccess.revoke(email),
+    'login-ic': (_, v) => { ui.loginIc = v === '1'; render(); },
+    'acc-ic-invite': (empId) => teamAccess.icInvite(empId, 'invite'),
+    'acc-ic-link': (empId) => teamAccess.icInvite(empId, 'link'),
+    'acc-ic-reset': (empId) => teamAccess.icInvite(empId, 'reset'),
+    'acc-ic-remove': (empId) => teamAccess.icRemove(empId),
     'toggle-pw': () => { const i = $('#login-password'), b = $('[data-act="toggle-pw"]'); const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.textContent = show ? 'Hide' : 'Show'; b.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); },
     'logout': () => {
       if (CLOUD) { closeOverlay(); fire()?.signOut().finally(() => { try { localStorage.removeItem(STORE_KEY); } catch (e) { /* storage unavailable */ } location.hash = ''; location.reload(); }); return; }
@@ -3093,6 +3101,7 @@
     on: () => CLOUD && can('settings') && !!fire()?.live,
     async load() {
       try { this.data = await fire().access(); } catch (e) { this.data = { invites: [], users: [] }; }
+      try { this.data.staff = await fire().staffInvites(); } catch (e) { this.data.staff = []; }
       return this.data;
     },
     async mount() {
@@ -3103,6 +3112,7 @@
     // Not invited, Invited (with the date sent), Invitation expired, Active or Disabled (js/invite-rules.js).
     status(e) {
       const email = (e.email || '').toLowerCase(), d = this.data || { invites: [], users: [] };
+      if (this.byIc(e)) return this.icStatus(e);
       const user = d.users.find((u) => u.empId === e.id), inv = d.invites.find((i) => i.email === email);
       const tpl = (x) => ((x.roles || []).includes('admin') ? templateOf(Array.isArray(x.perms) ? x.perms : null) : 'employee');
       const s = AllurusInvite.status({ user, invite: user ? null : inv });
@@ -3118,9 +3128,62 @@
       const s = this.status(e);
       return `<span class="pill ${s.pill}">${s.label}</span>${s.key === 'invited' && s.sentAt ? `<div class="field-hint">Sent ${U.fmtDate(new Date(s.sentAt).toISOString().slice(0, 10))}</div>` : ''}`;
     },
+    // Staff with no work email but a 12-digit IC sign in with company code + IC + password (js/cloud.js signInIC).
+    byIc: (e) => !e.email && AllurusCloudMap.validIc(e.ic),
+    icStatus(e) {
+      const d = this.data || { users: [], staff: [] }, inv = (d.staff || []).find((i) => i.empId === e.id);
+      // Their account for the current sign-in generation; after Reset sign-in the old one is turned off.
+      const mine = d.users.filter((u) => u.empId === e.id && AllurusCloudMap.isStaffEmail(u.email));
+      const user = mine.find((u) => inv && u.email.endsWith(`.g${inv.gen}@${AllurusCloudMap.STAFF_HOST}`)) || (inv ? null : mine.find((u) => !u.disabled) || mine[0]);
+      const s = AllurusInvite.status({ user, invite: user ? null : inv });
+      return { ...s, key: s.key === 'active' ? 'joined' : s.key, ic: true, template: 'employee', email: '' };
+    },
+    icActions(e) {
+      const s = this.status(e), b = (act, label, cls = '') => `<button class="btn btn-sm ${cls}" data-act="${act}" data-id="${esc(e.id)}">${label}</button>`;
+      if (s.key === 'none') return b('acc-ic-invite', 'Invite with IC', 'btn-primary');
+      if (s.key === 'invited' || s.key === 'expired') return b('acc-ic-link', 'Make a new link') + b('acc-ic-remove', 'Remove access', 'btn-danger');
+      return b('acc-ic-reset', 'Reset sign-in') + b('acc-ic-remove', 'Remove access', 'btn-danger');
+    },
+    // Invite, Make a new link, Reset sign-in: then show the link to send on WhatsApp or copy.
+    async icInvite(empId, how) {
+      const e = emp(empId); if (!e) return;
+      const s = this.status(e);
+      const go = async () => {
+        const r = how === 'reset' ? await fire().staffReset(e, s.uid) : await fire().staffInvite(e);
+        if (!r.ok) { toast(r.error, 'error'); return; }
+        if (r.code && state.settings.staffCode !== r.code) { state.settings.staffCode = r.code; }
+        log(`${how === 'reset' ? 'Sign-in reset' : how === 'link' ? 'New join link made' : 'Invited by IC'} for ${fullName(e)}`); save();
+        if (r.warn) toast(r.warn, 'error');
+        this.showLink(e, r);
+        await this.refresh();
+      };
+      if (how === 'reset') openModal({ title: 'Reset sign-in?', size: 'sm', submit: 'Reset sign-in', body: `<p>${esc(e.first)}’s current password stops working at once. They join again with a new link and choose a new password.</p>`, onSubmit: () => { setTimeout(go, 0); } });
+      else await go();
+    },
+    showLink(e, r) {
+      const phone = String(e.phone || '').replace(/\D/g, '').replace(/^0/, '60');
+      const text = `Hi ${e.first}, join ${state.settings.company} on Allurus: ${r.url}\nYou’ll need your IC number. Afterwards sign in at ${location.origin}/app with company code ${r.code}, your IC and your password.`;
+      openModal({ title: `Join link for ${fullName(e)}`, size: 'sm', submit: '', body: `<p class="muted">Send this link to ${esc(e.first)} only. It works until ${U.fmtDate(r.expiresAt.toISOString().slice(0, 10))}, and they must type their own IC to use it.</p>
+        <div class="field" style="margin-top:12px"><label for="ic-url">Link</label><input class="input" id="ic-url" readonly value="${esc(r.url)}"></div>
+        <p style="margin-top:8px">Company code: <b>${esc(r.code)}</b></p>
+        <div class="actions" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">${phone ? `<a class="btn btn-primary" target="_blank" rel="noopener" href="https://wa.me/${phone}?text=${encodeURIComponent(text)}">Send on WhatsApp</a>` : ''}<button type="button" class="btn" id="ic-copy">Copy link</button></div>`,
+      });
+      $('#ic-copy')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText(text); toast('Copied'); } catch (x) { $('#ic-url').select(); } });
+    },
+    async icRemove(empId) {
+      const e = emp(empId); if (!e) return;
+      const s = this.status(e);
+      openModal({ title: 'Remove access?', size: 'sm', submit: 'Remove access', body: `<p>${esc(e.first)} can’t sign in any more and their join link stops working.</p>`, onSubmit: () => { (async () => {
+        const r = await fire().staffRemove(e, s.uid);
+        if (r.ok) { log(`IC sign-in removed for ${fullName(e)}`); save(); }
+        toast(r.ok ? 'Access removed.' : r.error, r.ok ? '' : 'error');
+        await this.refresh();
+      })(); } });
+    },
     // The buttons for one person, used on the Employees list, their profile and Settings → Team access.
     actions(e) {
       if (!this.data || e.id === fire()?.profile?.empId) return '';
+      if (this.byIc(e)) return this.icActions(e);
       const s = this.status(e), b = (act, label, id, cls = '') => `<button class="btn btn-sm ${cls}" data-act="${act}" data-id="${esc(id)}">${label}</button>`;
       if (s.key === 'none') return b('acc-invite', 'Send invitation', e.id, 'btn-primary');
       if (s.key === 'invited' || s.key === 'expired') return b('acc-invite', 'Resend invitation', e.id) + b('acc-cancel', 'Cancel invitation', s.email);
@@ -3136,11 +3199,11 @@
         return `<tr><td>${person(e)}</td><td class="muted">${esc(e.email || 'No email')}</td>
           <td>${this.badge(e)}</td>
           <td>${isMe ? `<span class="muted">You · ${esc(roleLabel('admin'))}</span>` : `<select class="select" data-acc-role="${e.id}" aria-label="Access for ${esc(fullName(e))}">${this.options(st.template)}</select>`}</td>
-          <td class="r"><div class="row-actions" style="opacity:1">${isMe ? '' : e.email ? this.actions(e) : '<span class="faint">No email</span>'}</div></td></tr>`;
+          <td class="r"><div class="row-actions" style="opacity:1">${isMe ? '' : e.email || this.byIc(e) ? this.actions(e) : '<span class="faint">No email or IC</span>'}</div></td></tr>`;
       }).join('');
       const waiting = people.filter((e) => e.email && this.status(e).key === 'none').length;
       el.innerHTML = `<div class="card-head"><h3>Team access</h3>${waiting ? `<button class="btn btn-sm" data-act="acc-invite-all">Invite all ${waiting}</button>` : ''}</div>
-        <p class="muted" style="margin-bottom:12px">Send someone an invitation and they get an email with a sign-in link to <b>allurus.my/activate</b>, where they create their password. Invitations last ${AllurusInvite.DAYS} days. Everyone gets the employee app; a role adds parts of the company console. Managers need no role: being an approver in the leave settings is enough.</p>
+        <p class="muted" style="margin-bottom:12px">Send someone an invitation and they get an email with a sign-in link to <b>allurus.my/activate</b>, where they create their password. Invitations last ${AllurusInvite.DAYS} days. Everyone gets the employee app; a role adds parts of the company console. Managers need no role: being an approver in the leave settings is enough. Staff with no work email can be invited with their IC: you send them a join link on WhatsApp, and they sign in with the company code, their IC and a password.</p>
         <div class="chips" style="margin-bottom:12px;flex-wrap:wrap">${shownTemplates().map(([, t]) => `<span class="tag" title="${esc(t.desc)}"><b>${esc(t.label)}</b>: ${esc(t.desc)}</span>`).join('')}</div>
         <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
       $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value)));

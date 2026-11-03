@@ -577,6 +577,77 @@ const api = {
     try { await setDoc(doc(db, `users/${uid}`), access(template, true), { merge: true }); return { ok: true }; }
     catch (e) { return { error: 'Couldn’t change access. You can only give access you have yourself, and not change your own.' }; }
   },
+  // ----- Staff with no work email: IC sign-in (firestore.rules: staffInvites, staffKeys, joinLinks, companyCodes) -----
+  // Company code + IC + password → the made-up email for that IC's current sign-in generation.
+  async signInIC(code, ic, password) {
+    const nope = { error: 'That company code, IC and password don’t match. Check them, or ask HR for a new join link.' };
+    if (!M.validIc(ic)) return { error: 'Enter your 12-digit IC number.' };
+    try {
+      const c = await getDoc(doc(db, `companyCodes/${lower(code)}`));
+      if (!c.exists()) return nope;
+      const k = await getDoc(doc(db, `staffKeys/${M.staffKey(c.data().tenantId, ic)}`));
+      if (!k.exists()) return nope;
+      const res = await api.signIn(M.staffEmail(ic, c.data().tenantId, k.data().gen), password);
+      return res.ok ? res : { ...res, error: /email|invite/i.test(res.error || '') ? nope.error : res.error };
+    } catch (e) { console.warn('[Allurus cloud] IC sign-in', e?.code); return { error: authMsg(e) }; }
+  },
+  // The company's sign-in code, made the first time someone is invited by IC.
+  async companyCode() {
+    const tid = S.profile.tenantId;
+    if (app.state.settings?.staffCode) return app.state.settings.staffCode;
+    for (let i = 0; i < 5; i++) {
+      const code = M.companyCode(app.state.settings?.company);
+      const ref = doc(db, `companyCodes/${code}`);
+      const had = await getDoc(ref).catch(() => null);
+      if (had?.exists()) { if (had.data().tenantId === tid) return code; continue; }
+      try { await setDoc(ref, { tenantId: tid }); return code; } catch (e) { /* taken meanwhile */ }   // the caller keeps it in settings.staffCode
+    }
+    return '';
+  },
+  // Invite (or give a new link to) someone by IC. gen: keep the current sign-in generation, or bump it to reset.
+  async staffInvite(emp, { reset = false } = {}) {
+    if (!M.validIc(emp.ic)) return { error: `${emp.first} has no valid 12-digit IC on their profile.` };
+    const tid = S.profile.tenantId, key = M.staffKey(tid, emp.ic);
+    try {
+      const code = await api.companyCode();
+      if (!code) return { error: 'Couldn’t make a company code. Try again.' };
+      const old = await getDoc(doc(db, `staffInvites/${key}`)).catch(() => null);
+      const was = old?.exists() ? old.data() : null;
+      const gen = (Number(was?.gen) || 0) + (reset || !was ? 1 : 0);
+      const link = M.joinSecret(crypto.getRandomValues(new Uint8Array(32)));
+      const expiresAt = FS.Timestamp.fromDate(window.AllurusInvite.expiry());
+      const b = writeBatch(db);
+      b.set(doc(db, `staffInvites/${key}`), { tenantId: tid, ic: M.icDigits(emp.ic), empId: emp.id, gen, link, expiresAt, invitedBy: S.profile.email, invitedAt: serverTimestamp() });
+      b.set(doc(db, `staffKeys/${key}`), { tenantId: tid, gen });
+      b.set(doc(db, `joinLinks/${link}`), { tenantId: tid, company: String(app.state.settings?.company || '').slice(0, 120), code, gen, empId: emp.id, name: String(emp.first || '').slice(0, 60), expiresAt });
+      if (was?.link) b.delete(doc(db, `joinLinks/${was.link}`));
+      await b.commit();
+      return { ok: true, url: `${location.origin}/join?k=${link}`, code, expiresAt: expiresAt.toDate() };
+    } catch (e) { console.warn('[Allurus cloud] staff invite', e?.code); return { error: e?.code === 'permission-denied' ? 'You need the Settings area to invite people.' : 'Couldn’t save the invitation. Check your connection.' }; }
+  },
+  // Reset sign-in: a new generation and link; their old account stops working at once.
+  async staffReset(emp, uid) {
+    const res = await api.staffInvite(emp, { reset: true });
+    if (res.ok && uid) { const d = await api.setDisabled(uid, true); if (d.error) return { ...res, warn: d.error }; }
+    return res;
+  },
+  // Remove access: the invitation, link and key go; their profile is turned off.
+  async staffRemove(emp, uid) {
+    const key = M.staffKey(S.profile.tenantId, emp.ic);
+    try {
+      const old = await getDoc(doc(db, `staffInvites/${key}`)).catch(() => null);
+      const b = writeBatch(db);
+      if (old?.data()?.link) b.delete(doc(db, `joinLinks/${old.data().link}`));
+      b.delete(doc(db, `staffInvites/${key}`)); b.delete(doc(db, `staffKeys/${key}`));
+      await b.commit();
+      if (uid) { const d = await api.setDisabled(uid, true); if (d.error) return d; }
+      return { ok: true };
+    } catch (e) { return { error: 'Couldn’t remove access.' }; }
+  },
+  async staffInvites() {
+    const r = await getDocs(query(collection(db, 'staffInvites'), where('tenantId', '==', S.profile.tenantId))).catch(() => ({ docs: [] }));
+    return r.docs.map((d) => ({ id: d.id, ...d.data(), link: undefined }));
+  },
   async revoke(email, uid) {
     try { await FS.deleteDoc(doc(db, `invites/${lower(email)}`)); if (uid) await FS.deleteDoc(doc(db, `users/${uid}`)); return { ok: true }; }
     catch (e) { return { error: 'Couldn’t remove access.' }; }

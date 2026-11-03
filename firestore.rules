@@ -144,9 +144,9 @@ service cloud.firestore {
       // confirmed, before the invitation expires. Company, roles, areas and employee come from the invitation,
       // never from the browser. Nobody signs a company up themselves; the superadmin creates companies.
       allow create: if signedIn() && request.auth.uid == uid && !hasProfile()
-        && request.resource.data.email == myEmail() && verified()
+        && request.resource.data.email == myEmail()
         && !('disabled' in request.resource.data)
-        && (
+        && (staffJoin() || verified() && (
           (exists(/databases/$(database)/documents/invites/$(myEmail()))
             && inviteFor(myEmail()).expiresAt is timestamp && inviteFor(myEmail()).expiresAt > request.time
             && inviteFor(myEmail()).tenantId == request.resource.data.tenantId
@@ -158,7 +158,7 @@ service cloud.firestore {
             && getAfter(tenantPath(request.resource.data.tenantId)).data.owner == uid
             && getAfter(tenantPath(request.resource.data.tenantId)).data.createdVia == 'self_signup'
             && request.resource.data.roles == ['admin', 'employee'] && request.resource.data.empId == 'e1' && !('perms' in request.resource.data))
-        );
+        ));
       // Admins with the settings area change someone else's access in their company, or disable them; nobody
       // changes their own.
       allow update: if signedIn() && request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings')
@@ -185,6 +185,57 @@ service cloud.firestore {
     function validExpiry() {
       return request.resource.data.expiresAt is timestamp && request.resource.data.expiresAt > request.time
         && request.resource.data.expiresAt < request.time + duration.value(8, 'd');
+    }
+
+    // ---- Staff with no work email: sign-in with IC (see js/staff-ic.js) ----
+    // The account's email is made up: <ic>.<company id, lowercase>.g<n>@staff.allurus.invalid, where n is the sign-in
+    // generation (Reset sign-in bumps it, so the old account can't join again). Joining needs HR's invitation for
+    // that IC at that generation and the secret from HR's join link; the profile is the employee one HR set.
+    function staffJoin() {
+      let e = myEmail();
+      let p = e.split('@')[0].split('[.]');
+      let d = request.resource.data;
+      let key = /databases/$(database)/documents/staffInvites/$(d.tenantId + '~' + p[0]);
+      return e.matches('[0-9]{12}[.][a-z0-9_-]+[.]g[0-9]{1,4}@staff[.]allurus[.]invalid')
+        && d.tenantId is string && d.tenantId.lower() == p[1] && exists(key)
+        && get(key).data.gen == int(p[2].replace('g', '')) && get(key).data.link == d.get('link', '')
+        && get(key).data.expiresAt > request.time
+        && d.empId == get(key).data.empId && d.roles == ['employee'] && !('perms' in d) && d.via == 'ic';
+    }
+    function staffDoc(t) {
+      return request.resource.data.tenantId == t && hasArea(t, 'settings');
+    }
+    // HR's invitation for one IC: tenantId, ic, empId, gen (a whole number), link (the join secret), expiresAt.
+    match /staffInvites/{id} {
+      allow read: if hasArea(resource.data.tenantId, 'settings');
+      allow create, update: if staffDoc(request.resource.data.tenantId)
+        && id == request.resource.data.tenantId + '~' + request.resource.data.ic
+        && request.resource.data.ic.matches('[0-9]{12}') && request.resource.data.gen is int
+        && request.resource.data.link is string && request.resource.data.link.size() >= 24 && validExpiry();
+      allow delete: if hasArea(resource.data.tenantId, 'settings');
+    }
+    // The sign-in generation for one IC, read before signing in (by id only: nobody lists them).
+    match /staffKeys/{id} {
+      allow get: if true;
+      allow create, update: if staffDoc(request.resource.data.tenantId)
+        && id.matches(request.resource.data.tenantId + '~[0-9]{12}')
+        && request.resource.data.keys().hasOnly(['tenantId', 'gen']) && request.resource.data.gen is int;
+      allow delete: if hasArea(resource.data.tenantId, 'settings');
+    }
+    // A join link (allurus.my/join?k=<secret>): which company, generation and employee, so the page can make the
+    // account. Knowing the link isn't enough: the person must also type the IC HR invited.
+    match /joinLinks/{secret} {
+      allow get: if true;
+      allow create, update: if staffDoc(request.resource.data.tenantId) && secret.size() >= 24
+        && request.resource.data.keys().hasOnly(['tenantId', 'company', 'code', 'gen', 'empId', 'name', 'expiresAt']) && validExpiry();
+      allow delete: if hasArea(resource.data.tenantId, 'settings');
+    }
+    // A short company code typed at IC sign-in, pointing to the company.
+    match /companyCodes/{code} {
+      allow get: if true;
+      allow create: if staffDoc(request.resource.data.tenantId) && code.matches('[a-z0-9]{3,12}')
+        && request.resource.data.keys().hasOnly(['tenantId']);
+      allow delete: if hasArea(resource.data.tenantId, 'settings');
     }
 
     // Enquiries from the contact form on allurus.my: anyone may add one with these fields only; nobody can read,

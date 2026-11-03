@@ -309,6 +309,20 @@
     return { set, del, empty: !Object.keys(set).length && !del.length };
   }
   const sameFields = (a, b) => diff(a, b).empty;
+
+  // ---------- Staff with no work email: sign-in with IC ----------
+  // Their Firebase account has a made-up email nobody can receive mail at: <ic>.<company id>.g<n>@STAFF_HOST, where
+  // n is the sign-in generation (Reset sign-in makes a new one). firestore.rules (staffJoin) reads the same format.
+  const STAFF_HOST = 'staff.allurus.invalid';
+  const icDigits = (s) => String(s || '').replace(/[\s-]/g, '');
+  const validIc = (s) => /^\d{12}$/.test(icDigits(s));
+  const staffEmail = (ic, tenantId, gen) => `${icDigits(ic)}.${String(tenantId).toLowerCase()}.g${Number(gen) || 1}@${STAFF_HOST}`;
+  const isStaffEmail = (e) => String(e || '').toLowerCase().endsWith(`@${STAFF_HOST}`);
+  const staffKey = (tenantId, ic) => `${tenantId}~${icDigits(ic)}`;
+  // A short company code typed at IC sign-in: letters of the name, then digits (3 to 12 characters, a-z and 0-9).
+  const companyCode = (name, rand = Math.random) => `${String(name || '').toLowerCase().replace(/[^a-z]/g, '').slice(0, 6) || 'co'}${String(Math.floor(rand() * 900) + 100)}`;
+  // The join secret: 32 random letters and digits.
+  const joinSecret = (bytes) => Array.from(bytes, (b) => 'abcdefghijkmnpqrstuvwxyz23456789'[b % 32]).join('');
   // Rough size of a document in bytes, to stay under Firestore's 1 MiB limit.
   const docBytes = (f) => Object.keys(f).reduce((s, k) => s + k.length + (f[k] || '').length + 2, 0);
 
@@ -316,5 +330,6 @@
     PAYROLL, WRITE_AREA, TALENT, OWNED, ownerOf, ownedAreas, isAdminRead, isAdminWrite, readClass, canWrite, writeArea, readable, driverOf, isOps, SPLIT, seesPeople, seesPayroll, has, DIRECTORY_FIELDS, SELF_FIELDS, MARK, BLOB_MAX,
     stable, blobId, extract, restore, enc, dec, bucketsOf, applyBucket, arrayFrom, personFields, personFrom, directoryEntry, directoryFields, directoryFrom,
     employeesFor, payslipFields, payrollFrom, personalFields, applyPersonal, merge3, diff, sameFields, docBytes,
+    STAFF_HOST, icDigits, validIc, staffEmail, isStaffEmail, staffKey, companyCode, joinSecret,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
