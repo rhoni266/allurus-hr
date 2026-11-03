@@ -1629,7 +1629,7 @@
         ${CLOUD && ui.loginIc ? `<div class="field"><label for="login-code">Company code</label><input class="input" id="login-code" name="code" autocomplete="organization" autocapitalize="none" placeholder="From your join message" required></div>
         <div class="field"><label for="login-email">IC number</label><input class="input" id="login-email" name="email" inputmode="numeric" autocomplete="username" placeholder="12 digits, no dashes" required></div>`
     : '<div class="field"><label for="login-email">Email</label><input class="input" id="login-email" name="email" type="email" autocomplete="username" placeholder="you@company.com" required></div>'}
-        <div class="field"><label for="login-password">Password</label>
+        <div class="field"><label for="login-password">${CLOUD && ui.loginIc ? 'Password or 6-digit PIN' : 'Password'}</label>
           <div class="pw-wrap"><input class="input" id="login-password" name="password" type="password" autocomplete="current-password" required><button type="button" class="pw-toggle" data-act="toggle-pw" aria-label="Show password">Show</button></div></div>
         <p class="login-error" id="login-error" role="alert" hidden></p>
         <button class="btn btn-primary login-submit" type="submit">Sign in</button>
@@ -3431,8 +3431,8 @@
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${until ? '<button class="btn btn-sm" data-act="acc-open-off">Close registration now</button>' : '<button class="btn btn-sm btn-primary" data-act="acc-open-on">Open registration for 7 days</button>'}${until ? '<button class="btn btn-sm" data-act="acc-open-copy">Copy join message</button><button class="btn btn-sm" data-act="acc-open-wa">Share on WhatsApp</button><button class="btn btn-sm btn-ghost" data-act="acc-open-msg">Edit message</button>' : ''}</div></div>`;
       const waitingList = this.pending();
       const pendingCard = waitingList.length ? `<div class="card" style="margin-bottom:12px;padding:14px 16px;border-color:var(--warn, #d97706)"><h3 style="margin-bottom:6px">Waiting for approval (${waitingList.length})</h3>
-          <div class="table-wrap"><table class="table"><thead><tr><th>Registered as</th><th>IC</th><th>When</th><th></th></tr></thead><tbody>${waitingList.map((u) => { const e = this.claimed(u); const at = AllurusInvite.ms(u.joinedAt);
-            return `<tr><td>${e ? person(e) : `<span class="faint">No matching employee (active, no email, this IC)</span>`}</td><td>••••${esc(this.icOf(u).slice(-4))}</td><td>${at ? U.fmtDate(new Date(at).toISOString().slice(0, 10)) : '—'}</td>
+          <div class="table-wrap"><table class="table"><thead><tr><th>Registered as</th><th>IC</th><th>Phone</th><th>When</th><th></th></tr></thead><tbody>${waitingList.map((u) => { const e = this.claimed(u); const at = AllurusInvite.ms(u.joinedAt);
+            return `<tr><td>${e ? person(e) : `<span class="faint">No matching employee (active, no email, this IC)</span>`}</td><td>••••${esc(this.icOf(u).slice(-4))}</td><td>${u.phone ? esc(u.phone) : '<span class="faint">—</span>'}</td><td>${at ? U.fmtDate(new Date(at).toISOString().slice(0, 10)) : '—'}</td>
               <td class="r">${e ? `<button class="btn btn-sm btn-primary" data-act="acc-open-ok" data-id="${esc(u.uid)}">Approve</button>` : ''}<button class="btn btn-sm btn-danger" data-act="acc-open-no" data-id="${esc(u.uid)}">This is not them</button></td></tr>`; }).join('')}</tbody></table></div></div>` : '';
       const rows = people.map((e) => {
         const st = this.status(e), isMe = e.id === self.empId;

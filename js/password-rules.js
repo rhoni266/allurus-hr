@@ -50,5 +50,36 @@ window.AllurusPassword = (function () {
     try { const t = await (await fetch(url)).text(); commonList = new Set(t.split('\n').map((x) => x.trim()).filter(Boolean)); } catch (e) { commonList = new Set(); }
     return commonList;
   }
-  return { MIN, check, personalBits, breachCount, loadCommon, sha1Hex };
+  function checkPin(pin, who = {}) {
+    const p = String(pin || '').trim();
+    if (!/^[0-9]{6}$/.test(p)) {
+      return { ok: false, error: 'PIN must be exactly 6 digits (numbers only).' };
+    }
+    if (/^(\d)\1{5}$/.test(p)) {
+      return { ok: false, error: 'PIN cannot be the same digit repeated (like 111111).' };
+    }
+    const seq = '0123456789012345', rev = '9876543210987654';
+    if (seq.includes(p) || rev.includes(p)) {
+      return { ok: false, error: 'PIN cannot be sequential digits (like 123456).' };
+    }
+    const ic = digits(who.ic || '');
+    if (ic.length >= 6) {
+      const yymmdd = ic.slice(0, 6);
+      const ddmmyy = ic.slice(4, 6) + ic.slice(2, 4) + ic.slice(0, 2);
+      const last6 = ic.slice(-6);
+      if (p === yymmdd || p === ddmmyy) {
+        return { ok: false, error: 'PIN cannot be your birth date from your IC.' };
+      }
+      if (p === last6) {
+        return { ok: false, error: 'PIN cannot be the last 6 digits of your IC.' };
+      }
+    }
+    const ph = digits(who.phone || '');
+    if (ph.length >= 6 && ph.slice(-6) === p) {
+      return { ok: false, error: 'PIN cannot be the last 6 digits of your phone number.' };
+    }
+    return { ok: true };
+  }
+
+  return { MIN, check, checkPin, personalBits, breachCount, loadCommon, sha1Hex };
 })();

@@ -15,6 +15,19 @@ const common = new Set(fs.readFileSync(path.join(__dirname, '..', 'js', 'vendor'
 const who = { email: 'siti.aminah@contoh.my', name: 'Siti Aminah binti Yusof', ic: '900101-14-5678', phone: '+60123456789' };
 const failing = (pw) => JSON.parse(JSON.stringify(P.check(pw, who, common).rules.filter((r) => !r.ok).map((r) => r.id)));
 
+test('PIN rules: 6 digits only, reject repeated, sequential, birth date or IC/phone match', () => {
+  assert.equal(P.checkPin('12345').ok, false, 'too short');
+  assert.equal(P.checkPin('1234567').ok, false, 'too long');
+  assert.equal(P.checkPin('abcdef').ok, false, 'not numbers');
+  assert.equal(P.checkPin('111111').ok, false, 'repeated');
+  assert.equal(P.checkPin('123456').ok, false, 'sequential forward');
+  assert.equal(P.checkPin('654321').ok, false, 'sequential reverse');
+  assert.equal(P.checkPin('900101', { ic: '900101145678' }).ok, false, 'IC birth date');
+  assert.equal(P.checkPin('145678', { ic: '900101145678' }).ok, false, 'IC last 6');
+  assert.equal(P.checkPin('456789', { phone: '0123456789' }).ok, false, 'phone last 6');
+  assert.equal(P.checkPin('839201', { ic: '900101145678', phone: '0123456789' }).ok, true, 'valid strong PIN');
+});
+
 test('7 weak, common and personal passwords are refused', () => {
   assert.deepEqual(failing('Kx9#tq2'), ['length']);
   assert.ok(failing('password123').includes('common'));

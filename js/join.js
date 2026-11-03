@@ -20,7 +20,7 @@ function page(title, sub, card) {
 }
 const problem = (title, text) => page(esc(title), '', `<p class="login-error" role="alert">${text}</p><a class="btn login-submit" href="/app">Go to sign in</a>`);
 
-// ---------- The open join page (no link): company code + IC, then a password; HR approves before any access ----------
+// ---------- The open join page (no link): company code + IC, then a password or 6-digit PIN; HR approves before any access ----------
 // Every mismatch gets the same words after the same wait, so the page never tells anyone which part was wrong or
 // whether an IC belongs to the company.
 const T = I.IC_TEXT;
@@ -32,6 +32,7 @@ function openForm(msg = '') {
       <div class="field"><label for="code">Company code</label><input class="input" id="code" name="code" autocapitalize="none" autocomplete="off" spellcheck="false" required></div>
       <div class="field"><label for="jkey">Join key <span class="faint">(if HR gave you one)</span></label><input class="input" id="jkey" name="jkey" type="password" autocomplete="off" autocapitalize="none" spellcheck="false"></div>
       <div class="field"><label for="ic">IC number</label><input class="input" id="ic" name="ic" type="password" inputmode="numeric" autocomplete="off" placeholder="12 digits, no dashes" required aria-describedby="ic-shown"><p class="field-hint" id="ic-shown" aria-live="polite"></p></div>
+      <div class="field"><label for="phone">Phone number</label><input class="input" id="phone" name="phone" type="tel" inputmode="tel" placeholder="e.g. 0123456789" autocomplete="tel"><p class="field-hint">For HR contact and verification.</p></div>
       <p class="login-error" id="err" role="alert" ${msg ? '' : 'hidden'}>${esc(msg)}</p>
       <button class="btn btn-primary login-submit" type="submit" id="go">Continue</button>
     </form>`);
@@ -40,6 +41,7 @@ function openForm(msg = '') {
   f.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const started = Date.now(), code = String(f.code.value || '').trim().toLowerCase(), ic = M.icDigits(f.ic.value);
+    const phone = String(f.phone?.value || '').trim();
     const btn = document.getElementById('go'); btn.disabled = true; btn.textContent = 'Checking…';
     if (!/^[a-z0-9]{3,12}$/.test(code) || !M.validIc(ic)) { await steady(started); openForm(T.noMatch); return; }
     const c = await FS.getDoc(FS.doc(db, `companyCodes/${code}`)).catch(() => null);
@@ -55,40 +57,87 @@ function openForm(msg = '') {
     if (salt && !typed) { await steady(started); openForm(T.noMatch); return; }
     const keyProof = salt ? await M.joinKeyHash(salt, typed) : '';
     f.jkey.value = '';
-    openPassword({ code, ic, tenantId: c.data().tenantId, company: c.data().company || '', gen, keyProof });
+    openPassword({ code, ic, phone, tenantId: c.data().tenantId, company: c.data().company || '', gen, keyProof });
   });
 }
 async function openPassword(j) {
   const common = await P.loadCommon('/js/vendor/common-passwords.txt');
-  page('Create your password', `${j.company ? `${esc(j.company)} · ` : ''}IC ${masked(j.ic)}`, `
+  page('Create your password or PIN', `${j.company ? `${esc(j.company)} · ` : ''}IC ${masked(j.ic)}`, `
     <form id="f" novalidate class="login-card" style="padding:0;box-shadow:none;max-width:none">
-      <div class="field"><label for="pw">New password</label><div class="pw-wrap"><input class="input" id="pw" name="pw" type="password" autocomplete="new-password" required aria-describedby="rules"><button type="button" class="pw-toggle" id="show" aria-label="Show password">Show</button></div></div>
-      <ul class="ac-rules" id="rules" aria-live="polite"></ul>
-      <div class="field"><label for="pw2">Confirm password</label><input class="input" id="pw2" name="pw2" type="password" autocomplete="new-password" required></div>
+      <div class="seg" role="tablist" style="margin-bottom:14px;width:100%;display:flex">
+        <button type="button" class="btn on" id="tab-pw" style="flex:1" role="tab" aria-selected="true">Password</button>
+        <button type="button" class="btn" id="tab-pin" style="flex:1" role="tab" aria-selected="false">6-digit PIN</button>
+      </div>
+
+      <div id="sec-pw">
+        <div class="field"><label for="pw">New password</label><div class="pw-wrap"><input class="input" id="pw" name="pw" type="password" autocomplete="new-password" aria-describedby="rules"><button type="button" class="pw-toggle" id="show-pw" aria-label="Show password">Show</button></div></div>
+        <ul class="ac-rules" id="rules" aria-live="polite"></ul>
+        <div class="field"><label for="pw2">Confirm password</label><input class="input" id="pw2" name="pw2" type="password" autocomplete="new-password"></div>
+      </div>
+
+      <div id="sec-pin" hidden>
+        <div class="field"><label for="pin">6-digit PIN</label><div class="pw-wrap"><input class="input" id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="6 digits" autocomplete="new-password"><button type="button" class="pw-toggle" id="show-pin" aria-label="Show PIN">Show</button></div></div>
+        <p class="field-hint" style="margin-bottom:8px">Numbers only. Cannot be simple patterns like 123456 or your birth date.</p>
+        <div class="field"><label for="pin2">Confirm 6-digit PIN</label><input class="input" id="pin2" name="pin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Repeat 6 digits" autocomplete="new-password"></div>
+      </div>
+
       <p class="login-error" id="err" role="alert" hidden></p>
       <button class="btn btn-primary login-submit" type="submit" id="go">Register</button>
       <button type="button" class="link-btn" id="back" style="margin-top:8px">Back</button>
     </form>`);
-  const f = document.getElementById('f'), err = document.getElementById('err'), who = { ic: j.ic };
+  const f = document.getElementById('f'), err = document.getElementById('err'), who = { ic: j.ic, phone: j.phone || '' };
+  let mode = 'pw';
+  const tabPw = document.getElementById('tab-pw'), tabPin = document.getElementById('tab-pin');
+  const secPw = document.getElementById('sec-pw'), secPin = document.getElementById('sec-pin');
+
+  tabPw.addEventListener('click', () => {
+    mode = 'pw';
+    tabPw.classList.add('on'); tabPw.setAttribute('aria-selected', 'true');
+    tabPin.classList.remove('on'); tabPin.setAttribute('aria-selected', 'false');
+    secPw.hidden = false; secPin.hidden = true;
+    err.hidden = true;
+  });
+  tabPin.addEventListener('click', () => {
+    mode = 'pin';
+    tabPin.classList.add('on'); tabPin.setAttribute('aria-selected', 'true');
+    tabPw.classList.remove('on'); tabPw.setAttribute('aria-selected', 'false');
+    secPin.hidden = false; secPw.hidden = true;
+    err.hidden = true;
+    document.getElementById('pin')?.focus();
+  });
+
   const draw = () => { document.getElementById('rules').innerHTML = P.check(f.pw.value, who, common).rules.map((r) => `<li class="${r.ok ? 'ok' : ''}">${esc(r.text)}</li>`).join(''); };
   draw(); f.pw.addEventListener('input', draw);
   document.getElementById('back').addEventListener('click', () => openForm());
-  document.getElementById('show').addEventListener('click', (ev) => { const s = f.pw.type === 'password'; f.pw.type = f.pw2.type = s ? 'text' : 'password'; ev.target.textContent = s ? 'Hide' : 'Show'; });
+  document.getElementById('show-pw').addEventListener('click', (ev) => { const s = f.pw.type === 'password'; f.pw.type = f.pw2.type = s ? 'text' : 'password'; ev.target.textContent = s ? 'Hide' : 'Show'; });
+  document.getElementById('show-pin')?.addEventListener('click', (ev) => { const s = f.pin.type === 'password'; f.pin.type = f.pin2.type = s ? 'text' : 'password'; ev.target.textContent = s ? 'Hide' : 'Show'; });
   const fail = (m) => { err.textContent = m; err.hidden = false; const b = document.getElementById('go'); b.disabled = false; b.textContent = 'Register'; };
   let busy = false;
   f.addEventListener('submit', async (ev) => {
     ev.preventDefault(); if (busy) return;                          // a double tap makes one account
     err.hidden = true;
-    const pw = f.pw.value;
-    if (!P.check(pw, who, common).ok) { fail('Choose a password that meets every rule above.'); return; }
-    if (pw !== f.pw2.value) { fail('The two passwords don’t match.'); return; }
+
+    let secretToUse = '';
+    if (mode === 'pin') {
+      const pin = f.pin.value.trim();
+      const pinCheck = P.checkPin(pin, who);
+      if (!pinCheck.ok) { fail(pinCheck.error); return; }
+      if (pin !== f.pin2.value.trim()) { fail('The two PINs don’t match.'); return; }
+      secretToUse = pin;
+    } else {
+      const pw = f.pw.value;
+      if (!P.check(pw, who, common).ok) { fail('Choose a password that meets every rule above.'); return; }
+      if (pw !== f.pw2.value) { fail('The two passwords don’t match.'); return; }
+      const seen = await P.breachCount(pw);
+      if (seen > 0) { fail(`This password has appeared in ${seen.toLocaleString()} data breaches. Choose a different one.`); return; }
+      secretToUse = pw;
+    }
+
     busy = true;
     const btn = document.getElementById('go'); btn.disabled = true; btn.textContent = 'Checking…';
-    const seen = await P.breachCount(pw);
-    if (seen > 0) { busy = false; fail(`This password has appeared in ${seen.toLocaleString()} data breaches. Choose a different one.`); return; }
     const started = Date.now(), email = M.staffEmail(j.ic, j.tenantId, j.gen);
     let cred;
-    try { cred = await Auth.createUserWithEmailAndPassword(auth, email, pw); }
+    try { cred = await Auth.createUserWithEmailAndPassword(auth, email, secretToUse); }
     catch (e) {
       // Already registered (or any other refusal): the same words as every other mismatch.
       busy = false; await steady(started);
@@ -96,7 +145,20 @@ async function openPassword(j) {
       openForm(T.noMatch); return;
     }
     try {
-      await FS.setDoc(FS.doc(db, `users/${cred.user.uid}`), { email, name: 'Waiting for approval', tenantId: j.tenantId, code: j.code, roles: ['employee'], empId: '', pending: true, via: 'open', ...(j.keyProof ? { keyProof: j.keyProof } : {}), joinedAt: FS.serverTimestamp() });
+      await FS.setDoc(FS.doc(db, `users/${cred.user.uid}`), {
+        email,
+        name: 'Waiting for approval',
+        tenantId: j.tenantId,
+        code: j.code,
+        roles: ['employee'],
+        empId: '',
+        pending: true,
+        via: 'open',
+        ...(j.phone ? { phone: j.phone } : {}),
+        ...(mode === 'pin' ? { authType: 'pin' } : {}),
+        ...(j.keyProof ? { keyProof: j.keyProof } : {}),
+        joinedAt: FS.serverTimestamp()
+      });
     } catch (e) {
       try { await cred.user.delete(); } catch (x) { /* signed out below */ }
       await Auth.signOut(auth).catch(() => {});
@@ -104,7 +166,8 @@ async function openPassword(j) {
       openForm(e?.code === 'permission-denied' ? T.noMatch : 'Something went wrong. Check your connection and try again.'); return;
     }
     await Auth.signOut(auth).catch(() => {});
-    page('Thank you', '', `<p class="ac-ok" role="status">Your registration is sent to HR. Once HR has checked it, sign in with company code <b>${esc(j.code)}</b>, your IC and this password.</p><a class="btn login-submit" href="/app">Go to sign in</a>`);
+    const methodDesc = mode === 'pin' ? 'your 6-digit PIN' : 'this password';
+    page('Thank you', '', `<p class="ac-ok" role="status">Your registration is sent to HR. Once HR has checked it, sign in with company code <b>${esc(j.code)}</b>, your IC and ${methodDesc}.</p><a class="btn login-submit" href="/app">Go to sign in</a>`);
   });
 }
 
@@ -120,48 +183,98 @@ async function start() {
 
 async function form(link) {
   const common = await P.loadCommon('/js/vendor/common-passwords.txt');
-  page(`Join ${esc(link.company || 'your company')}`, `Hi ${esc(link.name || '')}. Type your IC number and choose a password. Afterwards you sign in with company code <b>${esc(link.code)}</b>, your IC and this password.`, `
+  page(`Join ${esc(link.company || 'your company')}`, `Hi ${esc(link.name || '')}. Type your IC number and choose a password or 6-digit PIN. Afterwards you sign in with company code <b>${esc(link.code)}</b>, your IC and this password/PIN.`, `
     <form id="f" novalidate class="login-card" style="padding:0;box-shadow:none;max-width:none">
       <div class="field"><label for="ic">IC number</label><input class="input" id="ic" name="ic" inputmode="numeric" autocomplete="username" placeholder="12 digits, no dashes" required></div>
-      <div class="field"><label for="pw">New password</label><div class="pw-wrap"><input class="input" id="pw" name="pw" type="password" autocomplete="new-password" required aria-describedby="rules"><button type="button" class="pw-toggle" id="show" aria-label="Show password">Show</button></div></div>
-      <ul class="ac-rules" id="rules" aria-live="polite"></ul>
-      <div class="field"><label for="pw2">Confirm password</label><input class="input" id="pw2" name="pw2" type="password" autocomplete="new-password" required></div>
+
+      <div class="seg" role="tablist" style="margin-bottom:14px;width:100%;display:flex">
+        <button type="button" class="btn on" id="tab-pw" style="flex:1" role="tab" aria-selected="true">Password</button>
+        <button type="button" class="btn" id="tab-pin" style="flex:1" role="tab" aria-selected="false">6-digit PIN</button>
+      </div>
+
+      <div id="sec-pw">
+        <div class="field"><label for="pw">New password</label><div class="pw-wrap"><input class="input" id="pw" name="pw" type="password" autocomplete="new-password" aria-describedby="rules"><button type="button" class="pw-toggle" id="show-pw" aria-label="Show password">Show</button></div></div>
+        <ul class="ac-rules" id="rules" aria-live="polite"></ul>
+        <div class="field"><label for="pw2">Confirm password</label><input class="input" id="pw2" name="pw2" type="password" autocomplete="new-password"></div>
+      </div>
+
+      <div id="sec-pin" hidden>
+        <div class="field"><label for="pin">6-digit PIN</label><div class="pw-wrap"><input class="input" id="pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="6 digits" autocomplete="new-password"><button type="button" class="pw-toggle" id="show-pin" aria-label="Show PIN">Show</button></div></div>
+        <p class="field-hint" style="margin-bottom:8px">Numbers only. Cannot be simple patterns like 123456 or your birth date.</p>
+        <div class="field"><label for="pin2">Confirm 6-digit PIN</label><input class="input" id="pin2" name="pin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Repeat 6 digits" autocomplete="new-password"></div>
+      </div>
+
       <p class="login-error" id="err" role="alert" hidden></p>
       <button class="btn btn-primary login-submit" type="submit" id="go">Join</button>
     </form>`);
   const f = document.getElementById('f'), err = document.getElementById('err');
   const who = () => ({ name: link.name, ic: M.icDigits(f.ic.value) });
+  let mode = 'pw';
+  const tabPw = document.getElementById('tab-pw'), tabPin = document.getElementById('tab-pin');
+  const secPw = document.getElementById('sec-pw'), secPin = document.getElementById('sec-pin');
+
+  tabPw.addEventListener('click', () => {
+    mode = 'pw';
+    tabPw.classList.add('on'); tabPw.setAttribute('aria-selected', 'true');
+    tabPin.classList.remove('on'); tabPin.setAttribute('aria-selected', 'false');
+    secPw.hidden = false; secPin.hidden = true;
+    err.hidden = true;
+  });
+  tabPin.addEventListener('click', () => {
+    mode = 'pin';
+    tabPin.classList.add('on'); tabPin.setAttribute('aria-selected', 'true');
+    tabPw.classList.remove('on'); tabPw.setAttribute('aria-selected', 'false');
+    secPin.hidden = false; secPw.hidden = true;
+    err.hidden = true;
+    document.getElementById('pin')?.focus();
+  });
+
   const draw = () => { document.getElementById('rules').innerHTML = P.check(f.pw.value, who(), common).rules.map((r) => `<li class="${r.ok ? 'ok' : ''}">${esc(r.text)}</li>`).join(''); };
   draw(); f.pw.addEventListener('input', draw); f.ic.addEventListener('input', draw);
-  document.getElementById('show').addEventListener('click', (ev) => { const s = f.pw.type === 'password'; f.pw.type = f.pw2.type = s ? 'text' : 'password'; ev.target.textContent = s ? 'Hide' : 'Show'; });
+  document.getElementById('show-pw').addEventListener('click', (ev) => { const s = f.pw.type === 'password'; f.pw.type = f.pw2.type = s ? 'text' : 'password'; ev.target.textContent = s ? 'Hide' : 'Show'; });
+  document.getElementById('show-pin')?.addEventListener('click', (ev) => { const s = f.pin.type === 'password'; f.pin.type = f.pin2.type = s ? 'text' : 'password'; ev.target.textContent = s ? 'Hide' : 'Show'; });
   const fail = (m) => { err.textContent = m; err.hidden = false; const b = document.getElementById('go'); b.disabled = false; b.textContent = 'Join'; };
   f.addEventListener('submit', async (ev) => {
     ev.preventDefault(); err.hidden = true;
-    const ic = M.icDigits(f.ic.value), pw = f.pw.value;
+    const ic = M.icDigits(f.ic.value);
     if (!M.validIc(ic)) { fail('Enter your 12-digit IC number.'); return; }
-    if (!P.check(pw, who(), common).ok) { fail('Choose a password that meets every rule above.'); return; }
-    if (pw !== f.pw2.value) { fail('The two passwords don’t match.'); return; }
+
+    let secretToUse = '';
+    if (mode === 'pin') {
+      const pin = f.pin.value.trim();
+      const pinCheck = P.checkPin(pin, who());
+      if (!pinCheck.ok) { fail(pinCheck.error); return; }
+      if (pin !== f.pin2.value.trim()) { fail('The two PINs don’t match.'); return; }
+      secretToUse = pin;
+    } else {
+      const pw = f.pw.value;
+      if (!P.check(pw, who(), common).ok) { fail('Choose a password that meets every rule above.'); return; }
+      if (pw !== f.pw2.value) { fail('The two passwords don’t match.'); return; }
+      const seen = await P.breachCount(pw);
+      if (seen > 0) { fail(`This password has appeared in ${seen.toLocaleString()} data breaches. Choose a different one.`); return; }
+      secretToUse = pw;
+    }
+
     const btn = document.getElementById('go'); btn.disabled = true; btn.textContent = 'Checking…';
-    const seen = await P.breachCount(pw);
-    if (seen > 0) { fail(`This password has appeared in ${seen.toLocaleString()} data breaches. Choose a different one.`); return; }
     btn.textContent = 'Joining…';
     const email = M.staffEmail(ic, link.tenantId, link.gen);
     let cred;
-    try { cred = await Auth.createUserWithEmailAndPassword(auth, email, pw); }
+    try { cred = await Auth.createUserWithEmailAndPassword(auth, email, secretToUse); }
     catch (e) {
       // Already joined with this IC: sign in instead.
-      fail(e?.code === 'auth/email-already-in-use' ? `You’ve already joined. Sign in with company code ${link.code}, your IC and your password.` : e?.code === 'auth/network-request-failed' ? 'You seem to be offline. Try again.' : 'That didn’t work. Try again.');
+      fail(e?.code === 'auth/email-already-in-use' ? `You’ve already joined. Sign in with company code ${link.code}, your IC and your password or PIN.` : e?.code === 'auth/network-request-failed' ? 'You seem to be offline. Try again.' : 'That didn’t work. Try again.');
       return;
     }
     try {
-      await FS.setDoc(FS.doc(db, `users/${cred.user.uid}`), { email, name: link.name || 'Staff', tenantId: link.tenantId, roles: ['employee'], empId: link.empId, via: 'ic', link: secret, joinedAt: FS.serverTimestamp() });
+      await FS.setDoc(FS.doc(db, `users/${cred.user.uid}`), { email, name: link.name || 'Staff', tenantId: link.tenantId, roles: ['employee'], empId: link.empId, via: 'ic', link: secret, ...(mode === 'pin' ? { authType: 'pin' } : {}), joinedAt: FS.serverTimestamp() });
     } catch (e) {
       // Not the IC HR invited (or the invitation was replaced): leave nothing behind.
       try { await cred.user.delete(); } catch (x) { await Auth.signOut(auth); }
       fail(e?.code === 'permission-denied' ? 'That IC doesn’t match this invitation, or the link was replaced. Check your IC, or ask HR for a new link.' : 'Something went wrong. Check your connection and try again.');
       return;
     }
-    page('You’ve joined', '', `<p class="ac-ok" role="status">Signing you in… Next time use company code <b>${esc(link.code)}</b>, your IC and your password.</p>`);
+    const methodDesc = mode === 'pin' ? 'your 6-digit PIN' : 'your password';
+    page('You’ve joined', '', `<p class="ac-ok" role="status">Signing you in… Next time use company code <b>${esc(link.code)}</b>, your IC and ${methodDesc}.</p>`);
     setTimeout(() => location.replace('/app?activated'), 1500);
   });
 }
