@@ -1487,7 +1487,7 @@
           <p class="muted">Everyone’s password must be at least ${window.AllurusPassword?.MIN || 10} characters, and can’t be a common password or contain their name, email or company name. Change your own in <a href="#settings/account">My account</a>.</p></div>` },
       { id: 'data', label: 'Data & privacy', icon: 'box', summary: CLOUD ? 'How long data is kept' : 'Reset the demo workspace', keys: 'data privacy pdpa retention reset delete export',
         html: () => `<div class="card"><div class="card-head"><h3>Data retention</h3></div><p class="muted">${CLOUD ? `If a subscription ends, company admins can still open the workspace, Billing and their data for a ${B.graceDays}-day grace period. The data is then kept for ${B.keepDays} days before it is deleted.` : 'This demo is saved in this browser only.'}</p></div>
-          ${CLOUD ? '' : resetCard(`Data is stored in this browser only. Resetting puts ${esc(s.company)} back to its sample data; other demo companies are not touched.`)}` },
+          ${CLOUD ? '<div class="card" id="support-access"><div class="card-head"><h3>Allurus support access</h3><span class="hint">Loading…</span></div></div>' : resetCard(`Data is stored in this browser only. Resetting puts ${esc(s.company)} back to its sample data; other demo companies are not touched.`)}` },
       ...(feats ? [{ id: 'features', label: 'Features', icon: 'layers', summary: 'Modules switched on for your company', keys: 'feature module industry',
         html: () => `<div class="card"><div class="card-head"><h3>Features</h3><span class="hint">Set by Allurus for your industry</span></div><div class="chips" style="flex-wrap:wrap">${[...feats.keys].sort().map((k) => `<span class="tag">${esc(k)}</span>`).join('') || '<span class="faint">None</span>'}</div></div>` }] : []),
       account, notifications,
@@ -1602,7 +1602,7 @@
     notifyApi.bindSettings();
     bindSettingsLayout(list, list.some((x) => x.id === sec) ? sec : '');
     if (role() !== 'admin' || !can('settings')) return;
-    if (CLOUD) teamAccess.mount();
+    if (CLOUD) { teamAccess.mount(); supportAccess.mount(); }
     const bind = (id, key, num) => $(id)?.addEventListener('change', (ev) => { state.settings[key] = num ? Math.max(0, Number(ev.target.value) || 0) : ev.target.value.trim() || state.settings[key]; commit('Settings saved'); });
     if ($('#z-label')) bindCheckinCard();
     leaveApi.bindSettings();
@@ -1660,6 +1660,7 @@
         try { sessionStorage.setItem(FAIL_KEY, res.ok ? '0' : String(fails + 1)); } catch (e) { /* no storage */ }
         if (!res.ok) { btn.disabled = false; btn.textContent = 'Sign in'; err.textContent = res.error; err.hidden = false; form.password.value = ''; form.password.focus(); return; }
         startSession(state.accounts[0]);
+        supportAccess.notice().then(() => { notifyApi?.updateBell(); save(); }).catch(() => {});
         return;
       }
       const acct = state.accounts.find((a) => a.email === email);
@@ -2653,6 +2654,8 @@
     'acc-open-wa': () => { window.open(`https://wa.me/?text=${encodeURIComponent(teamAccess.joinMessage())}`, '_blank', 'noopener'); },
     'acc-open-msg': () => teamAccess.editJoinMessage(),
     'acc-key-set': () => teamAccess.joinKey(),
+    'sup-on': () => supportAccess.set(Number($('#sup-days')?.value) || 7, !!$('#sup-pay')?.checked),
+    'sup-off': () => supportAccess.set(null, false),
     'acc-key-remove': () => teamAccess.removeJoinKey(),
     'acc-open-ok': (uid) => teamAccess.approve(uid),
     'acc-open-no': (uid) => teamAccess.refuse(uid),
@@ -3115,6 +3118,47 @@
   ACTIONS['bill-export'] = () => billingUi.exportAll();
   ACTIONS['onboard-hide'] = () => { state.settings.onboardDone = true; commit('Checklist hidden'); };
 
+  // ---------- Allurus support access (cloud mode): the client lets support edit, and sees every change ----------
+  const supportAccess = {
+    async mount() {
+      const el = $('#support-access'); if (!el || !fire()?.live || fire().profile?.support) return;
+      const [g, log] = await Promise.all([fire().supportGrant(), fire().supportLog()]);
+      this.g = g || {}; this.log = Array.isArray(log) ? log : [];
+      this.draw();
+      this.notice(this.log).catch(() => {});
+    },
+    draw() {
+      const el = $('#support-access'); if (!el) return;
+      const g = this.g || {}, d = (x) => U.fmtDate(new Date(x).toISOString().slice(0, 10));
+      const when = (a) => { const ms = AllurusInvite.ms(a); if (!ms) return ''; const x = new Date(ms); return `${d(x)} ${String(x.getHours()).padStart(2, '0')}:${String(x.getMinutes()).padStart(2, '0')}`; };
+      const rows = (this.log || []).map((x) => `<tr><td style="white-space:nowrap">${esc(when(x.at))}</td><td>${esc(x.label || (x.kind === 'session' ? 'Support session started' : 'Change'))}${(x.changes || []).length ? `<ul style="margin:4px 0 0 16px">${x.changes.slice(0, 12).map((c) => `<li><code>${esc(c.field)}</code>: ${esc(c.from || '—')} → ${esc(c.to || '—')}</li>`).join('')}${x.changes.length > 12 ? `<li>and ${x.changes.length - 12} more</li>` : ''}</ul>` : ''}</td><td class="muted">${esc(x.actorEmail || '')}</td></tr>`).join('');
+      el.innerHTML = `<div class="card-head"><h3>Allurus support access</h3>${g.until ? `<span class="pill warn">On until ${d(g.until)}</span>` : '<span class="pill">Off</span>'}</div>
+        <p class="muted" style="margin-bottom:10px">If you need help setting up your data, you can let Allurus support edit it for a limited time. Allurus acts for you, only while this is on, and every change is listed below. Without it, support can only look (never at pay or ID data).</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><b>Allow Allurus support to edit our data</b>
+          ${g.until ? '<button class="btn btn-sm btn-danger" data-act="sup-off">Turn off now</button>' : '<select class="select" id="sup-days" aria-label="For how long"><option value="1">24 hours</option><option value="7" selected>7 days</option><option value="30">30 days</option></select><button class="btn btn-sm btn-primary" data-act="sup-on">Allow</button>'}</div>
+        <label style="display:flex;gap:8px;align-items:center;margin-bottom:12px"><input type="checkbox" id="sup-pay" ${g.payUntil ? 'checked' : ''} ${g.until ? '' : 'disabled'}> Also allow support to see and change pay and ID data (salary, bank, IC, statutory numbers), for the same time</label>
+        <h4 style="margin:6px 0">Support access log</h4>
+        ${rows ? `<div class="table-wrap"><table class="table"><thead><tr><th>When</th><th>What</th><th>Who</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="muted">Allurus support hasn’t opened your company.</p>'}`;
+      $('#sup-pay')?.addEventListener('change', (ev) => this.set(this.daysLeft(), ev.target.checked));
+    },
+    daysLeft() { const u = this.g?.until; return u ? Math.max(1 / 24, (u.getTime() - Date.now()) / 864e5) : 0; },
+    async set(days, pay) {
+      const r = await fire().setSupportGrant(days, pay);
+      if (r.ok) { log(days ? `Allurus support access allowed until ${U.fmtDate(r.until.toISOString().slice(0, 10))}${pay ? ', with pay and ID data' : ''}` : 'Allurus support access turned off'); save(); }
+      toast(r.ok ? (days ? `Support can edit until ${U.fmtDate(r.until.toISOString().slice(0, 10))}${pay ? ', including pay and ID data' : ''}.` : 'Support access is off. Support can only look now.') : r.error, r.ok ? '' : 'error');
+      await this.mount();
+    },
+    // When support opens the company: one notice to its admins per visit (in the app; by email if they chose that).
+    async notice(known) {
+      if (!CLOUD || !fire()?.live || fire().profile?.support || !notifyApi) return;
+      if (!(state.session.roles || []).includes('admin')) return;
+      const got = known || await fire().supportLog(), log = Array.isArray(got) ? got : [];
+      let n = 0;
+      log.filter((x) => x.kind === 'session').slice(0, 20).forEach((x) => { n += notifyApi.event('support.opened', { href: '#settings/data' }, 'hr', { key: `sup-${x.id}`, self: true }) || 0; });
+      if (n) { notifyApi.updateBell?.(); save(); }
+    },
+  };
+
   // ---------- Team access (cloud mode): who can sign in, and as what ----------
   const NO_EMAIL = 'Add an email, or use a registration link';
   const teamAccess = {
@@ -3504,11 +3548,16 @@
     // Staff of an expired or suspended company (js/cloud.js start()).
     companyBlocked(eff) { billingUi.blocked(eff); },
     // Superadmin viewing a company: open it as its Owner would see it, with a banner; changes are never saved.
-    cloudViewOnly(name) {
+    // sup: { edit, until, pay } when the company has granted Allurus support access (support mode).
+    cloudViewOnly(name, sup = null) {
       cloudWaiting = false; startSession(state.accounts[0]);
       let bar = document.getElementById('view-only-bar');
-      if (!bar) { bar = document.createElement('div'); bar.id = 'view-only-bar'; bar.setAttribute('role', 'status'); bar.style.cssText = 'position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:90;background:#16181D;color:#fff;padding:8px 14px;border-radius:999px;font:600 13px/1.3 var(--font);box-shadow:var(--shadow-lg);display:flex;gap:12px;align-items:center;max-width:calc(100vw - 24px)'; document.body.appendChild(bar); }
-      bar.innerHTML = `<span>Viewing ${esc(name)} as superadmin · read-only, nothing you change is saved</span><a href="/superadmin" style="color:#D9B66F">Back to superadmin</a>`;
+      if (!bar) { bar = document.createElement('div'); bar.id = 'view-only-bar'; bar.setAttribute('role', 'status'); bar.style.cssText = 'position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:90;background:#16181D;color:#fff;padding:8px 14px;border-radius:999px;font:600 13px/1.3 var(--font);box-shadow:var(--shadow-lg);display:flex;gap:12px;align-items:center;flex-wrap:wrap;max-width:calc(100vw - 24px)'; document.body.appendChild(bar); }
+      const until = (d) => U.fmtDate(new Date(d).toISOString().slice(0, 10));
+      bar.innerHTML = sup?.edit
+        ? `<span>Support mode: you are editing ${esc(name)} as Allurus support · until ${until(sup.until)} · ${sup.pay ? 'pay and ID data allowed' : 'pay and ID data hidden'} · every change is logged for the client</span><a href="/superadmin" style="color:#D9B66F">Exit</a>`
+        : `<span>Viewing ${esc(name)} as superadmin · read-only (no support access granted), nothing you change is saved${sup?.pay ? '' : ' · pay and ID data hidden'}</span><a href="/superadmin" style="color:#D9B66F">Back to superadmin</a>`;
+      if (sup?.edit) bar.style.background = '#7A2E0E';
     },
     // Just activated on /activate and already signed in: open the app as them.
     cloudSignedIn() { cloudWaiting = false; startSession(state.accounts[0]); toast('Your account is ready. Welcome to Allurus.'); },
@@ -3516,6 +3565,7 @@
       cloudWaiting = false;
       if (reason === 'signed-out') { Object.assign(state.session, { account: null, roles: [], role: null }); saveLocal(); toast('Please sign in again.'); }
       render();
+      if (reason !== 'signed-out') supportAccess.notice().then(() => { notifyApi?.updateBell(); save(); }).catch(() => {});
     },
   };
 

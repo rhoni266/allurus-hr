@@ -436,10 +436,45 @@ service cloud.firestore {
           'paidUntil', 'expiredAt', 'statusNote', 'createdVia', 'termsVersion', 'termsAcceptedAt', 'admin', 'phone']);
       // Superadmin: sees every company, and sets only which industries it belongs to (with an audit entry).
       allow read: if isSuperadmin();
-      // ...and can view (never change) everything inside one, for support. Opening a company from /superadmin
-      // writes an audit entry first (action view-company).
-      match /{inside=**} {
-        allow read: if isSuperadmin();
+      // ---- Allurus support (the superadmin) inside a company ----
+      // Views it read-only, except pay and ID data. Edits only while the company's grant (support/grant, set by its
+      // own admins in Settings) is on; pay and ID data need its second switch too. Every support write names a new
+      // supportLog entry about that document, by this account, in the same batch (_support), so nothing changes
+      // without a record the client can read.
+      function grantDoc() { return /databases/$(database)/documents/tenants/$(t)/support/grant; }
+      function supportOn() { return isSuperadmin() && exists(grantDoc()) && get(grantDoc()).data.get('until', null) is timestamp && get(grantDoc()).data.until > request.time; }
+      function supportPay() { return isSuperadmin() && exists(grantDoc()) && get(grantDoc()).data.get('payUntil', null) is timestamp && get(grantDoc()).data.payUntil > request.time; }
+      function logPath(id) { return /databases/$(database)/documents/tenants/$(t)/supportLog/$(id); }
+      function supportLogged(path) {
+        let id = request.resource.data.get('_support', '');
+        return id is string && id.size() > 0 && !exists(logPath(id)) && existsAfter(logPath(id))
+          && getAfter(logPath(id)).data.actorUid == request.auth.uid && getAfter(logPath(id)).data.path == path;
+      }
+      // Fields of an employee record that are pay or ID data.
+      function payIdKeys() { return ['ic', 'idType', 'passportNo', 'passport', 'accountNo', 'bank', 'salary', 'epfNo', 'socsoNo', 'eisNo', 'taxNo', 'zakat', 'allowances', 'face']; }
+      // Viewing: everything except pay and ID data (full employee records, payslips, personal plans, payroll and
+      // per-person document buckets), which needs the second switch.
+      match /{coll}/{id} {
+        allow read: if isSuperadmin() && !(coll in ['people', 'payslips', 'personal', 'buckets']);
+      }
+      match /support/{id} {
+        // The grant: until (edits), payUntil (pay and ID data). Set only by the company's own admins, at most
+        // 31 days ahead; never by support.
+        allow read: if admin(t) || isSuperadmin();
+        allow write: if hasArea(t, 'settings') && id == 'grant' && request.resource.data.keys().hasOnly(['until', 'payUntil', 'by', 'at'])
+          && request.resource.data.by == request.auth.uid && request.resource.data.at == request.time
+          && (request.resource.data.get('until', null) == null || (request.resource.data.until is timestamp && request.resource.data.until < request.time + duration.value(31, 'd')))
+          && (request.resource.data.get('payUntil', null) == null || (request.resource.data.payUntil is timestamp && request.resource.data.payUntil < request.time + duration.value(31, 'd')));
+      }
+      // The support access log: sessions and changes. The company's admins read it; nobody changes or deletes it.
+      match /supportLog/{id} {
+        allow read: if admin(t) || isSuperadmin();
+        allow create: if isSuperadmin() && request.resource.data.actorUid == request.auth.uid && request.resource.data.at == request.time
+          && request.resource.data.actorEmail == myEmail()
+          && request.resource.data.keys().hasOnly(['kind', 'actorUid', 'actorEmail', 'at', 'path', 'label', 'changes', 'pay'])
+          && request.resource.data.kind in ['session', 'change'] && (request.resource.data.kind == 'session' || supportOn())
+          && request.resource.data.get('changes', []) is list && request.resource.data.get('changes', []).size() <= 200;
+        allow update, delete: if false;
       }
       allow update: if audited('tenant', t) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['industryIds', 'lastAuditId'])
         && request.resource.data.industryIds is list && request.resource.data.industryIds.size() <= 12;
@@ -457,6 +492,13 @@ service cloud.firestore {
         allow read: if member(t) && readsClass(t, resource.data.r) && canRead(t);
         allow create, update: if writesBucket(t, b) && request.resource.data.r == bucketClass(b) && working(t);
         allow delete: if writesBucket(t, b) && admin(t) && working(t);
+        // Support: reads all but payroll and per-person documents (those need the second switch); writes with
+        // the grant on and a log entry.
+        function payIdBucket(r) { return r == 'p' || r.matches('u:people:.*'); }
+        // (Plain comparisons, not matches(): the rules must be able to check a whole query against them.)
+        allow read: if isSuperadmin() && ((resource.data.r != 'p' && (resource.data.r < 'u:people:' || resource.data.r >= 'u:people;')) || supportPay());
+        allow create, update: if supportOn() && supportLogged('buckets/' + b) && request.resource.data.r == bucketClass(b)
+          && (!payIdBucket(bucketClass(b)) || supportPay()) && working(t);
       }
 
       // ---- Invoices: one document each, so a sent invoice is locked here, not only on screen ----
@@ -629,10 +671,19 @@ service cloud.firestore {
         allow create, delete: if seesPeople(t) && working(t);
         allow update: if (seesPeople(t) || (member(t) && me().empId == e
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['devices', 'face']))) && working(t);
+        // Support reads the record (the app masks pay and ID fields unless the second switch is on) and changes it
+        // with a log entry; pay and ID fields only with the second switch.
+        allow read: if isSuperadmin();
+        allow create: if supportOn() && supportLogged('people/' + e) && working(t)
+          && (supportPay() || !request.resource.data.keys().hasAny(payIdKeys()));
+        allow update: if supportOn() && supportLogged('people/' + e) && working(t)
+          && (supportPay() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(payIdKeys()));
       }
       match /payslips/{e} {
         allow read: if (hasArea(t, 'payroll') || (member(t) && me().empId == e)) && canRead(t);
         allow write: if hasArea(t, 'payroll') && working(t);
+        allow read: if supportPay();
+        allow create, update: if supportOn() && supportPay() && supportLogged('payslips/' + e) && working(t);
       }
       match /personal/{e} {
         allow read: if member(t) && me().empId == e && canRead(t);

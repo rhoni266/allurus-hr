@@ -240,7 +240,7 @@
   // ---------- People, payslips and personal documents ----------
   // A person's full record, one field per property, plus "~o" for their place in the list.
   function personFields(e, order, onBlob) { const f = objectFields(e, onBlob); f['~o'] = String(order); return f; }
-  function personFrom(fields, lookup) { const e = {}; Object.keys(fields).forEach((k) => { if (k !== '~o') e[k] = dec(fields[k], lookup); }); return e; }
+  function personFrom(fields, lookup) { const e = {}; Object.keys(fields).forEach((k) => { if (k !== '~o' && k !== '_support') e[k] = dec(fields[k], lookup); }); return e; }
   // The directory as a list, in the order the admin keeps employees.
   const directoryFrom = (fields, lookup) => arrayFrom(fields || {}, lookup);
   const directoryEntry = (e) => Object.fromEntries(DIRECTORY_FIELDS.filter((k) => e[k] !== undefined).map((k) => [k, e[k]]));
@@ -318,6 +318,33 @@
   }
   const sameFields = (a, b) => diff(a, b).empty;
 
+  // ---------- Allurus support: what a change looks like in the client's support log ----------
+  // Pay and ID fields (firestore.rules payIdKeys) and anything secret are never written to the log as values.
+  const PAY_ID = ['ic', 'idType', 'passportNo', 'passport', 'accountNo', 'bank', 'salary', 'epfNo', 'socsoNo', 'eisNo', 'taxNo', 'zakat', 'allowances', 'face'];
+  const SECRET = /pass(word)?|pin\b|hash|secret|token|joinkey|keyproof|^link$|^url$|otp/i;
+  const maskIc = (v) => String(v).replace(/\b(\d{8})(\d{4})\b/g, '••••••••$2').replace(/\b(\d{6})-(\d{2})-(\d{4})\b/g, '••••••-••-$3');
+  const short = (s, n = 160) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+  // One value for the log: secrets and pay/ID fields hidden, IC-like numbers masked, links removed, kept short.
+  function logValue(key, raw) {
+    if (raw === undefined || raw === null || raw === '') return '';
+    if (SECRET.test(key)) return '(hidden)';
+    if (PAY_ID.includes(key)) return '(pay or ID data)';
+    let v = raw;
+    try { v = JSON.parse(raw); } catch (e) { /* plain */ }
+    if (v && typeof v === 'object') {
+      const clean = (o) => (Array.isArray(o) ? o.map(clean) : o && typeof o === 'object'
+        ? Object.fromEntries(Object.entries(o).map(([k, x]) => [k, SECRET.test(k) ? '(hidden)' : PAY_ID.includes(k) ? '(pay or ID data)' : clean(x)])) : o);
+      v = JSON.stringify(clean(v));
+    }
+    return short(maskIc(String(v)).replace(/https?:\/\/\S*join\?k=\S+/g, '(join link)'));
+  }
+  // The changes between what the server had and what support is sending, for the log (at most 200).
+  function supportChanges(before = {}, after = {}) {
+    const keys = [...new Set([...Object.keys(before || {}), ...Object.keys(after || {})])].filter((k) => k !== '_support' && k !== '~o');
+    return keys.filter((k) => (before || {})[k] !== (after || {})[k]).slice(0, 200)
+      .map((k) => ({ field: short(k, 80), from: logValue(k, (before || {})[k]), to: logValue(k, (after || {})[k]) }));
+  }
+
   // ---------- Staff with no work email: sign-in with IC ----------
   // Their Firebase account has a made-up email nobody can receive mail at: <ic>.<company id>.g<n>@STAFF_HOST, where
   // n is the sign-in generation (Reset sign-in makes a new one). firestore.rules (staffJoin) reads the same format.
@@ -347,6 +374,6 @@
     PAYROLL, WRITE_AREA, TALENT, OWNED, ownerOf, ownedAreas, isAdminRead, isAdminWrite, readClass, canWrite, writeArea, readable, driverOf, isOps, SPLIT, seesPeople, seesPayroll, has, DIRECTORY_FIELDS, SELF_FIELDS, MARK, BLOB_MAX,
     stable, blobId, extract, restore, enc, dec, bucketsOf, applyBucket, arrayFrom, personFields, personFrom, directoryEntry, directoryFields, directoryFrom,
     employeesFor, payslipFields, payrollFrom, personal, personalFields, applyPersonal, merge3, diff, sameFields, docBytes,
-    STAFF_HOST, icDigits, validIc, staffEmail, isStaffEmail, staffKey, companyCode, joinSecret, joinKeyHash, joinKeyNorm, newSalt,
+    PAY_ID, logValue, supportChanges, STAFF_HOST, icDigits, validIc, staffEmail, isStaffEmail, staffKey, companyCode, joinSecret, joinKeyHash, joinKeyNorm, newSalt,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

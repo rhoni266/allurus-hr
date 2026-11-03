@@ -68,6 +68,8 @@ window.AllurusNotifyRules = (function () {
     'reminder.appraisal': { cat: 'reminders', icon: 'trend', text: (d) => [`Your ${d.cycle} appraisal is due ${inDays(d.left)}`, `It is ${d.status.toLowerCase()}. Update your goals by ${fmt(d.date)}.`] },
     // In the app only (never emailed): IC staff who haven't joined from their link.
     'reminder.icJoin': { cat: 'reminders', icon: 'people', inAppOnly: true, text: (d) => [`${d.count} staff haven’t joined yet`, `${d.late ? `${d.late} link${d.late === 1 ? '' : 's'} sent over ${d.days} days ago` : ''}${d.late && d.expired ? ', ' : ''}${d.expired ? `${d.expired} expired` : ''}. Open Team access to send new links.`] },
+    // Follows each admin's settings: in the app, and by email only if they chose email for these.
+    'support.opened': { cat: 'requests', icon: 'shield', text: () => ['Allurus support opened your company', 'See what they looked at or changed in Settings → Data & privacy → Support access log.'] },
     'staff.registered': { cat: 'requests', icon: 'people', inAppOnly: true, text: (d) => [`${d.who} registered on the join page`, 'Check it’s really them, then approve it in Team access. If it isn’t them, press This is not them.'] },
     'reminder.appraisals': { cat: 'reminders', icon: 'trend', text: (d) => [`${d.count} appraisal${d.count === 1 ? ' is' : 's are'} not submitted`, `${d.cycle} appraisals are due ${fmt(d.date)} (${inDays(d.left)}): ${d.names}.`] },
   };

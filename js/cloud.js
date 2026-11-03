@@ -97,7 +97,7 @@ function localDocs(onBlob) {
       put(path, f);
     }
   }
-  put(`${T()}/personal/${p.empId}`, M.personalFields(st, p.empId, p.email));
+  if (!p.support) put(`${T()}/personal/${p.empId}`, M.personalFields(st, p.empId, p.email));   // support never has a plan of its own here
   return out;
 }
 
@@ -105,12 +105,18 @@ function localDocs(onBlob) {
 const lookup = (id) => S.blobs.get(id);
 // Employees from the documents: admins get everyone's full record; others get the directory, with their own
 // full record in their place. `over` replaces any document's fields (a merge that isn't on the server yet).
+// Support without the client's pay-and-ID switch sees those fields masked (and never sends them: push).
+function masked(e) {
+  const sup = S.profile?.support;
+  if (sup && !sup.pay) M.PAY_ID.forEach((k) => { if (e[k] !== undefined && e[k] !== '' && e[k] !== null) e[k] = k === 'ic' || k === 'passportNo' ? `••••${String(e[k]).slice(-4)}` : null; });
+  return e;
+}
 function employeesFrom(over = new Map()) {
   const p = S.profile, f = (path) => (over.has(path) ? over.get(path) : S.base.get(path));
   if (seePeople()) {
     const people = [...new Set([...S.base.keys(), ...over.keys()])].filter((k) => fam(k) === 'people').map(f).filter((x) => x && Object.keys(x).length);
     people.sort((a, b) => (+(a['~o'] || 0)) - (+(b['~o'] || 0)));
-    return people.map((x) => M.personFrom(x, lookup));
+    return people.map((x) => masked(M.personFrom(x, lookup)));
   }
   const dir = M.directoryFrom(f(`${T()}/buckets/directory`) || {}, lookup);
   const own = f(`${T()}/people/${p.empId}`);
@@ -133,7 +139,7 @@ function applyDoc(path, fields) {
     const list = st.employees || (st.employees = []);
     const i = list.findIndex((e) => e.id === id);
     if (!Object.keys(fields).length) { if (i >= 0 && seePeople()) list.splice(i, 1); return; }
-    const e = M.personFrom(fields, lookup);
+    const e = masked(M.personFrom(fields, lookup));
     if (i >= 0) list[i] = seePeople() ? e : { ...list[i], ...e };
     else { const at = Math.min(list.length, +(fields['~o'] || list.length)); list.splice(at, 0, e); }
   }
@@ -141,22 +147,27 @@ function applyDoc(path, fields) {
   else if (f === 'personal') M.applyPersonal(st, fields, p.empId, p.email);
 }
 // Bucket documents keep their fields under "f"; the others are flat.
-const fieldsOf = (path, data) => (fam(path) === 'buckets' ? (data?.f || {}) : Object.fromEntries(Object.entries(data || {})));
+// _support: the support log entry a support write named (firestore.rules supportLogged); not part of the record.
+const fieldsOf = (path, data) => (fam(path) === 'buckets' ? (data?.f || {}) : Object.fromEntries(Object.entries(data || {}).filter(([k]) => k !== '_support')));
 function stringify(fields) { const o = {}; Object.keys(fields).forEach((k) => { const v = fields[k]; o[k] = typeof v === 'string' ? v : JSON.stringify(v); }); return o; }
 
 // ---------- Reading: listeners ----------
 function listen(ready) {
   const p = S.profile, t = T();
+  // Support without the pay-and-ID switch: no payroll or per-person document classes, payslips or personal plan
+  // (the rules refuse a whole query that could return one, so asking would hide everything else too).
+  const supNoPay = !!(p.support && !p.support.pay);
+  const classes = M.readable(S.admin, S.perms, p.empId).filter((r) => !(supNoPay && (r === 'p' || r.startsWith('u:people:'))) && !(p.support && r.startsWith('u:') && r.endsWith(':e1')));
   // Only what this person may read: the rules refuse a query that could return anything else.
   const sources = [
-    query(collection(db, `${t}/buckets`), where('r', 'in', M.readable(S.admin, S.perms, p.empId))),
+    query(collection(db, `${t}/buckets`), where('r', 'in', classes)),
     // Admins with the operations area also read every driver's deliveries (read class 'd:<empId>').
     ...(can('operations') ? [query(collection(db, `${t}/buckets`), where('r', '>=', 'd:'), where('r', '<', 'd;'))] : []),
     // Admins with the area of a per-person list (documents, change requests) read every person's bucket.
-    ...M.ownedAreas(S.admin, S.perms).map((a) => query(collection(db, `${t}/buckets`), where('r', '>=', `u:${a}:`), where('r', '<', `u:${a};`))),
+    ...M.ownedAreas(S.admin, S.perms).filter((a) => !(supNoPay && a === 'people')).map((a) => query(collection(db, `${t}/buckets`), where('r', '>=', `u:${a}:`), where('r', '<', `u:${a};`))),
     seePeople() ? collection(db, `${t}/people`) : doc(db, `${t}/people/${p.empId}`),
-    seePay() ? collection(db, `${t}/payslips`) : doc(db, `${t}/payslips/${p.empId}`),
-    doc(db, `${t}/personal/${p.empId}`),
+    ...(p.support ? (p.support.pay ? [collection(db, `${t}/payslips`)] : []) : [seePay() ? collection(db, `${t}/payslips`) : doc(db, `${t}/payslips/${p.empId}`)]),
+    ...(p.support ? [] : [doc(db, `${t}/personal/${p.empId}`)]),
   ];
   let pending = sources.length;
   const first = new Set();
@@ -165,7 +176,12 @@ function listen(ready) {
       if (!first.has(i)) { first.add(i); changes.forEach(([path, data]) => { if (data) { S.base.set(path, stringify(fieldsOf(path, data))); if (fam(path) === 'buckets') S.meta.set(path, { t: data.t, r: data.r }); } }); if (--pending === 0) ready(); return; }
       remote(changes);
     };
-    const onErr = (e) => { console.warn('[Allurus cloud] listener', e.code || e); if (!first.has(i)) { first.add(i); if (--pending === 0) ready(); } };
+    const onErr = (e) => {
+      console.warn('[Allurus cloud] listener', e.code || e);
+      // Support never writes over a company it couldn't load in full: back to read-only.
+      if (p.support?.edit) { p.support.edit = false; p.viewOnly = true; S.supportDowngraded = true; }
+      if (!first.has(i)) { first.add(i); if (--pending === 0) ready(); }
+    };
     const unsub = src.type === 'document'
       ? onSnapshot(src, (snap) => onData([[snap.ref.path, snap.exists() ? snap.data() : null]]), onErr)
       : onSnapshot(src, (snap) => onData(snap.docChanges().map((c) => [c.doc.ref.path, c.type === 'removed' ? null : c.doc.data()])), onErr);
@@ -230,12 +246,39 @@ async function push() {
       try { await setDoc(doc(db, `${T()}/blobs/${id}`), { d: S.blobs.get(id), at: serverTimestamp() }); } catch (e) { /* already there: blobs are create-only */ }
       S.sentBlobs.add(id);
     }));
-    for (let i = 0; i < writes.length; i += 400) {
+    // Support mode: pay and ID fields keep the server's values unless the client allowed them; nothing is removed;
+    // and each document goes with its own entry in the client's support log (firestore.rules supportLogged).
+    const sup = S.profile?.support;
+    if (sup) {
+      for (let j = writes.length - 1; j >= 0; j--) {
+        const w = writes[j];
+        if (w.remove) { writes.splice(j, 1); warnOnce('sup-remove', 'Support can’t delete records. Ask the client to remove them.'); continue; }
+        // Only lists that came from the server (a new employee record is fine): never fill a list support couldn't read.
+        if (fam(w.path) !== 'people' && !S.base.has(w.path)) { writes.splice(j, 1); continue; }
+        if (fam(w.path) === 'people' && !sup.pay) {
+          const base = S.base.get(w.path) || {};
+          M.PAY_ID.forEach((k) => { if (base[k] !== undefined) w.fields[k] = base[k]; else delete w.fields[k]; });
+          w.d = M.diff(base, w.fields);
+          if (w.d.empty) writes.splice(j, 1);
+        }
+      }
+      if (!writes.length) return;
+    }
+    const step = sup ? 200 : 400;
+    for (let i = 0; i < writes.length; i += step) {
       const batch = writeBatch(db);
-      writes.slice(i, i + 400).forEach((w) => {
+      writes.slice(i, i + step).forEach((w) => {
         const ref = doc(db, w.path);
         if (w.remove) { batch.delete(ref); return; }
         const patch = {}; Object.assign(patch, w.d.set); w.d.del.forEach((k) => { patch[k] = deleteField(); });
+        if (sup) {
+          const rel = w.path.split('/').slice(2).join('/'), logRef = doc(collection(db, `${T()}/supportLog`));
+          batch.set(logRef, { kind: 'change', actorUid: S.profile.uid, actorEmail: S.profile.email, at: serverTimestamp(), path: rel,
+            label: `${rel.split('/')[0] === 'people' ? 'Employee record' : 'List'} ${rel.split('/').slice(1).join('/')}: by Allurus support`,
+            changes: M.supportChanges(S.base.get(w.path), { ...(S.base.get(w.path) || {}), ...w.d.set, ...Object.fromEntries(w.d.del.map((k) => [k, undefined])) }), pay: !!sup.pay });
+          if (fam(w.path) === 'buckets') { batch.set(ref, { t: w.meta.t, r: w.meta.r, f: patch, _support: logRef.id }, { merge: true }); return; }
+          batch.set(ref, { ...patch, _support: logRef.id }, { merge: true }); return;
+        }
         if (fam(w.path) === 'buckets') batch.set(ref, { t: w.meta.t, r: w.meta.r, f: patch }, { merge: true });
         else batch.set(ref, patch, { merge: true });
       });
@@ -297,8 +340,8 @@ async function start(profile) {
   try { const c = await getDoc(doc(db, `tenants/${profile.tenantId}`)); company = c.exists() ? { id: c.id, ...c.data() } : null; } catch (e) { company = null; }
   window.AllurusCompany = company;
   const eff = B.effective(company || {}), acc = B.access(eff, S.admin);
-  if (!profile.viewOnly && acc === 'none') { app.companyBlocked(eff, company); throw Object.assign(new Error('company-blocked'), { blocked: eff }); }
-  if (!profile.viewOnly && acc !== 'full') profile.billingOnly = true;
+  if (!profile.viewOnly && !profile.support && acc === 'none') { app.companyBlocked(eff, company); throw Object.assign(new Error('company-blocked'), { blocked: eff }); }
+  if (!profile.viewOnly && !profile.support && acc !== 'full') profile.billingOnly = true;
   await new Promise((ready) => listen(ready));
   if (can('finance')) await listenInvoices();
   await Promise.all(Object.keys(REQ).map(listenRequests));
@@ -444,6 +487,8 @@ const api = {
   // blobs first, so the record holds only a reference, as in the shared lists.
   async recordWrite(ops) {
     if (!S.live || S.profile?.viewOnly || S.profile?.billingOnly) return { error: 'failed' };
+    // Leave requests, claims, time requests and invoices keep their own approval checks; support doesn't change them.
+    if (S.profile?.support) { warnOnce('sup-records', 'Support can’t change leave requests, claims, time requests or invoices. Ask the client.'); return { error: 'failed' }; }
     const found = new Map();
     const out = ops.map((o) => (o.data ? { ...o, data: M.extract(o.data, (id, d) => { if (id) found.set(id, d); else warnOnce('toolarge', 'A photo or file is too large to share (over 1 MB), so only this device has it.'); }) } : o));
     for (const [id, d] of found) {
@@ -454,7 +499,7 @@ const api = {
     return api.invoiceWrite(out);
   },
   async invoiceWrite(ops) {
-    if (!S.live || S.profile?.viewOnly || S.profile?.billingOnly) return { error: 'failed' };
+    if (!S.live || S.profile?.viewOnly || S.profile?.billingOnly || S.profile?.support) return { error: 'failed' };
     const b = writeBatch(db);
     ops.forEach(({ op, path, data }) => {
       const ref = doc(db, `${T()}/${path}`);
@@ -635,6 +680,24 @@ const api = {
     const s = await getDoc(doc(db, `staffInvites/${M.staffKey(S.profile.tenantId, emp.ic)}`));
     return !s.exists() || !window.AllurusInvite.usable(s.data());
   },
+  // ----- Allurus support access (the client's own admins): the grant and the log -----
+  async supportGrant() {
+    const g = await getDoc(doc(db, `${T()}/support/grant`)).catch(() => null);
+    const d = g?.exists() ? g.data() : {}, now = Date.now(), live = (x) => (x && x.toMillis() > now ? x.toDate() : null);
+    return { until: live(d.until), payUntil: live(d.payUntil) };
+  },
+  // days: 1, 7 or 30 (null turns it off); pay: also allow pay and ID data, for the same time (needs edits on).
+  async setSupportGrant(days, pay) {
+    const until = days ? FS.Timestamp.fromMillis(Date.now() + days * 864e5 - 60e3) : null;
+    try {
+      await setDoc(doc(db, `${T()}/support/grant`), { until, payUntil: until && pay ? until : null, by: S.profile.uid, at: serverTimestamp() });
+      return { ok: true, until: until ? until.toDate() : null };
+    } catch (e) { return { error: e?.code === 'permission-denied' ? 'You need the Settings area to change support access.' : 'Couldn’t save. Check your connection.' }; }
+  },
+  async supportLog() {
+    const r = await getDocs(query(collection(db, `${T()}/supportLog`), FS.orderBy('at', 'desc'), FS.limit(200))).catch(() => ({ docs: [] }));
+    return r.docs.map((d) => ({ id: d.id, ...d.data() }));
+  },
   // ----- The open join page (allurus.my/join): Open registration on or off, approve, "This is not them" -----
   async openRegistration(on, days = 7) {
     const code = await api.companyCode();
@@ -765,8 +828,18 @@ Auth.onAuthStateChanged(auth, async (user) => {
       if (tok.claims.role === 'superadmin') {
         const t = await getDoc(doc(db, `tenants/${viewId}`));
         if (t.exists()) {
-          const prof = { uid: user.uid, email: lower(user.email), name: 'Allurus superadmin', tenantId: viewId, roles: ['admin', 'employee'], empId: 'e1', viewOnly: true };
-          await start(prof); app.cloudViewOnly(t.data().name || viewId); return;
+          // The company's grant: edits until `until`, pay and ID data until `payUntil` (its own admins set it).
+          const g = await getDoc(doc(db, `tenants/${viewId}/support/grant`)).catch(() => null);
+          const now = Date.now(), gd = g?.exists() ? g.data() : {};
+          const edit = !!(gd.until && gd.until.toMillis() > now), pay = !!(gd.payUntil && gd.payUntil.toMillis() > now);
+          const sup = { edit, pay, until: edit ? gd.until.toMillis() : null };
+          // Support sees no payroll or per-person documents unless pay is allowed (the rules refuse them anyway).
+          const areas = ['people', 'time', 'claims', 'finance', 'talent', 'operations', 'settings', ...(pay ? ['payroll'] : [])];
+          const prof = { uid: user.uid, email: lower(user.email), name: 'Allurus support', tenantId: viewId, roles: ['admin', 'employee'], empId: 'e1', viewOnly: !edit, support: sup, perms: areas };
+          // Every visit is in the client's support log, read-only ones too; the client's admins get a notice.
+          try { await setDoc(doc(collection(db, `tenants/${viewId}/supportLog`)), { kind: 'session', actorUid: user.uid, actorEmail: lower(user.email), at: serverTimestamp(), label: edit ? 'Support session started (editing allowed)' : 'Support session started (read-only)', pay }); }
+          catch (e) { console.warn('[Allurus cloud] support log', e?.code); app.toast('Couldn’t write the support log, so this company opens read-only.', 'error'); prof.viewOnly = true; sup.edit = false; }
+          await start(prof); app.cloudViewOnly(t.data().name || viewId, sup); return;
         }
       }
     } catch (e) { console.warn('[Allurus cloud] superadmin view', e?.code); }
