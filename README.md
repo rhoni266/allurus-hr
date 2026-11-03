@@ -18,7 +18,7 @@ A third, **Major Far East Sdn Bhd** (`?demo=majorfe`), is a made-up hardware and
 
 ## Signing in
 
-Everyone signs in with email and password. The sidebar's view picker shows only the views an account is allowed to use.
+Everyone signs in with email and password, except cloud-mode staff with no work email, who sign in with their IC (see below). The sidebar's view picker shows only the views an account is allowed to use.
 
 | Account | Role |
 |---|---|
@@ -29,6 +29,10 @@ Everyone signs in with email and password. The sidebar's view picker shows only 
 | `arjun.pillai@serimaju.com.my` | Employee who approves his team (manager) |
 | `daniel.lim@serimaju.com.my` | Employee |
 | `meiling@tanpartners.com.my` | Auditor (external accounting firm, read-only books, verifies reports) |
+
+### Staff with no work email (cloud mode)
+
+Some clients' employees have no email address. HR registers each person's IC (or passport number) on their profile, then under **Settings → Team access** chooses **Invite** for them and **Send on WhatsApp** for the company's join link. Each person opens the link, enters their IC and chooses a password. Later they use **No work email? Sign in with your IC** with the company code, IC and password. Only people HR invited can join, and a person who forgets their password is fixed by HR with **Reset sign-in**. Anyone with the link who also knows a colleague's IC could claim that colleague's account first, so share the link only with the staff group, check the **Signed in** column, and make a **new link** if it spreads. Details are in [`docs/firebase-setup.md`](docs/firebase-setup.md).
 
 ### Roles
 

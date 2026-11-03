@@ -43,6 +43,23 @@ These values only identify the project; they are not passwords. Who can read wha
 
 The demo accounts (`aisyah.rahman@serimaju.com.my` and the others) do not exist in the cloud. To try the sample team, give a sample employee your own second email address on their profile, invite them, and sign in as them in another browser.
 
+## Staff with no work email
+
+Staff without an email sign in with their IC. Nothing extra to switch on in Firebase: the IC becomes a made-up address (`<ic>.<companyId>.g<n>@staff.allurus.invalid`) on the same Email/Password sign-in, and nothing is ever sent to it. **Publish the updated `firestore.rules`**, since the join and invite rules are new.
+
+1. Put each person's IC (or passport number) on their profile. Leave their work email empty.
+2. **Settings → Team access**: **Invite** each person (or **Invite all**). A card appears with the company's join link and company code.
+3. **Send on WhatsApp** opens WhatsApp with the message and link. Each person opens it, enters their IC and chooses a password.
+4. Next time they use **No work email? Sign in with your IC** on the sign-in screen: company code, IC, password.
+
+Things to know:
+
+- **Who can join**: only an IC HR invited, and only with the link's secret. An IC that was never invited is turned away.
+- **The weak spot**: IC numbers aren't secret. Whoever has the link and knows a colleague's IC could set up that colleague's account first. The first person to set up an IC wins, and HR sees **Signed in** against the name and can **Reset sign-in** (which signs them out and lets the real person set a new password from the link). Share the link only in the staff group, and use **Make a new link** if it reaches the wrong people. Adding a second check (for example the last four digits of the phone number on file) is the next step if this is not enough.
+- **Forgotten passwords**: there is no email to send a reset link to, so HR uses **Reset sign-in**.
+- **Remove access** signs the person out and retires their old sign-in for good.
+- Passport numbers work the same way for people with no MyKad.
+
 ## Who sees what
 
 Company Admins get a role template under **Settings → Team access**: Owner, HR admin, Payroll or Finance. The rules enforce it on Google's servers, not just in the app.

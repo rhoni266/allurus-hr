@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.7';
+  const APP_VERSION = '3.8';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -177,6 +177,7 @@
   const CLOUD = CLOUD_ON;
   const CAN_CLOUD = !!(window.ALLURUS_FIREBASE && window.ALLURUS_FIREBASE.apiKey);
   const fire = () => (CLOUD ? window.AllurusCloud : null);
+  const M = window.AllurusCloudMap; // cloud layout helpers; also how an IC maps to a sign-in (js/cloud-map.js)
   // A signed-in cloud user reopening the app waits for the workspace to load before seeing it.
   let cloudWaiting = CLOUD && !!state.session.cloud && !!state.session.account;
   let warnedFull = false;
@@ -529,6 +530,10 @@
     $('#login').classList.toggle('is-careers', !!careers);
     if (careers) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = recruitApi.careersPage(careers[1], careers[2] || ''); recruitApi.bindCareers(careers[1], careers[2] || ''); document.title = `Careers · ${recruitApi.tenantName(careers[1]) || 'Allurus'}`; return; }
     if (cloudWaiting) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = `<div class="login-inner"><div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div><h1>Loading your workspace…</h1><p class="sub">Getting the latest from the cloud.</p></div>`; return; }
+    // HR's join link for staff with no work email (?join=<secret>): set up an account with an IC and a password.
+    const joinToken = CLOUD ? new URLSearchParams(location.search).get('join') : null;
+    if (joinToken && !role()) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = joinView(); bindJoin(joinToken); return; }
+    if (joinToken) history.replaceState(null, '', location.pathname + location.hash);
     const signedIn = !!role();
     $('#login').hidden = signedIn;
     $('.app').hidden = !signedIn;
@@ -1360,6 +1365,50 @@
   };
 
   // ---------- Sign-in ----------
+  const savedCode = () => { try { return localStorage.getItem('allurus-company') || ''; } catch (e) { return ''; } };
+  const rememberCode = (c) => { try { if (c) localStorage.setItem('allurus-company', c); } catch (e) { /* private mode */ } };
+  // Run fn(fire()) as soon as the cloud module has loaded (it loads after the first screen is drawn).
+  const whenCloud = (fn, tries = 60) => { if (fire()) return fn(fire()); if (tries) setTimeout(() => whenCloud(fn, tries - 1), 250); };
+  function joinView() {
+    return `<div class="login-inner">
+      <div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div>
+      <h1 id="join-title">Set up your Allurus account</h1>
+      <p class="sub" id="join-sub">Use your IC number and choose a password. You don’t need an email.</p>
+      <form class="login-card" id="join-form" novalidate>
+        <div class="field"><label for="join-ic">IC number</label><input class="input" id="join-ic" name="ic" inputmode="text" autocomplete="username" placeholder="990101-06-1234" required><span class="field-hint">The one registered with your company. Passport number if you have no MyKad.</span></div>
+        <div class="field"><label for="join-pw">Choose a password</label><input class="input" id="join-pw" name="password" type="password" autocomplete="new-password" minlength="8" required><span class="field-hint">At least 8 characters. You’ll use it with your IC to sign in.</span></div>
+        <div class="field"><label for="join-pw2">Confirm password</label><input class="input" id="join-pw2" name="password2" type="password" autocomplete="new-password" required></div>
+        <p class="login-error" id="join-error" role="alert" hidden></p>
+        <button class="btn btn-primary login-submit" type="submit">Create my account</button>
+      </form>
+      <p class="faint" style="font-size:12.5px">Already set up? <a href="${location.pathname}">Sign in</a>, then choose “Sign in with your IC”. Version ${APP_VERSION}</p>
+    </div>`;
+  }
+  function bindJoin(token) {
+    const form = $('#join-form'), err = $('#join-error');
+    const fail = (m) => { err.textContent = m; err.hidden = false; };
+    setTimeout(() => $('#join-ic')?.focus(), 30);
+    whenCloud(async (f) => {
+      const r = await f.joinInfo(token);
+      if (r.ok) { if (r.name) { $('#join-title').textContent = `Join ${r.name}`; document.title = `Join ${r.name} · Allurus`; } }
+      else { fail(r.error); form.querySelectorAll('input,button').forEach((x) => { x.disabled = true; }); }
+    });
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const ic = form.ic.value.trim(), pw = form.password.value;
+      err.hidden = true;
+      if (!ic) return fail('Enter your IC number.');
+      if (pw.length < 8) return fail('Use at least 8 characters for your password.');
+      if (pw !== form.password2.value) return fail('The two passwords don’t match.');
+      const btn = form.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Creating…';
+      if (!fire()) { btn.disabled = false; btn.textContent = 'Create my account'; return fail('Still connecting to the server. Try again in a moment.'); }
+      const res = await fire().joinStaff(token, ic, pw);
+      if (!res.ok) { btn.disabled = false; btn.textContent = 'Create my account'; form.password.value = ''; form.password2.value = ''; return fail(res.error); }
+      rememberCode(res.code);
+      history.replaceState(null, '', location.pathname + location.hash);
+      startSession(state.accounts[0]);
+    });
+  }
   function loginView() {
     return `<div class="login-inner">
       <div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div>
@@ -1371,7 +1420,7 @@
           <div class="pw-wrap"><input class="input" id="login-password" name="password" type="password" autocomplete="current-password" required><button type="button" class="pw-toggle" data-act="toggle-pw" aria-label="Show password">Show</button></div></div>
         <p class="login-error" id="login-error" role="alert" hidden></p>
         <button class="btn btn-primary login-submit" type="submit">Sign in</button>
-        ${CLOUD ? '<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px"><button type="button" class="link-btn" data-act="cloud-reset">Forgot password?</button><button type="button" class="link-btn" data-act="cloud-activate">First time here? Set up your account</button></div>' : ''}
+        ${CLOUD ? '<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px"><button type="button" class="link-btn" data-act="cloud-reset">Forgot password?</button><button type="button" class="link-btn" data-act="cloud-activate">First time here? Set up your account</button></div><div style="font-size:13.5px"><button type="button" class="link-btn" data-act="staff-signin">No work email? Sign in with your IC</button></div>' : ''}
       </form>
       ${CLOUD ? '' : `<div class="card demo-pick" style="width:100%;max-width:440px;margin:0 auto 16px;padding:18px 20px"><div style="font-weight:600;margin-bottom:4px">Explore the demo company</div>${Object.keys(AllurusSeed.companies).length > 1 ? `<div class="seg demo-co" role="group" aria-label="Demo company" style="margin:4px 0 8px;width:100%">${Object.values(AllurusSeed.companies).map((c) => `<button type="button" data-act="demo-company" data-v="${c.id}" class="${c.id === DEMO.id ? 'on' : ''}" aria-pressed="${c.id === DEMO.id}" style="flex:1">${esc(c.short)}</button>`).join('')}</div>` : ''}<p class="muted" style="font-size:13.5px;margin-bottom:12px">${esc(state.settings.company)}${DEMO.blurb ? ` · ${esc(DEMO.blurb)}` : ''}. A sample business; changes stay in this browser.</p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${DEMO.logins.filter(([e]) => state.accounts.some((a) => a.email === e)).map(([e, label, sub]) => `<button type="button" class="btn" style="flex-direction:column;align-items:flex-start;height:auto;padding:10px 12px;text-align:left" data-act="demo-as" data-v="${e}"><span style="font-weight:600">${label}</span><span class="muted" style="font-size:12px;font-weight:400">${sub}</span></button>`).join('')}</div></div>`}
@@ -1414,6 +1463,8 @@
     if (!roles.includes('super') && roles.includes('admin')) return 'admin';
     return roles[0];
   }
+  // A staff member with no email is shown by their IC (last four digits), not the made-up address behind it.
+  const niceId = (email) => (M.staffFromEmail(email) ? `IC ${M.maskId(M.staffFromEmail(email))}` : email);
   function startSession(acct) {
     if (acct.tenantId && acct.tenantId !== state.session.tenantId && state.workspaces[acct.tenantId]) switchWorkspace(acct.tenantId);
     Object.assign(state.session, { account: acct.email, roles: acct.roles.slice(), role: preferredRole(acct.roles), empId: acct.empId });
@@ -1423,11 +1474,11 @@
     const target = last && routes().some((r) => r.id === last) ? last : opsApi?.landing(state.session.role) || '';
     if (location.hash.slice(1) !== target) location.hash = target; else render();
     window.scrollTo(0, 0);
-    toast(target && target !== routes()[0].id ? `Welcome back. You’re where you left off.` : `Signed in as ${acct.email}`);
+    toast(target && target !== routes()[0].id ? `Welcome back. You’re where you left off.` : `Signed in as ${niceId(acct.email)}`);
   }
   function accountCard() {
     const a = account();
-    return `<div class="card"><div class="card-head"><h3>Your account</h3><span class="hint">${esc(a?.email || '')}</span></div>
+    return `<div class="card"><div class="card-head"><h3>Your account</h3><span class="hint">${esc(niceId(a?.email || ''))}</span></div>
       <form id="pw-form" class="form-grid">
         <div class="field"><label for="pw-current">Current password</label><input class="input" id="pw-current" name="current" type="password" autocomplete="current-password" required></div>
         <div class="field"><label for="pw-new">New password</label><input class="input" id="pw-new" name="next" type="password" autocomplete="new-password" minlength="8" required><span class="field-hint">At least 8 characters.</span></div>
@@ -2349,6 +2400,25 @@
         },
       });
     },
+    'staff-signin': () => {
+      openModal({
+        title: 'Sign in with your IC', submit: 'Sign in', size: 'sm',
+        body: `<p class="muted" style="margin-bottom:12px">For staff without a work email. The company code is on the message HR sent, or ask HR. First time? Open the link HR sent you instead.</p>
+          <div class="form-grid">
+          <div class="field full"><label for="st-code">Company code</label><input class="input" id="st-code" name="code" autocapitalize="characters" autocomplete="organization" required value="${esc(savedCode())}"></div>
+          <div class="field full"><label for="st-ic">IC number</label><input class="input" id="st-ic" name="ic" autocomplete="username" placeholder="990101-06-1234" required></div>
+          <div class="field full"><label for="st-pw">Password</label><input class="input" id="st-pw" name="password" type="password" autocomplete="current-password" required></div></div>`,
+        onSubmit(d) {
+          if (!fire()) { toast('Still connecting to the server. Try again in a moment.'); return false; }
+          if (!d.code.trim() || !d.ic.trim() || !d.password) { toast('Enter the company code, your IC and your password', 'error'); return false; }
+          fire().signInStaff(d.code, d.ic, d.password).then((r) => {
+            if (!r.ok) { toast(r.error, 'error'); return; }
+            rememberCode(M.companyCode(d.code)); closeOverlay(); startSession(state.accounts[0]);
+          });
+          return false;
+        },
+      });
+    },
     'cloud-activate': () => {
       openModal({
         title: 'Set up your account', submit: 'Create my password', size: 'sm',
@@ -2367,7 +2437,11 @@
     },
     'acc-invite': (empId) => teamAccess.invite(empId),
     'acc-invite-all': () => teamAccess.inviteAll(),
-    'acc-revoke': (email) => teamAccess.revoke(email),
+    'acc-revoke': (empId) => teamAccess.revoke(empId),
+    'acc-reset': (empId) => teamAccess.reset(empId),
+    'acc-make-link': () => teamAccess.makeLink(false),
+    'acc-new-link': () => teamAccess.makeLink(true),
+    'acc-copy-link': () => teamAccess.copyLink(),
     'toggle-pw': () => { const i = $('#login-password'), b = $('[data-act="toggle-pw"]'); const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.textContent = show ? 'Hide' : 'Show'; b.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); },
     'logout': () => {
       if (CLOUD) { closeOverlay(); fire()?.signOut().finally(() => { try { localStorage.removeItem(STORE_KEY); } catch (e) { /* storage unavailable */ } location.hash = ''; location.reload(); }); return; }
@@ -2692,33 +2766,79 @@
     data: null,
     async mount() {
       const el = $('#team-access'); if (!el || !fire()?.live) return;
-      try { this.data = await fire().access(); } catch (e) { this.data = { invites: [], users: [] }; }
+      try { this.data = await fire().access(); } catch (e) { this.data = { invites: [], users: [], staff: [] }; }
+      const l = await fire().staffLink(false).catch(() => null);
+      this.link = l?.ok ? l : null;
       this.draw();
     },
     status(e) {
       const email = (e.email || '').toLowerCase(), d = this.data || { invites: [], users: [] };
-      const user = d.users.find((u) => u.empId === e.id), inv = d.invites.find((i) => i.email === email);
+      const user = d.users.find((u) => u.empId === e.id), inv = d.invites.find((i) => i.email === email), sinv = (d.staff || []).find((i) => i.empId === e.id);
       const tpl = (x) => ((x.roles || []).includes('admin') ? templateOf(Array.isArray(x.perms) ? x.perms : null) : 'employee');
-      if (user) return { key: 'joined', label: 'Signed in', pill: 'ok', template: tpl(user), uid: user.uid, email: user.email };
+      if (user) return { key: 'joined', label: 'Signed in', pill: 'ok', template: tpl(user), uid: user.uid, email: user.email, byIc: !!M.staffFromEmail(user.email) };
       if (inv) return { key: 'invited', label: 'Invited', pill: 'info', template: tpl(inv), email: inv.email };
+      if (sinv) return { key: 'invited', label: 'Invited by IC', pill: 'info', template: tpl(sinv), byIc: true };
       return { key: 'none', label: 'No access', pill: '', template: 'employee' };
     },
+    // Someone with no work email signs in by IC. Their IC (or passport) is what HR registered on their profile.
+    byIc(e) { return !e.email && M.staffIdOk(e.ic || e.passportNo); },
+    idOf: (e) => e.ic || e.passportNo || '',
     draw() {
       const el = $('#team-access'); if (!el) return;
       const people = activeEmployees(), self = fire().profile;
       const rows = people.map((e) => {
         const st = this.status(e), isMe = e.id === self.empId;
-        return `<tr><td>${person(e)}</td><td class="muted">${esc(e.email || 'No email')}</td>
+        const ic = !e.email && this.idOf(e), canInvite = !!e.email || this.byIc(e);
+        const who = e.email ? esc(e.email) : ic && M.staffIdOk(ic) ? `<span title="Signs in with IC">IC ${esc(M.maskId(ic))}</span>` : 'No email or IC';
+        const act = isMe ? '' : st.key === 'none'
+          ? `<button class="btn btn-sm btn-primary" data-act="acc-invite" data-id="${e.id}" ${canInvite ? '' : 'disabled'}>Invite</button>`
+          : `${st.byIc && st.key === 'joined' ? `<button class="btn btn-sm" data-act="acc-reset" data-id="${e.id}" title="Forgot their password? This signs them out and lets them set a new one from the link.">Reset sign-in</button> ` : ''}<button class="btn btn-sm" data-act="acc-revoke" data-id="${e.id}">Remove access</button>`;
+        return `<tr><td>${person(e)}</td><td class="muted">${who}</td>
           <td><span class="pill ${st.pill}">${st.label}</span></td>
           <td>${isMe ? `<span class="muted">You · ${esc(roleLabel('admin'))}</span>` : `<select class="select" data-acc-role="${e.id}" aria-label="Access for ${esc(fullName(e))}">${this.options(st.template)}</select>`}</td>
-          <td class="r">${isMe ? '' : st.key === 'none' ? `<button class="btn btn-sm btn-primary" data-act="acc-invite" data-id="${e.id}" ${e.email ? '' : 'disabled'}>Invite</button>` : `<button class="btn btn-sm" data-act="acc-revoke" data-id="${esc(st.email || e.email)}">Remove access</button>`}</td></tr>`;
+          <td class="r">${act}</td></tr>`;
       }).join('');
-      const waiting = people.filter((e) => e.email && this.status(e).key === 'none').length;
+      const waiting = people.filter((e) => (e.email || this.byIc(e)) && this.status(e).key === 'none').length;
+      const noEmail = people.filter((e) => !e.email).length;
       el.innerHTML = `<div class="card-head"><h3>Team access</h3>${waiting ? `<button class="btn btn-sm" data-act="acc-invite-all">Invite all ${waiting}</button>` : ''}</div>
-        <p class="muted" style="margin-bottom:12px">Invite people by their work email. They open Allurus, choose <b>First time here? Set up your account</b>, confirm their email and sign in. Everyone gets the employee app; a role adds parts of the company console. Managers need no role: being an approver in the leave settings is enough.</p>
+        <p class="muted" style="margin-bottom:12px">Invite people by their work email. They open Allurus, choose <b>First time here? Set up your account</b>, confirm their email and sign in. Staff with no email are invited by IC and sign up from a link you send to their WhatsApp group. Everyone gets the employee app; a role adds parts of the company console. Managers need no role: being an approver in the leave settings is enough.</p>
         <div class="chips" style="margin-bottom:12px;flex-wrap:wrap">${shownTemplates().map(([, t]) => `<span class="tag" title="${esc(t.desc)}"><b>${esc(t.label)}</b>: ${esc(t.desc)}</span>`).join('')}</div>
-        <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        ${noEmail ? this.linkCard(noEmail) : ''}
+        <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email or IC</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
       $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value)));
+    },
+    // For staff with no work email: one link for the company, sent to the staff WhatsApp group.
+    linkCard(n) {
+      const l = this.link;
+      const url = l?.token ? `${location.origin}${location.pathname}?join=${l.token}` : '';
+      const msg = url ? `Hi team, please set up your Allurus HR account here: ${url}\nUse your IC number (the one registered with the company) and choose a password. Next time, sign in with “Sign in with your IC”. Company code: ${l.code}` : '';
+      return `<div class="card" style="margin-bottom:14px;background:var(--surface-2,transparent)"><div class="card-head"><h3>${n} ${n === 1 ? 'person has' : 'people have'} no work email</h3></div>
+        <p class="muted" style="margin-bottom:10px">Invite them by IC (use the Invite buttons below), then send the join link to your staff WhatsApp group. Each person opens it, enters their IC and chooses a password. Only people you invited can get in. The link works for everyone you’ve invited, so make a new one if it reaches the wrong people.</p>
+        ${url ? `<div class="field" style="margin-bottom:10px"><label for="join-link">Join link · company code <b>${esc(l.code)}</b></label><input class="input" id="join-link" readonly value="${esc(url)}" onfocus="this.select()"></div>
+          <div class="chips" style="gap:8px;flex-wrap:wrap"><button class="btn btn-sm btn-primary" data-act="acc-copy-link">Copy link</button><a class="btn btn-sm" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(msg)}">Send on WhatsApp</a><button class="btn btn-sm" data-act="acc-new-link">Make a new link</button></div>`
+        : `<button class="btn btn-sm btn-primary" data-act="acc-make-link">Make join link</button>`}</div>`;
+    },
+    async makeLink(fresh) {
+      const r = await fire().staffLink(fresh);
+      if (!r.ok) { toast(r.error, 'error'); return; }
+      this.link = r; toast(fresh ? 'New link made. The old one no longer works.' : 'Join link ready'); this.draw();
+    },
+    async copyLink() {
+      const url = `${location.origin}${location.pathname}?join=${this.link.token}`;
+      try { await navigator.clipboard.writeText(url); toast('Link copied. Paste it in the staff WhatsApp group.'); } catch (e) { $('#join-link')?.select(); toast('Select the link and copy it'); }
+    },
+    async reset(empId) {
+      const e = emp(empId), st = this.status(e);
+      openModal({
+        title: `Reset ${e.first}’s sign-in?`, submit: 'Reset sign-in', size: 'sm',
+        body: `<p class="muted">${esc(e.first)} will be signed out and their old password stops working. Send the join link again so they can choose a new one with their IC.</p>`,
+        onSubmit: () => {
+          fire().endStaff(e, st.uid, true, st.template === 'custom' ? 'employee' : st.template).then(async (r) => {
+            toast(r.ok ? `${e.first}’s sign-in is reset. Send the join link again.` : r.error, r.ok ? '' : 'error');
+            await this.mount();
+          });
+        },
+      });
     },
     // The templates this person may give: only ones within their own areas; Owner only by an Owner.
     options(current) {
@@ -2731,27 +2851,29 @@
       const e = emp(empId); if (!e) return;
       const st = this.status(e);
       const chosen = this.pending?.[empId] || (st.template === 'custom' ? 'employee' : st.template);
-      const r = await fire().invite(e, chosen);
+      const r = e.email ? await fire().invite(e, chosen) : await fire().inviteStaff(e, chosen);
       if (r.ok && this.pending) delete this.pending[empId];
-      if (!quiet) toast(r.ok ? `${e.first} is invited. Ask them to choose “First time here?” on the sign-in screen with ${e.email}.` : r.error, r.ok ? '' : 'error');
+      if (!quiet) toast(r.ok ? (e.email ? `${e.first} is invited. Ask them to choose “First time here?” on the sign-in screen with ${e.email}.` : `${e.first} is invited by IC. Send them the join link below.`) : r.error, r.ok ? '' : 'error');
+      if (r.ok && !e.email && !this.link) await this.makeLink(false);
       if (!quiet) await this.mount();
       return r.ok;
     },
     async inviteAll() {
-      const list = activeEmployees().filter((e) => e.email && this.status(e).key === 'none');
+      const list = activeEmployees().filter((e) => (e.email || this.byIc(e)) && this.status(e).key === 'none');
       let n = 0; for (const e of list) if (await this.invite(e.id, true)) n++;
+      if (list.some((e) => !e.email) && !this.link) await this.makeLink(false);
       toast(`${n} ${n === 1 ? 'person' : 'people'} invited`); await this.mount();
     },
     async setRole(empId, template) {
       const e = emp(empId), st = this.status(e);
       if (st.key === 'none') { this.pending = { ...(this.pending || {}), [empId]: template }; toast(`${e.first} will be invited as ${template === 'employee' ? 'an Employee' : TEMPLATES[template].label}. Choose Invite.`); return; }
-      const r = st.key === 'joined' ? await fire().setRole(st.uid, template) : await fire().invite(e, template);
+      const r = st.key === 'joined' ? await fire().setRole(st.uid, template) : st.byIc ? await fire().inviteStaff(e, template) : await fire().invite(e, template);
       toast(r.ok ? `${e.first} is now ${template === 'employee' ? 'an Employee' : TEMPLATES[template].label}${st.key === 'joined' ? '. It applies the next time they sign in.' : ''}` : r.error, r.ok ? '' : 'error');
       await this.mount();
     },
-    async revoke(email) {
-      const d = this.data || { users: [] }, u = d.users.find((x) => x.email === email);
-      const r = await fire().revoke(email, u?.uid);
+    async revoke(empId) {
+      const e = emp(empId), st = this.status(e);
+      const r = st.byIc ? await fire().endStaff(e, st.uid, false) : await fire().revoke(st.email || e.email, st.uid);
       toast(r.ok ? 'Access removed. They can’t sign in to this company any more.' : r.error, r.ok ? '' : 'error');
       await this.mount();
     },

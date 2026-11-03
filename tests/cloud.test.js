@@ -259,3 +259,57 @@ test('the public demo shares only its check-in point, for the demo companies', (
   const ids = vm.runInContext('Object.keys(AllurusSeed.companies)', sandbox);
   assert.deepEqual(plain(ids).sort(), ['majorfe', 'serimaju', 'suria']);
 });
+
+test('staff with no email: an IC and company become one stable sign-in address', () => {
+  const a = M.staffEmail('Tenant9X', '990101-06-1234', 1);
+  assert.equal(a, '990101061234.tenant9x.g1@staff.allurus.invalid');
+  // however the IC is typed, it is the same person
+  assert.equal(M.staffEmail('Tenant9X', ' 990101061234 ', 1), a);
+  // another company, or a reset (next generation), is a different sign-in
+  assert.notEqual(M.staffEmail('OtherCo', '990101061234', 1), a);
+  assert.notEqual(M.staffEmail('Tenant9X', '990101061234', 2), a);
+  assert.equal(M.staffKey('Tenant9X', '990101-06-1234'), 'Tenant9X~990101061234');
+  assert.equal(M.staffFromEmail(a), '990101061234');
+  assert.equal(M.staffFromEmail('aisyah@serimaju.com.my'), '');
+  assert.equal(M.maskId('990101-06-1234'), '••••••••1234');
+  assert.equal(M.companyCode(' k7m-4qx '), 'K7M4QX');
+});
+
+test('an IC that is too short or too long is not accepted', () => {
+  assert.equal(M.staffIdOk('990101-06-1234'), true);
+  assert.equal(M.staffIdOk('A1234567'), true);
+  assert.equal(M.staffIdOk('12345'), false);
+  assert.equal(M.staffIdOk(''), false);
+  assert.equal(M.staffIdOk(undefined), false);
+});
+
+test('firestore.rules: staff join needs HR’s invite for their IC and the link’s secret', () => {
+  const rules = fs.readFileSync(path.join(root, 'firestore.rules'), 'utf8');
+  const users = rules.slice(rules.indexOf('match /users/{uid}'), rules.indexOf('match /invites/{email}'));
+  // the made-up address shape in the rules is the one cloud-map builds
+  const host = M.STAFF_HOST.replace(/\./g, '[.]');
+  assert.ok(rules.includes(`@${host}'`), 'rules and cloud-map use the same staff address host');
+  assert.ok(new RegExp(M.staffEmail('t1', '990101061234', 3).replace(/[.]/g, '\\.')).test(M.staffEmail('t1', '990101061234', 3)));
+  assert.match(rules, /function isStaff\(\) \{ return myEmail\(\)\.matches\('\[a-z0-9\]\+\[\.\]\[a-z0-9\]\+\[\.\]g\[0-9\]\+@staff\[\.\]allurus\[\.\]invalid'\); \}/);
+  // joining: the invite for this very address, same company, roles and employee, plus a live join link for that company
+  assert.match(users, /isStaff\(\) && exists\(staffInviteDoc\(\)\)/);
+  assert.match(users, /staffInvite\(\)\.tenantId == request\.resource\.data\.tenantId/);
+  assert.match(users, /staffInvite\(\)\.roles == request\.resource\.data\.roles/);
+  assert.match(users, /staffInvite\(\)\.empId == request\.resource\.data\.empId/);
+  assert.match(users, /linkFor\(request\.resource\.data\.via\)\.tenantId == request\.resource\.data\.tenantId/);
+  // an invite is private to its person and to settings admins; keys, links and codes can be read by id, never listed
+  const inv = rules.slice(rules.indexOf('match /staffInvites/{id}'), rules.indexOf('match /staffKeys/{key}'));
+  assert.match(inv, /myEmail\(\) == id \+ '@staff\.allurus\.invalid' \|\| hasArea\(resource\.data\.tenantId, 'settings'\)/);
+  assert.match(inv, /validRoles\(request\.resource\.data\) && grantable\(request\.resource\.data\)/);
+  const open = rules.slice(rules.indexOf('match /staffKeys/{key}'), rules.indexOf('match /demoZones/{co}'));
+  assert.doesNotMatch(open, /allow (read|list)[^;]*: if true/);
+  assert.match(open, /match \/staffKeys\/\{key\} \{\s+allow get: if true;/);
+  assert.match(open, /match \/joinLinks\/\{token\} \{\s+allow get: if true;\s+allow list: if hasProfile\(\)/);
+  assert.match(open, /token\.size\(\) >= 20/);
+});
+
+test('the app offers the IC sign-in and the join link only in cloud mode', () => {
+  const src = fs.readFileSync(path.join(root, 'js', 'app.js'), 'utf8');
+  assert.match(src, /CLOUD \? '<div[^']*data-act="staff-signin"/);
+  assert.match(src, /const joinToken = CLOUD \? new URLSearchParams\(location\.search\)\.get\('join'\) : null;/);
+});
