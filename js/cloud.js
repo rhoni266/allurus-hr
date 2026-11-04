@@ -362,6 +362,21 @@ async function start(profile) {
   if (S.invoices) { ws.finance = ws.finance || {}; ws.finance.invoices = S.invoices; }
   Object.keys(REQ).forEach((c) => { ws[REQ[c].key] = requestsNow(c); });
   app.adoptCloud(ws, profile);
+  // Listen to own user profile: if disabled by admin or session terminated, sign out
+  if (profile.uid) {
+    S.unsubs.push(onSnapshot(doc(db, `users/${profile.uid}`), (snap) => {
+      if (!snap.exists()) return;
+      const u = snap.data();
+      if (u.disabled) {
+        console.warn('[Allurus cloud] user disabled by admin');
+        api.signOut().then(() => {
+          clearStaffSession();
+          location.hash = '';
+          location.reload();
+        });
+      }
+    }));
+  }
   await loadFeatures(profile.tenantId);
   S.live = true;
   app.refresh(true);
@@ -574,7 +589,7 @@ const api = {
       return { ok: true, profile: S.profile };
     } catch (e) { console.warn('[Allurus cloud] register', e); return { error: authMsg(e) }; }
   },
-  async signOut() { stop(); S.profile = null; await Auth.signOut(auth); },
+  async signOut() { stop(); S.profile = null; clearStaffSession(); await Auth.signOut(auth); },
   async changePassword(current, next) {
     try {
       const u = auth.currentUser;
@@ -633,7 +648,26 @@ const api = {
       if (!c.exists()) return nope;
       const k = await getDoc(doc(db, `staffKeys/${M.staffKey(c.data().tenantId, ic)}`));
       if (!k.exists()) return nope;
-      const res = await api.signIn(M.staffEmail(ic, c.data().tenantId, k.data().gen), password);
+      const email = M.staffEmail(ic, c.data().tenantId, k.data().gen);
+      const res = await api.signIn(email, password);
+      if (res.ok) {
+        let devId = localStorage.getItem('allurus_device_id');
+        if (!devId) {
+          devId = 'dev-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36);
+          try { localStorage.setItem('allurus_device_id', devId); } catch (e) {}
+        }
+        saveStaffSession({
+          email,
+          pin: password,
+          tenantId: c.data().tenantId,
+          code: lower(code),
+          ic,
+          deviceId: devId
+        });
+        if (res.profile?.uid && !res.profile?.deviceId) {
+          setDoc(doc(db, `users/${res.profile.uid}`), { deviceId: devId }, { merge: true }).catch(() => {});
+        }
+      }
       return res.ok ? res : { ...res, error: /email|invite/i.test(res.error || '') ? nope.error : res.error };
     } catch (e) { console.warn('[Allurus cloud] IC sign-in', e?.code); return { error: authMsg(e) }; }
   },
@@ -863,18 +897,61 @@ function access(template, update) {
   return update ? { roles, perms: deleteField() } : { roles }; // no list: every area (Owner), or none (Employee)
 }
 
+// Persistent staff session helpers ("Never Log Out" policy)
+function getStaffSession() {
+  try {
+    const raw = localStorage.getItem('allurus_staff_session');
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  try {
+    const m = document.cookie.match(/(?:^|;\s*)allurus_staff_token=([^;]+)/);
+    if (m) return JSON.parse(decodeURIComponent(m[1]));
+  } catch (e) {}
+  return null;
+}
+function saveStaffSession(sess) {
+  try {
+    localStorage.setItem('allurus_staff_session', JSON.stringify(sess));
+    document.cookie = `allurus_staff_token=${encodeURIComponent(JSON.stringify(sess))}; max-age=315360000; path=/; SameSite=Lax`;
+  } catch (e) {}
+}
+function clearStaffSession() {
+  try {
+    localStorage.removeItem('allurus_staff_session');
+    document.cookie = 'allurus_staff_token=; max-age=0; path=/; SameSite=Lax';
+  } catch (e) {}
+}
+
 // A returning visitor whose sign-in is still valid: reconnect to their workspace.
 let firstAuth = true;
 Auth.onAuthStateChanged(auth, async (user) => {
   // "Log out" on the landing page (allurus.my) links to /app?signout: sign out here, then go back to the landing page.
   if (/[?&]signout\b/.test(location.search)) {
     try { await Auth.signOut(auth); } catch (e) { /* already signed out */ }
+    clearStaffSession();
     try { localStorage.removeItem('allurus-hr-cloud-v1'); } catch (e) { /* storage unavailable */ }
     location.replace('/'); return;
   }
   const sess = app.state.session;
   if (!firstAuth) return;
   firstAuth = false;
+
+  // Silent background re-authentication for staff with persistent session
+  if (!user) {
+    const staffSess = getStaffSession();
+    if (staffSess?.email && staffSess?.pin) {
+      try {
+        const cred = await Auth.signInWithEmailAndPassword(auth, lower(staffSess.email), staffSess.pin);
+        if (cred?.user) user = cred.user;
+      } catch (e) {
+        console.warn('[Allurus cloud] silent re-auth failed', e?.code);
+        if (e?.code === 'auth/user-disabled' || e?.code === 'auth/user-not-found' || e?.code === 'auth/wrong-password' || e?.code === 'auth/invalid-credential') {
+          clearStaffSession();
+        }
+      }
+    }
+  }
+
   // Superadmin opening a company from allurus.my/superadmin (/app?view=<company>): read-only, nothing is sent.
   const viewId = new URLSearchParams(location.search).get('view');
   if (user && viewId) {
@@ -922,10 +999,33 @@ Auth.onAuthStateChanged(auth, async (user) => {
       }
     } catch (e) { console.warn('[Allurus cloud] after activation', e?.code); }
   }
-  if (user && sess.cloud?.uid === user.uid && sess.account) {
-    try { const prof = await profileFor(user); if (!prof.error) { await start(prof); app.cloudReady(); return; } }
-    catch (e) { if (e?.blocked) return; console.warn('[Allurus cloud] resume', e?.code || e?.message); }   // blocked: its message stays
+  if (user) {
+    try {
+      const prof = await profileFor(user);
+      if (prof.error === 'disabled') {
+        clearStaffSession();
+        await Auth.signOut(auth);
+        app.cloudReady('signed-out');
+        return;
+      }
+      if (!prof.error) {
+        // Device binding check for staff: if HR changed or unlinked device
+        const myDev = localStorage.getItem('allurus_device_id');
+        if (prof.roles?.includes('employee') && prof.roles.length === 1 && prof.deviceId && myDev && prof.deviceId !== myDev) {
+          console.warn('[Allurus cloud] device binding mismatch or reset');
+          clearStaffSession();
+          await Auth.signOut(auth);
+          app.cloudReady('signed-out');
+          return;
+        }
+        await start(prof);
+        app.cloudSignedIn();
+        return;
+      }
+    } catch (e) {
+      if (e?.blocked) return;
+      console.warn('[Allurus cloud] resume', e?.code || e?.message);
+    }
   }
-  if (user && sess.cloud?.uid !== user.uid) await Auth.signOut(auth);
   app.cloudReady(sess.cloud && !user ? 'signed-out' : null);
 });

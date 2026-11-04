@@ -28,6 +28,25 @@ function getDeviceId() {
   return id;
 }
 
+function getStaffSession() {
+  try {
+    const raw = localStorage.getItem('allurus_staff_session');
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  try {
+    const m = document.cookie.match(/(?:^|;\s*)allurus_staff_token=([^;]+)/);
+    if (m) return JSON.parse(decodeURIComponent(m[1]));
+  } catch (e) {}
+  return null;
+}
+
+function saveStaffSession(sess) {
+  try {
+    localStorage.setItem('allurus_staff_session', JSON.stringify(sess));
+    document.cookie = `allurus_staff_token=${encodeURIComponent(JSON.stringify(sess))}; max-age=315360000; path=/; SameSite=Lax`;
+  } catch (e) {}
+}
+
 function renderScreen({ badge = '', pill = '', title = '', sub = '', card = '', foot = true }) {
   root.innerHTML = `
     <div class="login-inner">
@@ -378,6 +397,16 @@ function step3_pin(ctx) {
         if (link) await FS.deleteDoc(FS.doc(db, `joinLinks/${link}`)).catch(() => {});
         await FS.deleteDoc(FS.doc(db, `staffInvites/${key}`)).catch(() => {});
       }
+
+      // Save persistent staff session for "Never Log Out" policy (10-year expiry)
+      saveStaffSession({
+        email,
+        pin,
+        tenantId: ctx.tenantId,
+        code: ctx.code,
+        ic: ctx.staff.ic,
+        deviceId
+      });
     } catch (e) {
       console.warn('[Allurus join error]', e);
     }
@@ -447,6 +476,16 @@ async function start() {
     problem('Tidak Tersedia', 'Pendaftaran memerlukan sambungan Allurus cloud.');
     return;
   }
+
+  // If user already has an active session on this device for this company (or generally), redirect straight to app
+  const sess = getStaffSession();
+  if (sess?.email && sess?.tenantId) {
+    if (!codeParam || codeParam === sess.code) {
+      location.replace('/app');
+      return;
+    }
+  }
+
   if (secret) {
     personalLink(secret);
   } else if (codeParam) {

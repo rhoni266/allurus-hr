@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.21';
+  const APP_VERSION = '3.22';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -180,7 +180,14 @@
   const CAN_CLOUD = !!(window.ALLURUS_FIREBASE && window.ALLURUS_FIREBASE.apiKey);
   const fire = () => (CLOUD ? window.AllurusCloud : null);
   // A signed-in cloud user reopening the app waits for the workspace to load before seeing it.
-  let cloudWaiting = CLOUD && !!state.session.cloud && !!state.session.account;
+  const hasStaffSess = () => {
+    try {
+      if (localStorage.getItem('allurus_staff_session')) return true;
+      if (/(?:^|;\s*)allurus_staff_token=/.test(document.cookie)) return true;
+    } catch (e) {}
+    return false;
+  };
+  let cloudWaiting = CLOUD && ((!!state.session.cloud && !!state.session.account) || hasStaffSess());
   let warnedFull = false;
   function save() {
     saveLocal();
@@ -261,6 +268,7 @@
     more: '<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
     pin: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     userplus: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M19 8v6M16 11h6"/>',
+    logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
   };
   const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
 
@@ -530,7 +538,7 @@
     if (role() === 'admin' && acct?.roles.includes('super')) who.name = acct.name || who.name;
     if (role() === 'auditor') { who.name = acct?.name || 'Auditor'; who.sub = 'Auditor'; }
     $('#me-card').innerHTML = `<div class="me-row">${avatar(who.name, 'sm')}<div style="min-width:0;flex:1"><div class="me-name">${esc(who.name)}</div><div class="me-role">${esc(acct?.email || who.sub)}</div></div></div>
-      <div class="me-actions">${state.session.roles.length > 1 ? `<select class="select" id="role-switch" aria-label="Switch view">${state.session.roles.map((r) => `<option value="${r}" ${r === role() ? 'selected' : ''}>${roleLabel(r)} view</option>`).join('')}</select>` : `<span class="pill brand">${roleLabel(role())}</span>`}<button class="btn btn-sm btn-ghost" data-act="logout">Sign out</button></div>`;
+      <div class="me-actions">${state.session.roles.length > 1 ? `<select class="select" id="role-switch" aria-label="Switch view">${state.session.roles.map((r) => `<option value="${r}" ${r === role() ? 'selected' : ''}>${roleLabel(r)} view</option>`).join('')}</select>` : `<span class="pill brand">${roleLabel(role())}</span>`}${role() === 'employee' ? '' : '<button class="btn btn-sm btn-ghost" data-act="logout">Sign out</button>'}</div>`;
     $('#role-switch')?.addEventListener('change', (ev) => switchRole(ev.target.value));
   }
 
@@ -636,6 +644,8 @@
     const r = route();
     AllurusUX.beforeRender(r);
     renderNav();
+    const topSignout = $('.top-signout');
+    if (topSignout) topSignout.hidden = role() === 'employee';
     const view = $('#view');
     // Super Admin and auditor pages have no dashboard, so their setup checklist sits on their first page.
     const setup = ['super', 'auditor'].includes(role()) && r === routes()[0].id ? AllurusUX.setupCard() : '';
@@ -2006,7 +2016,14 @@
             <div class="actions" style="margin-top:14px"><a class="btn" href="#my-appraisal">${icon('trend')}Appraisal and goals</a></div>
           </div>
         </div>
-        <div>${hrApi.myProfileCards(e)}</div>
+        <div>
+          ${hrApi.myProfileCards(e)}
+          <div class="card" style="margin-top:16px">
+            <div class="card-head"><h3>Sesi &amp; Akaun / Session &amp; Account</h3></div>
+            <p class="faint" style="font-size:13px;margin:0 0 14px">Log keluar hanya jika anda ingin bertukar peranti atau akaun.<br>Sign out only if you want to switch devices or accounts.</p>
+            <div><button class="btn btn-outline-danger" data-act="logout">${icon('logout')}Log Keluar / Sign Out</button></div>
+          </div>
+        </div>
       </div>`;
   };
 
@@ -2667,8 +2684,35 @@
     'emp-only-clear': () => { ui.empOnly = null; render(); },
     'toggle-pw': () => { const i = $('#login-password'), b = $('[data-act="toggle-pw"]'); const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.textContent = show ? 'Hide' : 'Show'; b.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); },
     'logout': () => {
-      if (CLOUD) { closeOverlay(); fire()?.signOut().finally(() => { try { localStorage.removeItem(STORE_KEY); } catch (e) { /* storage unavailable */ } location.hash = ''; location.reload(); }); return; }
-      Object.assign(state.session, { account: null, roles: [], role: null }); closeOverlay(); save(); history.replaceState(null, '', location.pathname + location.search); render(); toast('Signed out'); },
+      openModal({
+        title: 'Log Keluar / Log Out',
+        body: `<p style="font-size:14.5px;color:var(--text);margin-bottom:12px">Adakah anda pasti mahu log keluar? Anda perlu memasukkan kod syarikat, No. IC dan PIN 6 angka anda untuk log masuk semula.</p>
+               <p class="faint" style="font-size:13px;margin:0">Are you sure you want to sign out? You will need your company code, IC number, and 6-digit PIN to sign in again.</p>`,
+        submit: 'Ya, Log Keluar / Sign Out',
+        size: 'sm',
+        onSubmit: () => {
+          try {
+            localStorage.removeItem('allurus_staff_session');
+            document.cookie = 'allurus_staff_token=; max-age=0; path=/; SameSite=Lax';
+          } catch (e) {}
+          if (CLOUD) {
+            closeOverlay();
+            fire()?.signOut().finally(() => {
+              try { localStorage.removeItem(STORE_KEY); } catch (e) { /* storage unavailable */ }
+              location.hash = '';
+              location.reload();
+            });
+            return;
+          }
+          Object.assign(state.session, { account: null, roles: [], role: null });
+          closeOverlay();
+          save();
+          history.replaceState(null, '', location.pathname + location.search);
+          render();
+          toast('Signed out');
+        }
+      });
+    },
     'check-in': (_, v) => checkIn(v),
     'ci-retry': () => ciLocate(),
     'ci-capture': () => {
@@ -3567,8 +3611,8 @@
       s.workspaces = {};
       if (theme) s.settings.theme = theme;
       s.accounts = [{ email: p.email, name: p.name, hash: '', roles: p.roles.slice(), perms: Array.isArray(p.perms) ? p.perms.slice() : null, tenantId: p.tenantId, empId: p.empId, cloud: true }];
-      const keep = state.session.account === p.email && p.roles.includes(state.session.role) ? state.session.role : preferredRole(p.roles);
-      s.session = { account: state.session.account === p.email ? p.email : null, roles: p.roles.slice(), role: keep, empId: p.empId, tenantId: p.tenantId, cloud: { uid: p.uid } };
+      const keep = (state.session.account === p.email && p.roles.includes(state.session.role)) ? state.session.role : preferredRole(p.roles);
+      s.session = { account: p.email, roles: p.roles.slice(), role: keep, empId: p.empId, tenantId: p.tenantId, cloud: { uid: p.uid } };
       try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) { /* storage full or unavailable */ }
       state = load();
       if (!state.session.cloud) state.session.cloud = { uid: p.uid };
@@ -3602,7 +3646,13 @@
     cloudSignedIn() { cloudWaiting = false; startSession(state.accounts[0]); toast('Your account is ready. Welcome to Allurus.'); },
     cloudReady(reason) {
       cloudWaiting = false;
-      if (reason === 'signed-out') { Object.assign(state.session, { account: null, roles: [], role: null }); saveLocal(); toast('Please sign in again.'); }
+      if (reason === 'signed-out') {
+        Object.assign(state.session, { account: null, roles: [], role: null });
+        saveLocal();
+        toast('Please sign in again.');
+      } else if (state.accounts?.[0] && !state.session.account) {
+        startSession(state.accounts[0]);
+      }
       render();
       if (reason !== 'signed-out') supportAccess.notice().then(() => { notifyApi?.updateBell(); save(); }).catch(() => {});
     },
