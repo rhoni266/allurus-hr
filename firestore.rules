@@ -244,7 +244,7 @@ service cloud.firestore {
     // The sign-in generation for one IC, read before signing in (by id only: nobody lists them).
     match /staffKeys/{id} {
       allow get: if true;
-      allow create, update: if staffDoc(request.resource.data.tenantId)
+      allow create, update: if (hasArea(request.resource.data.tenantId, 'settings') || hasArea(request.resource.data.tenantId, 'people'))
         && id.matches(request.resource.data.tenantId + '~[0-9]{12}')
         && request.resource.data.keys().hasOnly(['tenantId', 'gen', 'empId', 'name']) && request.resource.data.gen is int;
       allow delete: if hasArea(resource.data.tenantId, 'settings');

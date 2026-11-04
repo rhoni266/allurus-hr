@@ -707,7 +707,7 @@ const api = {
       const b = writeBatch(db);
       b.set(doc(db, `companyCodes/${code}`), { tenantId: S.profile.tenantId, openUntil: until, company: String(app.state.settings?.company || '').slice(0, 120) }, { merge: true });   // keeps the join key's salt
       if (on && Array.isArray(app.state.employees)) {
-        app.state.employees.filter((e) => e && e.ic && !String(e.email || '').trim()).forEach((e) => {
+        app.state.employees.filter((e) => e && e.ic).forEach((e) => {
           const ic = M.icDigits(e.ic);
           if (M.validIc(ic)) {
             b.set(doc(db, `staffKeys/${S.profile.tenantId}~${ic}`), {
@@ -722,6 +722,46 @@ const api = {
       await b.commit();
       return { ok: true, code, until: until ? until.toDate() : null };
     } catch (e) { return { error: e?.code === 'permission-denied' ? 'You need the Settings area for this.' : 'Couldn’t save. Check your connection.' }; }
+  },
+  async syncStaffKey(emp) {
+    if (!S.profile?.tenantId || !emp?.ic) return;
+    const ic = M.icDigits(emp.ic);
+    if (!M.validIc(ic)) return;
+    const tid = S.profile.tenantId;
+    const key = `${tid}~${ic}`;
+    try {
+      const k = await getDoc(doc(db, `staffKeys/${key}`)).catch(() => null);
+      const gen = k?.exists() ? (Number(k.data().gen) || 1) : 1;
+      await setDoc(doc(db, `staffKeys/${key}`), {
+        tenantId: tid,
+        gen,
+        empId: emp.id,
+        name: `${emp.first || ''} ${emp.last || ''}`.trim() || 'Staff'
+      }, { merge: true });
+    } catch (e) { console.warn('[Allurus cloud] syncStaffKey', e); }
+  },
+  async syncAllStaffKeys(employees = app.state?.employees) {
+    if (!S.profile?.tenantId || !Array.isArray(employees)) return;
+    const tid = S.profile.tenantId;
+    const b = writeBatch(db);
+    let count = 0;
+    employees.forEach((e) => {
+      if (e?.ic) {
+        const ic = M.icDigits(e.ic);
+        if (M.validIc(ic)) {
+          b.set(doc(db, `staffKeys/${tid}~${ic}`), {
+            tenantId: tid,
+            gen: 1,
+            empId: e.id,
+            name: `${e.first || ''} ${e.last || ''}`.trim() || 'Staff'
+          }, { merge: true });
+          count++;
+        }
+      }
+    });
+    if (count > 0) {
+      try { await b.commit(); } catch (e) { console.warn('[Allurus cloud] syncAllStaffKeys', e); }
+    }
   },
   async openStatus() {
     const code = app.state.settings?.staffCode;

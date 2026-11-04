@@ -986,12 +986,14 @@
             else toast(`Email changed. Any invitation to ${oldEmail} is cancelled; send a new invitation to ${newEmail}.`, 'info');
           }
           Object.assign(emp(id), d);
+          if (CLOUD && fire()?.syncStaffKey && emp(id)?.ic) fire().syncStaffKey(emp(id));
           const note = [docsApi.afterSave(before, emp(id)), hrApi.afterEdit(before, emp(id))].filter(Boolean).join(' ');
           commit(note ? `Changes saved. ${note}` : 'Changes saved', `${d.first} ${d.last}'s profile was updated`);
         }
         else {
           const ne = { id: U.uid('e'), cp22Filed: '', leaverFiled: '', ...d };
           state.employees.push(ne);
+          if (CLOUD && fire()?.syncStaffKey && ne.ic) fire().syncStaffKey(ne);
           if (appraisalApi.current()?.status === 'Open') appraisalApi.addParticipant(ne);
           hrApi.onCreated(ne);
           onCreated?.(ne);
@@ -3169,6 +3171,7 @@
       try { this.data = await fire().access(); } catch (e) { this.data = { invites: [], users: [] }; }
       try { this.data.staff = await fire().staffInvites(); } catch (e) { this.data.staff = []; }
       try { this.open = await fire().openStatus(); } catch (e) { this.open = { code: '', until: null }; }
+      fire().syncAllStaffKeys?.(state.employees);
       this.remindIc();
       this.noticeRegistered();
       return this.data;
