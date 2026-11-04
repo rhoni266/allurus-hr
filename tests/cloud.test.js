@@ -303,3 +303,9 @@ test('privacy phase A: talent lists, statutory, the activity log and per-person 
   assert.match(rules, /function isOwned\(b\) \{ return b\.matches\('\(documents\|editRequests\)~\.\+'\); \}/);
   assert.match(rules, /allow list: if false;/);
 });
+
+test('seed session has null empId; cloud seed has no demo accounts or Daniel Lim', () => {
+  const s = sandbox.AllurusSeed.create();
+  assert.equal(s.session.account, null);
+  assert.equal(s.session.empId, null);
+});

@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.23';
+  const APP_VERSION = '3.35';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -12,7 +12,14 @@
   const DEMO = AllurusSeed.company((/[?&]demo=([a-z0-9-]+)/i.exec(location.search)?.[1] || 'serimaju').toLowerCase());
   const STORE_KEY = CLOUD_ON ? 'allurus-hr-cloud-v1' : DEMO.storeKey;
   // A fresh copy of the sample data: the chosen demo company, or Seri Maju as the base for the cloud workspace.
-  const seedNew = () => (CLOUD_ON ? AllurusSeed.create() : DEMO.create());
+  const seedNew = () => {
+    if (!CLOUD_ON) return DEMO.create();
+    const s = AllurusSeed.create();
+    s.accounts = [];
+    s.session = { account: null, roles: [], role: null, empId: null, tenantId: null };
+    s.employees = [];
+    return s;
+  };
   const esc = U.esc;
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => Array.from(el.querySelectorAll(s));
@@ -23,6 +30,16 @@
     let s = null;
     try { const raw = localStorage.getItem(STORE_KEY); if (raw) s = JSON.parse(raw); } catch (e) { /* storage unavailable */ }
     if (!s) { s = seedNew(); if (CLOUD_ON || DEMO.id === 'serimaju') carryOverZones(s); }
+    if (CLOUD_ON) {
+      if (!s.session?.cloud?.uid || s.accounts?.some((a) => !a.cloud || a.tenantId === 't1' || a.email === 'superadmin@allurus.com' || a.email?.includes('@serimaju.com.my'))) {
+        s.accounts = (s.accounts || []).filter((a) => a.cloud && a.tenantId !== 't1' && a.email !== 'superadmin@allurus.com' && !a.email?.includes('@serimaju.com.my'));
+        if (!s.session?.cloud?.uid || !s.accounts.length) {
+          s.session = { account: null, roles: [], role: null, empId: null, tenantId: null };
+          s.accounts = [];
+          s.employees = [];
+        }
+      }
+    }
     [s.settings, ...Object.values(s.workspaces || {}).map((w) => w.settings)].forEach((st) => {
       if (!st.checkin) st.checkin = defaultZone(st.company);
       const c = st.checkin, city = U.city(st.office);
@@ -1705,7 +1722,7 @@
     const target = CLOUD && fire()?.profile?.billingOnly ? 'billing' : last && routes().some((r) => r.id === last) ? last : posApi?.landing(state.session.role) || opsApi?.landing(state.session.role) || '';
     if (location.hash.slice(1) !== target) location.hash = target; else render();
     window.scrollTo(0, 0);
-    toast(target && target !== routes()[0].id ? `Welcome back. You’re where you left off.` : `Signed in as ${acct.email}`);
+    toast(target && target !== routes()[0].id ? `Welcome back. You’re where you left off.` : `Signed in as ${acct.name || acct.email}`);
   }
   function accountCard() {
     const a = account();
@@ -3680,12 +3697,12 @@
     cloudSignedIn() { cloudWaiting = false; startSession(state.accounts[0]); toast('Your account is ready. Welcome to Allurus.'); },
     cloudReady(reason) {
       cloudWaiting = false;
-      if (reason === 'signed-out') {
-        Object.assign(state.session, { account: null, roles: [], role: null });
+      const hadAcct = !!state.session.account;
+      if (reason === 'signed-out' || (CLOUD && !fire()?.profile)) {
+        Object.assign(state.session, { account: null, roles: [], role: null, empId: null });
+        if (CLOUD) state.accounts = [];
         saveLocal();
-        toast('Please sign in again.');
-      } else if (state.accounts?.[0] && !state.session.account) {
-        startSession(state.accounts[0]);
+        if (reason === 'signed-out' && hadAcct) toast('Please sign in again.');
       }
       render();
       if (reason !== 'signed-out') supportAccess.notice().then(() => { notifyApi?.updateBell(); save(); }).catch(() => {});

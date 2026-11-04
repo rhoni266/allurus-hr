@@ -119,7 +119,11 @@ function employeesFrom(over = new Map()) {
     return people.map((x) => masked(M.personFrom(x, lookup)));
   }
   const dir = M.directoryFrom(f(`${T()}/buckets/directory`) || {}, lookup);
-  const own = f(`${T()}/people/${p.empId}`);
+  if (!p.empId && p.email) {
+    const found = dir.find((e) => e.email && e.email.toLowerCase() === p.email.toLowerCase());
+    if (found?.id) p.empId = found.id;
+  }
+  const own = p.empId ? f(`${T()}/people/${p.empId}`) : null;
   return M.employeesFor(dir, own && Object.keys(own).length ? M.personFrom(own, lookup) : null);
 }
 function applyDoc(path, fields) {
@@ -165,9 +169,9 @@ function listen(ready) {
     ...(can('operations') ? [query(collection(db, `${t}/buckets`), where('r', '>=', 'd:'), where('r', '<', 'd;'))] : []),
     // Admins with the area of a per-person list (documents, change requests) read every person's bucket.
     ...M.ownedAreas(S.admin, S.perms).filter((a) => !(supNoPay && a === 'people')).map((a) => query(collection(db, `${t}/buckets`), where('r', '>=', `u:${a}:`), where('r', '<', `u:${a};`))),
-    seePeople() ? collection(db, `${t}/people`) : doc(db, `${t}/people/${p.empId}`),
-    ...(p.support ? (p.support.pay ? [collection(db, `${t}/payslips`)] : []) : [seePay() ? collection(db, `${t}/payslips`) : doc(db, `${t}/payslips/${p.empId}`)]),
-    ...(p.support ? [] : [doc(db, `${t}/personal/${p.empId}`)]),
+    ...(seePeople() ? [collection(db, `${t}/people`)] : (p.empId ? [doc(db, `${t}/people/${p.empId}`)] : [])),
+    ...(p.support ? (p.support.pay ? [collection(db, `${t}/payslips`)] : []) : [seePay() ? collection(db, `${t}/payslips`) : (p.empId ? doc(db, `${t}/payslips/${p.empId}`) : null)].filter(Boolean)),
+    ...(p.support ? [] : (p.empId ? [doc(db, `${t}/personal/${p.empId}`)] : [])),
   ];
   let pending = sources.length;
   const first = new Set();
@@ -1031,5 +1035,5 @@ Auth.onAuthStateChanged(auth, async (user) => {
       console.warn('[Allurus cloud] resume', e?.code || e?.message);
     }
   }
-  app.cloudReady(sess.cloud && !user ? 'signed-out' : null);
+  app.cloudReady('signed-out');
 });

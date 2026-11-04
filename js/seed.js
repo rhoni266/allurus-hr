@@ -537,7 +537,7 @@ window.AllurusSeed = {
     ];
 
     const platform = this.platform(employees.length);
-    const session = { account: null, roles: [], role: null, empId: 'e2', tenantId: 't1' };
+    const session = { account: null, roles: [], role: null, empId: null, tenantId: 't1' };
     // Sign-in accounts. Passwords are stored as SHA-256 of "email:password", never in plain text.
     const accounts = [
       { email: 'superadmin@allurus.com', name: 'Allurus HQ', hash: '9ba7ad31f33beee93d53e6b5e6406e45779bbb11c955c6e10dd78c16569c9e40', roles: ['super', 'admin', 'employee', 'auditor'], tenantId: 't1', empId: 'e2' },
