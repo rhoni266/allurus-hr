@@ -221,8 +221,8 @@ service cloud.firestore {
       let jk = /databases/$(database)/documents/joinKeys/$(d.tenantId);
       return e.matches('[0-9]{12}[.][a-z0-9_-]+[.]g[0-9]{1,4}@staff[.]allurus[.]invalid')
         && d.tenantId is string && d.tenantId.lower() == p[1] && d.code is string && exists(code)
-        && get(code).data.tenantId == d.tenantId && get(code).data.get('openUntil', null) is timestamp
-        && get(code).data.openUntil > request.time
+        && get(code).data.tenantId == d.tenantId
+        && ((get(code).data.get('openUntil', null) is timestamp && get(code).data.openUntil > request.time) || exists(key))
         && (exists(key) ? get(key).data.gen : 1) == int(p[2].replace('g', ''))
         && (!exists(jk) || d.get('keyProof', '') == get(jk).data.hash)
         && (!exists(key) || !('empId' in get(key).data) || d.empId == get(key).data.empId)

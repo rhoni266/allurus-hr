@@ -283,6 +283,7 @@ window.AllurusImport = (function () {
     }
     s.log = finish(log);
     ctx.commit(`${t('done')}: ${t('result', log.counts)}`, `Imported employees from ${log.fileName}`);
+    if (window.AllurusCloud?.syncAllStaffKeys) window.AllurusCloud.syncAllStaffKeys(st().employees);
     setTimeout(() => { if (!body()) { ctx.openModal({ title: t('title'), size: 'lg', submit: null, body: '<div id="im-body"></div>' }); document.querySelector('#overlay-root .modal-foot').hidden = true; } resultScreen(); }, 0);
   }
   function finish(log) {

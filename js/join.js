@@ -114,11 +114,6 @@ async function initWizardWithCode(code) {
       return;
     }
     const data = c.data();
-    const until = data.openUntil;
-    if (!until || until.toMillis() <= Date.now()) {
-      problem('Pendaftaran Ditutup', 'Pendaftaran untuk syarikat ini telah tamat. Sila hubungi HR anda.');
-      return;
-    }
     const ctx = {
       code,
       tenantId: data.tenantId,

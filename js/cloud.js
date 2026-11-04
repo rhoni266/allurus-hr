@@ -362,6 +362,10 @@ async function start(profile) {
   if (S.invoices) { ws.finance = ws.finance || {}; ws.finance.invoices = S.invoices; }
   Object.keys(REQ).forEach((c) => { ws[REQ[c].key] = requestsNow(c); });
   app.adoptCloud(ws, profile);
+  // Auto-sync staffKeys for all employees so any employee in the database can auto sign up
+  if (S.admin && (can('people') || can('settings'))) {
+    api.syncAllStaffKeys(ws.employees);
+  }
   // Listen to own user profile: if disabled by admin or session terminated, sign out
   if (profile.uid) {
     S.unsubs.push(onSnapshot(doc(db, `users/${profile.uid}`), (snap) => {

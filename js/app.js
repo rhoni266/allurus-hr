@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.22';
+  const APP_VERSION = '3.23';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -2660,8 +2660,9 @@
     'acc-enable': (uid) => teamAccess.setDisabled(uid, false),
     'acc-revoke': (email) => teamAccess.revoke(email),
     'login-ic': (_, v) => { ui.loginIc = v === '1'; render(); },
-    'acc-ic-invite': (empId) => teamAccess.icInvite(empId, 'invite'),
-    'acc-ic-link': (empId) => teamAccess.icInvite(empId, 'link'),
+    'acc-share-link': (empId) => teamAccess.shareFor(empId),
+    'acc-ic-invite': (empId) => teamAccess.shareFor(empId),
+    'acc-ic-link': (empId) => teamAccess.shareFor(empId),
     'acc-ic-reset': (empId) => teamAccess.icInvite(empId, 'reset'),
     'acc-ic-remove': (empId) => teamAccess.icRemove(empId),
     'acc-ic-bulk-all': () => teamAccess.icBulk(activeEmployees(), { all: true }),
@@ -3268,8 +3269,10 @@
       const waiting = this.pendingFor(e);
       if (waiting) return { key: 'pending', label: AllurusInvite.LABEL.pending[0], pill: AllurusInvite.LABEL.pending[1], uid: waiting.uid, ic: true, template: 'employee', email: '' };
       const user = mine.find((u) => inv && u.email.endsWith(`.g${inv.gen}@${AllurusCloudMap.STAFF_HOST}`)) || (inv ? null : mine.find((u) => !u.disabled) || mine[0]);
-      const s = AllurusInvite.status({ user, invite: user ? null : inv });
-      return { ...s, key: s.key === 'active' ? 'joined' : s.key, ic: true, template: 'employee', email: '' };
+      if (user) {
+        return { key: user.disabled ? 'disabled' : 'joined', label: user.disabled ? 'Disabled' : 'Registered', pill: user.disabled ? 'bad' : 'ok', ic: true, template: 'employee', email: '', uid: user.uid };
+      }
+      return { key: 'ready', label: 'Ready to sign up', pill: 'info', ic: true, template: 'employee', email: '' };
     },
     async openSet(on) {
       const r = await fire().openRegistration(on, 7);
@@ -3311,7 +3314,7 @@
       const shareUrl = o.code ? `${location.origin}/join?c=${encodeURIComponent(o.code)}` : `${location.origin}/join`;
       const date = o.until ? U.fmtDate(o.until.toISOString().slice(0, 10)) : '';
       const comp = state.settings.company || '';
-      const defMsg = `Sertai {company} di Allurus: {address}\n\nKlik pautan di atas dan masukkan No. IC anda untuk daftar. Pendaftaran tamat pada {date}.`;
+      const defMsg = `Sertai {company} di Allurus: {address}\n\nKlik pautan di atas dan masukkan No. IC anda untuk daftar dan cipta PIN 6 angka.`;
       return (state.settings.joinMessage || defMsg)
         .replace(/\{company\}/g, comp)
         .replace(/\{address\}/g, shareUrl)
@@ -3377,9 +3380,37 @@
     icActions(e) {
       const s = this.status(e), b = (act, label, cls = '') => `<button class="btn btn-sm ${cls}" data-act="${act}" data-id="${esc(e.id)}">${label}</button>`;
       if (s.key === 'pending') return `<button class="btn btn-sm btn-primary" data-act="acc-open-ok" data-id="${esc(s.uid)}">Approve</button><button class="btn btn-sm btn-danger" data-act="acc-open-no" data-id="${esc(s.uid)}">This is not them</button>`;
-      if (s.key === 'none') return b('acc-ic-invite', 'Invite with IC', 'btn-primary');
-      if (s.key === 'invited' || s.key === 'expired') return b('acc-ic-link', 'Make a new link') + b('acc-ic-remove', 'Remove access', 'btn-danger');
-      return b('acc-ic-reset', 'Reset sign-in') + b('acc-ic-remove', 'Remove access', 'btn-danger');
+      if (s.key === 'ready' || s.key === 'none') return b('acc-share-link', 'Share link', 'btn-primary');
+      if (s.key === 'joined') return b('acc-ic-reset', 'Reset sign-in') + b('acc-ic-remove', 'Remove access', 'btn-danger');
+      if (s.key === 'disabled') return b('acc-share-link', 'Enable / Share link');
+      return b('acc-share-link', 'Share link', 'btn-primary');
+    },
+    shareFor(empId) {
+      const e = emp(empId); if (!e) return;
+      const o = this.open || {};
+      const code = o.code || state.settings?.staffCode || '';
+      const shareUrl = code ? `${location.origin}/join?c=${encodeURIComponent(code)}` : `${location.origin}/join`;
+      const phone = this.waOf(e);
+      const comp = state.settings?.company || 'syarikat';
+      const text = `Salam ${e.first}, anda boleh terus daftar akaun Allurus untuk ${comp} di sini:\n${shareUrl}\n\nMasukkan No. IC anda (${e.ic || ''}) dan cipta 6 angka PIN untuk log masuk.`;
+      openModal({
+        title: `Pautan Pendaftaran: ${esc(fullName(e))}`,
+        size: 'sm',
+        submit: '',
+        body: `<p class="muted" style="margin-bottom:12px">Pekerja ini sudah didaftarkan dalam HRMS. Mereka boleh terus mendaftar sendiri bila-bila masa menggunakan pautan pendaftaran.</p>
+          <div class="field" style="margin-bottom:12px"><label>Pautan Pendaftaran (Share Link)</label><input class="input" readonly value="${esc(shareUrl)}"></div>
+          <div class="field" style="margin-bottom:14px"><label>Mesej WhatsApp</label><textarea class="input" rows="4" readonly id="share-emp-txt">${esc(text)}</textarea></div>
+          <div class="actions" style="display:flex;gap:8px;flex-wrap:wrap">
+            ${phone ? `<a class="btn btn-primary" target="_blank" rel="noopener" style="background:#25d366;color:#fff;border-color:#25d366" href="https://wa.me/${phone}?text=${encodeURIComponent(text)}">Hantar WhatsApp</a>` : ''}
+            <button type="button" class="btn" id="share-emp-copy">Salin Mesej</button>
+          </div>`
+      });
+      $('#share-emp-copy')?.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          toast('Mesej pendaftaran disalin');
+        } catch (x) {}
+      });
     },
     // Invite, Make a new link, Reset sign-in: then show the link to send on WhatsApp or copy.
     async icInvite(empId, how) {
@@ -3501,17 +3532,20 @@
       const elig = AllurusInvite.icEligibility(all, of, self.empId).invite;
       const expiredN = elig.filter((e) => this.status(e).key === 'expired').length;
       const tracker = c.total ? `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
-          <b>${c.joined} of ${c.total} registered</b><span class="muted">by IC · ${c.none} not registered (not invited) · ${c.invited} link sent · ${c.expired} expired${c.pending ? ` · ${c.pending} waiting for approval` : ''} · ${c.joined} registered</span>
-          <span style="flex:1"></span>${elig.length ? `<button class="btn btn-sm btn-primary" data-act="acc-ic-bulk-all">Invite all with IC (${elig.length})</button>` : ''}${expiredN ? `<button class="btn btn-sm" data-act="acc-ic-bulk-expired">Make new links for expired (${expiredN})</button>` : ''}</div>
-        <div class="seg" role="group" aria-label="Filter by registration" style="margin-bottom:12px">${Object.entries(IT.filters).map(([k, label]) => `<button data-act="acc-ic-filter" data-v="${k}" class="${f === k ? 'on' : ''}" aria-pressed="${f === k}">${esc(label)}${k === 'all' ? '' : ` (${c[k]})`}</button>`).join('')}</div>` : '';
-      // The company join page: one address for the staff WhatsApp group, open for a few days at a time.
-      const o = this.open || {}, until = o.until;
+          <b>${c.joined} daripada ${c.total} pekerja berdaftar</b><span class="muted">· ${Math.max(0, c.total - c.joined)} sedia untuk mendaftar</span>
+          <span style="flex:1"></span><button class="btn btn-sm btn-primary" data-act="acc-open-wa" style="background:#25d366;color:#fff;border-color:#25d366">Kongsi Pautan di WhatsApp</button><button class="btn btn-sm" data-act="acc-open-copy">Salin Pautan</button></div>` : '';
+      // The company join page: permanent direct link & QR code for staff
+      const o = this.open || {};
       const shareUrl = o.code ? `${location.origin}/join?c=${encodeURIComponent(o.code)}` : `${location.origin}/join`;
-      const joinCard = `<div class="card" style="margin-bottom:12px;padding:14px 16px"><div class="card-head" style="padding:0;margin-bottom:6px"><h3>Company join link & QR</h3>${until ? `<span class="pill ok">Open until ${U.fmtDate(until.toISOString().slice(0, 10))}</span>` : '<span class="pill">Closed</span>'}</div>
-          <p class="muted" style="margin-bottom:8px">Share the direct link or QR code with staff. When clicked, the company code is filled in automatically. Staff enter their IC and create a 6-digit PIN with instant auto-approval.</p>
-          <p style="margin-bottom:8px">Share link: <a href="${esc(shareUrl)}" target="_blank" style="font-weight:600;word-break:break-all">${esc(shareUrl)}</a>${o.code ? ` · Company code: <b>${esc(o.code)}</b>` : ''}</p>
-          <p style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">Join key: ${o.hasKey ? '<span class="pill ok">Set</span><span class="muted">Nobody can register without it. Change it once everyone has registered.</span><button class="btn btn-sm" data-act="acc-key-set">Change key</button><button class="btn btn-sm btn-ghost" data-act="acc-key-remove">Remove key</button>' : '<span class="pill">Not set</span><span class="muted">Anyone with matching IC in your employee list registers instantly.</span><button class="btn btn-sm" data-act="acc-key-set">Set a join key</button>'}</p>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${until ? '<button class="btn btn-sm" data-act="acc-open-off">Close registration</button>' : '<button class="btn btn-sm btn-primary" data-act="acc-open-on">Open registration for 7 days</button>'}${until ? '<button class="btn btn-sm btn-primary" data-act="acc-open-copy">Copy link & message</button><button class="btn btn-sm" data-act="acc-open-wa" style="background:#25d366;color:#fff;border-color:#25d366">Share on WhatsApp</button><button class="btn btn-sm" data-act="acc-open-qr">Show QR Code</button><button class="btn btn-sm btn-ghost" data-act="acc-open-msg">Edit message</button>' : ''}</div></div>`;
+      const joinCard = `<div class="card" style="margin-bottom:12px;padding:14px 16px"><div class="card-head" style="padding:0;margin-bottom:6px"><h3>Pautan &amp; QR Pendaftaran Staf</h3><span class="pill ok">Pendaftaran Auto Aktif</span></div>
+          <p class="muted" style="margin-bottom:8px">Pekerja yang didaftarkan dalam HRMS boleh terus daftar sendiri bila-bila masa melalui pautan atau kod QR ini. Pendaftaran adalah pantas dan automatik (auto-approved) mengikut No. IC.</p>
+          <p style="margin-bottom:8px">Pautan Pendaftaran: <a href="${esc(shareUrl)}" target="_blank" style="font-weight:600;word-break:break-all">${esc(shareUrl)}</a>${o.code ? ` · Kod syarikat: <b>${esc(o.code)}</b>` : ''}</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-sm btn-primary" data-act="acc-open-wa" style="background:#25d366;color:#fff;border-color:#25d366">Kongsi di WhatsApp Group</button>
+            <button class="btn btn-sm" data-act="acc-open-copy">Salin Pautan &amp; Mesej</button>
+            <button class="btn btn-sm" data-act="acc-open-qr">Papar Kod QR</button>
+            <button class="btn btn-sm btn-ghost" data-act="acc-open-msg">Ubah Mesej</button>
+          </div></div>`;
       const waitingList = this.pending();
       const pendingCard = waitingList.length ? `<div class="card" style="margin-bottom:12px;padding:14px 16px;border-color:var(--warn, #d97706)"><h3 style="margin-bottom:6px">Waiting for approval (${waitingList.length})</h3>
           <div class="table-wrap"><table class="table"><thead><tr><th>Registered as</th><th>IC</th><th>Phone</th><th>When</th><th></th></tr></thead><tbody>${waitingList.map((u) => { const e = this.claimed(u); const at = AllurusInvite.ms(u.joinedAt);
