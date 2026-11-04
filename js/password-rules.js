@@ -50,11 +50,12 @@ window.AllurusPassword = (function () {
     try { const t = await (await fetch(url)).text(); commonList = new Set(t.split('\n').map((x) => x.trim()).filter(Boolean)); } catch (e) { commonList = new Set(); }
     return commonList;
   }
-  function checkPin(pin, who = {}) {
+  function checkPin(pin, who = {}, { relaxed = false } = {}) {
     const p = String(pin || '').trim();
     if (!/^[0-9]{6}$/.test(p)) {
       return { ok: false, error: 'PIN must be exactly 6 digits (numbers only).' };
     }
+    if (relaxed) return { ok: true };
     if (/^(\d)\1{5}$/.test(p)) {
       return { ok: false, error: 'PIN cannot be the same digit repeated (like 111111).' };
     }

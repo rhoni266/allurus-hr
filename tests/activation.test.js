@@ -28,6 +28,16 @@ test('PIN rules: 6 digits only, reject repeated, sequential, birth date or IC/ph
   assert.equal(P.checkPin('839201', { ic: '900101145678', phone: '0123456789' }).ok, true, 'valid strong PIN');
 });
 
+test('Zero-friction onboarding PIN: allows any 6 digits (no sequence or repetition restrictions)', () => {
+  assert.equal(P.checkPin('123456', {}, { relaxed: true }).ok, true, 'sequential forward allowed');
+  assert.equal(P.checkPin('111111', {}, { relaxed: true }).ok, true, 'repeated allowed');
+  assert.equal(P.checkPin('900101', { ic: '900101145678' }, { relaxed: true }).ok, true, 'birth date allowed');
+  assert.equal(P.checkPin('000000', {}, { relaxed: true }).ok, true, 'all zeroes allowed');
+  assert.equal(P.checkPin('12345', {}, { relaxed: true }).ok, false, 'rejects less than 6 digits');
+  assert.equal(P.checkPin('1234567', {}, { relaxed: true }).ok, false, 'rejects more than 6 digits');
+  assert.equal(P.checkPin('abcdef', {}, { relaxed: true }).ok, false, 'rejects non-numeric');
+});
+
 test('7 weak, common and personal passwords are refused', () => {
   assert.deepEqual(failing('Kx9#tq2'), ['length']);
   assert.ok(failing('password123').includes('common'));
