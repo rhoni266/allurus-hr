@@ -28,7 +28,7 @@ Rules backup: the live rules are saved to `docs/rules-backup/firestore.rules.202
 ## Hard stops hit
 1. **Blaze plan (hard stop 3).** Billing is off for project `allurus-hr`, and no Cloud Functions are deployed. Without them there is no server-side join check and no server-side lockout for wrong PINs. **Owner:** turn on Blaze if you want these.
 2. **PIN without lockout (hard stop 7).** The spec says not to offer the 6-digit PIN without a per-account lockout on the server. `main` offers it anyway (commits 504c9cd and 8a02ee1), and it is live.
-3. **Superadmin claim (hard stop 4).** I didn't set it. The owner runs `npm run set-superadmin -- <email>` (see `scripts/set-superadmin.js` for the exact arguments).
+3. **Superadmin claim (hard stop 4).** I didn't set it. The owner runs `node scripts/set-superadmin.js <email>` from the repo root.
 
 ## Security gaps on live main (decision needed from the owner)
 1. **Auto-approve with company code + IC (09259e0, 9f5ebb7).** While Open registration is on and no join key is set, the live rules let anyone who knows the company code and a person's IC register as that person, linked straight to their employee record. The spec requires the last 4 digits of the phone number and an HR notice or approval. An IC number is not secret.
