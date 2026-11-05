@@ -320,9 +320,9 @@
     openModal((fresh && arguments[2] ? '<div class="done-check">' + svg('check') + '</div><h2 class="c" style="text-align:center">Paid ' + rm(sen(sale.total)) + '</h2>' : '') +
       '<div id="rc">' + receiptHtml(sale, received) + '</div>' +
       '<div class="actions"><button id="rPrint" class="ghost">Print receipt</button><button id="rTicket" class="ghost">Bar ticket</button></div>' +
-      '<div class="actions">' + (sale.status === 'paid' ? '<button id="rVoid" class="danger">Void</button>' : '') +
-      '<button id="rDone" class="primary"' + (sale.status === 'paid' ? '' : ' style="grid-column: 1 / -1"') + '>' + (received ? 'New order' : 'Close') + '</button></div>');
-    if ($('rVoid')) $('rVoid').onclick = function () { voidModal(sale.sale_id, sale.receipt_no); };
+      '<div class="actions">' + (sale.status === 'paid' && role() !== 'admin' ? '<button id="rVoid" class="danger">Void</button>' : '') +
+      '<button id="rDone" class="primary"' + (sale.status === 'paid' && role() !== 'admin' ? '' : ' style="grid-column: 1 / -1"') + '>' + (received ? 'New order' : 'Close') + '</button></div>');
+    if ($('rVoid')) $('rVoid').onclick = function () { voidModal(sale.sale_id, sale.receipt_no, sale.total); };
     $('rPrint').onclick = function () { printHtml(receiptHtml(sale, received)); };
     $('rTicket').onclick = function () {
       printHtml(ticketHtml({ order_type: sale.order_type, table_no: sale.table_no, ref: sale.receipt_no, datetime: sale.datetime, items: sale.items }));
@@ -373,7 +373,7 @@
       h += '<h3>Waste</h3><div class="cards"><div>Waste cost<b>' + rm(sen(s.waste_cost)) + '</b></div><div>Entries<b>' + s.waste_count + '</b></div>' +
         '<div>% of sales<b>' + (s.waste_percent_of_sales === null ? '—' : s.waste_percent_of_sales + '%') + '</b></div>' +
         '<div>Staff meals<b>' + rm(sen(s.staff_meal_cost)) + '</b><small class="muted">' + s.staff_meal_count + ' entries, not in waste</small></div></div>' +
-        (top3.length ? '<p>Top reasons: ' + top3.join(' · ') + '</p>' : '') +
+        (top3.length ? '<p>Top reasons: ' + top3.join(' · ') + '</p>' : '') + staffLine(s.waste_by_staff) +
         ('waste_dish_cost' in s ? '<p>Dish waste ' + rm(sen(s.waste_dish_cost)) + ' · ingredient waste ' + rm(sen(s.waste_ingredient_cost)) +
           ' · deliveries received ' + rm(sen(s.purchases_received)) + '</p>' : '') +
         (s.below_reorder && s.below_reorder.length ? '<p class="warn">Below reorder level: ' + s.below_reorder.map(function (x) {
@@ -392,30 +392,9 @@
         return '<tr class="' + (x.status === 'void' ? 'void' : '') + '"><td><button class="ghost" data-show="' + esc(x.sale_id) + '">' + esc(x.receipt_no) + '</button></td>' +
           '<td>' + esc(String(x.datetime).slice(11, 16)) + '</td><td>' + esc(METHODS[x.payment_method] || x.payment_method) + '</td>' +
           '<td class="n">' + rm(sen(x.total)) + '</td><td>' + (x.status === 'void' ? '<span title="' + esc(x.void_reason) + '">void</span>' :
-          '<button class="danger" data-void="' + esc(x.sale_id) + '" data-no="' + esc(x.receipt_no) + '">Void</button>') + '</td></tr>';
+          role() === 'admin' ? '' : '<button class="danger" data-void="' + esc(x.sale_id) + '" data-no="' + esc(x.receipt_no) + '" data-total="' + esc(x.total) + '">Void</button>') + '</td></tr>';
       }).join('') + '</tbody></table></div>';
     $('summary').innerHTML = h;
-  }
-
-  function voidModal(saleId, no) {
-    openModal('<h2>Void ' + esc(no) + '</h2><p>The sale is left out of the totals.</p><p class="label">Was it already made?</p>' +
-      '<div class="choice"><label><input type="radio" name="vMade" value="no"> No: put the ingredients back</label>' +
-      '<label><input type="radio" name="vMade" value="yes"> Yes: log it as dish waste</label></div>' +
-      '<label>Reason (required)<input id="vReason" maxlength="200" autocomplete="off"></label><p id="vMsg"></p>' +
-      '<div class="actions"><button id="vCancel" class="ghost">Cancel</button><button id="vGo" class="danger">Void sale</button></div>');
-    $('vReason').focus();
-    $('vCancel').onclick = closeModal;
-    $('vGo').onclick = function () {
-      var reason = $('vReason').value.trim();
-      var madeEl = document.querySelector('input[name=vMade]:checked');
-      if (!madeEl) { $('vMsg').className = 'err'; $('vMsg').textContent = 'Was it already made? Choose Yes or No.'; return; }
-      if (reason.length < 3) { $('vMsg').className = 'err'; $('vMsg').textContent = 'Please give a reason.'; return; }
-      $('vGo').disabled = true; $('vGo').textContent = 'Voiding…';
-      api.voidSale(saleId, reason, madeEl.value === 'yes').then(function (r) { closeModal(); toast(no + ' voided' + (r.made ? ' and logged as dish waste.' : '.')); if (!$('view-summary').hidden) loadSummary(); loadMenu(); }, function (e) {
-        $('vGo').disabled = false; $('vGo').textContent = 'Void sale';
-        $('vMsg').className = 'err'; $('vMsg').textContent = e.message;
-      });
-    };
   }
 
   function downloadCsv() {
@@ -540,8 +519,8 @@
   var DECIMAL_UNITS = ['g', 'ml', 'kg', 'l'];
   var waste = { cat: 'All', query: '', lines: [], reason: '', pending: null, saving: false, list: null };
 
-  function getStaff() { try { return localStorage.getItem('pos.staff') || ''; } catch (e) { return ''; } }
-  function setStaff(v) { try { localStorage.setItem('pos.staff', v); } catch (e) { /* private mode: fine */ } if ($('staffName')) tickShell(); }
+  function getStaff() { var s = api.session(); return s ? s.name : ''; }
+  function setStaff() { /* the server records the signed-in person */ }
   function qtyText(q, unit) { return (Math.round(Number(q) * 1000) / 1000) + ' ' + unit; }
   function stepOf(unit) { return DECIMAL_UNITS.indexOf(unit) >= 0 ? 0.1 : 1; }
   function wasteable(p) { return p.active || p.track_stock; }
@@ -648,6 +627,7 @@
   function clearWaste() {
     if (waste.saving) return;
     if (!waste.pending) { resetWaste(); wasteMsg(''); return; }
+    if (role() === 'cashier') { wasteMsg('Press Try again. The same entry is never saved twice.', 'muted'); return; } // a cashier can't read the log to check
     var id = waste.pending.waste_id;
     wasteMsg('Checking whether it was saved…', 'muted');
     api.getWaste().then(function (w) {
@@ -659,6 +639,14 @@
   }
 
   function loadWasteList() {
+    var head = $('wList').previousElementSibling; // the "Today's waste" heading
+    if (role() === 'cashier') {
+      if (head) head.hidden = true;
+      $('wasteKpis').innerHTML = '';
+      $('wList').innerHTML = '<p class="muted">Your name and ID are saved on every entry. A supervisor reviews the waste log.</p>';
+      return Promise.resolve();
+    }
+    if (head) head.hidden = false;
     return api.getWaste().then(function (w) { waste.list = w; renderWasteList(); }, function (e) {
       $('wList').innerHTML = '<p class="err">' + esc(e.message) + '</p>';
     });
@@ -670,7 +658,7 @@
     var order = [];
     w.rows.forEach(function (x) {
       if (x.status === 'reversal') return;
-      if (!entries[x.waste_id]) { entries[x.waste_id] = { id: x.waste_id, time: x.datetime, status: x.status, reasons: {}, lines: [], cost: 0, missing: false, staff: x.staff_name }; order.push(x.waste_id); }
+      if (!entries[x.waste_id]) { entries[x.waste_id] = { id: x.waste_id, time: x.datetime, status: x.status, reasons: {}, lines: [], cost: 0, missing: false, staff: x.staff_name, empId: x.emp_id, role: x.role }; order.push(x.waste_id); }
       var e = entries[x.waste_id];
       e.lines.push(qtyText(x.qty, x.unit) + ' ' + x.name);
       e.reasons[REASONS[x.reason] || x.reason] = true;
@@ -680,15 +668,23 @@
       kpi('meal', rm(sen(w.staff_meal_cost)), 'staff meals'));
     if (!order.length) { $('wList').innerHTML = '<p class="muted">Nothing logged today.</p>'; return; }
     $('wList').innerHTML = '<p>Waste today: <b>' + rm(sen(w.waste_cost)) + '</b> in ' + w.waste_count + ' entries' +
-      (w.staff_meal_count ? ' · staff meals ' + rm(sen(w.staff_meal_cost)) + ' (not counted as waste)' : '') + '</p>' +
+      (w.staff_meal_count ? ' · staff meals ' + rm(sen(w.staff_meal_cost)) + ' (not counted as waste)' : '') + '</p>' + staffLine(w.by_staff) +
       '<div class="scroll"><table><thead><tr><th>Time</th><th>Items</th><th>Reason</th><th class="n">Cost</th><th></th></tr></thead><tbody>' +
       order.map(function (id) {
         var e = entries[id];
         return '<tr class="' + (e.status === 'reversed' ? 'void' : '') + '"><td>' + esc(String(e.time).slice(11, 16)) + '</td><td>' + esc(e.lines.join(', ')) +
-          (e.staff ? ' <span class="tag">' + esc(e.staff) + '</span>' : '') + '</td><td>' + esc(Object.keys(e.reasons).join(', ')) + '</td>' +
+          (e.staff || e.empId ? ' <span class="tag" title="Keyed in by">' + esc(e.staff || '') + (e.empId ? ' · ' + esc(e.empId) : '') + (e.role ? ' · ' + esc(ROLE_LABEL[e.role] || e.role) : '') + '</span>' : '') + '</td><td>' + esc(Object.keys(e.reasons).join(', ')) + '</td>' +
           '<td class="n">' + rm(e.cost) + (e.missing ? ' <span class="warn" title="Some items have no cost">*</span>' : '') + '</td>' +
           '<td>' + (e.status === 'logged' ? '<button class="ghost" data-wrev="' + esc(id) + '">Reverse</button>' : 'reversed') + '</td></tr>';
       }).join('') + '</tbody></table></div>';
+  }
+
+  /** "Keyed in by": each person's waste entries and cost (staff meals are not in the cost). */
+  function staffLine(list) {
+    if (!list || !list.length) return '';
+    return '<p>Keyed in by: ' + list.map(function (x) {
+      return esc(x.name || x.emp_id) + (x.emp_id ? ' (' + esc(x.emp_id) + ')' : '') + ' ' + x.entries + (x.entries === 1 ? ' entry' : ' entries') + ' ' + rm(sen(x.cost));
+    }).join(' · ') + '</p>';
   }
 
   function reverseModal(id) {
@@ -1207,6 +1203,668 @@
   });
   document.addEventListener('input', function (e) { if (e.target.closest('[data-cnt]')) recvInput(e); });
 
+  // ---------- opening and closing the day ----------
+  // A cashier or supervisor records the opening cash (the float) when they start. At closing everyone sees a tally of the day's
+  // transactions (a cashier: their own) and counts the cash: expected = opening cash + cash sales. A supervisor or admin also gets
+  // the stock checklist for tomorrow; an admin sees every transaction in detail. The server decides what each role receives.
+  // The tally opens first; the stock list and the transactions arrive a moment later.
+
+  var closing = { data: null, closeId: '', openId: '', stock: null, detail: null, seq: 0 };
+
+  function initClose() {
+    var cashier = role() === 'cashier';
+    if (!$('clDay').value || cashier) $('clDay').value = today();
+    $('clDay').hidden = cashier; // a cashier works on today
+    if (!closing.closeId) closing.closeId = api.newSaleId();
+    if (!closing.openId) closing.openId = api.newSaleId();
+    loadClosing();
+  }
+
+  function loadClosing() {
+    var seq = ++closing.seq;
+    $('clBody').innerHTML = '<p class="muted">Loading… this can take a few seconds.</p>';
+    api.getClosing($('clDay').value || today()).then(function (c) {
+      if (seq !== closing.seq) return;
+      closing.data = c; closing.stock = null; closing.detail = null;
+      if (c.date === c.today) { setSessionState(c.state); refreshAccess(); }
+      renderClosing();
+      if (c.state.opened || role() === 'admin') loadClosingExtras(seq, c.date);
+    }).catch(function (e) {
+      if (seq === closing.seq) $('clBody').innerHTML = '<p class="err">' + esc(e && e.message || 'Could not load.') + '</p><button id="clRefresh" class="ghost">Try again</button>';
+    });
+  }
+
+  function loadClosingExtras(seq, day) {
+    if (role() !== 'cashier') {
+      api.getClosingStock().then(function (s) { if (seq === closing.seq) { closing.stock = s; renderShop(); } }, function (e) {
+        if ($('clStock') && seq === closing.seq) $('clStock').innerHTML = '<h3>Stock to check for tomorrow</h3><p class="err">' + esc(e.message) + '</p>';
+      });
+    }
+    if (role() === 'admin') {
+      api.getClosingDetail(day).then(function (d) { if (seq === closing.seq) { closing.detail = d; renderDetail(); } }, function (e) {
+        if ($('clDetail') && seq === closing.seq) $('clDetail').innerHTML = '<h3>All transactions</h3><p class="err">' + esc(e.message) + '</p>';
+      });
+    }
+  }
+
+  function clMsg(id, text, cls) { var m = $(id); if (m) { m.className = cls || ''; m.textContent = text || ''; } }
+
+  // Cash is counted by notes and coins (sen values come from the server), never typed as one amount.
+  function denomLabel(v) { return v >= 100 ? 'RM ' + (v / 100) : v + ' sen'; }
+  function denomGrid(prefix, list) {
+    return '<div class="denoms">' + list.map(function (v) {
+      return '<label class="dn"><span>' + denomLabel(v) + '</span><input data-dn="' + prefix + '" data-v="' + v + '" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="0" aria-label="' +
+        denomLabel(v) + ' count"><b>' + rm(0) + '</b></label>';
+    }).join('') + '<p class="dn-total">Total counted: <b id="dnTotal-' + prefix + '">' + rm(0) + '</b></p></div>';
+  }
+  function readDenoms(prefix) {
+    var parts = {};
+    var total = 0;
+    var bad = false;
+    document.querySelectorAll('[data-dn="' + prefix + '"]').forEach(function (el) {
+      var t = el.value.trim();
+      if (t === '') return;
+      var n = Number(t);
+      if (!(n >= 0) || Math.floor(n) !== n) { bad = true; return; }
+      if (n) { parts[el.dataset.v] = n; total += n * Number(el.dataset.v); }
+    });
+    return { parts: parts, sen: total, bad: bad };
+  }
+
+  function openingHtml(c) {
+    var st0 = c.state || {};
+    var canSet = (role() === 'cashier' || role() === 'supervisor') && c.date === c.today && !st0.closed && !st0.day_closed;
+    var h = '<section class="block"><h3>Opening cash</h3>';
+    if (c.mine) {
+      h += '<p>You started with <b>' + rm(sen(c.mine.amount)) + '</b> (' + esc(String(c.mine.datetime).slice(11, 16)) + ').' +
+        (canSet ? ' <button id="clOpenChange" class="ghost">Change</button>' : '') + '</p>';
+    } else if (canSet) h += '<p class="warn">No opening cash recorded yet today.</p>';
+    if (c.scope === 'all' && c.openings.length) {
+      h += '<p class="muted">All drawers: ' + c.openings.map(function (o) { return esc(o.opened_by) + ' ' + rm(sen(o.amount)); }).join(' · ') +
+        ' = <b>' + rm(sen(c.opening)) + '</b></p>';
+    }
+    if (canSet) {
+      h += '<div id="clOpenForm"' + (c.mine ? ' hidden' : '') + '><p>Count the cash in the drawer to start, by notes and coins.</p>' + denomGrid('op', c.denoms) +
+        (c.mine ? '<label class="row">Note <input id="clOpenNote" maxlength="150" autocomplete="off" placeholder="why it changed"></label>' : '') +
+        '<p id="clOpenMsg"></p><div class="actions"><button id="clOpenGo" class="primary">Save opening cash</button></div></div>';
+    } else if (c.scope === 'all' && !c.openings.length) h += '<p class="muted">No opening cash was recorded.</p>';
+    return h + '</section>';
+  }
+
+  function renderClosing() {
+    var c = closing.data;
+    var own = c.scope === 'own';
+    var st = c.state || {};
+    var gated = role() !== 'admin' && st.required;
+    if (gated && !st.opened) { // step 2: nothing else until they have opened
+      setKpis('clKpis', '');
+      $('clBody').innerHTML = '<section class="block"><h3>Step 2 of 4 · Open your session</h3><p>' +
+        (st.day_closed ? 'The day is already closed. Opening starts again tomorrow.' : st.closed ? 'You already closed today. Opening starts again tomorrow.' :
+          'Count the cash in the register, by notes and coins. Nothing else is available until you have opened.') + '</p></section>' + openingHtml(c);
+      return;
+    }
+    var banner = '';
+    if (gated) {
+      banner = st.day_closed ? 'The day is closed. Checkout and voids are off for everyone until tomorrow. Waste can still be keyed in.'
+        : st.closed ? 'You closed your session. Checkout is off for you until tomorrow. Waste can still be keyed in.'
+        : 'Step 3 · business as usual. When you finish, count the cash below and close (step 4).';
+    }
+    setKpis('clKpis', kpi('cash', rm(sen(c.total_sales)), own ? 'my sales' : 'sales', 'good') + kpi('receipt', String(c.orders), 'orders') +
+      kpi('alert', String(c.voided), 'voided', c.voided ? 'alert' : ''));
+    var ms = Object.keys(c.by_method || {}).sort(function (a, b) { return c.by_method[b] - c.by_method[a]; });
+    var extra = [];
+    if (sen(c.discount)) extra.push('discounts ' + rm(sen(c.discount)));
+    if (sen(c.service)) extra.push('service ' + rm(sen(c.service)));
+    if (sen(c.tax)) extra.push('tax ' + rm(sen(c.tax)));
+    if (sen(c.rounding)) extra.push('rounding ' + rm(sen(c.rounding)));
+    var h = (banner ? '<p class="banner">' + esc(banner) + '</p>' : '') + openingHtml(c);
+    h += '<section class="block"><h3>Tally · ' + esc(dmy(c.date)) + ' <span class="tag">' + (own ? 'your transactions' : 'all transactions') + '</span></h3>' +
+      '<div class="scroll"><table><tbody>' +
+      (ms.length ? ms.map(function (m) { return '<tr><td>' + esc(METHODS[m] || m) + '</td><td class="n">' + rm(sen(c.by_method[m])) + '</td></tr>'; }).join('')
+        : '<tr><td class="muted">No sales yet.</td><td></td></tr>') +
+      '<tr><td><b>Total sales</b> (' + c.orders + ' orders)</td><td class="n"><b>' + rm(sen(c.total_sales)) + '</b></td></tr>' +
+      '<tr><td>Voided (' + c.voided + ')</td><td class="n">' + rm(sen(c.void_amount)) + '</td></tr></tbody></table></div>' +
+      (extra.length ? '<p class="muted">Included above: ' + extra.join(' · ') + '</p>' : '') + '</section>';
+
+    var noOpen = !c.opening && role() !== 'admin' && c.date === c.today;
+    var isToday = c.date === c.today;
+    var finished = role() !== 'admin' && (st.closed || st.day_closed);
+    var canClose = isToday && !finished;
+    var waiting = role() === 'supervisor' && c.waiting ? c.waiting : [];
+    closing.label = role() === 'supervisor' ? 'Close the day' : role() === 'cashier' ? 'Close my session' : 'Record the day';
+    h += '<section class="block"><h3>Cash drawer</h3><div class="scroll"><table><tbody>' +
+      '<tr><td>Opening cash' + (own ? '' : ' (all drawers)') + '</td><td class="n">' + rm(sen(c.opening)) + '</td></tr>' +
+      '<tr><td>Cash sales</td><td class="n">' + rm(sen(c.cash_sales)) + '</td></tr>' +
+      (sen(c.approved_diff) ? '<tr><td>Cashier differences already approved</td><td class="n">' + rm(sen(c.approved_diff)) + '</td></tr>' : '') +
+      '<tr><td><b>Should be in the drawer</b></td><td class="n"><b>' + rm(sen(c.cash_expected)) + '</b></td></tr></tbody></table></div>' +
+      (noOpen ? '<p class="warn">No opening cash was recorded today, so this is cash sales only.</p>' : '');
+    if (role() === 'admin') h += '<p class="muted">The admin has no cash drawer. This only records the day.</p>';
+    else if (canClose) {
+      h += '<p><b>Count the cash left in the drawer</b>, by notes and coins. You can only close when it tallies.</p>' + denomGrid('cl', c.denoms) +
+        '<p id="clVar" class="muted"></p>' +
+        '<div id="clApprove" class="approve" hidden><p><b>Mark <span id="clKind">shortage</span>.</b> It needs a note and a supervisor to approve' +
+        (role() === 'supervisor' ? ' (a different supervisor from you)' : '') + '.</p>' +
+        '<label class="row">Note <input id="clNote" maxlength="150" autocomplete="off" placeholder="why the cash is over or short"></label>' +
+        '<label class="row">Supervisor ID <input id="clApId" autocomplete="off"></label>' +
+        '<label class="row">Supervisor PIN <input id="clApPin" type="password" inputmode="numeric" autocomplete="off"></label></div>';
+    }
+    if (waiting.length) {
+      h += '<p class="warn">These cashiers must close first: ' + waiting.map(function (x) { return esc(x.name) + ' (' + esc(x.emp_id) + ')'; }).join(', ') + '.</p>';
+    }
+    h += '<p id="clMsg"></p>' + (canClose ? '<div class="actions"><button id="clGo" class="primary"' + (waiting.length ? ' disabled' : '') + '>' + esc(closing.label) + '</button></div>'
+      : !isToday ? '<p class="muted">Closing is only for today.</p>' : '') +
+      (c.closings && c.closings.length ? '<p class="muted">Closed: ' + c.closings.map(function (x) {
+        var s2 = x.cash_status;
+        return esc(String(x.datetime).slice(11, 16)) + ' by ' + esc(x.closed_by) +
+          (s2 === 'balanced' ? ' (cash tallied)' : s2 === 'shortage' || s2 === 'surplus' ? ' (' + s2 + ' ' + rm(Math.abs(sen(x.cash_variance))) + ', approved by ' + esc(x.approved_by) + ')' : '');
+      }).join(' · ') + '</p>' : '') + '</section>';
+
+    if (role() !== 'cashier') h += '<section class="block" id="clStock"><h3>Stock to check for tomorrow</h3><p class="muted">Loading…</p></section>';
+    if (role() === 'admin') h += '<section class="block" id="clDetail"><h3>All transactions</h3><p class="muted">Loading…</p></section>';
+    $('clBody').innerHTML = h;
+    if (closing.stock) renderShop();
+    if (closing.detail) renderDetail();
+  }
+
+  function renderDetail() {
+    var el = $('clDetail');
+    var d = closing.detail;
+    if (!el || !d) return;
+    var w = d.waste;
+    var rows = d.transactions.map(function (t) {
+      var items = t.items.map(function (it) { return esc(it.name) + ' x' + it.qty + (it.note ? ' (' + esc(it.note) + ')' : ''); }).join(', ');
+      var v = t.status === 'void';
+      return '<tr class="' + (v ? 'void' : '') + '"><td>' + esc(String(t.datetime).slice(11, 16)) + '</td><td>' + esc(t.receipt_no) + '</td>' +
+        '<td>' + esc(t.cashier_name || t.cashier_id || '—') + (t.cashier_id ? ' <span class="muted">' + esc(t.cashier_id) + '</span>' : '') + '</td>' +
+        '<td>' + items + '<br><span class="muted">' + (t.order_type === 'dine_in' ? 'Dine-in' + (t.table_no ? ' · table ' + esc(t.table_no) : '') : 'Takeaway') +
+        (sen(t.discount) ? ' · discount ' + rm(sen(t.discount)) : '') + '</span>' +
+        (v ? '<br><span class="tag">VOID</span> <span class="muted">' + esc(t.void_reason) +
+          (t.voided ? ' · asked by ' + esc(t.voided.requested_by) + ', approved by ' + esc(t.voided.approved_by) : '') + '</span>' : '') + '</td>' +
+        '<td>' + esc(METHODS[t.payment_method] || t.payment_method) + '</td><td class="n">' + rm(sen(t.total)) + '</td></tr>';
+    }).join('');
+    el.innerHTML = '<h3>All transactions · ' + d.transactions.length + '</h3>' +
+      (d.transactions.length ? '<div class="scroll"><table><thead><tr><th>Time</th><th>Receipt</th><th>Cashier</th><th>Items</th><th>Paid by</th><th class="n">Total</th></tr></thead><tbody>' +
+        rows + '</tbody></table></div>' : '<p class="muted">No transactions.</p>') +
+      (w ? '<p>Waste today: <b>' + rm(sen(w.cost)) + '</b> in ' + w.entries + ' entries' + (sen(w.staff_meal_cost) ? ' · staff meals ' + rm(sen(w.staff_meal_cost)) : '') + '</p>' + staffLine(w.by_staff) : '');
+  }
+
+  // The stock checklist. An item stays here, unticked, at every closing until it is ticked (bought or handled).
+  function renderShop() {
+    var el = $('clStock');
+    if (!el || !closing.stock) return;
+    var list = closing.stock.list;
+    var open = list.filter(function (x) { return x.status === 'open'; }).length;
+    el.innerHTML = '<h3>Stock to check for tomorrow</h3>' +
+      (list.length ? '<p class="muted">Tick an item when you have bought or sorted it. Unticked items stay on this list at every closing.</p>' +
+        list.map(function (x) {
+          var done = x.status === 'done';
+          return '<label class="chk' + (done ? ' done' : '') + '"><input type="checkbox" data-shop="' + esc(x.product_id) + '"' + (done ? ' checked' : '') + '>' +
+            '<span><b>' + esc(x.name) + '</b> <span class="muted">' + esc(x.reason) + '</span>' +
+            (!done && x.days_open > 0 ? ' <span class="tag" title="First listed ' + esc(dmy(x.first_listed)) + '">waiting ' + x.days_open + (x.days_open === 1 ? ' day' : ' days') + '</span>' : '') +
+            (done ? ' <span class="tag">bought</span>' : '') + '</span></label>';
+        }).join('') + '<p>' + (open ? '<b>' + open + '</b> still to buy or check.' : 'All ticked.') + '</p>' +
+        '<div class="actions"><button id="clCopy" class="ghost">Copy for notes</button></div>'
+        : '<p class="muted">Nothing needs attention for tomorrow.</p>');
+  }
+
+  function shopText() {
+    var c = closing.data;
+    var lines = ['Stock to check for tomorrow (after closing ' + dmy(c.date) + ')'];
+    var list = closing.stock ? closing.stock.list : [];
+    if (!list.length) lines.push('Nothing needs attention.');
+    list.forEach(function (x) {
+      lines.push((x.status === 'done' ? '[x] ' : '[ ] ') + x.name + ': ' + x.reason + (x.status === 'open' && x.days_open > 0 ? ' (waiting since ' + dmy(x.first_listed) + ')' : ''));
+    });
+    return lines.join('\n');
+  }
+
+  function copyShop() {
+    var t = shopText();
+    var fallback = function () {
+      var ta = document.createElement('textarea');
+      ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      var okc = false;
+      try { okc = document.execCommand('copy'); } catch (er) { okc = false; }
+      document.body.removeChild(ta);
+      toast(okc ? 'Copied. Paste it into your notes.' : 'Could not copy. Select the list and copy it by hand.');
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(function () { toast('Copied. Paste it into your notes.'); }, fallback);
+    else fallback();
+  }
+
+  function shopTick(id, checked, el) {
+    el.disabled = true;
+    api.setShopItem(id, checked).then(function (r) { closing.stock.list = r.list; renderShop(); }, function (e) {
+      el.checked = !checked; el.disabled = false; toast(e.message);
+    });
+  }
+
+  // Updates a note-and-coin row and total as it is typed; for the closing count it also shows whether the cash tallies.
+  function denomInput(el) {
+    var prefix = el.dataset.dn;
+    var n = Number(el.value.trim() || 0);
+    el.parentNode.querySelector('b').textContent = rm(n >= 0 && Math.floor(n) === n ? n * Number(el.dataset.v) : 0);
+    var d = readDenoms(prefix);
+    var t = $('dnTotal-' + prefix);
+    if (t) t.textContent = rm(d.sen);
+    if (prefix === 'cl') cashVariance();
+  }
+
+  function cashVariance() {
+    var el = $('clVar');
+    if (!el || !closing.data) return;
+    var d = readDenoms('cl');
+    if (d.bad) { el.className = 'err'; el.textContent = 'Counts must be whole numbers.'; return; }
+    var diff = d.sen - sen(closing.data.cash_expected);
+    var box = $('clApprove');
+    if (diff === 0) {
+      el.className = 'okc'; el.textContent = 'The cash tallies. You can close the day.';
+      if (box) box.hidden = true;
+      $('clGo').textContent = closing.label || 'Close day';
+    } else {
+      var kind = diff > 0 ? 'surplus' : 'shortage';
+      el.className = 'warn'; el.textContent = 'The cash does not tally: ' + kind + ' of ' + rm(Math.abs(diff)) + '. Check the count again, or mark it.';
+      if (box) { box.hidden = false; $('clKind').textContent = kind + ' of ' + rm(Math.abs(diff)); }
+      $('clGo').textContent = (closing.label || 'Close day') + ' with ' + kind;
+    }
+  }
+
+  function openNow() {
+    var d = readDenoms('op');
+    var note = $('clOpenNote') ? $('clOpenNote').value.trim() : '';
+    if (d.bad) return clMsg('clOpenMsg', 'Counts must be whole numbers.', 'err');
+    if (looksLikeCard(note)) return clMsg('clOpenMsg', 'Remove the card number. Card numbers are never stored.', 'err');
+    $('clOpenGo').disabled = true; $('clOpenGo').textContent = 'Saving…';
+    api.setOpening(closing.openId, d.parts, note).then(function (c) {
+      closing.openId = api.newSaleId(); closing.data = c; setSessionState(c.state);
+      var was = currentView;
+      renderClosing(); toast('Opening cash saved.');
+      refreshAccess();
+      if (sessionState.opened && role() !== 'admin') { loadClosingExtras(closing.seq, c.date); if (canSee('till')) show('till'); }
+    }, function (e) {
+      $('clOpenGo').disabled = false; $('clOpenGo').textContent = 'Save opening cash';
+      clMsg('clOpenMsg', e.kind === 'network' ? 'Not saved. Try again. (' + e.message + ')' : e.message, 'err');
+    });
+  }
+
+  function closeNow() {
+    var c = closing.data;
+    var payload = { close_id: closing.closeId, date: c.date, note: '' };
+    if (role() !== 'admin') {
+      var d = readDenoms('cl');
+      if (d.bad) return clMsg('clMsg', 'Counts must be whole numbers.', 'err');
+      payload.denoms = d.parts;
+      var diff = d.sen - sen(c.cash_expected);
+      if (diff !== 0) {
+        payload.note = $('clNote').value.trim();
+        payload.approver_id = $('clApId').value.trim();
+        payload.approver_pin = $('clApPin').value;
+        if (payload.note.length < 3) return clMsg('clMsg', 'Add a note saying why the cash is over or short.', 'err');
+        if (!payload.approver_id || !payload.approver_pin) return clMsg('clMsg', 'A supervisor must approve: enter their ID and PIN.', 'err');
+        if (looksLikeCard(payload.note)) return clMsg('clMsg', 'Remove the card number. Card numbers are never stored.', 'err');
+      }
+    }
+    var label = $('clGo').textContent;
+    $('clGo').disabled = true; $('clGo').textContent = 'Saving…'; clMsg('clMsg', 'Saving…', 'muted');
+    api.closeDay(payload).then(function (r) {
+      closing.closeId = api.newSaleId(); closing.data = r; setSessionState(r.state);
+      renderClosing(); refreshAccess();
+      toast(r.state.day_closed ? 'Day closed. Checkout is off for everyone until tomorrow.' : 'Session closed.');
+    }, function (e) {
+      $('clGo').disabled = false; $('clGo').textContent = label;
+      clMsg('clMsg', e.kind === 'network' ? 'Not saved. Try again. (' + e.message + ')' : e.message, 'err');
+    });
+  }
+
+  document.addEventListener('input', function (e) { if (e.target.dataset && e.target.dataset.dn) denomInput(e.target); });
+  document.addEventListener('change', function (e) {
+    if (e.target.id === 'clDay') { closing.closeId = api.newSaleId(); loadClosing(); return; }
+    var id = e.target.dataset && e.target.dataset.shop;
+    if (id) shopTick(id, e.target.checked, e.target);
+  });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('button') : null;
+    if (!b) return;
+    if (b.id === 'clGo') closeNow();
+    else if (b.id === 'clCopy') copyShop();
+    else if (b.id === 'clRefresh') loadClosing();
+    else if (b.id === 'clOpenGo') openNow();
+    else if (b.id === 'clOpenChange') { $('clOpenForm').hidden = !$('clOpenForm').hidden; }
+  });
+
+  // ---------- sign-in, roles, approved voids, staff ----------
+  // The server enforces every rule below; the screens only hide what a role can't use (hidden, not greyed out).
+
+  var VIEWS_FOR = { cashier: ['till', 'waste', 'close'], supervisor: ['till', 'waste', 'stock', 'summary', 'close'], admin: ['waste', 'stock', 'summary', 'products', 'staff', 'close'] };
+  var VOID_REASONS = { customer_changed: 'Customer changed order', wrong_item: 'Wrong item keyed in', payment_failed: 'Payment failed',
+    duplicate: 'Duplicate bill', complaint: 'Customer complaint', other: 'Other' };
+  var ROLE_LABEL = { cashier: 'Cashier', supervisor: 'Supervisor', admin: 'Admin' };
+  var idleTimer = null;
+
+  function me() { return api.session() || {}; }
+  function role() { return me().role || ''; }
+  // Step 1 sign in, step 2 open (count the register), step 3 sell, step 4 close (cash must tally). Until a cashier or supervisor has
+  // opened, only the Open/Close screen is shown. After they close, checkout is off for them; after a supervisor closes the day it is
+  // off for everyone. Waste stays. The server enforces all of it; the screens only hide what can't be used.
+  var sessionState = { required: false, opened: true, closed: false, day_closed: false };
+  var currentView = '';
+  function allowedViews() {
+    var base = (VIEWS_FOR[role()] || []).slice();
+    if (role() === 'admin' || !sessionState.required) return sessionState.day_closed ? base.filter(function (v) { return v !== 'till'; }) : base;
+    if (!sessionState.opened) return ['close'];
+    return sessionState.closed || sessionState.day_closed ? base.filter(function (v) { return v !== 'till'; }) : base;
+  }
+  function canSee(view) { return allowedViews().indexOf(view) >= 0; }
+  function setSessionState(st) { if (st) sessionState = st; }
+
+  /** Re-applies what the person may see after opening, closing or an OPENING_REQUIRED reply. */
+  function refreshAccess() {
+    document.querySelectorAll('[data-view]').forEach(function (b) { b.hidden = !canSee(b.dataset.view); });
+    moveThumb();
+    var first = allowedViews()[0];
+    if (!canSee(currentView)) show(first);
+    if (role() !== 'admin' && canSee('till') && !state.allProducts.length) loadMenu();
+  }
+
+  function applyRole() {
+    var r = role();
+    document.body.dataset.role = r;
+    document.querySelectorAll('[data-view]').forEach(function (b) { b.hidden = !canSee(b.dataset.view); });
+    $('discRow').hidden = r !== 'supervisor';
+    $('voidBill').hidden = !(r === 'cashier' || r === 'supervisor');
+    var recipesTab = document.querySelector('[data-inv=recipes]');
+    if (recipesTab) recipesTab.hidden = r !== 'admin'; // editing the menu is admin work
+    tickShell();
+    setSessionState(me().state);
+    document.querySelectorAll('[data-view]').forEach(function (b) { b.hidden = !canSee(b.dataset.view); });
+    var first = allowedViews()[0];
+    show(first);
+    if ((r === 'cashier' || r === 'supervisor') && sessionState.required && !sessionState.opened) { /* nothing to load until they open */ }
+    else if (r === 'cashier' || r === 'supervisor') loadMenu(); else refreshProducts();
+    resetIdle();
+  }
+
+  function showLogin(msg, mustChange) {
+    $('login').hidden = false;
+    $('loginNew').hidden = !mustChange;
+    $('loginId').hidden = !!mustChange;
+    $('loginTitle').textContent = mustChange ? 'Choose a new PIN' : 'Sign in';
+    $('loginSub').textContent = mustChange ? 'Your PIN must be changed before you start. Enter the current PIN, then the new one twice.' : 'Employee ID and PIN';
+    $('loginPin').placeholder = mustChange ? 'Current PIN' : 'PIN';
+    $('loginGo').textContent = mustChange ? 'Save new PIN' : 'Sign in';
+    $('loginPin').value = ''; $('loginPin2').value = ''; $('loginPin3').value = '';
+    if (!mustChange) {
+      $('loginId').value = ''; // shared till: no trace of who was here
+      ['till', 'waste', 'stock', 'summary', 'products', 'staff'].forEach(function (v) { $('view-' + v).hidden = true; });
+      ['staffBody', 'summary', 'slist', 'plist', 'wList'].forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
+      $('cartBar').hidden = true; tickShell();
+    }
+    $('loginMsg').textContent = msg || '';
+    (mustChange ? $('loginPin') : $('loginId')).focus();
+  }
+
+  function submitLogin(e) {
+    if (e) e.preventDefault();
+    var go = $('loginGo');
+    if (go.disabled) return;
+    var msg = $('loginMsg');
+    var changing = !$('loginNew').hidden;
+    var pin = $('loginPin').value;
+    if (changing) {
+      if ($('loginPin2').value !== $('loginPin3').value) { msg.textContent = 'The two new PINs don\'t match.'; return; }
+      go.disabled = true; msg.textContent = '';
+      api.changePin(pin, $('loginPin2').value).then(function () {
+        go.disabled = false; $('login').hidden = true; toast('PIN changed.'); applyRole();
+      }, function (er) { go.disabled = false; msg.textContent = er.message; });
+      return;
+    }
+    var id = $('loginId').value.trim();
+    if (!id || !pin) { msg.textContent = 'Enter your Employee ID and PIN.'; return; }
+    go.disabled = true; go.textContent = 'Signing in…'; msg.textContent = '';
+    api.login(id, pin).then(function (s) {
+      go.disabled = false; go.textContent = 'Sign in';
+      if (s.must_change_pin) { showLogin('', true); return; }
+      $('login').hidden = true;
+      applyRole();
+    }, function (er) { go.disabled = false; go.textContent = 'Sign in'; $('loginPin').value = ''; msg.textContent = er.message; });
+  }
+
+  function signOut(msg) {
+    clearTimeout(idleTimer);
+    api.logout().then(function () {
+      closeModal(); clearCart();
+      state.allProducts = []; state.products = [];
+      document.querySelectorAll('[data-view]').forEach(function (b) { b.hidden = true; });
+      showLogin(msg || '');
+    });
+  }
+
+  // Idle: sign out after the server's idle minutes without a tap or key (the server ends the session anyway).
+  function resetIdle() {
+    clearTimeout(idleTimer);
+    var s = me();
+    if (!s.token || state.saving || waste.saving) return;
+    idleTimer = setTimeout(function () { if (!state.saving && !state.pending) signOut('Signed out after ' + (s.idle_minutes || 15) + ' minutes without use.'); }, (s.idle_minutes || 15) * 60000);
+  }
+  ['pointerdown', 'keydown'].forEach(function (ev) { document.addEventListener(ev, function () { if (me().token) resetIdle(); }, true); });
+
+  api.onAuth = function (e) {
+    if (e.code === 'CHANGE_PIN') { showLogin('', true); return; }
+    if (e.code === 'OPENING_REQUIRED') { sessionState.required = true; sessionState.opened = false; refreshAccess(); return; }
+    clearTimeout(idleTimer);
+    closeModal();
+    showLogin(e.message);
+  };
+
+  function staffMenu() {
+    var s = me();
+    openModal('<h2>' + esc(s.name || '') + '</h2><p class="muted">' + esc(s.emp_id || '') + ' · <span class="role-badge">' + esc(ROLE_LABEL[s.role] || '') + '</span> · ' + esc(s.outlet || '') + '</p>' +
+      '<label>Current PIN<input id="cpOld" type="password" inputmode="numeric" maxlength="6"></label>' +
+      '<label>New PIN (4-6 digits)<input id="cpNew" type="password" inputmode="numeric" maxlength="6"></label>' +
+      '<label>New PIN again<input id="cpNew2" type="password" inputmode="numeric" maxlength="6"></label><p id="cpMsg"></p>' +
+      '<div class="actions"><button id="cpOut" class="ghost">Sign out</button><button id="cpGo" class="primary">Change PIN</button></div>');
+    $('cpOut').onclick = function () { signOut(); };
+    $('cpGo').onclick = function () {
+      var m = $('cpMsg'); m.className = 'err';
+      if ($('cpNew').value !== $('cpNew2').value) { m.textContent = 'The two new PINs don\'t match.'; return; }
+      busy($('cpGo'), true, 'Saving…');
+      api.changePin($('cpOld').value, $('cpNew').value).then(function () { closeModal(); toast('PIN changed.'); }, function (e) { busy($('cpGo'), false, 'Change PIN'); m.textContent = e.message; });
+    };
+  }
+
+  // ---- void with supervisor approval ----
+
+  function voidModal(saleId, no, total) {
+    var cashier = role() === 'cashier';
+    openModal('<h2>Void ' + esc(no) + (total !== undefined ? ' · ' + rm(sen(total)) : '') + '</h2>' +
+      '<p class="warn">Supervisor approval required' + (cashier ? '. Ask a supervisor to enter their own ID and PIN.' : ': enter your own ID and PIN.') + '</p>' +
+      '<p class="label">Was it already made?</p>' +
+      '<div class="choice"><label><input type="radio" name="vMade" value="no"> No: put the ingredients back</label>' +
+      '<label><input type="radio" name="vMade" value="yes"> Yes: log it as dish waste</label></div>' +
+      '<label>Reason<select id="vReason"><option value="">Choose…</option>' + Object.keys(VOID_REASONS).map(function (k) {
+        return '<option value="' + k + '">' + VOID_REASONS[k] + '</option>'; }).join('') + '</select></label>' +
+      '<label>Note (required for Other)<input id="vNote" maxlength="150" autocomplete="off"></label>' +
+      '<div class="form-grid"><label>Supervisor ID<input id="vSv" autocomplete="off" autocapitalize="none" value="' + (cashier ? '' : esc(me().emp_id)) + '"></label>' +
+      '<label>Supervisor PIN<input id="vPin" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></label></div><p id="vMsg"></p>' +
+      '<div class="actions"><button id="vCancel" class="ghost">Cancel</button><button id="vGo" class="danger">Approve &amp; void</button></div>');
+    $('vCancel').onclick = closeModal;
+    $('vGo').onclick = function () {
+      var m = $('vMsg'); m.className = 'err';
+      var madeEl = document.querySelector('input[name=vMade]:checked');
+      if (!madeEl) { m.textContent = 'Was it already made? Choose Yes or No.'; return; }
+      if (!$('vReason').value) { m.textContent = 'Choose a reason.'; return; }
+      if ($('vReason').value === 'other' && $('vNote').value.trim().length < 3) { m.textContent = 'Add a note for Other.'; return; }
+      if (!$('vSv').value.trim() || !$('vPin').value) { m.textContent = 'A supervisor must enter their ID and PIN.'; return; }
+      busy($('vGo'), true, 'Voiding…');
+      api.voidSale(saleId, { reason: $('vReason').value, note: $('vNote').value.trim(), made: madeEl.value === 'yes',
+        approver_id: $('vSv').value.trim(), approver_pin: $('vPin').value }).then(function (r) {
+        closeModal();
+        toast(no + ' voided' + (r.void_id ? ' (' + r.void_id + ', approved by ' + r.approved_by + ')' : '') + (r.made ? ', logged as dish waste.' : '.'));
+        if (!$('view-summary').hidden) loadSummary();
+        loadMenu();
+      }, function (e) { busy($('vGo'), false, 'Approve & void'); $('vPin').value = ''; m.textContent = e.message; });
+    };
+  }
+
+  function voidBillModal() {
+    openModal('<h2>Void a bill</h2><p class="muted">Enter the receipt number from the receipt.</p>' +
+      '<label>Receipt no.<input id="vbNo" placeholder="R000012" autocomplete="off" autocapitalize="characters"></label><div id="vbBill"></div><p id="vbMsg"></p>' +
+      '<div class="actions"><button id="vbCancel" class="ghost">Cancel</button><button id="vbFind" class="primary">Find bill</button></div>');
+    $('vbNo').focus();
+    $('vbCancel').onclick = closeModal;
+    $('vbFind').onclick = function () {
+      busy($('vbFind'), true, 'Finding…');
+      api.findSale($('vbNo').value).then(function (s) {
+        busy($('vbFind'), false, 'Find bill');
+        if (s.status === 'void') { $('vbMsg').className = 'warn'; $('vbMsg').textContent = s.receipt_no + ' is already void.'; return; }
+        $('vbBill').innerHTML = '<div class="card">' + esc(s.receipt_no) + ' · ' + esc(dmy(s.datetime)) + '<br>' +
+          esc(s.items.map(function (it) { return it.qty + ' × ' + it.name; }).join(', ')) + '<br><b>' + rm(sen(s.total)) + '</b> ' + esc(METHODS[s.payment_method] || '') + '</div>';
+        $('vbFind').textContent = 'Void this bill';
+        $('vbFind').onclick = function () { voidModal(s.sale_id, s.receipt_no, s.total); };
+      }, function (e) { busy($('vbFind'), false, 'Find bill'); $('vbMsg').className = 'err'; $('vbMsg').textContent = e.message; });
+    };
+  }
+
+  // ---- staff management and logs (admin) ----
+
+  var staffTab = 'staff';
+  var staffList = [];
+
+  function loadStaff(sync) {
+    var tab = staffTab;
+    var body = $('staffBody');
+    if (tab === 'staff') {
+      if (!staffList.length) body.innerHTML = '<p class="muted">Loading…</p>';
+      return api.listStaff(sync).then(function (r) { staffList = r.staff; renderStaff(r.hr_note); }, function (e) { body.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; });
+    }
+    body.innerHTML = '<p class="muted">Loading…</p>';
+    if (tab === 'voids') return api.getVoidLog({}).then(renderVoidLog, function (e) { body.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; });
+    return api.getAuditLog(tab === 'changes' ? 'change' : 'staff').then(function (r) {
+      var cols = tab === 'changes' ? [['datetime', 'When'], ['actor', 'By'], ['entity', 'What'], ['field', 'Field'], ['old_value', 'Old'], ['new_value', 'New']]
+        : [['datetime', 'When'], ['actor', 'By'], ['action', 'Action'], ['emp_id', 'Staff'], ['detail', 'Detail']];
+      body.innerHTML = '<p class="muted">Read-only. Entries are only ever added, never changed or removed.</p>' + (r.rows.length ? '<div class="scroll"><table><thead><tr>' +
+        cols.map(function (c) { return '<th>' + c[1] + '</th>'; }).join('') + '</tr></thead><tbody>' + r.rows.map(function (x) {
+          return '<tr>' + cols.map(function (c) { return '<td>' + esc(c[0] === 'datetime' ? dmy(x[c[0]]) : x[c[0]]) + '</td>'; }).join('') + '</tr>';
+        }).join('') + '</tbody></table></div>' : '<p class="muted">Nothing in the last 30 days.</p>');
+    }, function (e) { body.innerHTML = '<p class="err">' + esc(e.message) + '</p>'; });
+  }
+
+  function renderStaff(note) {
+    var act = staffList.filter(function (s) { return s.status === 'active'; }).length;
+    setKpis('staffKpis', kpi('tag', String(act), 'active') + kpi('alert', String(staffList.length - act), 'disabled or locked', staffList.length - act ? 'alert' : 'good'));
+    $('staffBody').innerHTML = (note ? '<p class="warn">' + esc(note) + '</p>' : '') +
+      '<div class="row wrap"><button class="primary" id="stAdd">Add staff from allurus-hr</button><button class="ghost" id="stSync">Check allurus-hr now</button></div>' +
+      '<div class="scroll"><table><thead><tr><th>Staff</th><th>Role</th><th>Status</th><th>allurus-hr</th><th></th></tr></thead><tbody>' +
+      staffList.map(function (s) {
+        var self = s.emp_id === me().emp_id;
+        return '<tr class="' + (s.status === 'active' ? '' : 'disabled') + '"><td><b>' + esc(s.name) + '</b><br><span class="muted">' + esc(s.emp_id) + '</span></td>' +
+          '<td>' + (s.emp_id === 'admin' || self ? '<span class="role-badge">' + esc(ROLE_LABEL[s.role]) + '</span>'
+            : '<select data-strole="' + esc(s.emp_id) + '" aria-label="Role">' + ['cashier', 'supervisor', 'admin'].map(function (r) {
+              return '<option value="' + r + '"' + (r === s.role ? ' selected' : '') + '>' + ROLE_LABEL[r] + '</option>'; }).join('') + '</select>') + '</td>' +
+          '<td>' + (s.status === 'active' ? 'Active' : s.status === 'locked' ? '<span class="err">Locked</span> (5 wrong PINs)' : '<span class="warn">Disabled</span>') +
+          (s.must_change_pin ? '<br><span class="muted">must change PIN</span>' : '') + '</td><td>' + esc(s.hr_status) + '</td>' +
+          '<td><div class="row" style="margin:0">' + '<button class="ghost" data-stpin="' + esc(s.emp_id) + '">Reset PIN</button>' +
+          (s.emp_id === 'admin' || self ? '' : s.status === 'active' ? '<button class="ghost" data-stoff="' + esc(s.emp_id) + '">Disable</button>'
+            : '<button class="ghost" data-ston="' + esc(s.emp_id) + '">' + (s.status === 'locked' ? 'Unlock' : 'Enable') + '</button>') + '</div></td></tr>';
+      }).join('') + '</tbody></table></div><p class="muted">Staff can only come from allurus-hr. Anyone resigned there is disabled here at the next check (hourly).</p>';
+  }
+
+  function renderVoidLog(r) {
+    var by = function (k) { var o = {}; r.rows.forEach(function (x) { o[x[k]] = true; }); return Object.keys(o); };
+    $('staffBody').innerHTML = '<p class="muted">Read-only. Every void, who asked and which supervisor approved it.</p>' +
+      '<div class="row wrap"><select id="vlSv"><option value="">All supervisors</option>' + by('approved_by').map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('') + '</select>' +
+      '<select id="vlCa"><option value="">All requesters</option>' + by('requested_by').map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('') + '</select>' +
+      '<select id="vlRe"><option value="">All reasons</option>' + Object.keys(r.reasons).map(function (k) { return '<option value="' + k + '">' + esc(r.reasons[k]) + '</option>'; }).join('') + '</select></div>' +
+      '<div id="vlRows"></div>';
+    var draw = function () {
+      var sv = $('vlSv').value, ca = $('vlCa').value, re = $('vlRe').value;
+      var rows = r.rows.filter(function (x) { return (!sv || x.approved_by === sv) && (!ca || x.requested_by === ca) && (!re || x.reason === r.reasons[re]); });
+      $('vlRows').innerHTML = rows.length ? '<div class="scroll"><table><thead><tr><th>Void</th><th>When</th><th>Bill</th><th class="n">Amount</th><th>Asked by</th><th>Approved by</th><th>Reason</th></tr></thead><tbody>' +
+        rows.map(function (x) {
+          return '<tr><td>' + esc(x.void_id) + '</td><td>' + esc(dmy(x.datetime)) + '</td><td>' + esc(x.receipt_no) + '<br><span class="muted">' + esc(x.items) + '</span></td>' +
+            '<td class="n">' + rm(sen(x.amount)) + '</td><td>' + esc(x.requested_by) + '</td><td>' + esc(x.approved_by) + '</td><td>' + esc(x.reason) + (x.note ? ': ' + esc(x.note) : '') + '</td></tr>';
+        }).join('') + '</tbody></table></div>' : '<p class="muted">No voids match.</p>';
+    };
+    ['vlSv', 'vlCa', 'vlRe'].forEach(function (id) { $(id).addEventListener('change', draw); });
+    draw();
+  }
+
+  function addStaffModal() {
+    openModal('<h2>Add staff from allurus-hr</h2><p class="muted">Search by name or employee ID. Only people HR has added can be chosen.</p>' +
+      '<div class="row"><input id="asQ" placeholder="Name or employee ID" autocomplete="off"><button class="ghost" id="asFind">Search</button></div>' +
+      '<div id="asList"></div><div id="asForm" hidden><div class="form-grid"><label>Role<select id="asRole"><option value="cashier">Cashier</option>' +
+      '<option value="supervisor">Supervisor</option><option value="admin">Admin</option></select></label>' +
+      '<label>Starting PIN (4-6 digits)<input id="asPin" type="password" inputmode="numeric" maxlength="6"></label></div>' +
+      '<p class="muted">They must change this PIN the first time they sign in.</p></div><p id="asMsg"></p>' +
+      '<div class="actions"><button id="asCancel" class="ghost">Cancel</button><button id="asGo" class="primary" disabled>Add</button></div>');
+    var pick = null;
+    var find = function () {
+      $('asList').innerHTML = '<p class="muted">Searching allurus-hr…</p>';
+      api.hrSearch($('asQ').value.trim()).then(function (list) {
+        $('asList').innerHTML = list.length ? '<div class="choice">' + list.map(function (h) {
+          var ok = h.active && !h.pos_role;
+          return '<label><input type="radio" name="asPick" value="' + esc(h.emp_id) + '"' + (ok ? '' : ' disabled') + '><span><b>' + esc(h.name) + '</b> · ' + esc(h.emp_id) +
+            '<br><span class="muted">' + esc(h.job) + (h.pos_role ? ' · already ' + esc(ROLE_LABEL[h.pos_role]) : !h.active ? ' · ' + esc(h.hr_status) : '') + '</span></span></label>';
+        }).join('') + '</div>' : '<p class="muted">Nobody matches in allurus-hr.</p>';
+      }, function (e) { $('asList').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; });
+    };
+    $('asFind').onclick = find;
+    $('asQ').addEventListener('keydown', function (e) { if (e.key === 'Enter') find(); });
+    $('asList').addEventListener('change', function (e) { pick = e.target.value; $('asForm').hidden = false; $('asGo').disabled = false; });
+    $('asCancel').onclick = closeModal;
+    $('asGo').onclick = function () {
+      busy($('asGo'), true, 'Adding…');
+      api.addStaff(pick, $('asRole').value, $('asPin').value).then(function (s) { closeModal(); toast(s.name + ' added as ' + ROLE_LABEL[s.role] + '.'); staffList = []; loadStaff(); },
+        function (e) { busy($('asGo'), false, 'Add'); $('asMsg').className = 'err'; $('asMsg').textContent = e.message; });
+    };
+    find();
+  }
+
+  function staffChange(empId, change, done) {
+    api.updateStaff(empId, change).then(function (s) { toast(done || 'Saved.'); staffList = staffList.map(function (x) { return x.emp_id === s.emp_id ? s : x; }); renderStaff(); },
+      function (e) { toast(e.message); loadStaff(); });
+  }
+
+  function resetPinModal(empId) {
+    openModal('<h2>Reset PIN: ' + esc(empId) + '</h2><label>New PIN (4-6 digits)<input id="rpPin" type="password" inputmode="numeric" maxlength="6"></label>' +
+      '<p class="muted">They must change it at their next sign-in. Any open session of theirs ends now.</p><p id="rpMsg"></p>' +
+      '<div class="actions"><button id="rpCancel" class="ghost">Cancel</button><button id="rpGo" class="primary">Reset PIN</button></div>');
+    $('rpCancel').onclick = closeModal;
+    $('rpGo').onclick = function () {
+      busy($('rpGo'), true, 'Saving…');
+      api.updateStaff(empId, { reset_pin: $('rpPin').value }).then(function () { closeModal(); toast('PIN reset.'); loadStaff(); },
+        function (e) { busy($('rpGo'), false, 'Reset PIN'); $('rpMsg').className = 'err'; $('rpMsg').textContent = e.message; });
+    };
+  }
+
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b || b.disabled) return;
+    var d = b.dataset;
+    if (d.lk) {
+      var target = !$('loginNew').hidden && document.activeElement && /loginPin[23]/.test(document.activeElement.id) ? document.activeElement : $('loginPin');
+      if (d.lk === 'C') target.value = ''; else if (d.lk === '⌫') target.value = target.value.slice(0, -1); else if (target.value.length < 6) target.value += d.lk;
+      target.focus();
+    }
+    else if (b.id === 'staffChip') { if (me().token) staffMenu(); }
+    else if (b.id === 'voidBill') voidBillModal();
+    else if (d.stab) {
+      staffTab = d.stab;
+      document.querySelectorAll('#staffTabs button').forEach(function (x) { x.classList.toggle('on', x === b); });
+      loadStaff();
+    }
+    else if (b.id === 'stAdd') addStaffModal();
+    else if (b.id === 'stSync') { b.disabled = true; loadStaff(true).then(function () { toast('Checked against allurus-hr.'); }); }
+    else if (d.stpin) resetPinModal(d.stpin);
+    else if (d.stoff) staffChange(d.stoff, { status: 'disabled' }, 'Disabled.');
+    else if (d.ston) staffChange(d.ston, { status: 'active' }, 'Enabled.');
+  });
+  document.addEventListener('change', function (e) {
+    var r = e.target.dataset && e.target.dataset.strole;
+    if (r) staffChange(r, { role: e.target.value }, 'Role changed to ' + ROLE_LABEL[e.target.value] + '.');
+  });
+  $('loginForm').addEventListener('submit', submitLogin);
+
   // ---------- wiring ----------
 
   function show(view) {
@@ -1214,19 +1872,23 @@
       b.classList.toggle('on', b.dataset.view === view);
       if (b.dataset.view === view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
-    ['till', 'waste', 'stock', 'summary', 'products'].forEach(function (v) { $('view-' + v).hidden = v !== view; });
+    if (!view) return;
+    currentView = view;
+    ['till', 'waste', 'stock', 'summary', 'products', 'staff', 'close'].forEach(function (v) { $('view-' + v).hidden = v !== view; });
+    if (view === 'staff') loadStaff(true);
     moveThumb();
     renderCart();
     if (view === 'summary') loadSummary();
+    if (view === 'close') initClose();
     if (view === 'products') loadProducts();
-    if (view === 'waste') { if (!$('wStaff').value) $('wStaff').value = getStaff(); renderWasteGrid(); renderWasteForm(); refreshProducts(); loadWasteList(); }
+    if (view === 'waste') { $('wStaff').value = getStaff(); $('wStaff').readOnly = true; renderWasteGrid(); renderWasteForm(); refreshProducts(); loadWasteList(); }
     if (view === 'stock') { showInv(inv.tab); refreshProducts(); }
   }
 
   document.addEventListener('click', function (e) {
     var b = e.target.closest('button'); if (!b || b.disabled) return;
     var d = b.dataset;
-    if (d.view) show(d.view);
+    if (d.view) { if (canSee(d.view)) show(d.view); }
     else if (d.cat) { state.cat = d.cat; renderMenu(); }
     else if (d.add) add(d.add);
     else if (d.type) { if (!cartLocked()) { state.orderType = d.type; renderCart(); } }
@@ -1238,7 +1900,7 @@
     }
     else if (d.m) payModal(d.m);
     else if (d.recv) { $('recv').value = (Number(d.recv) / 100).toFixed(2); updateChange(); }
-    else if (d.void) voidModal(d.void, d.no);
+    else if (d.void) voidModal(d.void, d.no, d.total);
     else if (d.show) api.getSale(d.show).then(function (s) { receiptModal(s, 0); }, function (er) { toast(er.message); });
     else if (d.edit) productModal(d.edit);
     else if (d.wcat) { waste.cat = d.wcat; renderWasteGrid(); }
@@ -1326,7 +1988,8 @@
   }
   function tickShell() {
     var name = getStaff();
-    $('staffName').textContent = name || 'No name';
+    var ses = api.session();
+    $('staffName').textContent = name ? name + (ses && ses.role ? ' · ' + ({ cashier: 'Cashier', supervisor: 'Supervisor', admin: 'Admin' })[ses.role] : '') : 'Signed out';
     $('staffAv').textContent = name ? name.trim().charAt(0).toUpperCase() : '?';
     $('clock').textContent = new Intl.DateTimeFormat('en-GB', { timeZone: cfg.TIMEZONE || 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit' }).format(new Date());
   }
@@ -1342,7 +2005,7 @@
   try { if (localStorage.getItem('pos.fx') === 'low') { document.documentElement.classList.add('reduce-effects'); $('fxToggle').setAttribute('aria-pressed', 'true'); } } catch (er) { /* fine */ }
   document.addEventListener('keydown', function (e) {
     var typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
-    if (e.key === 'F1') { e.preventDefault(); show('till'); }
+    if (e.key === 'F1') { e.preventDefault(); if (canSee('till')) show('till'); }
     else if (e.key === 'F2' && !$('view-till').hidden && $('modal').hidden && state.cart.length) { e.preventDefault(); $('pay').click(); }
     else if (e.key === '/' && !typing && !$('view-till').hidden) { e.preventDefault(); $('search').focus(); }
     else if (e.key === 'Escape' && !$('modal').hidden && !state.saving && !state.pending) closeModal();
@@ -1354,5 +2017,11 @@
   document.title = (cfg.BUSINESS_NAME || 'Cafe') + ' POS';
   $('day').value = today();
   renderCart();
-  loadMenu();
+  document.querySelectorAll('[data-view]').forEach(function (b) { b.hidden = true; });
+  if (api.session() && api.session().token) {
+    api.whoami().then(function (w) {
+      var s = api.session(); s.role = w.role; s.name = w.name; s.state = w.state;
+      if (w.must_change_pin) showLogin('', true); else applyRole();
+    }, function () { /* onAuth shows the sign-in screen */ });
+  } else showLogin('');
 })();

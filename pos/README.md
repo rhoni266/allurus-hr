@@ -107,6 +107,54 @@ They don't replace the in-browser checklist, which comes after step 3.
 - **Never deleted.** A waste entry is never deleted. Reverse marks its lines `reversed` and adds `reversal` rows (`waste_id` `rev-<id>`, negative qty and cost, `reverses_waste_id` set) with the reason in `note`.
 - **No duplicates.** `waste_id` (one per entry; `line_no` per row) and the Stock in/Adjust `movement_id` are made by the till, so a retry never counts twice.
 
+### Waste by cashiers, tagged by who keyed it (added 31/10/2026)
+
+- **Who can log waste:** cashier, supervisor and admin. Only a supervisor or admin can read the waste log, reverse an entry or see the Today waste card.
+- **Cashier screen:** the Waste tab shows the item grid, reason, note and Log waste. The staff name is filled in from the sign-in and can't be changed. There is no past list, cost report or Reverse.
+- **Tagging:** every waste line saves `emp_id` and `role` (new columns at the end of the Waste tab) next to `staff_name`. They come from the session, never from the request. A reversal row carries the person who reversed it. Old rows without an ID show the name only.
+- **Reports:** the Waste list and the Today card show each entry's tag (name, ID, role) and a "Keyed in by" line with each person's entries and cost. `getWaste` also takes `emp_id` to filter by person; `getWaste` and `getDailySummary` return `by_staff` / `waste_by_staff`.
+- **To update:** paste the new `Code.gs`, run `setup` (adds the two columns), then Deploy > Manage deployments > edit > New version. Reload the till with Ctrl+Shift+R.
+
+### The day's session: sign in, open, sell, close (added 31/10/2026)
+
+1. **Sign in.**
+2. **Open (compulsory).** A cashier or supervisor counts the cash in the register by notes and coins. Until they have, the till shows **only the Open/Close screen**; every other action is refused by the server (`OPENING_REQUIRED`). Each person opens once a day.
+3. **Business as usual.** Checkout, void, waste and the rest.
+4. **Close (compulsory).** The cash must tally (see below). After it:
+   - **A cashier closes:** that cashier can no longer check out or void until tomorrow.
+   - **A supervisor closes the day:** nobody can check out or void until tomorrow. A supervisor can close the day only after **every cashier who opened has closed**. The cashiers' approved differences are carried into the day's expected cash, so the same shortage is not asked for twice.
+   - **Waste can still be keyed in** after closing, by everyone.
+   - The admin has no drawer: no opening, no cash count. The admin's close only records the day and does not close it for others.
+- **Tomorrow** everyone opens again. A person who has closed, or arrives after the day is closed, can't open again that day.
+- **Switch:** Script Property `REQUIRE_OPENING` = `off` turns the whole gate off (the tests use it). Leave it unset in production.
+- **Note:** if a cashier forgets to close, the supervisor can't close the day. Ask the cashier to close, or an admin can set `REQUIRE_OPENING` to `off` as a last resort.
+
+### Opening and closing the day (added 31/10/2026)
+
+Every role has an **Open/Close** tab. The server decides what each role gets:
+
+| Role | Opening cash | Tally | Cash count | Stock checklist | Every transaction |
+|---|---|---|---|---|---|
+| Cashier | enters their own | their own sales | yes | no | no |
+| Supervisor | enters their own, sees all drawers | all sales | yes | yes | no |
+| Admin | sees all (no drawer of their own) | all sales | yes | yes | yes, with items, cashier, void reason and who approved it, plus waste by person |
+
+- **Opening cash (the float):** a cashier or supervisor counts the cash in the drawer when they start, **by notes and coins**. It is for today only. Changing it later the same day needs a note. Every entry is kept in the `Openings` tab (append-only, with the count by note and coin) and the latest one per person counts.
+- **Tally:** sales by payment method, total, orders and voids (discount, service, tax and rounding are shown as "included"). A cashier's tally is only the sales under their ID.
+- **Cash drawer:** the cash that should be in the drawer = **opening cash + cash sales**. The cashier or supervisor counts what is left **by notes and coins** (RM100, 50, 20, 10, 5, 1, then 50, 20, 10, 5 sen). The server adds the count up itself; a typed total is ignored.
+  - **The day closes only when the cash tallies** (counted = expected). Closing is for today only.
+  - **If it doesn't tally,** the close is marked **surplus** or **shortage**. It needs a note and a supervisor's own ID + PIN. A cashier asks any supervisor; a supervisor needs a **different** supervisor. Nobody can approve their own difference.
+  - The admin has no drawer and closes without counting.
+  - **Close day** saves a row in the `Closings` tab: who, when, tally, opening, expected, counted, difference, `cash_status` (balanced, surplus, shortage), `approved_by`, the note and the count by note and coin. It is never edited. A surplus or shortage is also written to `StaffLog`. The till makes a `close_id` so a retry saves once. More than one close a day is fine (shifts); closing does not lock the day. If no opening was recorded, the screen says so and expected cash is cash sales only.
+- **Speed:** the tally opens first. The stock list and the admin's transaction list are read by their own calls (`getClosingStock`, `getClosingDetail`) and fill in a moment later.
+- **Stock checklist ("Stock to check for tomorrow"):** tracked stock at or below its reorder level (or `LOW_STOCK`), negative stock, a delivery batch expiring within 2 days, and an opened pack that must be used by tomorrow. It is kept in the `ShopList` tab.
+  - **Unticked items stay.** An item is listed at every closing, with "waiting N days", until someone ticks it (bought or handled).
+  - **Ticked = done.** It is not shown as a problem the next days. If stock is still low 2 days after it was ticked, it comes back as open.
+  - **Restocked = resolved.** When stock is back above the level (a delivery or Stock in), an unticked item closes by itself.
+  - **Copy for notes** copies the list as plain text (`[ ]` to buy, `[x]` bought) to paste into a notes app.
+- **To update:** paste the new `Code.gs`, run `setup` (adds the `Openings`, `Closings` and `ShopList` tabs and the `opening` column), then Deploy > Manage deployments > edit > New version. Reload the till with Ctrl+Shift+R.
+- **Actions:** `getClosing` and `closeDay` (all roles), `setOpening` (cashier, supervisor), `getClosingStock`, `getClosings` and `setShopItem` (supervisor, admin), `getClosingDetail` (admin).
+
 ## Inventory ledger: recipes, purchases, open containers, stocktakes (added 31/10/2026)
 
 Details are in [INVENTORY-LEDGER-SPEC.md](INVENTORY-LEDGER-SPEC.md). Stock is calculated from the `StockMovements` ledger: opening + purchases − sales usage − dish waste − ingredient waste ± stocktake adjustments. The `stock` column is the server's running total of that ledger, and `getStockReport` / `getUsageReport` check that the two agree.
@@ -150,6 +198,52 @@ Details are in [INVENTORY-LEDGER-SPEC.md](INVENTORY-LEDGER-SPEC.md). Stock is ca
 **Size and speed:**
 - A sale reads Products and Recipes once.
 - With several hundred sales a day and recipes, `StockMovements` grows by about 1,000–2,000 rows a day. Once a month, export it to CSV, then use File > Make a copy to keep an archive. If calls start taking more than about 3 seconds, that is the signal to move to the database (see `docs/pos-waste-integration.md`).
+
+## Staff, sign-in and roles (added 31/10/2026)
+
+Everyone signs in with **Employee ID + PIN** before using the till. The server checks the role on every call; the screens also hide what a role can't use.
+
+| | Cashier | Supervisor | Admin |
+|---|:-:|:-:|:-:|
+| Checkout | ✅ | ✅ | ❌ |
+| Void a bill | supervisor's ID + PIN needed | ✅ (own ID + PIN) | ❌ |
+| Discount | ❌ | ✅ | ❌ |
+| Today (reports), void log | ❌ | ✅ | ✅ |
+| Waste, stock, receive, count, containers | ❌ | ✅ | ✅ |
+| Prices, menu, recipes | ❌ | ❌ | ✅ |
+| Staff, staff log, price and menu log | ❌ | ❌ | ✅ |
+
+**PINs and accounts:**
+- PINs are stored hashed.
+- 5 wrong PINs lock an account until an admin unlocks it.
+- Idle sessions end after `SESSION_IDLE_MIN` (default 15) minutes.
+- A PIN change or reset signs that person out everywhere.
+
+**Voids:**
+- A supervisor approves each void with their own ID and PIN in the same request. A cashier's PIN can never approve.
+- Every void goes into `VoidLog` with outlet, terminal, bill, amount, who asked, who approved and the reason.
+
+**Logs:**
+- `VoidLog`, `StaffLog` and `ChangeLog` are only ever added to by the code.
+- `ChangeLog` records old → new for every price and menu change.
+- Past bills keep their price.
+
+**Staff come only from allurus-hr:**
+- The admin searches the `ALLURUS_TENANT` company's staff directory and picks a person, then sets the role and a starting PIN, which must be changed at first sign-in.
+- Anyone resigned or no longer listed in allurus-hr is disabled at the next hourly check, or when the admin taps "Check allurus-hr now".
+- The only exception is the starter account `admin`.
+
+**Updating an existing Sheet:**
+1. In Apps Script, go to Project Settings and tick **Show "appsscript.json" manifest file in editor**. Replace `appsscript.json` with [apps-script/appsscript.json](apps-script/appsscript.json), and `Code.gs` with the new one. Save.
+2. In Script Properties, add `ALLURUS_TENANT` = `banafsha-test`. Optional: `SESSION_IDLE_MIN` (default 15) and `OUTLET_NAME` (default "Outlet 1").
+3. Run `setup`. It creates `Staff`, `VoidLog`, `StaffLog` and `ChangeLog`, plus the starter admin **`admin` / PIN `0000`**. Google will ask for the new permissions; one of them is **Cloud Datastore**, the read from allurus-hr.
+4. Run `installHrSyncTrigger` once (an hourly allurus-hr check).
+5. Deploy > Manage deployments > edit > New version.
+6. Open the till and sign in as `admin` / `0000`. It forces a new PIN. Then go to Staff > Add staff from allurus-hr.
+
+**For allurus-hr access:** the Google account that owns this Apps Script project must also have access to the `allurus-hr` Firebase project. Otherwise Add staff shows "allurus-hr refused the read (403)".
+
+**If every admin is locked out:** run `resetStarterAdmin` in the script editor. It unlocks `admin` with PIN `0000`, which must be changed at the next sign-in.
 
 ## Security limits (please read)
 

@@ -25,22 +25,64 @@ function load(props = {}) {
     setSpreadsheetTimeZone() {}, getSheets: () => Object.keys(tabs),
   };
   let uuid = 0;
-  const P = { SECRET_KEY: 'test-secret-123', ...props };
+  const P = { SECRET_KEY: 'test-secret-123', ALLURUS_TENANT: 'banafsha-test', REQUIRE_OPENING: 'off', ...props }; // the opening gate is off unless a test turns it on
+  // allurus-hr directory as the Firestore REST API returns it (same layout js/cloud-map.js writes)
+  const hr = props.hr || [
+    { id: 'sv1', first: 'Aina', last: 'Rahman', role: 'Supervisor', status: 'Active' },
+    { id: 'sv2', first: 'Aini', last: 'Yusof', role: 'Supervisor', status: 'Active' },
+    { id: 'sv3', first: 'Badrul', last: 'Hisham', role: 'Supervisor', status: 'Active' },
+    { id: 'c1', first: 'Cindy', last: 'Tan', role: 'Cashier', status: 'Active' },
+    { id: 'ad1', first: 'Hana', last: 'Ismail', role: 'Accounts', status: 'Active' },
+    { id: 'x9', first: 'Old', last: 'Staff', role: 'Cashier', status: 'Resigned' },
+  ];
+  const hrDoc = () => {
+    const f = { '~ord': { stringValue: JSON.stringify(hr.map((e) => e.id)) } };
+    hr.forEach((e) => { f[e.id] = { stringValue: JSON.stringify(e) }; });
+    return JSON.stringify({ fields: { t: { stringValue: 'a' }, r: { stringValue: 'm' }, f: { mapValue: { fields: f } } } });
+  };
+  const cache = new Map();
+  const crypto = require('node:crypto');
   const ctx = {
     console, Math, JSON, Number, String, Array, Object, Error, isFinite, Date,
     SpreadsheetApp: { getActiveSpreadsheet: () => ss },
     PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (k in P ? String(P[k]) : null) }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
-    Utilities: { getUuid: () => `uuid-${String(++uuid).padStart(8, '0')}`, formatDate: (d, tz, f) => (f === 'yyyy-MM-dd' ? '2026-10-31' : '2026-10-31T10:00:00+08:00') },
+    Utilities: { getUuid: () => `00000000-0000-4000-8000-${(++uuid).toString(16).padStart(12, '0')}`,
+      formatDate: (d, tz, f) => (f === 'yyyy-MM-dd' ? '2026-10-31' : '2026-10-31T10:00:00+08:00'),
+      DigestAlgorithm: { SHA_256: 'sha256' }, computeDigest: (alg, str) => [...crypto.createHash('sha256').update(str).digest()].map((b) => (b > 127 ? b - 256 : b)) },
+    CacheService: { getScriptCache: () => ({ get: (k) => (cache.has(k) ? cache.get(k) : null), put: (k, v) => cache.set(k, v), remove: (k) => cache.delete(k) }) },
+    ScriptApp: { getOAuthToken: () => 'owner-token' },
+    UrlFetchApp: { fetch: (url, o) => ({ getResponseCode: () => (o.headers.Authorization === 'Bearer owner-token' && url.includes('/tenants/banafsha-test/buckets/directory') ? 200 : 403),
+      getContentText: hrDoc }) },
+    encodeURIComponent,
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (s) => ({ setMimeType: () => JSON.parse(s) }) },
   };
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8'), ctx);
   ctx.setup();
   ctx.loadSampleMenu();
-  const call = (action, data, key = P.SECRET_KEY) => ctx.doPost({ postData: { contents: JSON.stringify({ key, action, data }) } });
+  const raw = (action, data, key = P.SECRET_KEY, token) => ctx.doPost({ postData: { contents: JSON.stringify({ key, action, data, token }) } });
+  // Sign the starter admin in, change its PIN, and give sv1-sv3 (supervisors) and c1 (cashier) accounts.
+  const tokens = {};
+  const signIn = (id, pin) => { const r = raw('login', { emp_id: id, pin }); if (!r.ok) throw new Error(id + ': ' + r.error); return (tokens[id] = r.data.token); };
+  raw('changePin', { old_pin: '0000', new_pin: '4826' }, P.SECRET_KEY, signIn('admin', '0000'));
+  for (const [id, role] of [['sv1', 'supervisor'], ['sv2', 'supervisor'], ['sv3', 'supervisor'], ['c1', 'cashier']]) {
+    const r = raw('addStaff', { emp_id: id, role, pin: '2468' }, P.SECRET_KEY, tokens.admin);
+    if (!r.ok) throw new Error(r.error);
+    signIn(id, '2468');
+  }
+  // call(action, data, key, as): as a staff member (default: admin for back-office actions, else supervisor sv1).
+  // A void gets sv1's approval unless the test sends its own approver.
+  const BACK = ['saveProduct', 'saveRecipe', 'listStaff', 'hrSearch', 'addStaff', 'updateStaff', 'getAuditLog'];
+  const call = (action, data, key = P.SECRET_KEY, as) => {
+    const who = as || (BACK.includes(action) ? 'admin' : 'sv1');
+    const d = action === 'voidSale' && data && !('approver_id' in data)
+      ? { approver_id: 'sv1', approver_pin: '2468', reason: 'other', note: String(data.reason || 'test void'), ...data, ...(data.reason && !['customer_changed', 'wrong_item', 'payment_failed', 'duplicate', 'complaint', 'other'].includes(data.reason) ? { reason: 'other', note: data.reason } : {}) }
+      : data;
+    return raw(action, d, key, tokens[who]);
+  };
   const prods = Object.fromEntries(call('getProducts', {}).data.map((p) => [p.name.replace(' (sample)', ''), p]));
-  return { tabs, call, prods, ctx };
+  return { tabs, call, raw, prods, ctx, tokens, signIn, hr, cache };
 }
 
 test('3 items cash: server totals, 5-sen rounding, rows written, stock reduced', () => {

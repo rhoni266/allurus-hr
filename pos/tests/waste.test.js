@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const src = fs.readFileSync(path.join(__dirname, 'code.test.js'), 'utf8');
 const helper = src.slice(src.indexOf('function load('), src.indexOf("test('3 items"));
-const load = new Function('fs', 'path', 'vm', '__dirname', helper + '\nreturn load;')(fs, path, vm, __dirname);
+const load = new Function('fs', 'path', 'vm', '__dirname', 'require', helper + '\nreturn load;')(fs, path, vm, __dirname, require);
 
 const J = (x) => JSON.parse(JSON.stringify(x)); // values from the vm realm, for deepEqual
 const stockOf = (call, id) => call('getProducts', { includeInactive: true }).data.find((p) => p.id === id).stock;
@@ -37,7 +37,7 @@ test('log waste: stock drops once, Waste and StockMovements rows, cost = qty × 
   assert.equal(stockOf(call, ids['Fresh milk']), 9750);
   assert.equal(stockOf(call, ids.Latte), ''); // not tracked: no stock, no movement
   const w = rowsOf(tabs, 'Waste');
-  assert.equal(w.length, 3); assert.ok(w.every((x) => x.waste_id === 'waste-0001' && x.status === 'logged' && x.staff_name === 'Aina'));
+  assert.equal(w.length, 3); assert.ok(w.every((x) => x.waste_id === 'waste-0001' && x.status === 'logged' && x.staff_name === 'Aina Rahman'));
   const m = rowsOf(tabs, 'StockMovements').filter((x) => /^waste_/.test(x.reason_type));
   assert.deepEqual(J(m.map((x) => [x.reason_type, x.change_qty, x.balance_after, x.ref_id, x.value])),
     [['waste_dish', -3, 17, 'waste-0001', -8.4], ['waste_ingredient', -250, 9750, 'waste-0001', -2]]);

@@ -8,7 +8,7 @@ const vm = require('node:vm');
 
 const src = fs.readFileSync(path.join(__dirname, 'code.test.js'), 'utf8');
 const helper = src.slice(src.indexOf('function load('), src.indexOf("test('3 items"));
-const load = new Function('fs', 'path', 'vm', '__dirname', helper + '\nreturn load;')(fs, path, vm, __dirname);
+const load = new Function('fs', 'path', 'vm', '__dirname', 'require', helper + '\nreturn load;')(fs, path, vm, __dirname, require);
 
 const J = (x) => JSON.parse(JSON.stringify(x));
 const rowsOf = (tabs, name) => tabs[name].slice(1).map((r) => Object.fromEntries(tabs[name][0].map((h, i) => [h, r[i]])));
@@ -119,14 +119,15 @@ test('dish waste takes the recipe out; ingredient waste only the ingredient; rea
 test('open containers: second open warns and needs a reason; total unchanged; oldest first; no sealed pack refused', () => {
   const { tabs, ids, stock, call, ok, sale } = world();
   const syrup = ids['Caramel syrup']; // 1500 ml = 2 bottles of 750
-  const first = ok(call('openContainer', { container_id: 'cont-0001', ingredient_id: syrup, station: 'bar', staff_name: 'Aini' }));
+  const AINI = 'sv2', BADRUL = 'sv3'; // the name on a container comes from who is signed in
+  const first = ok(call('openContainer', { container_id: 'cont-0001', ingredient_id: syrup, station: 'bar', staff_name: 'Someone else' }, undefined, AINI));
   assert.equal(first.container.est_remaining, 750);
-  const second = ok(call('openContainer', { container_id: 'cont-0002', ingredient_id: syrup, station: 'bar', staff_name: 'Badrul' }));
+  const second = ok(call('openContainer', { container_id: 'cont-0002', ingredient_id: syrup, station: 'bar' }, undefined, BADRUL));
   assert.equal(second.needs_reason, true);
-  assert.match(second.message, /already open since .* by Aini, about 750 ml left\. Open another\?/);
+  assert.match(second.message, /already open since .* by Aini Yusof, about 750 ml left\. Open another\?/);
   assert.equal(rowsOf(tabs, 'OpenContainers').length, 1); // nothing written yet
-  assert.match(call('openContainer', { container_id: 'cont-0002', ingredient_id: syrup, station: 'bar', staff_name: 'Badrul', reason: 'other' }).error, /note/);
-  const opened = ok(call('openContainer', { container_id: 'cont-0002', ingredient_id: syrup, station: 'bar', staff_name: 'Badrul', reason: 'other_station', note: '' }));
+  assert.match(call('openContainer', { container_id: 'cont-0002', ingredient_id: syrup, station: 'bar', reason: 'other' }, undefined, BADRUL).error, /note/);
+  const opened = ok(call('openContainer', { container_id: 'cont-0002', ingredient_id: syrup, station: 'bar', reason: 'other_station', note: '' }, undefined, BADRUL));
   assert.equal(opened.double_open, true);
   assert.equal(stock()['Caramel syrup'], 1500); // opening moves nothing
   assert.match(call('openContainer', { container_id: 'cont-0003', ingredient_id: syrup, station: 'bar', staff_name: 'C', reason: 'first_finished' }).error, /No sealed bottle/);

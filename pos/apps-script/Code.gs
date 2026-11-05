@@ -13,6 +13,9 @@
  *   SERVICE_PERCENT   optional, default 0. e.g. 10 (charged on dine-in only)
  *   LOW_STOCK         optional, default 5. Warn when stock falls to this or below.
  *   COUNT_VARIANCE_PERCENT  optional, default 5. A stocktake line further off than this needs a reason.
+ *   ALLURUS_TENANT    the company id in allurus-hr whose staff may be added (e.g. banafsha-test).
+ *   ALLURUS_PROJECT   optional, default allurus-hr. SESSION_IDLE_MIN optional, default 15. OUTLET_NAME optional.
+ * Every call except login also needs a staff session (Employee ID + PIN); see "staff, login and roles".
  *
  * Money is integer sen inside this file and RM with 2 decimals in the Sheet.
  * All calls are POST (text/plain body with JSON) so the secret never sits in a URL.
@@ -24,10 +27,10 @@ var TABS = {
   Products: ['id', 'name', 'price', 'stock', 'category', 'active', 'unit', 'cost', 'track_stock', 'kind',
     'pack_size', 'pack_unit', 'base_unit', 'reorder_level', 'open_shelf_life_days', 'max_open_containers', 'track_open'],
   Sales: ['sale_id', 'datetime', 'subtotal', 'discount', 'service', 'tax', 'rounding', 'total',
-    'payment_method', 'order_type', 'table_no', 'device_id', 'status', 'void_reason', 'made_at'],
+    'payment_method', 'order_type', 'table_no', 'device_id', 'status', 'void_reason', 'made_at', 'cashier_id'],
   SaleItems: ['sale_id', 'product_id', 'name', 'qty', 'unit_price', 'subtotal', 'note'],
   Waste: ['waste_id', 'line_no', 'datetime', 'product_id', 'name', 'qty', 'unit', 'unit_cost', 'cost', 'reason', 'note',
-    'staff_name', 'device_id', 'status', 'reverses_waste_id', 'waste_type'],
+    'staff_name', 'device_id', 'status', 'reverses_waste_id', 'waste_type', 'emp_id', 'role'],
   StockMovements: ['movement_id', 'datetime', 'product_id', 'name', 'change_qty', 'reason_type', 'ref_id', 'balance_after',
     'staff_name', 'device_id', 'unit_cost', 'value'],
   Recipes: ['recipe_id', 'menu_product_id', 'ingredient_id', 'qty', 'unit', 'note', 'modifier_id'],
@@ -37,7 +40,19 @@ var TABS = {
   OpenContainers: ['container_id', 'ingredient_id', 'size', 'opened_at', 'opened_by', 'use_by', 'status', 'est_remaining',
     'finished_at', 'discarded_reason', 'note', 'station', 'open_reason', 'allocated_qty', 'variance', 'overrun'],
   StockCounts: ['count_id', 'line_no', 'datetime', 'ingredient_id', 'name', 'counted_qty', 'expected_qty', 'variance',
-    'variance_value', 'counted_by', 'note', 'status']
+    'variance_value', 'counted_by', 'note', 'status'],
+  // Staff accounts (PINs hashed). The three logs below are append-only: the code only ever adds rows to them.
+  Staff: ['emp_id', 'name', 'role', 'pin_hash', 'pin_salt', 'status', 'failed_attempts', 'must_change_pin', 'hr_status', 'created_at', 'updated_at'],
+  VoidLog: ['void_id', 'datetime', 'outlet', 'terminal', 'sale_id', 'receipt_no', 'items', 'amount', 'requested_by', 'approved_by', 'reason',
+    'note', 'made'],
+  StaffLog: ['log_id', 'datetime', 'actor', 'action', 'emp_id', 'detail'],
+  ChangeLog: ['log_id', 'datetime', 'actor', 'entity', 'entity_id', 'field', 'old_value', 'new_value'],
+  // End of day. Closings is append-only (one row per close). ShopList is the stock checklist: open items stay until ticked.
+  Closings: ['close_id', 'datetime', 'date', 'closed_by', 'role', 'scope', 'orders', 'total_sales', 'cash_expected', 'cash_counted',
+    'cash_variance', 'voided', 'void_amount', 'by_method', 'note', 'opening', 'cash_status', 'approved_by', 'denoms'],
+  // Opening cash (the float) set at the start of the day; append-only, the latest one per person wins.
+  Openings: ['open_id', 'datetime', 'date', 'opened_by', 'role', 'amount', 'note', 'denoms'],
+  ShopList: ['product_id', 'name', 'unit', 'reason', 'stock', 'first_listed', 'last_listed', 'times_listed', 'status', 'done_at', 'done_by']
 };
 var METHODS = ['cash', 'duitnow_qr', 'card', 'ewallet'];
 var ORDER_TYPES = ['dine_in', 'takeaway'];
@@ -65,18 +80,34 @@ function doPost(e) {
   try { body = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) { return json_({ ok: false, error: 'Bad request' }); }
   if (!keyOk_(body.key)) return json_({ ok: false, error: 'Not allowed' });
   var routes = {
-    getProducts: getProducts_, getDailySummary: getDailySummary_, getSale: getSale_,
-    createSale: createSale_, voidSale: voidSale_, saveProduct: saveProduct_,
+    getProducts: getProducts_, getDailySummary: getDailySummary_, getSale: getSale_, findSale: findSale_ByReceipt_,
+    createSale: createSale_, voidSale: approvedVoid_, saveProduct: saveProduct_,
     logWaste: logWaste_, reverseWaste: reverseWaste_, getWaste: getWaste_, stockAdjust: stockAdjust_,
     receivePurchase: receivePurchase_, reversePurchase: reversePurchase_, getPurchases: getPurchases_,
     saveRecipe: saveRecipe_, getRecipes: getRecipes_,
     openContainer: openContainer_, finishContainer: finishContainer_, discardContainer: discardContainer_, getContainers: getContainers_,
-    stockCount: stockCount_, getStockReport: getStockReport_, getUsageReport: getUsageReport_
+    stockCount: stockCount_, getStockReport: getStockReport_, getUsageReport: getUsageReport_,
+    whoami: whoami_, logout: logout_, changePin: changePin_, getVoidLog: getVoidLog_,
+    listStaff: listStaff_, hrSearch: hrSearch_, addStaff: addStaff_, updateStaff: updateStaff_, getAuditLog: getAuditLog_,
+    getClosing: getClosing_, closeDay: closeDay_, getClosings: getClosings_, setShopItem: setShopItem_,
+    setOpening: setOpening_, getClosingStock: getClosingStock_, getClosingDetail: getClosingDetail_
   };
+  if (body.action === 'login') {
+    try { return json_({ ok: true, data: login_(body.data || {}) }); } catch (err) { return json_(err && err.userError ? { ok: false, error: err.message } : { ok: false, error: 'Server error. Try again.' }); }
+  }
   var fn = routes[body.action];
   if (!fn) return json_({ ok: false, error: 'Unknown action' });
   try {
-    return json_({ ok: true, data: fn(body.data || {}) });
+    var sess = session_(body.token);
+    if (ACCESS[body.action].indexOf(sess.role) < 0) fail_('Not allowed for a ' + sess.role);
+    if (sess.must_change_pin && ['changePin', 'logout', 'whoami'].indexOf(body.action) < 0) fail_('CHANGE_PIN: Change your PIN first');
+    var gate = gateError_(body.action, sess);
+    if (gate) fail_(gate);
+    var data = body.data || {};
+    // Who did it comes from the session, never from the request.
+    data._actor = sess.emp_id; data._role = sess.role;
+    ['staff_name', 'received_by', 'counted_by'].forEach(function (k) { data[k] = sess.name; });
+    return json_({ ok: true, data: fn(data, sess) });
   } catch (err) {
     if (err && err.userError) return json_({ ok: false, error: err.message });
     console.error(body.action + ' failed: ' + (err && err.message)); // no request body in logs
@@ -420,6 +451,7 @@ function getDailySummary_(d) {
     by_method: methods, top_items: top, sales: list,
     waste_cost: toRm_(w.waste_cost_sen), waste_count: w.waste_count,
     waste_by_reason: w.by_reason.map(function (x) { return { reason: x.reason, cost: x.cost, lines: x.lines }; }),
+    waste_by_staff: w.by_staff,
     waste_percent_of_sales: totalSen > 0 ? Math.round(w.waste_cost_sen * 10000 / totalSen) / 100 : null,
     staff_meal_cost: w.staff_meal_cost, staff_meal_count: w.staff_meal_count, waste_cost_missing_lines: w.cost_missing_lines,
     waste_dish_cost: w.dish_cost, waste_ingredient_cost: w.ingredient_cost,
@@ -487,6 +519,7 @@ function createSale_(d) {
     });
 
     var disc = d.discount || {};
+    if (d._role === 'cashier' && Number(disc.value || 0) > 0) fail_('Only a supervisor can give a discount');
     var discount = 0;
     if (disc.type === 'pct') {
       var pct = Number(disc.value || 0);
@@ -507,7 +540,7 @@ function createSale_(d) {
       sale_id: saleId, datetime: now_(), subtotal: toRm_(subtotal), discount: toRm_(discount),
       service: toRm_(service), tax: toRm_(tax), rounding: toRm_(total - exact), total: toRm_(total),
       payment_method: method, order_type: orderType, table_no: tableNo, device_id: deviceId,
-      status: 'paid', void_reason: '', made_at: ''
+      status: 'paid', void_reason: '', made_at: '', cashier_id: String(d._actor || '')
     };
     sale.made_at = sale.datetime; // a paid order counts as made (a void asks whether it really was)
     var saleRow = sheet_('Sales').getLastRow() + 1;
@@ -625,6 +658,10 @@ function saveProduct_(d) {
       r = rows_('Products').filter(function (x) { return String(x.id) === String(d.id); })[0];
       if (!r) fail_('Product not found');
       p.id = String(d.id);
+      var old = product_(r);
+      ['name', 'price', 'cost', 'category', 'active', 'unit', 'kind', 'pack_size', 'reorder_level', 'track_open'].forEach(function (k) {
+        if (String(old[k]) !== String(p[k])) changeLog_(String(d._actor || ''), 'product', p.id, k, old[k], p[k]);
+      });
       var was = tracked_(r);
       if (was && product_(r).unit !== unit) fail_('The unit can\'t change while stock is tracked (the history is in ' + product_(r).unit + ')');
       if (was && !track) {
@@ -639,6 +676,7 @@ function saveProduct_(d) {
       r.cost = p.cost;
     } else {
       p.id = Utilities.getUuid();
+      changeLog_(String(d._actor || ''), 'product', p.id, 'created', '', name + ' @ ' + p.price);
       p.stock = track ? 0 : '';
       r = { _row: sh.getLastRow() + 1, id: p.id, name: name, cost: p.cost };
       write(r._row);
@@ -694,7 +732,7 @@ function wasteOut_(rows) {
       name: String(w.name), qty: Number(w.qty), unit: String(w.unit), unit_cost: blank_(w.unit_cost) ? '' : Number(w.unit_cost),
       cost: blank_(w.cost) ? '' : Number(w.cost), cost_missing: blank_(w.cost), reason: String(w.reason), note: String(w.note || ''),
       staff_name: String(w.staff_name || ''), status: String(w.status), reverses_waste_id: String(w.reverses_waste_id || ''),
-      waste_type: String(w.waste_type || '') };
+      waste_type: String(w.waste_type || ''), emp_id: String(w.emp_id || ''), role: String(w.role || '') };
   });
 }
 
@@ -757,7 +795,7 @@ function logWaste_(d) {
       out.push({ waste_id: wid, line_no: i + 1, datetime: when, product_id: p.id, name: p.name, qty: qty, unit: p.unit,
         unit_cost: unitCostSen === '' ? '' : (type === 'dish' ? toRm_(unitCostSen) : rm6_(unitCostSen / 100)),
         cost: costSen === '' ? '' : toRm_(costSen), reason: reason, note: note, staff_name: staff, device_id: dev,
-        status: 'logged', reverses_waste_id: '', waste_type: type });
+        status: 'logged', reverses_waste_id: '', waste_type: type, emp_id: String(d._actor || ''), role: String(d._role || '') });
     });
     append_('Waste', out);
     var warnings = moveStock_(dish, 'waste_dish', wid, staff, dev).concat(moveStock_(ingr, 'waste_ingredient', wid, staff, dev));
@@ -790,7 +828,8 @@ function reverseWaste_(d) {
       setCell_('Waste', w._row, 'status', 'reversed');
       rev.push({ waste_id: 'rev-' + wid, line_no: Number(w.line_no), datetime: when, product_id: String(w.product_id), name: w.name,
         qty: -Number(w.qty), unit: w.unit, unit_cost: w.unit_cost, cost: blank_(w.cost) ? '' : -Number(w.cost), reason: w.reason,
-        note: reason, staff_name: staff, device_id: dev, status: 'reversal', reverses_waste_id: wid, waste_type: w.waste_type });
+        note: reason, staff_name: staff, device_id: dev, status: 'reversal', reverses_waste_id: wid, waste_type: w.waste_type,
+        emp_id: String(d._actor || ''), role: String(d._role || '') });
     });
     append_('Waste', rev);
     var taken = movesOf_(wid, ['waste', 'waste_dish', 'waste_ingredient']).filter(function (m) { return products[m.product_id]; });
@@ -820,6 +859,7 @@ function wasteTotals_(rows) {
   var entries = function (xs) { var o = {}; xs.forEach(function (w) { o[w.waste_id] = true; }); return Object.keys(o).length; };
   var byReason = {};
   var byProduct = {};
+  var byStaff = {};
   var byType = { dish: 0, ingredient: 0 };
   waste.forEach(function (w) {
     byType[typeOf(w)] += costOf(w);
@@ -829,6 +869,16 @@ function wasteTotals_(rows) {
     var bp = byProduct[k] || (byProduct[k] = { product_id: k, name: String(w.name), unit: String(w.unit), qty: 0, cost: 0 });
     bp.qty = r3_(bp.qty + Number(w.qty)); bp.cost += costOf(w);
   });
+  logged.forEach(function (w) {
+    var who = String(w.emp_id || '') || String(w.staff_name || '') || '(unknown)';
+    var bs = byStaff[who] || (byStaff[who] = { emp_id: String(w.emp_id || ''), name: String(w.staff_name || ''), role: String(w.role || ''), ids: {}, cost: 0, meal_cost: 0 });
+    bs.ids[w.waste_id] = true;
+    if (w.reason === 'staff_meal') bs.meal_cost += costOf(w); else bs.cost += costOf(w);
+  });
+  var staffList = Object.keys(byStaff).map(function (k) {
+    var x = byStaff[k];
+    return { emp_id: x.emp_id, name: x.name, role: x.role, entries: Object.keys(x.ids).length, cost: toRm_(x.cost), meal_cost: toRm_(x.meal_cost) };
+  }).sort(function (a, b) { return b.cost - a.cost || b.entries - a.entries; });
   var list = function (o, by) {
     return Object.keys(o).map(function (k) { return o[k]; })
       .sort(function (a, b) { return b.cost - a.cost || b[by] - a[by]; })
@@ -836,6 +886,7 @@ function wasteTotals_(rows) {
   };
   return {
     waste_cost_sen: sumSen(waste), waste_count: entries(waste), by_reason: list(byReason, 'lines'), by_product: list(byProduct, 'qty'),
+    by_staff: staffList,
     dish_cost: toRm_(byType.dish), ingredient_cost: toRm_(byType.ingredient),
     staff_meal_cost: toRm_(sumSen(meals)), staff_meal_count: entries(meals),
     cost_missing_lines: logged.filter(function (w) { return blank_(w.cost); }).length
@@ -847,9 +898,13 @@ function getWaste_(d) {
   var from = String(d.date_from || Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd'));
   var to = String(d.date_to || from);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) fail_('Bad date');
-  var rows = rows_('Waste').filter(function (w) { var day = String(w.datetime).slice(0, 10); return day >= from && day <= to; });
+  var who = String(d.emp_id || '').trim().toLowerCase();
+  var rows = rows_('Waste').filter(function (w) {
+    var day = String(w.datetime).slice(0, 10);
+    return day >= from && day <= to && (!who || String(w.emp_id || '').toLowerCase() === who);
+  });
   var t = wasteTotals_(rows);
-  return { date_from: from, date_to: to, rows: wasteOut_(rows).reverse(), waste_cost: toRm_(t.waste_cost_sen), waste_count: t.waste_count,
+  return { date_from: from, date_to: to, by_staff: t.by_staff, rows: wasteOut_(rows).reverse(), waste_cost: toRm_(t.waste_cost_sen), waste_count: t.waste_count,
     by_reason: t.by_reason, by_product: t.by_product, staff_meal_cost: t.staff_meal_cost, staff_meal_count: t.staff_meal_count,
     dish_cost: t.dish_cost, ingredient_cost: t.ingredient_cost,
     cost_missing_lines: t.cost_missing_lines };
@@ -1008,6 +1063,9 @@ function saveRecipe_(d) {
       return { recipe_id: Utilities.getUuid(), menu_product_id: menuId, ingredient_id: ip.id, qty: r3_(l.qty), unit: ip.unit,
         note: cleanText_(l.note, 100), modifier_id: '' };
     });
+    var describe = function (list) { return list.map(function (x) { return (products[String(x.ingredient_id)] || {}).name + ' ' + x.qty + ' ' + x.unit; }).join(', '); };
+    var before = describe(rows_('Recipes').filter(function (x) { return String(x.menu_product_id) === menuId && !String(x.modifier_id || ''); }));
+    if (before !== describe(rows)) changeLog_(String(d._actor || ''), 'recipe', menuId, String(m.name), before, describe(rows));
     var keep = rows_('Recipes').filter(function (x) { return String(x.menu_product_id) !== menuId || String(x.modifier_id || ''); });
     rewrite_('Recipes', keep.concat(rows));
     return recipeOut_(m, products, recipeIndex_());
@@ -1168,7 +1226,8 @@ function discardContainer_(d) {
       var c = costOf_(r);
       append_('Waste', [{ waste_id: 'disc-' + cid, line_no: 1, datetime: when, product_id: p.id, name: p.name, qty: rem, unit: p.unit,
         unit_cost: c, cost: c === '' ? '' : toRm_(valueSen_(c, rem)), reason: reason, note: note, staff_name: staff,
-        device_id: cleanText_(d.device_id, 40), status: 'logged', reverses_waste_id: '', waste_type: 'ingredient' }]);
+        device_id: cleanText_(d.device_id, 40), status: 'logged', reverses_waste_id: '', waste_type: 'ingredient',
+        emp_id: String(d._actor || ''), role: String(d._role || '') }]);
       moveStock_([{ r: r, qty: -rem }], 'waste_ingredient', 'disc-' + cid, staff, cleanText_(d.device_id, 40));
     }
     var variance = r3_(size - Number(k.allocated_qty || 0) - rem);
@@ -1357,6 +1416,764 @@ function getUsageReport_(d) {
   return { date_from: from, date_to: to, rows: rows, reconciled: rows.every(function (x) { return !x.difference; }) };
 }
 
+// ---------- staff, login and roles (POS role & access spec) ----------
+//
+// Every call except login needs a session token from login (Employee ID + PIN). The role on the Staff tab decides
+// what the call may do; the screens hide what a role can't use, and the server refuses it anyway.
+//   cashier:    checkout only. A void needs a supervisor's own ID + PIN in the same request.
+//   supervisor: everything on the floor (checkout, void, discount, waste, stock, reports), not prices/menu/staff.
+//   admin:      back office (prices, menu, recipes, staff, reports, stock), never checkout or void.
+// PINs are stored as salted SHA-256 hashes. 5 wrong PINs lock the account until an admin unlocks it. Sessions end
+// after SESSION_IDLE_MIN minutes without a call (default 15). Staff come only from allurus-hr (ALLURUS_TENANT), except
+// the starter account 'admin' (PIN 0000, must be changed at first login, can't be deleted or demoted).
+
+var ROLES = ['cashier', 'supervisor', 'admin'];
+var ALL = ROLES;
+var FLOOR = ['cashier', 'supervisor'];
+var MANAGE = ['supervisor', 'admin'];
+var ADMIN = ['admin'];
+var ACCESS = {
+  getProducts: ALL, getSale: ALL, findSale: ALL, whoami: ALL, logout: ALL, changePin: ALL,
+  createSale: FLOOR, voidSale: FLOOR,
+  getDailySummary: MANAGE, getVoidLog: MANAGE,
+  logWaste: ALL, reverseWaste: MANAGE, getWaste: MANAGE, stockAdjust: MANAGE,
+  receivePurchase: MANAGE, reversePurchase: MANAGE, getPurchases: MANAGE,
+  openContainer: MANAGE, finishContainer: MANAGE, discardContainer: MANAGE, getContainers: MANAGE,
+  stockCount: MANAGE, getStockReport: MANAGE, getUsageReport: MANAGE, getRecipes: MANAGE,
+  saveProduct: ADMIN, saveRecipe: ADMIN,
+  listStaff: ADMIN, hrSearch: ADMIN, addStaff: ADMIN, updateStaff: ADMIN, getAuditLog: ADMIN,
+  getClosing: ALL, closeDay: ALL, getClosings: MANAGE, setShopItem: MANAGE,
+  setOpening: FLOOR, getClosingStock: MANAGE, getClosingDetail: ADMIN
+};
+var VOID_REASONS = { customer_changed: 'Customer changed order', wrong_item: 'Wrong item keyed in', payment_failed: 'Payment failed',
+  duplicate: 'Duplicate bill', complaint: 'Customer complaint', other: 'Other' };
+
+function authSettings_() {
+  var p = PropertiesService.getScriptProperties();
+  return { idleMin: Number(p.getProperty('SESSION_IDLE_MIN') || 15), outlet: p.getProperty('OUTLET_NAME') || 'Outlet 1',
+    project: p.getProperty('ALLURUS_PROJECT') || 'allurus-hr', tenant: p.getProperty('ALLURUS_TENANT') || '' };
+}
+
+function hex_(bytes) { return bytes.map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join(''); }
+function pinHash_(salt, pin) {
+  var h = salt + ':' + pin;
+  for (var i = 0; i < 300; i++) h = hex_(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, h + ':' + salt));
+  return h;
+}
+function pinOk_(pin) { return /^\d{4,6}$/.test(String(pin || '')); }
+function newSalt_() { return Utilities.getUuid().replace(/-/g, ''); }
+
+function staffRows_() { return rows_('Staff'); }
+function findStaff_(id) {
+  id = String(id || '').trim().toLowerCase();
+  return staffRows_().filter(function (s) { return String(s.emp_id).toLowerCase() === id; })[0] || null;
+}
+function staffOut_(s) {
+  return { emp_id: String(s.emp_id), name: String(s.name), role: String(s.role), status: String(s.status), failed_attempts: Number(s.failed_attempts || 0),
+    must_change_pin: bool_(s.must_change_pin), hr_status: String(s.hr_status || ''), created_at: String(s.created_at || ''), updated_at: String(s.updated_at || '') };
+}
+function staffLog_(actor, action, empId, detail) {
+  append_('StaffLog', [{ log_id: Utilities.getUuid(), datetime: now_(), actor: actor, action: action, emp_id: empId, detail: detail || '' }]);
+}
+function changeLog_(actor, entity, id, field, before, after) {
+  append_('ChangeLog', [{ log_id: Utilities.getUuid(), datetime: now_(), actor: actor, entity: entity, entity_id: id, field: field,
+    old_value: before === undefined ? '' : String(before), new_value: after === undefined ? '' : String(after) }]);
+}
+
+/**
+ * Checks an Employee ID + PIN. Wrong PINs count towards the lock (5 = locked); a right one resets the count.
+ * Returns the Staff row. Messages don't say whether the ID exists, except for a locked or disabled account.
+ */
+function checkPin_(empId, pin) {
+  var s = findStaff_(empId);
+  if (!s || !pinOk_(pin)) fail_('Wrong Employee ID or PIN');
+  if (s.status === 'locked') fail_('This account is locked after 5 wrong PINs. Ask an admin to unlock it.');
+  if (s.status !== 'active') fail_('This account is disabled. Ask an admin.');
+  if (pinHash_(String(s.pin_salt), String(pin)) !== String(s.pin_hash)) {
+    var n = Number(s.failed_attempts || 0) + 1;
+    setCell_('Staff', s._row, 'failed_attempts', n);
+    if (n >= 5) {
+      setCell_('Staff', s._row, 'status', 'locked');
+      staffLog_('system', 'locked', String(s.emp_id), '5 wrong PINs');
+      fail_('Wrong PIN. The account is now locked. Ask an admin to unlock it.');
+    }
+    fail_('Wrong Employee ID or PIN (' + (5 - n) + ' tries left)');
+  }
+  if (Number(s.failed_attempts || 0)) setCell_('Staff', s._row, 'failed_attempts', 0);
+  return s;
+}
+
+function login_(d) {
+  return withLock_(function () {
+    var s = checkPin_(d.emp_id, d.pin);
+    var token = (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, '');
+    var set = authSettings_();
+    // v ties the session to this PIN: a PIN change or reset ends every other session of this person.
+    CacheService.getScriptCache().put('sess:' + token, JSON.stringify({ emp_id: String(s.emp_id), v: String(s.pin_salt) }), set.idleMin * 60);
+    staffLog_(String(s.emp_id), 'login', String(s.emp_id), String(d.device_id || '').slice(0, 40));
+    return { token: token, emp_id: String(s.emp_id), name: String(s.name), role: String(s.role), must_change_pin: bool_(s.must_change_pin),
+      idle_minutes: set.idleMin, outlet: set.outlet, state: sessionState_({ emp_id: String(s.emp_id), role: String(s.role) }) };
+  });
+}
+
+/** The caller behind a token, re-checked against the Staff tab on every call (a disabled account stops at once). */
+function session_(token) {
+  if (!/^[a-f0-9]{64}$/.test(String(token || ''))) fail_('SIGNED_OUT: Please sign in.');
+  var cache = CacheService.getScriptCache();
+  var raw = cache.get('sess:' + token);
+  if (!raw) fail_('SIGNED_OUT: Your session ended. Please sign in again.');
+  var sess = JSON.parse(raw);
+  var s = findStaff_(sess.emp_id);
+  if (!s || s.status !== 'active') { cache.remove('sess:' + token); fail_('SIGNED_OUT: This account is no longer active.'); }
+  if (String(s.pin_salt) !== sess.v) { cache.remove('sess:' + token); fail_('SIGNED_OUT: Your PIN was changed. Please sign in again.'); }
+  cache.put('sess:' + token, raw, authSettings_().idleMin * 60); // idle timer restarts with every call
+  return { token: token, emp_id: String(s.emp_id), name: String(s.name), role: String(s.role), must_change_pin: bool_(s.must_change_pin), row: s };
+}
+
+function logout_(d, sess) { CacheService.getScriptCache().remove('sess:' + sess.token); return { ok: true }; }
+function whoami_(d, sess) {
+  return { emp_id: sess.emp_id, name: sess.name, role: sess.role, must_change_pin: sess.must_change_pin, outlet: authSettings_().outlet,
+    state: sessionState_(sess) };
+}
+
+/** data: { old_pin, new_pin }. 4-6 digits, not 0000, not the same as before. Clears "must change". */
+function changePin_(d, sess) {
+  return withLock_(function () {
+    var s = checkPin_(sess.emp_id, d.old_pin);
+    var pin = String(d.new_pin || '');
+    if (!pinOk_(pin)) fail_('The new PIN must be 4 to 6 digits');
+    if (/^(\d)\1+$/.test(pin) || pin === '1234' || pin === '123456') fail_('Choose a PIN that is harder to guess');
+    if (pin === String(d.old_pin)) fail_('The new PIN must be different');
+    var salt = newSalt_();
+    setCell_('Staff', s._row, 'pin_salt', salt);
+    setCell_('Staff', s._row, 'pin_hash', pinHash_(salt, pin));
+    setCell_('Staff', s._row, 'must_change_pin', false);
+    setCell_('Staff', s._row, 'updated_at', now_());
+    CacheService.getScriptCache().put('sess:' + sess.token, JSON.stringify({ emp_id: sess.emp_id, v: salt }), authSettings_().idleMin * 60); // this session carries on
+    staffLog_(sess.emp_id, 'pin_changed', sess.emp_id, 'by the staff member');
+    return { ok: true };
+  });
+}
+
+// ---- allurus-hr ----
+
+/**
+ * The staff directory of ALLURUS_TENANT in the allurus-hr Firestore, read with the script owner's Google login
+ * (read-only REST call, needs the datastore scope in appsscript.json and access to the Firebase project).
+ */
+function hrDirectory_() {
+  var set = authSettings_();
+  if (!set.tenant) fail_('Set the Script Property ALLURUS_TENANT (the company id in allurus-hr) first');
+  var url = 'https://firestore.googleapis.com/v1/projects/' + encodeURIComponent(set.project) + '/databases/(default)/documents/tenants/' +
+    encodeURIComponent(set.tenant) + '/buckets/directory';
+  var res = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+  var code = res.getResponseCode();
+  if (code === 403) fail_('allurus-hr refused the read (403). The Google account that owns this script needs access to the ' + set.project + ' Firebase project.');
+  if (code === 404) fail_('Company "' + set.tenant + '" has no staff directory in allurus-hr');
+  if (code !== 200) fail_('Could not read allurus-hr (HTTP ' + code + '). Try again.');
+  var doc = JSON.parse(res.getContentText());
+  var f = (((doc.fields || {}).f || {}).mapValue || {}).fields || {};
+  var ord = f['~ord'] ? JSON.parse(f['~ord'].stringValue) : [];
+  var today = today_();
+  return ord.filter(function (id) { return f[id] && f[id].stringValue; }).map(function (id) {
+    var e = JSON.parse(f[id].stringValue);
+    var status = String(e.status || 'Active');
+    var ended = e.endDate && String(e.endDate) < today;
+    return { emp_id: String(e.id), name: (String(e.first || '') + ' ' + String(e.last || '')).trim(), job: String(e.role || ''),
+      dept: String(e.dept || ''), hr_status: ended ? 'Ended ' + e.endDate : status,
+      active: !ended && !/resign|terminat|inactive|left|dismiss|deceased|disabled/i.test(status) };
+  });
+}
+
+/** Disables POS accounts whose person is no longer active (or no longer listed) in allurus-hr. Returns what changed. */
+function syncHr_(actor, hr) {
+  hr = hr || hrDirectory_();
+  var byId = {};
+  hr.forEach(function (h) { byId[h.emp_id.toLowerCase()] = h; });
+  var changed = [];
+  staffRows_().forEach(function (s) {
+    if (String(s.emp_id) === 'admin') return;
+    var h = byId[String(s.emp_id).toLowerCase()];
+    var hs = h ? h.hr_status : 'Not in allurus-hr';
+    if (hs !== String(s.hr_status)) setCell_('Staff', s._row, 'hr_status', hs);
+    if ((!h || !h.active) && s.status !== 'disabled') {
+      setCell_('Staff', s._row, 'status', 'disabled');
+      setCell_('Staff', s._row, 'updated_at', now_());
+      staffLog_(actor || 'hr-sync', 'auto_disabled', String(s.emp_id), hs);
+      changed.push(String(s.emp_id));
+    }
+  });
+  return changed;
+}
+
+/** Time-driven: run hourly (installHrSyncTrigger) so a resignation in allurus-hr locks the POS account soon after. */
+function hrSyncJob() { withLock_(function () { syncHr_('hr-sync'); }); }
+
+function installHrSyncTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'hrSyncJob') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('hrSyncJob').timeBased().everyHours(1).create();
+}
+
+function listStaff_(d, sess) {
+  var note = '';
+  if (d.sync) {
+    try { withLock_(function () { syncHr_(sess.emp_id); }); } catch (e) { note = e.userError ? e.message : 'Could not reach allurus-hr just now.'; }
+  }
+  return { staff: staffRows_().map(staffOut_), hr_note: note };
+}
+
+/** data: { q }: people in allurus-hr matching a name or employee id, with whether they already have a POS account. */
+function hrSearch_(d) {
+  var q = String(d.q || '').trim().toLowerCase();
+  var have = {};
+  staffRows_().forEach(function (s) { have[String(s.emp_id).toLowerCase()] = String(s.role); });
+  return hrDirectory_().filter(function (h) {
+    return !q || h.name.toLowerCase().indexOf(q) >= 0 || h.emp_id.toLowerCase() === q || h.emp_id.toLowerCase().indexOf(q) === 0;
+  }).slice(0, 50).map(function (h) { h.pos_role = have[h.emp_id.toLowerCase()] || ''; return h; });
+}
+
+/** data: { emp_id, role, pin }. The person must be active in allurus-hr; name and id come from there. */
+function addStaff_(d, sess) {
+  var role = String(d.role || '');
+  if (ROLES.indexOf(role) < 0) fail_('Choose a role');
+  if (!pinOk_(d.pin) || String(d.pin) === '0000') fail_('Set a PIN of 4 to 6 digits (not 0000)');
+  var hr = hrDirectory_();
+  return withLock_(function () {
+    var h = hr.filter(function (x) { return x.emp_id.toLowerCase() === String(d.emp_id || '').toLowerCase(); })[0];
+    if (!h) fail_('Not found in allurus-hr. HR must add this person first.');
+    if (!h.active) fail_(h.name + ' is ' + h.hr_status + ' in allurus-hr and can\'t be added');
+    if (findStaff_(h.emp_id)) fail_(h.name + ' already has a POS account');
+    var salt = newSalt_();
+    var when = now_();
+    append_('Staff', [{ emp_id: h.emp_id, name: h.name, role: role, pin_hash: pinHash_(salt, String(d.pin)), pin_salt: salt, status: 'active',
+      failed_attempts: 0, must_change_pin: !!d.must_change_pin, hr_status: h.hr_status, created_at: when, updated_at: when }]);
+    staffLog_(sess.emp_id, 'created', h.emp_id, 'role ' + role);
+    return staffOut_(findStaff_(h.emp_id));
+  });
+}
+
+/**
+ * data: { emp_id, role?, status?: 'active'|'disabled', reset_pin?, must_change_pin? }. Unlocking = status active
+ * (also clears the wrong-PIN count). The starter 'admin' can't be disabled or demoted; nobody can change their own
+ * role or disable themselves. Re-enabling someone checks allurus-hr first.
+ */
+function updateStaff_(d, sess) {
+  var id = String(d.emp_id || '');
+  var hr = d.status === 'active' && id !== 'admin' ? hrDirectory_() : null;
+  return withLock_(function () {
+    var s = findStaff_(id);
+    if (!s) fail_('Staff not found');
+    var me = String(s.emp_id) === sess.emp_id;
+    var when = now_();
+    if (d.role !== undefined && d.role !== s.role) {
+      if (ROLES.indexOf(String(d.role)) < 0) fail_('Choose a role');
+      if (String(s.emp_id) === 'admin') fail_('The starter admin account stays an admin');
+      if (me) fail_('You can\'t change your own role');
+      setCell_('Staff', s._row, 'role', String(d.role));
+      staffLog_(sess.emp_id, 'role_changed', String(s.emp_id), s.role + ' → ' + d.role);
+    }
+    if (d.status !== undefined && d.status !== s.status) {
+      if (['active', 'disabled'].indexOf(String(d.status)) < 0) fail_('Bad status');
+      if (d.status === 'disabled' && (String(s.emp_id) === 'admin' || me)) fail_(me ? 'You can\'t disable yourself' : 'The starter admin account can\'t be disabled');
+      if (d.status === 'active' && hr) {
+        var h = hr.filter(function (x) { return x.emp_id.toLowerCase() === id.toLowerCase(); })[0];
+        if (!h || !h.active) fail_('Not active in allurus-hr (' + (h ? h.hr_status : 'not found') + '), so the account stays disabled');
+      }
+      setCell_('Staff', s._row, 'status', String(d.status));
+      if (d.status === 'active') setCell_('Staff', s._row, 'failed_attempts', 0);
+      staffLog_(sess.emp_id, d.status === 'active' ? (s.status === 'locked' ? 'unlocked' : 'enabled') : 'disabled', String(s.emp_id), '');
+    }
+    if (d.reset_pin !== undefined && d.reset_pin !== '') {
+      if (!pinOk_(d.reset_pin) || String(d.reset_pin) === '0000') fail_('The PIN must be 4 to 6 digits (not 0000)');
+      var salt = newSalt_();
+      setCell_('Staff', s._row, 'pin_salt', salt);
+      setCell_('Staff', s._row, 'pin_hash', pinHash_(salt, String(d.reset_pin)));
+      setCell_('Staff', s._row, 'failed_attempts', 0);
+      setCell_('Staff', s._row, 'must_change_pin', d.must_change_pin !== false);
+      staffLog_(sess.emp_id, 'pin_reset', String(s.emp_id), d.must_change_pin !== false ? 'must change at next login' : '');
+    }
+    setCell_('Staff', s._row, 'updated_at', when);
+    return staffOut_(findStaff_(id));
+  });
+}
+
+/** data: { type: 'staff'|'change', date_from, date_to }: the staff log or the price/menu change log (read-only). */
+function getAuditLog_(d) {
+  var from = String(d.date_from || addDays_(-30));
+  var to = String(d.date_to || today_());
+  var tab = d.type === 'change' ? 'ChangeLog' : 'StaffLog';
+  return { rows: rows_(tab).filter(function (x) { var day = String(x.datetime).slice(0, 10); return day >= from && day <= to; })
+    .map(function (x) { var o = {}; TABS[tab].forEach(function (c) { o[c] = String(x[c] === undefined ? '' : x[c]); }); return o; }).reverse() };
+}
+
+// ---- void with supervisor approval ----
+
+/** A receipt number (R000012) or sale id → the sale, for the void screen. */
+function findSale_ByReceipt_(d) {
+  var no = String(d.receipt_no || '').trim().toUpperCase();
+  var m = /^R?0*(\d{1,7})$/.exec(no);
+  if (!m) fail_('Enter a receipt number like R000012');
+  var row = Number(m[1]) + 1;
+  var s = rows_('Sales').filter(function (x) { return x._row === row; })[0];
+  if (!s) fail_('Receipt not found');
+  return saleOut_(s, itemsOf_(String(s.sale_id)), receiptNo_(s._row));
+}
+
+/**
+ * data: { sale_id, reason (VOID_REASONS key), note, made, approver_id, approver_pin }. Whoever asks (cashier or
+ * supervisor), a supervisor's own ID + PIN must come with this one request; a cashier's PIN can never approve. The
+ * approval covers this void only. Every void is written to VoidLog (append-only).
+ */
+function approvedVoid_(d, sess) {
+  var key = String(d.reason || '');
+  if (!VOID_REASONS[key]) fail_('Choose a void reason');
+  var note = cleanText_(d.note, 150);
+  if (key === 'other' && note.length < 3) fail_('Add a note when the reason is Other');
+  var approver = withLock_(function () { return checkPin_(d.approver_id, d.approver_pin); });
+  if (String(approver.role) !== 'supervisor') fail_('Only a supervisor can approve a void. ' + approver.name + ' is ' + approver.role + '.');
+  var reasonText = VOID_REASONS[key] + (note ? ': ' + note : '');
+  var r = voidSale_({ sale_id: d.sale_id, reason: reasonText, made: d.made === true });
+  if (r.already) return r;
+  return withLock_(function () {
+    var s = findSale_(String(d.sale_id));
+    var items = itemsOf_(String(d.sale_id)).map(function (it) { return it.name + ' x' + it.qty; }).join(', ');
+    var row = sheet_('VoidLog').getLastRow() + 1;
+    var vid = 'V-' + ('00000' + (row - 1)).slice(-6);
+    append_('VoidLog', [{ void_id: vid, datetime: now_(), outlet: authSettings_().outlet, terminal: String(d.device_id || s.device_id || ''),
+      sale_id: String(d.sale_id), receipt_no: receiptNo_(s._row), items: items, amount: Number(s.total), requested_by: sess.emp_id,
+      approved_by: String(approver.emp_id), reason: VOID_REASONS[key], note: note, made: d.made === true }]);
+    r.void_id = vid;
+    r.approved_by = String(approver.emp_id);
+    return r;
+  });
+}
+
+/** data: { date_from, date_to, supervisor, cashier, reason }: the void log, newest first, read-only. */
+function getVoidLog_(d) {
+  var from = String(d.date_from || addDays_(-30));
+  var to = String(d.date_to || today_());
+  return { reasons: VOID_REASONS, rows: rows_('VoidLog').filter(function (x) {
+    var day = String(x.datetime).slice(0, 10);
+    return day >= from && day <= to && (!d.supervisor || String(x.approved_by) === d.supervisor) &&
+      (!d.cashier || String(x.requested_by) === d.cashier) && (!d.reason || String(x.reason) === VOID_REASONS[d.reason]);
+  }).map(function (x) { var o = {}; TABS.VoidLog.forEach(function (c) { o[c] = x[c]; }); o.amount = Number(x.amount); o.datetime = String(x.datetime); return o; }).reverse() };
+}
+
+// ---------- closing the day ----------
+
+// ---- the day's session: open (count the register) -> sell -> close (cash must tally) ----
+// A cashier or supervisor can use nothing but the Open/Close screen until they have opened today. After a cashier closes, that cashier can
+// no longer check out or void; after a supervisor closes the day, nobody can until tomorrow. Waste can still be keyed in. Admin is exempt
+// (no drawer). Script Property REQUIRE_OPENING=off switches this gate off (for tests).
+
+var OPEN_FREE = ['whoami', 'logout', 'changePin', 'getClosing', 'setOpening']; // allowed before opening
+var TILL_ACTIONS = ['createSale', 'voidSale'];
+
+function requireOpening_() { return PropertiesService.getScriptProperties().getProperty('REQUIRE_OPENING') !== 'off'; }
+
+/** { required, opened, closed, day_closed } for this person today. Cached for 10 minutes; opening and closing refresh it. */
+function sessionState_(sess) {
+  var day = today_();
+  var cache = CacheService.getScriptCache();
+  var dc = cache.get('dc:' + day);
+  if (dc === null) {
+    dc = rows_('Closings').some(function (c) { return String(c.date) === day && String(c.role) === 'supervisor'; }) ? '1' : '0';
+    cache.put('dc:' + day, dc, 600);
+  }
+  var out = { required: requireOpening_() && String(sess.role) !== 'admin', opened: true, closed: false, day_closed: dc === '1' };
+  if (String(sess.role) === 'admin') return out;
+  var key = 'st:' + sess.emp_id + ':' + day;
+  var st = cache.get(key);
+  if (st === null) {
+    var emp = String(sess.emp_id);
+    var o = rows_('Openings').some(function (x) { return String(x.date) === day && String(x.opened_by) === emp; }) ? '1' : '0';
+    var c = rows_('Closings').some(function (x) { return String(x.date) === day && String(x.closed_by) === emp; }) ? '1' : '0';
+    st = o + c;
+    cache.put(key, st, 600);
+  }
+  out.opened = st.charAt(0) === '1';
+  out.closed = st.charAt(1) === '1';
+  return out;
+}
+
+function dropState_(empId) {
+  var cache = CacheService.getScriptCache();
+  cache.remove('st:' + empId + ':' + today_());
+  cache.remove('dc:' + today_());
+}
+
+function gateError_(action, sess) {
+  if (!requireOpening_() || String(sess.role) === 'admin') return '';
+  var st = sessionState_(sess);
+  if (!st.opened && OPEN_FREE.indexOf(action) < 0) return 'OPENING_REQUIRED: Count the cash in the register to start your session first';
+  if (TILL_ACTIONS.indexOf(action) >= 0) {
+    if (st.day_closed) return 'The day is closed. Checkout and voids are off until tomorrow.';
+    if (st.closed) return 'You have closed your session. Checkout and voids are off for you until tomorrow.';
+  }
+  return '';
+}
+
+// Notes and coins, in sen: RM100, 50, 20, 10, 5, 1, then 50, 20, 10, 5 sen. Cash is always counted by these, never typed as one amount.
+var DENOMS = [10000, 5000, 2000, 1000, 500, 100, 50, 20, 10, 5];
+
+/** { "<sen>": count } -> { sen: total, parts: only the non-zero counts }. A blank box is zero. Null when nothing was sent. */
+function countDenoms_(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  var total = 0;
+  var parts = {};
+  Object.keys(obj).forEach(function (k) { if (DENOMS.indexOf(Number(k)) < 0) fail_('Unknown note or coin'); });
+  DENOMS.forEach(function (v) {
+    var n = obj[String(v)];
+    if (n === undefined || n === null || n === '') return;
+    var q = Number(n);
+    if (!isFinite(q) || q < 0 || Math.floor(q) !== q || q > 100000) fail_('Bad count for ' + (v >= 100 ? 'RM' + v / 100 : v + ' sen') + ': a whole number, 0 or more');
+    if (q) { parts[String(v)] = q; total += q * v; }
+  });
+  return { sen: total, parts: parts };
+}
+
+/**
+ * What needs a look before tomorrow's service: tracked stock at or below its reorder level (LOW_STOCK when none is set),
+ * negative stock, a delivery batch that expires within 2 days, an opened pack that must be used up by tomorrow.
+ */
+function stockAttention_() {
+  var set = settings_();
+  var rep = getStockReport_();
+  var soon = addDays_(2);
+  var tomorrow = addDays_(1);
+  var opened = {};
+  rows_('OpenContainers').forEach(function (k) {
+    if (k.status !== 'open') return;
+    var u = String(k.use_by || '').slice(0, 10);
+    var id = String(k.ingredient_id);
+    if (u && u <= tomorrow && (!opened[id] || u < opened[id])) opened[id] = u;
+  });
+  var out = [];
+  rep.items.forEach(function (x) {
+    if (!x.active) return;
+    var why = [];
+    if (x.track_stock) {
+      var level = x.reorder_level === '' ? set.lowStock : Number(x.reorder_level);
+      if (x.on_hand < 0) why.push('stock is negative, please recount');
+      else if (x.on_hand === 0) why.push('out of stock');
+      else if (x.on_hand <= level) why.push('only ' + x.on_hand + ' ' + x.unit + ' left (reorder at ' + level + ')');
+    }
+    if (x.nearest_expiry && x.nearest_expiry <= soon) why.push('batch expires ' + x.nearest_expiry);
+    if (opened[x.product_id]) why.push('opened pack: use by ' + opened[x.product_id]);
+    if (why.length) out.push({ product_id: x.product_id, name: x.name, unit: x.unit, stock: x.track_stock ? x.on_hand : '', reason: why.join('; ') });
+  });
+  return out.sort(function (a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
+}
+
+/** The live row of the checklist for a product: open, or ticked (done). Older rows (resolved) are history. */
+function shopCurrent_() {
+  var cur = {};
+  rows_('ShopList').forEach(function (r) { if (r.status === 'open' || r.status === 'done') cur[String(r.product_id)] = r; });
+  return cur;
+}
+
+/**
+ * Keeps the checklist in step with stock. An unticked (open) item stays on every closing until someone ticks it, or until
+ * stock is back above the level (then it is resolved by itself). A ticked item is done; if it is still a problem 2 days
+ * later it comes back as open again.
+ */
+function syncShopList_(att) {
+  var today = today_();
+  var cur = shopCurrent_();
+  var byId = {};
+  att.forEach(function (a) { byId[a.product_id] = a; });
+  Object.keys(cur).forEach(function (id) {
+    var r = cur[id];
+    if (r.status === 'open' && !byId[id]) {
+      setCell_('ShopList', r._row, 'status', 'resolved');
+      setCell_('ShopList', r._row, 'done_at', today);
+      setCell_('ShopList', r._row, 'done_by', 'auto: stock is back');
+    }
+  });
+  att.forEach(function (a) {
+    var r = cur[a.product_id];
+    if (!r) {
+      append_('ShopList', [{ product_id: a.product_id, name: a.name, unit: a.unit, reason: a.reason, stock: a.stock, first_listed: today,
+        last_listed: today, times_listed: 1, status: 'open', done_at: '', done_by: '' }]);
+    } else if (r.status === 'open') {
+      if (String(r.last_listed) !== today) {
+        setCell_('ShopList', r._row, 'last_listed', today);
+        setCell_('ShopList', r._row, 'times_listed', Number(r.times_listed || 0) + 1);
+      }
+      setCell_('ShopList', r._row, 'reason', a.reason);
+      setCell_('ShopList', r._row, 'stock', a.stock);
+    } else if (String(r.done_at) <= addDays_(-2)) {
+      setCell_('ShopList', r._row, 'status', 'open');
+      setCell_('ShopList', r._row, 'last_listed', today);
+      setCell_('ShopList', r._row, 'times_listed', Number(r.times_listed || 0) + 1);
+      setCell_('ShopList', r._row, 'reason', a.reason + ' (still a problem after it was ticked)');
+      setCell_('ShopList', r._row, 'stock', a.stock);
+      setCell_('ShopList', r._row, 'done_at', '');
+      setCell_('ShopList', r._row, 'done_by', '');
+    }
+  });
+}
+
+/** Open items first (oldest first), then what was ticked in the last 2 days. */
+function shopListOut_() {
+  var today = today_();
+  var days = function (from) { return Math.max(0, Math.round((Date.parse(today) - Date.parse(String(from))) / 864e5)); };
+  var cur = shopCurrent_();
+  return Object.keys(cur).map(function (k) { return cur[k]; }).map(function (r) {
+    return { product_id: String(r.product_id), name: String(r.name), unit: String(r.unit), reason: String(r.reason), stock: r.stock,
+      first_listed: String(r.first_listed), days_open: days(r.first_listed), times_listed: Number(r.times_listed || 1), status: String(r.status),
+      done_at: String(r.done_at || ''), done_by: String(r.done_by || '') };
+  }).sort(function (a, b) {
+    if (a.status !== b.status) return a.status === 'open' ? -1 : 1;
+    return a.first_listed < b.first_listed ? -1 : a.first_listed > b.first_listed ? 1 : a.name < b.name ? -1 : 1;
+  });
+}
+
+/**
+ * data: { date? }. The tally for the closing screen, fast: sales by payment method, the opening cash, the cash that should be
+ * in the drawer and this role's earlier closes. A cashier gets their own sales and opening cash, a supervisor or admin all.
+ * The stock checklist (getClosingStock) and the admin's transaction list (getClosingDetail) are read separately so this
+ * screen opens at once. Nothing about sales is changed here (see closeDay for the record).
+ */
+function getClosing_(d, sess) {
+  var day = String(d.date || today_());
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) fail_('Bad date');
+  var role = String(sess.role);
+  var own = role === 'cashier';
+  var all = closingSales_(day, sess);
+  var sold = all.filter(function (s) { return s.status !== 'void'; });
+  var voided = all.filter(function (s) { return s.status === 'void'; });
+  var t = { subtotal: 0, discount: 0, service: 0, tax: 0, rounding: 0, total: 0 };
+  var by = {};
+  sold.forEach(function (s) {
+    Object.keys(t).forEach(function (k) { t[k] += toSen_(s[k]); });
+    by[s.payment_method] = (by[s.payment_method] || 0) + toSen_(s.total);
+  });
+  var methods = {};
+  Object.keys(by).forEach(function (m) { methods[m] = toRm_(by[m]); });
+  var voidSen = voided.reduce(function (a, s) { return a + toSen_(s.total); }, 0);
+  // opening cash: the latest entry of each person that day (a cashier only their own)
+  var latest = {};
+  rows_('Openings').forEach(function (o) {
+    var who = String(o.opened_by);
+    if (String(o.date) !== day || (own && who !== String(sess.emp_id))) return;
+    latest[who] = o;
+  });
+  var openSen = 0;
+  var openings = Object.keys(latest).map(function (k) {
+    var o = latest[k];
+    openSen += toSen_(o.amount);
+    return { opened_by: k, role: String(o.role), amount: Number(o.amount), datetime: String(o.datetime), note: String(o.note || '') };
+  });
+  var mine = latest[String(sess.emp_id)];
+  // The whole-day tally also carries the cash differences cashiers already closed with (approved by a supervisor), so the same
+  // shortage or surplus is not asked for twice.
+  var closedToday = rows_('Closings').filter(function (c) { return String(c.date) === day; });
+  var diffSen = 0;
+  if (!own) closedToday.forEach(function (c) { if (String(c.role) === 'cashier' && c.cash_variance !== '') diffSen += toSen_(c.cash_variance); });
+  var closedBy = {};
+  closedToday.forEach(function (c) { closedBy[String(c.closed_by)] = true; });
+  var waiting = [];
+  if (!own) {
+    var names0 = {};
+    staffRows_().forEach(function (s) { names0[String(s.emp_id)] = String(s.name); });
+    rows_('Openings').forEach(function (o) {
+      var who = String(o.opened_by);
+      if (String(o.date) === day && String(o.role) === 'cashier' && !closedBy[who] && !waiting.some(function (x) { return x.emp_id === who; })) waiting.push({ emp_id: who, name: names0[who] || who });
+    });
+  }
+  var out = { date: day, today: today_(), denoms: DENOMS, role: role, scope: own ? 'own' : 'all', orders: sold.length, subtotal: toRm_(t.subtotal), discount: toRm_(t.discount),
+    service: toRm_(t.service), tax: toRm_(t.tax), rounding: toRm_(t.rounding), total_sales: toRm_(t.total), by_method: methods,
+    opening: toRm_(openSen), openings: openings, mine: mine ? { amount: Number(mine.amount), datetime: String(mine.datetime) } : null,
+    cash_sales: toRm_(by.cash || 0), approved_diff: toRm_(diffSen), cash_expected: toRm_(openSen + (by.cash || 0) + diffSen), waiting: waiting,
+    state: sessionState_(sess), voided: voided.length, void_amount: toRm_(voidSen) };
+  out.closings = rows_('Closings').filter(function (c) {
+    return String(c.date) === day && (!own || String(c.closed_by) === String(sess.emp_id));
+  }).slice(-5).reverse().map(function (c) {
+    return { close_id: String(c.close_id), datetime: String(c.datetime), closed_by: String(c.closed_by), role: String(c.role),
+      cash_counted: c.cash_counted === '' ? '' : Number(c.cash_counted), cash_variance: c.cash_variance === '' ? '' : Number(c.cash_variance), cash_status: String(c.cash_status || ''),
+      approved_by: String(c.approved_by || ''), note: String(c.note || '') };
+  });
+  return out;
+}
+
+/** The day's sales a role may see in its closing: a cashier their own, others all. */
+function closingSales_(day, sess) {
+  var own = String(sess.role) === 'cashier';
+  return rows_('Sales').filter(function (s) {
+    return String(s.datetime).slice(0, 10) === day && (!own || String(s.cashier_id) === String(sess.emp_id));
+  });
+}
+
+/** data: { date? }. Supervisor, admin: the stock checklist (kept up to date here) for tomorrow. */
+function getClosingStock_() {
+  return withLock_(function () { var att = stockAttention_(); syncShopList_(att); return { attention: att.length, list: shopListOut_() }; });
+}
+
+/** data: { date? }. Admin: every transaction of the day with its items, who rang it, any void and who approved it, and the day's waste. */
+function getClosingDetail_(d, sess) {
+  var day = String(d.date || today_());
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) fail_('Bad date');
+  var all = closingSales_(day, sess);
+  var names = {};
+  staffRows_().forEach(function (s) { names[String(s.emp_id)] = String(s.name); });
+  var itemsBy = {};
+  rows_('SaleItems').forEach(function (it) {
+    var k = String(it.sale_id);
+    (itemsBy[k] || (itemsBy[k] = [])).push({ name: String(it.name), qty: Number(it.qty), unit_price: Number(it.unit_price), subtotal: Number(it.subtotal), note: String(it.note || '') });
+  });
+  var voidBy = {};
+  rows_('VoidLog').forEach(function (v) { voidBy[String(v.sale_id)] = v; });
+  var transactions = all.map(function (s) {
+    var v = voidBy[String(s.sale_id)];
+    return { receipt_no: receiptNo_(s._row), sale_id: String(s.sale_id), datetime: String(s.datetime), cashier_id: String(s.cashier_id || ''),
+      cashier_name: names[String(s.cashier_id)] || '', payment_method: s.payment_method, order_type: s.order_type, table_no: String(s.table_no || ''),
+      subtotal: Number(s.subtotal), discount: Number(s.discount), service: Number(s.service), tax: Number(s.tax), rounding: Number(s.rounding),
+      total: Number(s.total), status: s.status, void_reason: String(s.void_reason || ''),
+      voided: v ? { requested_by: String(v.requested_by), approved_by: String(v.approved_by), reason: String(v.reason), note: String(v.note || ''), made: bool_(v.made) } : null,
+      items: itemsBy[String(s.sale_id)] || [] };
+  });
+  var w = wasteTotals_(rows_('Waste').filter(function (x) { return String(x.datetime).slice(0, 10) === day; }));
+  return { transactions: transactions, waste: { cost: toRm_(w.waste_cost_sen), entries: w.waste_count, staff_meal_cost: w.staff_meal_cost, by_staff: w.by_staff } };
+}
+
+/**
+ * data: { open_id (made by the till), denoms: { "<sen>": count }, note? }. A cashier or supervisor records the cash they start the
+ * day with (the float), counted by notes and coins. Only for today. Changing it later the same day needs a note; every entry is
+ * kept and the latest counts. The same open_id again returns the saved entry. At closing, expected cash is opening cash + cash sales.
+ */
+function setOpening_(d, sess) {
+  var oid = String(d.open_id || '');
+  if (!/^[A-Za-z0-9-]{8,64}$/.test(oid)) fail_('Bad opening id');
+  var cnt = countDenoms_(d.denoms);
+  if (!cnt) fail_('Count the opening cash by notes and coins');
+  if (cnt.sen > 10000000) fail_('Opening cash is too large');
+  var note = cleanText_(d.note, 150);
+  return withLock_(function () {
+    var day = today_();
+    var rows = rows_('Openings');
+    if (rows.some(function (o) { return String(o.open_id) === oid; })) return getClosing_({ date: day }, sess);
+    var st = sessionState_(sess);
+    if (st.day_closed) fail_('The day is already closed. Opening starts again tomorrow.');
+    if (st.closed) fail_('You already closed today. Opening starts again tomorrow.');
+    var mine = rows.filter(function (o) { return String(o.date) === day && String(o.opened_by) === String(sess.emp_id); });
+    if (mine.length && note.length < 3) fail_('You already set the opening cash today. Add a note saying why it changed.');
+    append_('Openings', [{ open_id: oid, datetime: now_(), date: day, opened_by: String(sess.emp_id), role: String(sess.role),
+      amount: toRm_(cnt.sen), note: note, denoms: JSON.stringify(cnt.parts) }]);
+    dropState_(String(sess.emp_id));
+    return getClosing_({ date: day }, sess);
+  });
+}
+
+/**
+ * data: { close_id (made by the till), denoms: { "<sen>": count }, note?, approver_id?, approver_pin? }. Closes TODAY.
+ * A cashier or supervisor counts the cash in the drawer by notes and coins, and the day can only be closed when it TALLIES:
+ * counted = opening cash + cash sales. If it doesn't, the close is marked surplus or shortage and needs a note and a supervisor's
+ * own ID + PIN (a different supervisor when the closer is a supervisor). An admin has no drawer and closes without counting.
+ * The server adds up the notes and coins itself. The same close_id again returns the saved close.
+ */
+function closeDay_(d, sess) {
+  var cid = String(d.close_id || '');
+  if (!/^[A-Za-z0-9-]{8,64}$/.test(cid)) fail_('Bad close id');
+  var res = getClosing_({}, sess); // closing is for today only
+  var role = String(sess.role);
+  var seen = rows_('Closings').filter(function (c) { return String(c.close_id) === cid; })[0];
+  if (seen) { res.close = { close_id: cid, duplicate: true }; return res; }
+  if (role !== 'admin') {
+    var mineToday = rows_('Closings').some(function (c) { return String(c.date) === res.date && String(c.closed_by) === String(sess.emp_id); });
+    if (mineToday) fail_('You already closed today.');
+    if (res.state.day_closed) fail_('The day is already closed.');
+  }
+  // closing the day (a supervisor) comes after every cashier has closed their own drawer
+  if (role === 'supervisor' && res.waiting.length) {
+    fail_('These cashiers have not closed yet: ' + res.waiting.map(function (x) { return x.name + ' (' + x.emp_id + ')'; }).join(', ') + '. They must close first.');
+  }
+  var note = cleanText_(d.note, 150);
+  var counted = '';
+  var variance = '';
+  var status = '';
+  var parts = {};
+  var approver = '';
+  if (role !== 'admin') {
+    var cnt = countDenoms_(d.denoms);
+    if (!cnt) fail_('Count the cash by notes and coins first. Leave a box empty if there are none.');
+    counted = toRm_(cnt.sen);
+    parts = cnt.parts;
+    variance = toRm_(cnt.sen - toSen_(res.cash_expected));
+    if (variance === 0) {
+      status = 'balanced';
+    } else {
+      status = variance > 0 ? 'surplus' : 'shortage';
+      var diff = 'The cash is ' + (variance > 0 ? 'over' : 'short') + ' by RM ' + Math.abs(variance).toFixed(2);
+      if (note.length < 3) fail_(diff + '. Add a note saying why, and ask a supervisor to approve it.');
+      if (!String(d.approver_id || '').trim()) fail_(diff + '. A supervisor must approve it: enter their ID and PIN.');
+      var sup = withLock_(function () { return checkPin_(d.approver_id, d.approver_pin); });
+      if (String(sup.role) !== 'supervisor') fail_('Only a supervisor can approve a cash difference. ' + sup.name + ' is ' + sup.role + '.');
+      if (String(sup.emp_id) === String(sess.emp_id)) fail_('You cannot approve your own cash difference. Ask another supervisor.');
+      approver = String(sup.emp_id);
+    }
+  }
+  return withLock_(function () {
+    var again = rows_('Closings').filter(function (c) { return String(c.close_id) === cid; })[0];
+    if (again) { res.close = { close_id: cid, duplicate: true }; return res; }
+    var row = { close_id: cid, datetime: now_(), date: res.date, closed_by: String(sess.emp_id), role: role, scope: res.scope,
+      orders: res.orders, total_sales: res.total_sales, opening: res.opening, cash_expected: res.cash_expected, cash_counted: counted,
+      cash_variance: variance, voided: res.voided, void_amount: res.void_amount, by_method: JSON.stringify(res.by_method), note: note,
+      cash_status: status, approved_by: approver, denoms: JSON.stringify(parts) };
+    append_('Closings', [row]);
+    dropState_(String(sess.emp_id));
+    res.state = sessionState_(sess);
+    if (status === 'shortage' || status === 'surplus') {
+      staffLog_(String(sess.emp_id), 'cash_' + status, String(sess.emp_id), 'RM ' + Math.abs(variance).toFixed(2) + ' approved by ' + approver + ': ' + note);
+    }
+    // show this close at once (the tally above was read before it was saved)
+    res.closings = [{ close_id: cid, datetime: row.datetime, closed_by: row.closed_by, role: role, cash_counted: counted,
+      cash_variance: variance, cash_status: status, approved_by: approver, note: note }].concat(res.closings).slice(0, 5);
+    res.close = { close_id: cid, duplicate: false, cash_counted: counted, cash_variance: variance, cash_status: status, approved_by: approver };
+    return res;
+  });
+}
+
+/** data: { date_from, date_to }: past closes, newest first (supervisor, admin). */
+function getClosings_(d) {
+  var from = String(d.date_from || addDays_(-30));
+  var to = String(d.date_to || today_());
+  return { rows: rows_('Closings').filter(function (c) { var day = String(c.date); return day >= from && day <= to; }).map(function (c) {
+    var o = {}; TABS.Closings.forEach(function (k) { o[k] = c[k]; });
+    ['close_id', 'datetime', 'date', 'closed_by', 'role', 'scope', 'by_method', 'note'].forEach(function (k) { o[k] = String(c[k] === undefined ? '' : c[k]); });
+    return o;
+  }).reverse() };
+}
+
+/** data: { product_id, done }. Ticks (bought / handled) or unticks an item on the stock checklist. Returns the list. */
+function setShopItem_(d, sess) {
+  var id = String(d.product_id || '');
+  return withLock_(function () {
+    var r = shopCurrent_()[id];
+    if (!r) fail_('That item is not on the checklist any more. Refresh.');
+    if (d.done === true) {
+      setCell_('ShopList', r._row, 'status', 'done');
+      setCell_('ShopList', r._row, 'done_at', today_());
+      setCell_('ShopList', r._row, 'done_by', String(sess.emp_id));
+    } else {
+      setCell_('ShopList', r._row, 'status', 'open');
+      setCell_('ShopList', r._row, 'done_at', '');
+      setCell_('ShopList', r._row, 'done_by', '');
+    }
+    return { list: shopListOut_() };
+  });
+}
+
+/** First run: the starter admin (PIN 0000, must change) when the Staff tab is empty. */
+function ensureStarterAdmin_() {
+  if (staffRows_().length) return;
+  var salt = newSalt_();
+  var when = now_();
+  append_('Staff', [{ emp_id: 'admin', name: 'Starter admin', role: 'admin', pin_hash: pinHash_(salt, '0000'), pin_salt: salt, status: 'active',
+    failed_attempts: 0, must_change_pin: true, hr_status: 'Starter account', created_at: when, updated_at: when }]);
+  staffLog_('setup', 'created', 'admin', 'starter account, PIN must be changed');
+}
+
 // ---------- run these once from the script editor ----------
 
 /**
@@ -1375,7 +2192,10 @@ function setup() {
       'movement_id', 'ref_id', 'reason', 'reason_type', 'staff_name', 'reverses_waste_id', 'unit', 'kind', 'status', 'made_at',
       'waste_type', 'recipe_id', 'menu_product_id', 'ingredient_id', 'modifier_id', 'purchase_id', 'supplier', 'invoice_no', 'base_unit',
       'batch_no', 'expiry_date', 'received_by', 'reverses_purchase_id', 'container_id', 'opened_at', 'opened_by', 'use_by',
-      'finished_at', 'discarded_reason', 'station', 'open_reason', 'count_id', 'counted_by', 'pack_unit'];
+      'finished_at', 'discarded_reason', 'station', 'open_reason', 'count_id', 'counted_by', 'pack_unit', 'cashier_id', 'emp_id',
+      'name', 'role', 'pin_hash', 'pin_salt', 'hr_status', 'created_at', 'updated_at', 'close_id', 'date', 'closed_by', 'scope', 'open_id', 'opened_by',
+      'first_listed', 'last_listed', 'done_at', 'done_by', 'void_id', 'outlet', 'terminal', 'items',
+      'requested_by', 'approved_by', 'log_id', 'actor', 'action', 'detail', 'entity', 'entity_id', 'field', 'old_value', 'new_value'];
     var money = ['price', 'subtotal', 'discount', 'service', 'tax', 'rounding', 'total', 'unit_price', 'line_cost', 'pack_cost',
       'value', 'variance_value'];
     var fine = ['cost', 'unit_cost']; // RM per base unit, up to 6 decimals
@@ -1395,8 +2215,28 @@ function setup() {
     setCell_('Products', r._row, 'track_stock', tracked_(r));
   });
   openingBalances_();
+  ensureStarterAdmin_();
   var blank = ss.getSheetByName('Sheet1');
   if (blank && ss.getSheets().length > 3 && blank.getLastRow() === 0) ss.deleteSheet(blank);
+}
+
+/**
+ * Recovery, run by the Sheet's owner from the script editor only: unlocks the starter 'admin' account and sets its PIN
+ * back to 0000 (must be changed at the next sign-in). For when every admin is locked out. Logged in StaffLog.
+ */
+function resetStarterAdmin() {
+  withLock_(function () {
+    var s = findStaff_('admin');
+    if (!s) { ensureStarterAdmin_(); return; }
+    var salt = newSalt_();
+    setCell_('Staff', s._row, 'pin_salt', salt);
+    setCell_('Staff', s._row, 'pin_hash', pinHash_(salt, '0000'));
+    setCell_('Staff', s._row, 'status', 'active');
+    setCell_('Staff', s._row, 'failed_attempts', 0);
+    setCell_('Staff', s._row, 'must_change_pin', true);
+    setCell_('Staff', s._row, 'updated_at', now_());
+    staffLog_('script owner', 'starter_admin_reset', 'admin', 'unlocked, PIN 0000, must change');
+  });
 }
 
 /** Adds 10 sample cafe items (names end in "(sample)") if Products is empty. */

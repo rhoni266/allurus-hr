@@ -333,6 +333,68 @@ tr.near td, .near { color: var(--warn); font-weight: 600; }
 
 #day { flex: 0 1 220px; }
 .till > .page-head { grid-column: 1 / -1; margin-bottom: 0; }
-#view-waste.till { padding-top: 24px; }
-#view-waste .cart { height: auto; max-height: calc(100vh - 112px); overflow-y: auto; }
-#view-waste .cart .lines { overflow: visible; min-height: 0; }
+/* waste: header clears the floating nav; only the panel body scrolls, Log waste stays at the bottom */
+#view-waste.till { padding-top: 16px; }
+#view-waste .page-head { scroll-margin-top: 96px; }
+#view-waste .page-head h1 { white-space: normal; }
+/* the page fits the screen under the nav: the item list and the panel each scroll inside it */
+@media (min-width: 1000px) {
+  #view-waste.till:not([hidden]) { height: calc(100vh - var(--nav-h, 88px)); grid-template-rows: auto minmax(0, 1fr); padding-bottom: 16px; align-items: stretch; }
+  #view-waste .menu { min-height: 0; overflow-y: auto; padding-right: 4px; }
+}
+#view-waste .cart { position: static; display: flex; flex-direction: column; gap: 16px; height: 100%; min-height: 0; overflow: hidden; }
+#view-waste .cart > h3 { margin: 0; }
+#view-waste .cart-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 12px; padding-right: 4px; }
+#view-waste .cart-body > * { margin: 0; flex: none; }
+#view-waste .cart .lines { overflow: visible; min-height: 0; flex: none; }
+#view-waste .lines li { height: auto; display: flex; flex-direction: column; gap: 12px; margin: 0 0 12px; }
+#view-waste .lines li:last-child { margin-bottom: 0; }
+#view-waste .lines .l2 { margin: 0; justify-content: center; }
+#view-waste .lines .l2 .qty { position: static; width: 48px; height: 48px; min-height: 48px; }
+#view-waste .lines .l2 .qtyin { flex: 1 1 auto !important; width: auto; min-height: 48px; }
+#view-waste .cart-body .label { display: block; }
+#view-waste .reasons { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+#view-waste .reasons button { min-height: 48px; white-space: normal; line-height: 1.2; }
+#view-waste .cart .actions { position: sticky; bottom: 0; margin: 0; flex: none; }
+#view-waste #wLog { height: 56px; min-height: 56px; background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 700; }
+#view-waste #wLog:disabled { opacity: .5; }
+#view-waste .cart-body, #view-waste .menu { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .2) transparent; }
+#view-waste .cart-body::-webkit-scrollbar { width: 6px; }
+#view-waste .cart-body::-webkit-scrollbar-track { background: transparent; }
+#view-waste .cart-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .2); border-radius: 6px; }
+html { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .2) transparent; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .2); border-radius: 6px; }
+@media (max-width: 999px) { #view-waste .cart { height: auto; max-height: none; } #view-waste .cart-body { overflow: visible; } }
+
+/* sign-in and staff */
+.login { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 16px; background: rgba(8, 9, 10, .55); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); overflow: auto; }
+.reduce-effects .login { background: #121416; backdrop-filter: none; }
+.login-card { width: 100%; max-width: 380px; padding: 28px; border-radius: 32px; background: rgba(28, 32, 36, .92); border: 1px solid var(--border-2); box-shadow: var(--shadow); text-align: center; }
+.login-card .logo { margin: 0 auto 12px; width: 52px; height: 52px; border-radius: 16px; font-size: 22px; }
+.login-card h1 { margin: 0; font-size: 28px; font-weight: 600; }
+.login-card input { width: 100%; height: 56px; margin: 6px 0; text-align: center; font-size: 18px; letter-spacing: .08em; }
+.login-card .numpad { margin-top: 10px; }
+.login-card #loginGo { width: 100%; height: 60px; font-size: 18px; margin-top: 4px; }
+button.chip { height: 40px; min-height: 40px; }
+.role-badge { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); color: var(--text-muted); text-transform: capitalize; }
+tr.disabled td { color: rgba(255, 255, 255, .45); }
+
+/* Closing the day: stock checklist */
+.block { margin: 16px 0; }
+.chk { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.chk input { width: 24px; height: 24px; margin-top: 1px; flex: none; accent-color: var(--accent, #c6ff3d); }
+.chk.done > span { color: var(--text-muted); }
+.chk.done > span > b { text-decoration: line-through; }
+
+/* Cash counted by notes and coins */
+.denoms { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px 18px; margin: 10px 0; }
+.dn { display: flex; align-items: center; gap: 10px; }
+.dn > span { width: 62px; font-weight: 600; }
+.dn input { width: 78px; text-align: right; }
+.dn > b { margin-left: auto; font-weight: 500; color: var(--text-muted); min-width: 76px; text-align: right; }
+.dn-total { grid-column: 1 / -1; margin: 4px 0 0; }
+.approve { border: 1px solid var(--warn); border-radius: 10px; padding: 12px 14px; margin: 10px 0; }
+
+.banner { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin: 12px 0; }

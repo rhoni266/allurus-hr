@@ -5,8 +5,18 @@
 //   err.kind = 'network'  request may or may not have reached the server (timeout, offline). Safe to retry
 //                         createSale with the SAME sale_id.
 //   err.kind = 'server'   the server answered with { ok: false, error }. err.message is safe to show.
+//   err.kind = 'auth'     signed out (err.code 'SIGNED_OUT'), must change PIN first (err.code 'CHANGE_PIN') or must open the
+//                         register first (err.code 'OPENING_REQUIRED': a cashier or supervisor before counting the opening cash).
+//                         PosApi.onAuth(err) is called too, so the app can show the sign-in screen.
+// Every call carries the staff session token from login(); it lives in memory and sessionStorage (this tab only).
 (function () {
   var cfg = window.POS_CONFIG || {};
+  var session = null;
+  try { session = JSON.parse(sessionStorage.getItem('pos.session') || 'null'); } catch (e) { session = null; }
+  function keepSession(s) {
+    session = s;
+    try { if (s) sessionStorage.setItem('pos.session', JSON.stringify(s)); else sessionStorage.removeItem('pos.session'); } catch (e) { /* private mode */ }
+  }
 
   function ApiError(kind, message) {
     var e = new Error(message);
@@ -25,14 +35,24 @@
       method: 'POST',
       // text/plain keeps this a "simple" request: no CORS preflight, which Apps Script can't answer.
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ key: cfg.SECRET_KEY, action: action, data: data || {} }),
+      body: JSON.stringify({ key: cfg.SECRET_KEY, action: action, data: data || {}, token: session ? session.token : '' }),
       redirect: 'follow',
       signal: ctrl ? ctrl.signal : undefined
     }).then(function (res) {
       return res.text().then(function (text) {
         var body;
         try { body = JSON.parse(text); } catch (e) { throw ApiError('network', 'Unexpected reply from the server'); }
-        if (!body.ok) throw ApiError('server', body.error || 'Something went wrong');
+        if (!body.ok) {
+          var m = /^(SIGNED_OUT|CHANGE_PIN|OPENING_REQUIRED): (.*)$/.exec(body.error || '');
+          if (m) {
+            var e = ApiError('auth', m[2]);
+            e.code = m[1];
+            if (m[1] === 'SIGNED_OUT') keepSession(null);
+            if (window.PosApi.onAuth) window.PosApi.onAuth(e);
+            throw e;
+          }
+          throw ApiError('server', body.error || 'Something went wrong');
+        }
         return body.data;
       });
     }, function () {
@@ -48,6 +68,35 @@
 
   window.PosApi = {
     newSaleId: newSaleId,
+    onAuth: null, // set by app.js
+
+    // ---- staff session ----
+    session: function () { return session; },
+    login: function (empId, pin) {
+      return call('login', { emp_id: empId, pin: pin, device_id: cfg.DEVICE_ID || '' }).then(function (s) { keepSession(s); return s; });
+    },
+    logout: function () {
+      var had = session;
+      var done = function () { keepSession(null); };
+      return had ? call('logout', {}).then(done, done) : Promise.resolve(done());
+    },
+    whoami: function () { return call('whoami', {}); },
+    changePin: function (oldPin, newPin) {
+      return call('changePin', { old_pin: oldPin, new_pin: newPin }).then(function () {
+        if (session) { session.must_change_pin = false; keepSession(session); }
+      });
+    },
+    // A receipt number (R000012) → the sale, for "Void a bill".
+    findSale: function (receiptNo) { return call('findSale', { receipt_no: receiptNo }); },
+    getVoidLog: function (filters) { return call('getVoidLog', filters || {}); },
+
+    // ---- staff management (admin) ----
+    listStaff: function (sync) { return call('listStaff', { sync: !!sync }); },
+    hrSearch: function (q) { return call('hrSearch', { q: q }); },
+    addStaff: function (empId, role, pin) { return call('addStaff', { emp_id: empId, role: role, pin: pin, must_change_pin: true }); },
+    // change: { role?, status?: 'active'|'disabled', reset_pin? }
+    updateStaff: function (empId, change) { var d = { emp_id: empId }; for (var k in change) d[k] = change[k]; return call('updateStaff', d); },
+    getAuditLog: function (type, dateFrom, dateTo) { return call('getAuditLog', { type: type, date_from: dateFrom || '', date_to: dateTo || '' }); },
 
     // Active products only, unless includeInactive (product management screen).
     getProducts: function (includeInactive) { return call('getProducts', { includeInactive: !!includeInactive }); },
@@ -64,11 +113,32 @@
 
     getSale: function (saleId) { return call('getSale', { sale_id: saleId }); },
 
-    // made: true = the order was already made (usage stays and is logged as dish waste); false = put the usage back.
-    voidSale: function (saleId, reason, made) { return call('voidSale', { sale_id: saleId, reason: reason, made: made === true }); },
+    // v: { reason (key), note, made, approver_id, approver_pin }. A supervisor's own ID + PIN approves this one void.
+    // made: true = already made (usage stays, logged as dish waste); false = put the usage back.
+    voidSale: function (saleId, v) {
+      return call('voidSale', { sale_id: saleId, reason: v.reason, note: v.note || '', made: v.made === true, approver_id: v.approver_id,
+        approver_pin: v.approver_pin, device_id: cfg.DEVICE_ID || '' });
+    },
 
     // date: 'YYYY-MM-DD' in Malaysia time; omit for today.
     getDailySummary: function (date) { return call('getDailySummary', date ? { date: date } : {}); },
+
+    // Closing the day. getClosing(date?) only reads: the tally for the role (a cashier: their own sales), the opening cash and the
+    // cash that should be in the drawer (opening + cash sales). closeDay records it: { close_id (newSaleId(), reused on a retry),
+    // date, denoms ({ "<sen>": count } of notes and coins; the server adds them up), note, approver_id, approver_pin }.
+    // The day closes only when the count equals opening + cash sales. Otherwise it is a surplus or shortage: a note and a
+    // supervisor's own ID + PIN are needed (another supervisor when a supervisor is closing). An admin closes without counting.
+    getClosing: function (date) { return call('getClosing', date ? { date: date } : {}); },
+    closeDay: function (c) { return call('closeDay', c); },
+    getClosings: function () { return call('getClosings', {}); },
+    // The stock checklist (supervisor, admin) and the transaction list (admin) are read apart from the tally so the tally opens fast.
+    getClosingStock: function () { return call('getClosingStock', {}); },
+    getClosingDetail: function (date) { return call('getClosingDetail', date ? { date: date } : {}); },
+    // Opening cash (the float) for today, cashier or supervisor: openId from newSaleId() (reused on a retry), denoms = { "<sen>": count }
+    // of notes and coins, note (needed when it is changed the same day). Resolves with the closing tally.
+    setOpening: function (openId, denoms, note) { return call('setOpening', { open_id: openId, denoms: denoms, note: note || '' }); },
+    // Ticks (done: true = bought or handled) or unticks a stock checklist item. Resolves with { list }.
+    setShopItem: function (productId, done) { return call('setShopItem', { product_id: productId, done: !!done }); },
 
     // product: { id?, name, price (RM), category, active, unit, cost (RM per unit, '' = unknown), kind: 'menu'|'ingredient',
     //            track_stock, stock (starting stock; only used when the product is new or starts being tracked) }
