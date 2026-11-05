@@ -370,10 +370,57 @@
   // Rough size of a document in bytes, to stay under Firestore's 1 MiB limit.
   const docBytes = (f) => Object.keys(f).reduce((s, k) => s + k.length + (f[k] || '').length + 2, 0);
 
+  // ---------- Persistent 1 Phone = 1 Employee Device Binding ----------
+  const DEVICE_KEY_A = 'allurus_device_id';
+  const DEVICE_KEY_B = 'allurus-device-id';
+  const COOKIE_DEV_KEY = 'allurus_dev_id';
+
+  function getDeviceId() {
+    let id = null;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        id = localStorage.getItem(DEVICE_KEY_A) || localStorage.getItem(DEVICE_KEY_B);
+      }
+    } catch (e) {}
+    if (!id && typeof document !== 'undefined') {
+      try {
+        const m = document.cookie.match(/(?:^|;\s*)allurus_dev_id=([^;]+)/);
+        if (m) id = decodeURIComponent(m[1]);
+      } catch (e) {}
+    }
+    if (!id || !String(id).startsWith('dev-')) {
+      const rnd = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : (Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36));
+      id = 'dev-' + rnd;
+    }
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(DEVICE_KEY_A, id);
+        localStorage.setItem(DEVICE_KEY_B, id);
+      }
+    } catch (e) {}
+    try {
+      if (typeof document !== 'undefined') {
+        document.cookie = `${COOKIE_DEV_KEY}=${encodeURIComponent(id)}; path=/; max-age=315360000; SameSite=Lax`;
+      }
+    } catch (e) {}
+    return id;
+  }
+
+  function getDeviceName() {
+    if (typeof navigator === 'undefined') return 'Device';
+    const ua = navigator.userAgent || '';
+    const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android phone' : /Mac OS/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows PC' : /Linux/.test(ua) ? 'Linux computer' : 'Device';
+    const br = /Edg\//.test(ua) ? 'Edge' : /SamsungBrowser/.test(ua) ? 'Samsung Internet' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox/.test(ua) ? 'Firefox' : /Safari/.test(ua) ? 'Safari' : 'browser';
+    return `${os}, ${br}`;
+  }
+
   root.AllurusCloudMap = {
     PAYROLL, WRITE_AREA, TALENT, OWNED, ownerOf, ownedAreas, isAdminRead, isAdminWrite, readClass, canWrite, writeArea, readable, driverOf, isOps, SPLIT, seesPeople, seesPayroll, has, DIRECTORY_FIELDS, SELF_FIELDS, MARK, BLOB_MAX,
     stable, blobId, extract, restore, enc, dec, bucketsOf, applyBucket, arrayFrom, personFields, personFrom, directoryEntry, directoryFields, directoryFrom,
     employeesFor, payslipFields, payrollFrom, personal, personalFields, applyPersonal, merge3, diff, sameFields, docBytes,
     PAY_ID, logValue, supportChanges, STAFF_HOST, icDigits, validIc, staffEmail, isStaffEmail, staffKey, companyCode, joinSecret, joinKeyHash, joinKeyNorm, newSalt,
+    getDeviceId, getDeviceName, DEVICE_KEY_A, DEVICE_KEY_B, COOKIE_DEV_KEY
   };
 })(typeof window !== 'undefined' ? window : globalThis);

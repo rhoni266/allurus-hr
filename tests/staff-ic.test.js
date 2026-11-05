@@ -43,3 +43,29 @@ test('join key warning: short, digits only, common words or the company name', (
   assert.match(W('MajorFar!77', 'Major Far East Sdn Bhd'), /company name/);
   assert.strictEqual(W('Teh-Ais-Limau-41'), '');
 });
+
+test('persistent device binding: getDeviceId returns valid dev- id and syncs both storage keys', () => {
+  const store = {};
+  globalThis.localStorage = {
+    getItem: (k) => store[k] || null,
+    setItem: (k, v) => { store[k] = String(v); },
+    removeItem: (k) => { delete store[k]; }
+  };
+  globalThis.document = { cookie: '' };
+
+  const id = M.getDeviceId();
+  assert.ok(id.startsWith('dev-'), 'id must start with dev-');
+  assert.strictEqual(store[M.DEVICE_KEY_A], id);
+  assert.strictEqual(store[M.DEVICE_KEY_B], id);
+  assert.ok(globalThis.document.cookie.includes(id));
+
+  // If one key was already set, getDeviceId preserves it
+  store[M.DEVICE_KEY_A] = 'dev-existing-phone-123';
+  delete store[M.DEVICE_KEY_B];
+  const preserved = M.getDeviceId();
+  assert.strictEqual(preserved, 'dev-existing-phone-123');
+  assert.strictEqual(store[M.DEVICE_KEY_B], 'dev-existing-phone-123');
+
+  delete globalThis.localStorage;
+  delete globalThis.document;
+});

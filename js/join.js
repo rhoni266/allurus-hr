@@ -20,10 +20,16 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const MARK = '<svg width="56" height="56" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0F766E"/><path d="M19 47 L32 17 L45 47" fill="none" stroke="#fff" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M23.5 37.5 Q32 32 40.5 37.5" fill="none" stroke="#D9B66F" stroke-width="4.5" stroke-linecap="round"/></svg>';
 
 function getDeviceId() {
-  let id = localStorage.getItem('allurus_device_id');
+  if (window.AllurusCloudMap?.getDeviceId) {
+    return window.AllurusCloudMap.getDeviceId();
+  }
+  let id = localStorage.getItem('allurus_device_id') || localStorage.getItem('allurus-device-id');
   if (!id) {
     id = 'dev-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36);
-    localStorage.setItem('allurus_device_id', id);
+    try {
+      localStorage.setItem('allurus_device_id', id);
+      localStorage.setItem('allurus-device-id', id);
+    } catch (e) {}
   }
   return id;
 }
@@ -199,6 +205,24 @@ function step1_ic(ctx, msg = '') {
       }
 
       const kData = k.data();
+      const currentDeviceId = getDeviceId();
+
+      // Strict 1 Phone = 1 Employee: Check if account is already bound to another phone
+      if (kData.deviceId && kData.deviceId !== currentDeviceId) {
+        btn.disabled = false;
+        btn.textContent = 'Semak & Teruskan / Continue';
+        const hrWaMsg = encodeURIComponent(`Salam HR, saya ingin mendaftar/log masuk di Allurus untuk ${ctx.companyName} tetapi akaun IC saya (${ic}) telah dipautkan ke telefon lain. Mohon reset peranti saya.`);
+        errSlot.innerHTML = `
+          <div class="login-error" role="alert" style="text-align:left;line-height:1.45;margin:0">
+            <b>Akaun ini telah dipautkan ke telefon lain (1 Pekerja = 1 Telefon).</b><br>
+            Setiap pekerja hanya boleh mendaftar dan log masuk menggunakan telefon sendiri. Sila gunakan telefon berdaftar anda, atau hubungi pihak HR jika anda telah bertukar telefon baharu.
+          </div>
+          <a class="btn btn-sm" href="https://wa.me/?text=${hrWaMsg}" target="_blank" rel="noopener" style="margin-top:6px;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:6px;background:#25d366;color:#fff;border-color:#25d366;text-decoration:none">
+            Hubungi HR via WhatsApp untuk Reset Telefon
+          </a>`;
+        return;
+      }
+
       const staffName = kData.name || 'Staff';
       ctx.staff = {
         ic,
@@ -348,6 +372,18 @@ function step3_pin(ctx) {
         // Try sign-in if account was already created
         try {
           cred = await Auth.signInWithEmailAndPassword(auth, email, pin);
+          // Strict device check: if account already bound to another phone, refuse sign-in
+          const userSnap = await FS.getDoc(FS.doc(db, `users/${cred.user.uid}`)).catch(() => null);
+          const existingDev = userSnap?.data()?.deviceId;
+          if (existingDev && existingDev !== deviceId) {
+            await Auth.signOut(auth);
+            busy = false;
+            btn.disabled = false;
+            btn.textContent = 'Selesai & Masuk Aplikasi 🎉';
+            errPin.innerHTML = 'Akaun ini telah dipautkan ke telefon lain (1 Pekerja = 1 Telefon). Sila gunakan telefon berdaftar anda atau hubungi HR jika bertukar telefon.';
+            errPin.hidden = false;
+            return;
+          }
         } catch (signInErr) {
           busy = false;
           btn.disabled = false;
@@ -383,6 +419,11 @@ function step3_pin(ctx) {
         deviceId,
         joinedAt: FS.serverTimestamp()
       }, { merge: true });
+
+      // Bind device to staffKeys record
+      await FS.setDoc(FS.doc(db, `staffKeys/${ctx.tenantId}~${ctx.staff.ic}`), {
+        deviceId
+      }, { merge: true }).catch(() => {});
 
       // Clean up legacy single-link invite if exists
       const key = `${ctx.tenantId}~${ctx.staff.ic}`;

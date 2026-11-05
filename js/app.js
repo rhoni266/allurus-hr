@@ -2258,13 +2258,23 @@
   const DEVICE_KEY = 'allurus-device-id';
   // A random id kept in this browser, separate from the app's data, so Reset data doesn't change it.
   function deviceId() {
+    if (window.AllurusCloudMap?.getDeviceId) {
+      return window.AllurusCloudMap.getDeviceId();
+    }
     try {
-      let id = localStorage.getItem(DEVICE_KEY);
-      if (!id) { id = 'dev-' + (crypto.randomUUID ? crypto.randomUUID() : U.uid('') + U.uid('')); localStorage.setItem(DEVICE_KEY, id); }
+      let id = localStorage.getItem(DEVICE_KEY) || localStorage.getItem('allurus_device_id');
+      if (!id) {
+        id = 'dev-' + (crypto.randomUUID ? crypto.randomUUID() : U.uid('') + U.uid(''));
+        localStorage.setItem(DEVICE_KEY, id);
+        localStorage.setItem('allurus_device_id', id);
+      }
       return id;
     } catch (e) { return 'dev-unsaved'; }
   }
   function deviceName() {
+    if (window.AllurusCloudMap?.getDeviceName) {
+      return window.AllurusCloudMap.getDeviceName();
+    }
     const ua = navigator.userAgent;
     const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android phone' : /Mac OS/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows PC' : /Linux/.test(ua) ? 'Linux computer' : 'Device';
     const br = /Edg\//.test(ua) ? 'Edge' : /SamsungBrowser/.test(ua) ? 'Samsung Internet' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /FxiOS|Firefox/.test(ua) ? 'Firefox' : /Safari/.test(ua) ? 'Safari' : 'browser';
@@ -2750,11 +2760,22 @@
       const other = state.employees.find((x) => x.id !== empId && (x.devices || []).some((y) => y.id === devId && y.status === 'approved'));
       if (other) { toast(`That phone is already registered for ${fullName(other)}. Remove it there first.`, 'error'); return; }
       d.status = 'approved'; d.approvedOn = U.today();
+      if (cloudOn() && fire()?.bindStaffDevice) {
+        fire().bindStaffDevice(empId, e.ic, devId);
+      }
       commit(`Phone approved for ${e.first}`, `${fullName(e)}’s new phone was approved (${d.name})`);
       if ($('.drawer')) openProfile(empId);
     },
     'dev-reject': (empId, devId) => { const e = emp(empId); e.devices = (e.devices || []).filter((x) => x.id !== devId); commit('Phone request rejected', `${fullName(e)}’s phone request was rejected`); },
-    'dev-remove': (empId, devId) => { const e = emp(empId); e.devices = (e.devices || []).filter((x) => x.id !== devId); commit(`Phone removed from ${e.first}`, `A phone was removed from ${fullName(e)}’s check-in`); openProfile(empId); },
+    'dev-remove': (empId, devId) => {
+      const e = emp(empId);
+      e.devices = (e.devices || []).filter((x) => x.id !== devId);
+      if (cloudOn() && fire()?.resetStaffDevice) {
+        fire().resetStaffDevice(empId, e.ic);
+      }
+      commit(`Phone removed from ${e.first}`, `A phone was removed from ${fullName(e)}’s check-in`);
+      openProfile(empId);
+    },
     'face-confirm': (empId) => { const e = emp(empId); e.face.status = 'confirmed'; e.face.confirmedOn = U.today(); commit(`Reference photo confirmed for ${e.first}`, `${fullName(e)}’s reference photo was confirmed`); if ($('.drawer')) openProfile(empId); },
     'face-reset': (empId) => { const e = emp(empId); delete e.face; commit(`${e.first} will set a new reference photo at the next check-in`, `${fullName(e)}’s reference photo was reset`); if ($('.drawer')) openProfile(empId); },
     'field-toggle': (empId, v) => {

@@ -542,6 +542,23 @@ const api = {
       if (prof.error === 'disabled') { await Auth.signOut(auth); return { error: 'Your access to Allurus has been turned off. Contact your HR admin.' }; }
       if (prof.pending) { await Auth.signOut(auth); return { error: 'Your registration is waiting for HR to approve it. Try again once HR has checked it.' }; }
       if (prof.error === 'unverified') { await Auth.signOut(auth); return { error: `Confirm your email first. We’ve sent a link to ${lower(email)}; open it, then sign in again.` }; }
+
+      // Device binding check for employees (1 Phone = 1 Employee)
+      const isEmployeeOnly = prof.roles?.includes('employee') && !prof.roles?.includes('admin');
+      const devId = (M.getDeviceId ? M.getDeviceId() : (localStorage.getItem('allurus_device_id') || 'dev-unsaved'));
+      if (isEmployeeOnly) {
+        if (prof.deviceId && prof.deviceId !== devId) {
+          await Auth.signOut(auth);
+          return { error: 'Akaun ini telah dipautkan ke telefon lain (1 Pekerja = 1 Telefon). Anda tidak boleh log masuk menggunakan peranti ini. Sila gunakan telefon berdaftar anda atau hubungi pihak HR.' };
+        }
+        if (!prof.deviceId) {
+          try {
+            await setDoc(doc(db, `users/${cred.user.uid}`), { deviceId: devId }, { merge: true });
+            prof.deviceId = devId;
+          } catch (e) { console.warn('[Allurus cloud] could not bind deviceId on users', e); }
+        }
+      }
+
       await start(prof);
       return { ok: true, profile: prof };
     } catch (e) {
@@ -646,6 +663,56 @@ const api = {
     try { await setDoc(doc(db, `users/${uid}`), access(template, true), { merge: true }); return { ok: true }; }
     catch (e) { return { error: 'Couldn’t change access. You can only give access you have yourself, and not change your own.' }; }
   },
+  // Reset/unbind an employee's device (HR action when employee changes their phone)
+  async resetStaffDevice(empId, ic, uid) {
+    const tid = S.profile?.tenantId;
+    if (!tid) return { error: 'No tenant' };
+    try {
+      const ops = [];
+      if (uid) {
+        ops.push(setDoc(doc(db, `users/${uid}`), { deviceId: '' }, { merge: true }).catch(() => {}));
+      } else if (empId) {
+        const snap = await getDocs(query(collection(db, 'users'), where('tenantId', '==', tid), where('empId', '==', empId))).catch(() => ({ docs: [] }));
+        snap.docs.forEach((d) => {
+          ops.push(setDoc(doc(db, `users/${d.id}`), { deviceId: '' }, { merge: true }).catch(() => {}));
+        });
+      }
+      if (ic && M.validIc(ic)) {
+        const key = M.staffKey(tid, ic);
+        ops.push(setDoc(doc(db, `staffKeys/${key}`), { deviceId: '' }, { merge: true }).catch(() => {}));
+      }
+      await Promise.all(ops);
+      return { ok: true };
+    } catch (e) {
+      console.warn('[Allurus cloud] resetStaffDevice', e);
+      return { error: 'Gagal menetapkan semula peranti.' };
+    }
+  },
+  // Bind an employee's device explicitly
+  async bindStaffDevice(empId, ic, devId, uid) {
+    const tid = S.profile?.tenantId;
+    if (!tid || !devId) return { error: 'Invalid params' };
+    try {
+      const ops = [];
+      if (uid) {
+        ops.push(setDoc(doc(db, `users/${uid}`), { deviceId: devId }, { merge: true }).catch(() => {}));
+      } else if (empId) {
+        const snap = await getDocs(query(collection(db, 'users'), where('tenantId', '==', tid), where('empId', '==', empId))).catch(() => ({ docs: [] }));
+        snap.docs.forEach((d) => {
+          ops.push(setDoc(doc(db, `users/${d.id}`), { deviceId: devId }, { merge: true }).catch(() => {}));
+        });
+      }
+      if (ic && M.validIc(ic)) {
+        const key = M.staffKey(tid, ic);
+        ops.push(setDoc(doc(db, `staffKeys/${key}`), { deviceId: devId }, { merge: true }).catch(() => {}));
+      }
+      await Promise.all(ops);
+      return { ok: true };
+    } catch (e) {
+      console.warn('[Allurus cloud] bindStaffDevice', e);
+      return { error: 'Gagal memautkan peranti.' };
+    }
+  },
   // ----- Staff with no work email: IC sign-in (firestore.rules: staffInvites, staffKeys, joinLinks, companyCodes) -----
   // Company code + IC + password → the made-up email for that IC's current sign-in generation.
   async signInIC(code, ic, password) {
@@ -654,26 +721,40 @@ const api = {
     try {
       const c = await getDoc(doc(db, `companyCodes/${lower(code)}`));
       if (!c.exists()) return nope;
-      const k = await getDoc(doc(db, `staffKeys/${M.staffKey(c.data().tenantId, ic)}`));
+      const tid = c.data().tenantId;
+      const kKey = M.staffKey(tid, ic);
+      const kRef = doc(db, `staffKeys/${kKey}`);
+      const k = await getDoc(kRef);
       if (!k.exists()) return nope;
-      const email = M.staffEmail(ic, c.data().tenantId, k.data().gen);
+
+      const devId = (M.getDeviceId ? M.getDeviceId() : (localStorage.getItem('allurus_device_id') || 'dev-unsaved'));
+      const kData = k.data();
+      // Pre-check staffKeys device binding: prevent logging in on another device
+      if (kData.deviceId && kData.deviceId !== devId) {
+        return { error: 'Akaun ini telah dipautkan ke telefon lain (1 Pekerja = 1 Telefon). Anda tidak boleh log masuk menggunakan peranti ini. Sila gunakan telefon berdaftar anda atau hubungi HR.' };
+      }
+
+      const email = M.staffEmail(ic, tid, kData.gen);
       const res = await api.signIn(email, password);
       if (res.ok) {
-        let devId = localStorage.getItem('allurus_device_id');
-        if (!devId) {
-          devId = 'dev-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36);
-          try { localStorage.setItem('allurus_device_id', devId); } catch (e) {}
+        if (res.profile?.deviceId && res.profile.deviceId !== devId) {
+          await Auth.signOut(auth);
+          return { error: 'Akaun ini telah dipautkan ke telefon lain (1 Pekerja = 1 Telefon). Anda tidak boleh log masuk menggunakan peranti ini. Sila gunakan telefon berdaftar anda atau hubungi HR.' };
         }
         saveStaffSession({
           email,
           pin: password,
-          tenantId: c.data().tenantId,
+          tenantId: tid,
           code: lower(code),
           ic,
           deviceId: devId
         });
         if (res.profile?.uid && !res.profile?.deviceId) {
           setDoc(doc(db, `users/${res.profile.uid}`), { deviceId: devId }, { merge: true }).catch(() => {});
+          res.profile.deviceId = devId;
+        }
+        if (!kData.deviceId || kData.deviceId !== devId) {
+          setDoc(kRef, { deviceId: devId }, { merge: true }).catch(() => {});
         }
       }
       return res.ok ? res : { ...res, error: /email|invite/i.test(res.error || '') ? nope.error : res.error };
@@ -947,7 +1028,11 @@ Auth.onAuthStateChanged(auth, async (user) => {
   // Silent background re-authentication for staff with persistent session
   if (!user) {
     const staffSess = getStaffSession();
-    if (staffSess?.email && staffSess?.pin) {
+    const curDev = (M.getDeviceId ? M.getDeviceId() : (localStorage.getItem('allurus_device_id') || 'dev-unsaved'));
+    if (staffSess?.deviceId && curDev && curDev !== 'dev-unsaved' && staffSess.deviceId !== curDev) {
+      console.warn('[Allurus cloud] silent re-auth skipped: session device mismatch');
+      clearStaffSession();
+    } else if (staffSess?.email && staffSess?.pin) {
       try {
         const cred = await Auth.signInWithEmailAndPassword(auth, lower(staffSess.email), staffSess.pin);
         if (cred?.user) user = cred.user;
@@ -1017,14 +1102,22 @@ Auth.onAuthStateChanged(auth, async (user) => {
         return;
       }
       if (!prof.error) {
-        // Device binding check for staff: if HR changed or unlinked device
-        const myDev = localStorage.getItem('allurus_device_id');
-        if (prof.roles?.includes('employee') && prof.roles.length === 1 && prof.deviceId && myDev && prof.deviceId !== myDev) {
-          console.warn('[Allurus cloud] device binding mismatch or reset');
-          clearStaffSession();
-          await Auth.signOut(auth);
-          app.cloudReady('signed-out');
-          return;
+        // Strict device binding check for staff (1 Phone = 1 Employee)
+        const myDev = (M.getDeviceId ? M.getDeviceId() : (localStorage.getItem('allurus_device_id') || 'dev-unsaved'));
+        const isEmployeeOnly = prof.roles?.includes('employee') && !prof.roles?.includes('admin');
+        if (isEmployeeOnly) {
+          if (prof.deviceId && prof.deviceId !== myDev) {
+            console.warn('[Allurus cloud] device binding mismatch: prof.deviceId', prof.deviceId, '!= myDev', myDev);
+            clearStaffSession();
+            await Auth.signOut(auth);
+            app.cloudReady('signed-out');
+            app.toast('Akaun ini telah dipautkan ke telefon lain (1 Pekerja = 1 Telefon). Sila log masuk dari telefon berdaftar anda.', 'error');
+            return;
+          }
+          if (!prof.deviceId && myDev && myDev !== 'dev-unsaved') {
+            setDoc(doc(db, `users/${user.uid}`), { deviceId: myDev }, { merge: true }).catch(() => {});
+            prof.deviceId = myDev;
+          }
         }
         await start(prof);
         app.cloudSignedIn();
