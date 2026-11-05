@@ -69,3 +69,17 @@ Tests: `npm test` 326/326, `npm run test:rules` 123/123 (new `tests-rules/roles.
 ### Why not merged or published
 - The Access panel only works signed in to the real cloud. Checking it on the preview means signing in as an admin, and I don't enter passwords. **Owner:** open the PR preview, sign in as an Owner, and try the Access panel on a test person (give Custom > Claims only, check, then untick it). Then merge PR #12.
 - After merging, publish the rules: `firebase deploy --only firestore:rules` (live backup: `docs/rules-backup/firestore.rules.2026-11-05`). Check sign-in, add employee, a leave request and the join page.
+
+## 2026-11-06, Bug fix: registration phone not saved to the employee record
+Pull request: https://github.com/rhoni266/allurus-hr/pull/13 (branch `claude/join-phone`). **Not merged.**
+Tests: `npm test` 329/329 (new `tests/phone.test.js`), `npm run test:rules` 111/111 (new `tests-rules/join-phone.rules.test.js`).
+
+- Confirmed: the phone went only to `users/{uid}.phone`, and the whole save sat in one try/catch, so a failed save still showed "Pendaftaran Berjaya!". The personal link (`/join?k=`) uses the same steps and is fixed the same way. Email activation (`activate.js`) doesn't ask for a phone.
+- Now the phone is normalised and checked on screen ("No. telefon tidak sah"; Skip still works). It is written to `people/{empId}.phone` only when that is empty. If HR already has a different phone, the new one goes to `phoneNew` with the date, and HR presses **Use it** or **Keep old** in the profile or in Team access.
+- Saves are separate steps, each tried twice. If one fails, the person sees "Akaun dibuat tetapi maklumat belum disimpan. Sila maklumkan HR." and a note for HR (`tenants/{t}/joinIssues/{uid}`, no IC or phone) appears in Team access under "Registration problems", with an activity-log line.
+- Team access also shows "Phone from registration" on a registered person's row until it is on their record.
+- Rules: a person may set only their own empty `phone`, or `phoneNew` + `phoneNewAt`, in a valid shape (01… with 10 to 12 digits, or + and a country code up to 16 characters). No other field and no one else's record. `joinIssues` can be created only by that staff sign-in for its own company.
+- **Hard stop 5, migration of people already registered:** `node scripts/migrate-join-phones.js` (dry run, counts only). Result on 6 Nov: **1 company, 3 registered people, 3 records would get their phone filled, 0 differ, 0 invalid.** **Owner:** check this, then run `node scripts/migrate-join-phones.js --apply` after PR #13 is merged and its rules are published.
+- Not tested in a browser: reaching step 2 of the join page needs a real company code and IC on the live site. Only the code paths and the rules are tested. **Owner:** after merging, register a test person on the preview with a phone, then with Skip, and check Employees → their profile.
+- Cache v3.38. PR #12 uses v3.37, so whichever merges second needs its version raised to v3.39.
+- After merging: publish the rules (`firebase deploy --only firestore:rules`; the live backup is `docs/rules-backup/firestore.rules.2026-11-05`, or save a fresh one first if the rules changed since).
