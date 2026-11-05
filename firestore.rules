@@ -167,6 +167,7 @@ service cloud.firestore {
       allow update: if signedIn() && (
         (request.auth.uid == uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deviceId'])
+          && request.resource.data.diff(resource.data).affectedKeys().size() == 1
           && (!('deviceId' in request.resource.data) || (request.resource.data.deviceId is string && request.resource.data.deviceId.size() < 128)))
         || (request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings')
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole', 'pending', 'empId', 'keyProof', 'deviceId'])
@@ -467,6 +468,17 @@ service cloud.firestore {
       match /{coll}/{id} {
         allow read: if isSuperadmin() && !(coll in ['people', 'payslips', 'personal', 'buckets']);
       }
+      // A note from the join page when the new account's details couldn't be saved, for HR in Team access. Made
+      // by that staff sign-in itself (it may have no profile yet), once; no IC, phone or PIN in it.
+      match /joinIssues/{uid} {
+        allow create: if signedIn() && request.auth.uid == uid
+          && myEmail().matches('[0-9]{12}[.][a-z0-9_-]+[.]g[0-9]{1,4}@staff[.]allurus[.]invalid')
+          && myEmail().split('@')[0].split('[.]')[1] == t.lower()
+          && request.resource.data.keys().hasOnly(['kind', 'empId', 'at'])
+          && request.resource.data.kind in ['profile', 'phone'] && request.resource.data.empId is string
+          && request.resource.data.empId.size() < 40 && request.resource.data.at == request.time;
+        allow read, delete: if hasArea(t, 'settings');
+      }
       match /support/{id} {
         // The grant: until (edits), payUntil (pay and ID data). Set only by the company's own admins, at most
         // 31 days ahead; never by support.
@@ -680,7 +692,19 @@ service cloud.firestore {
         allow read: if (seesPeople(t) || (member(t) && me().empId == e)) && canRead(t);
         allow create, delete: if seesPeople(t) && working(t);
         allow update: if (seesPeople(t) || (member(t) && me().empId == e
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['devices', 'face']))) && working(t);
+          && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['devices', 'face']) || selfPhone()))) && working(t);
+        // The phone typed on the join page (js/join.js savePhone), stored like every field as JSON text: the person
+        // sets their own phone only while it is empty; if HR already has one, they may only suggest phoneNew (with
+        // the date), and HR decides. Malaysian mobile 01… (10 to 12 digits) or + and a country code (max 16).
+        function selfPhone() {
+          let ch = request.resource.data.diff(resource.data).affectedKeys();
+          let ok = '"(01[0-9]{8,10}|[+][1-9][0-9]{6,14})"';
+          let empty = !('phone' in resource.data) || resource.data.phone in ['', '""', 'null'];
+          return (ch.hasOnly(['phone']) && empty && request.resource.data.phone is string && request.resource.data.phone.matches(ok))
+            || (ch.hasOnly(['phoneNew', 'phoneNewAt']) && !empty
+              && request.resource.data.phoneNew is string && request.resource.data.phoneNew.matches(ok)
+              && request.resource.data.phoneNewAt is string && request.resource.data.phoneNewAt.matches('"[0-9]{4}-[0-9]{2}-[0-9]{2}"'));
+        }
         // Support reads the record (the app masks pay and ID fields unless the second switch is on) and changes it
         // with a log entry; pay and ID fields only with the second switch.
         allow read: if isSuperadmin();

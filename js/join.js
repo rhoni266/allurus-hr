@@ -283,7 +283,11 @@ function step2_phone(ctx) {
 
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
-    ctx.staff.phone = phoneIn.value.trim();
+    const p = M.normPhone(phoneIn.value);
+    const err = document.getElementById('err-phone');
+    if (!M.validPhone(p)) { err.textContent = 'No. telefon tidak sah / Phone number not valid'; err.hidden = false; phoneIn.focus(); return; }
+    err.hidden = true;
+    ctx.staff.phone = p;
     step3_pin(ctx);
   });
 
@@ -291,6 +295,18 @@ function step2_phone(ctx) {
     ctx.staff.phone = '';
     step3_pin(ctx);
   });
+}
+
+// The phone typed at registration goes on the person's employee record, so HR sees it. Only into an empty phone;
+// if HR already has a different one, it waits in phoneNew for HR to use or keep (firestore.rules: people/{e}).
+async function savePhone(tenantId, empId, phone) {
+  const ref = FS.doc(db, `tenants/${tenantId}/people/${empId}`);
+  const snap = await FS.getDoc(ref);
+  let cur = '';
+  try { cur = snap.exists() && snap.data().phone ? String(M.dec(snap.data().phone) || '') : ''; } catch (e) { cur = ''; }
+  if (M.normPhone(cur) === phone) return;
+  if (!cur) await FS.updateDoc(ref, { phone: M.enc(phone) });
+  else await FS.updateDoc(ref, { phoneNew: M.enc(phone), phoneNewAt: M.enc(new Date().toISOString().slice(0, 10)) });
 }
 
 // ----------------------------------------------------------------------------
@@ -404,27 +420,27 @@ function step3_pin(ctx) {
       }
     }
 
-    try {
-      await FS.setDoc(FS.doc(db, `users/${cred.user.uid}`), {
-        email,
-        name: ctx.staff.name || 'Staff',
-        tenantId: ctx.tenantId,
-        code: ctx.code,
-        roles: ['employee'],
-        empId: ctx.staff.empId || '',
-        pending: false,
-        via: 'open',
-        phone: ctx.staff.phone || '',
-        authType: 'pin',
-        deviceId,
-        joinedAt: FS.serverTimestamp()
-      }, { merge: true });
+    // Each save is its own step, tried twice. Errors are logged by code only: never the IC, phone or PIN.
+    const twice = async (fn) => { try { await fn(); return true; } catch (e) { console.warn('[Allurus join] save failed, retrying', e?.code); } try { await fn(); return true; } catch (e) { console.warn('[Allurus join] save failed', e?.code); return false; } };
+    const profileOk = await twice(() => FS.setDoc(FS.doc(db, `users/${cred.user.uid}`), {
+      email,
+      name: ctx.staff.name || 'Staff',
+      tenantId: ctx.tenantId,
+      code: ctx.code,
+      roles: ['employee'],
+      empId: ctx.staff.empId || '',
+      pending: false,
+      via: 'open',
+      phone: ctx.staff.phone || '',
+      authType: 'pin',
+      deviceId,
+      joinedAt: FS.serverTimestamp()
+    }, { merge: true }));
+    const phoneOk = !profileOk ? false : !ctx.staff.phone || !ctx.staff.empId || await twice(() => savePhone(ctx.tenantId, ctx.staff.empId, ctx.staff.phone));
 
+    if (profileOk) {
       // Bind device to staffKeys record
-      await FS.setDoc(FS.doc(db, `staffKeys/${ctx.tenantId}~${ctx.staff.ic}`), {
-        deviceId
-      }, { merge: true }).catch(() => {});
-
+      await FS.setDoc(FS.doc(db, `staffKeys/${ctx.tenantId}~${ctx.staff.ic}`), { deviceId }, { merge: true }).catch(() => {});
       // Clean up legacy single-link invite if exists
       const key = `${ctx.tenantId}~${ctx.staff.ic}`;
       const invSnap = await FS.getDoc(FS.doc(db, `staffInvites/${key}`)).catch(() => null);
@@ -433,18 +449,22 @@ function step3_pin(ctx) {
         if (link) await FS.deleteDoc(FS.doc(db, `joinLinks/${link}`)).catch(() => {});
         await FS.deleteDoc(FS.doc(db, `staffInvites/${key}`)).catch(() => {});
       }
-
       // Save persistent staff session for "Never Log Out" policy (10-year expiry)
-      saveStaffSession({
-        email,
-        pin,
-        tenantId: ctx.tenantId,
-        code: ctx.code,
-        ic: ctx.staff.ic,
-        deviceId
+      saveStaffSession({ email, pin, tenantId: ctx.tenantId, code: ctx.code, ic: ctx.staff.ic, deviceId });
+    }
+
+    if (!profileOk || !phoneOk) {
+      // A note for HR (Team access shows it), without the IC or phone. Best effort: HR is also told by the person.
+      await FS.setDoc(FS.doc(db, `tenants/${ctx.tenantId}/joinIssues/${cred.user.uid}`), { kind: profileOk ? 'phone' : 'profile', empId: ctx.staff.empId || '', at: FS.serverTimestamp() }).catch((e) => console.warn('[Allurus join] note for HR failed', e?.code));
+      busy = false;
+      renderScreen({
+        badge: ctx.companyName,
+        title: 'Hampir siap',
+        sub: 'Almost done',
+        card: `<p class="login-error" role="alert" style="display:block">Akaun dibuat tetapi maklumat belum disimpan. Sila maklumkan HR.<br>Account created but details not saved. Please tell HR.</p>`,
+        foot: false
       });
-    } catch (e) {
-      console.warn('[Allurus join error]', e);
+      return;
     }
 
     renderScreen({

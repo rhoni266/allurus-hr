@@ -1052,7 +1052,7 @@
         <div id="del-confirm"></div>
         ${hrApi.tabBar(e, 'summary')}
       </div>
-      <div class="drawer-section"><h4>Contact</h4><dl class="kv"><dt>Email</dt><dd>${e.email ? esc(e.email) : '<span class="faint">No email</span>'}</dd><dt>Phone</dt><dd>${esc(e.phone || '—')}</dd><dt>Location</dt><dd>${esc(e.location || '—')}</dd></dl></div>
+      <div class="drawer-section"><h4>Contact</h4><dl class="kv"><dt>Email</dt><dd>${e.email ? esc(e.email) : '<span class="faint">No email</span>'}</dd><dt>Phone</dt><dd>${e.phone ? esc(AllurusCloudMap.fmtPhone(e.phone)) : '—'}${phoneChoice(e)}</dd><dt>Location</dt><dd>${esc(e.location || '—')}</dd></dl></div>
       <div class="drawer-section"><h4>Employment</h4><dl class="kv">
         <dt>Type</dt><dd>${esc(e.type)}</dd><dt>Manager</dt><dd>${mgr ? esc(fullName(mgr)) : '—'}</dd>
         <dt>Start date</dt><dd>${U.fmtDate(e.start)}</dd><dt>Date of birth</dt><dd>${U.fmtDate(e.birthday)}</dd>
@@ -2683,6 +2683,9 @@
     'acc-bulk': () => teamAccess.bulk([...(ui.empSel || [])]),
     'emp-sel-none': () => { ui.empSel = new Set(); render(); },
     'acc-cancel': (email) => teamAccess.cancel(email),
+    'acc-issue-done': async (uid) => { await fire().clearJoinIssue(uid); await teamAccess.refresh(); },
+    'phone-use': (id) => phoneDecide(id, true),
+    'phone-keep': (id) => phoneDecide(id, false),
     'acc-disable': (uid) => teamAccess.setDisabled(uid, true),
     'acc-enable': (uid) => teamAccess.setDisabled(uid, false),
     'acc-revoke': (email) => teamAccess.revoke(email),
@@ -3250,9 +3253,28 @@
   const teamAccess = {
     data: null,
     on: () => CLOUD && can('settings') && !!fire()?.live,
+    // The phone a registered person typed on the join page (their sign-in profile), until it is on their record;
+    // and a new phone waiting for HR to use or keep.
+    regPhone(e, st) {
+      const F = AllurusCloudMap.fmtPhone;
+      if (e.phoneNew) return `<div style="margin-top:4px">${phoneChoice(e)}</div>`;
+      const u = st.uid && (this.data?.users || []).find((x) => x.uid === st.uid);
+      if (!u?.phone || AllurusCloudMap.normPhone(u.phone) === AllurusCloudMap.normPhone(e.phone || '')) return '';
+      return `<div class="faint" style="font-size:12.5px;margin-top:2px">Phone from registration: ${esc(F(u.phone))}${e.phone ? ` (record has ${esc(F(e.phone))})` : ''}</div>`;
+    },
+    issuesCard() {
+      const list = this.data?.issues || [];
+      if (!list.length) return '';
+      return `<div class="card" style="margin-bottom:12px;padding:14px 16px;border-color:var(--bad, #dc2626)"><h3 style="margin-bottom:6px">Registration problems (${list.length})</h3>
+        <p class="muted" style="margin-bottom:8px">These people made an account on the join page, but their ${list.some((x) => x.kind === 'profile') ? 'account details or ' : ''}phone didn’t save. Check their row below; if the account is missing, use Reset sign-in so they can join again.</p>
+        <ul style="margin:0 0 8px 18px">${list.map((x) => { const e = emp(x.empId); return `<li>${e ? esc(fullName(e)) : 'Unknown person'} · ${x.kind === 'phone' ? 'phone not saved' : 'account details not saved'} <button type="button" class="link-btn" data-act="acc-issue-done" data-id="${esc(x.uid)}">Done</button></li>`; }).join('')}</ul></div>`;
+    },
     async load() {
       try { this.data = await fire().access(); } catch (e) { this.data = { invites: [], users: [] }; }
       try { this.data.staff = await fire().staffInvites(); } catch (e) { this.data.staff = []; }
+      try { this.data.issues = await fire().joinIssues(); } catch (e) { this.data.issues = []; }
+      // One activity-log line per registration whose details didn't save (never the phone or IC).
+      (this.data.issues || []).forEach((x) => { const k = `join-issue-${x.uid}`, keys = (state.notifyKeys = state.notifyKeys || []); if (keys.includes(k)) return; keys.push(k); const e = emp(x.empId); log(`Registration${e ? ` of ${fullName(e)}` : ''}: ${x.kind === 'phone' ? 'phone' : 'account details'} not saved. Check Team access.`); save(); });
       try { this.open = await fire().openStatus(); } catch (e) { this.open = { code: '', until: null }; }
       fire().syncAllStaffKeys?.(state.employees);
       this.remindIc();
@@ -3591,7 +3613,7 @@
               <td class="r">${e ? `<button class="btn btn-sm btn-primary" data-act="acc-open-ok" data-id="${esc(u.uid)}">Approve</button>` : ''}<button class="btn btn-sm btn-danger" data-act="acc-open-no" data-id="${esc(u.uid)}">This is not them</button></td></tr>`; }).join('')}</tbody></table></div></div>` : '';
       const rows = people.map((e) => {
         const st = this.status(e), isMe = e.id === self.empId;
-        return `<tr><td>${person(e)}</td><td class="muted">${e.email ? esc(e.email) : '<span class="faint">No email</span>'}</td>
+        return `<tr><td>${person(e)}</td><td class="muted">${e.email ? esc(e.email) : '<span class="faint">No email</span>'}${this.regPhone(e, st)}</td>
           <td>${this.badge(e)}</td>
           <td>${isMe ? `<span class="muted">You · ${esc(roleLabel('admin'))}</span>` : `<select class="select" data-acc-role="${e.id}" aria-label="Access for ${esc(fullName(e))}">${this.options(st.template)}</select>`}</td>
           <td class="r"><div class="row-actions" style="opacity:1">${isMe ? '' : e.email || this.byIc(e) ? this.actions(e) : `<span class="faint">${NO_EMAIL}</span>`}</div></td></tr>`;
@@ -3600,7 +3622,7 @@
       el.innerHTML = `<div class="card-head"><h3>Team access</h3>${waiting ? `<button class="btn btn-sm" data-act="acc-invite-all">Invite all ${waiting}</button>` : ''}</div>
         <p class="muted" style="margin-bottom:12px">Send someone an invitation and they get an email with a sign-in link to <b>allurus.my/activate</b>, where they create their password. Invitations last ${AllurusInvite.DAYS} days. Everyone gets the employee app; a role adds parts of the company console. Managers need no role: being an approver in the leave settings is enough. Staff with no work email can be invited with their IC: you send them a join link on WhatsApp, and they sign in with the company code, their IC and a password.</p>
         <div class="chips" style="margin-bottom:12px;flex-wrap:wrap">${shownTemplates().map(([, t]) => `<span class="tag" title="${esc(t.desc)}"><b>${esc(t.label)}</b>: ${esc(t.desc)}</span>`).join('')}</div>
-        ${joinCard}${pendingCard}${tracker}
+        ${joinCard}${this.issuesCard()}${pendingCard}${tracker}
         <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="muted">Nobody here.</td></tr>`}</tbody></table></div>`;
       $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value)));
     },
@@ -3663,6 +3685,20 @@
       await this.mount();
     },
   };
+
+  // A phone typed at registration when HR already had a different one: HR uses it or keeps the old one.
+  function phoneChoice(e) {
+    if (!e.phoneNew || role() !== 'admin' || !can('people')) return '';
+    return `<div class="lock-banner warn" style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span>New phone from registration${e.phoneNewAt ? ` (${U.fmtDate(e.phoneNewAt)})` : ''}: <b>${esc(AllurusCloudMap.fmtPhone(e.phoneNew))}</b></span>
+      <button type="button" class="btn btn-sm btn-primary" data-act="phone-use" data-id="${esc(e.id)}">Use it</button><button type="button" class="btn btn-sm" data-act="phone-keep" data-id="${esc(e.id)}">Keep old</button></div>`;
+  }
+  function phoneDecide(id, use) {
+    const e = emp(id); if (!e || !e.phoneNew || !can('people')) return;
+    if (use) e.phone = e.phoneNew;
+    delete e.phoneNew; delete e.phoneNewAt;
+    log(`Phone ${use ? 'updated from registration' : 'from registration not used'} for ${fullName(e)}`); save();
+    toast(use ? 'Phone updated.' : 'Kept the old phone.'); render();
+  }
 
   // ---------- Bridge for js/cloud.js ----------
   window.AllurusApp = {

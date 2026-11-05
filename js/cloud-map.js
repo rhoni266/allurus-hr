@@ -416,11 +416,26 @@
     return `${os}, ${br}`;
   }
 
+  // ---------- Phone numbers (the join page; firestore.rules checks the same shapes) ----------
+  // Malaysian mobiles are kept as 01xxxxxxxx (10 to 12 digits); +60 1… becomes 01…. Other countries keep + and the
+  // country code (at most 16 characters). Spaces, dashes, dots and brackets are dropped.
+  function normPhone(raw) {
+    let s = String(raw || '').replace(/[\s\-().]/g, '');
+    if (/^\+?601\d+$/.test(s)) s = '0' + s.replace(/^\+?60/, '');
+    return s;
+  }
+  const validPhone = (s) => /^01\d{8,10}$/.test(s) || /^\+[1-9]\d{6,14}$/.test(s);
+  // 012-345 6789, 011-2345 6789; foreign numbers as typed.
+  function fmtPhone(s) {
+    const m = /^(01\d)(\d{3,4})(\d{4})$/.exec(String(s || ''));
+    return m ? `${m[1]}-${m[2]} ${m[3]}` : String(s || '');
+  }
+
   root.AllurusCloudMap = {
     PAYROLL, WRITE_AREA, TALENT, OWNED, ownerOf, ownedAreas, isAdminRead, isAdminWrite, readClass, canWrite, writeArea, readable, driverOf, isOps, SPLIT, seesPeople, seesPayroll, has, DIRECTORY_FIELDS, SELF_FIELDS, MARK, BLOB_MAX,
     stable, blobId, extract, restore, enc, dec, bucketsOf, applyBucket, arrayFrom, personFields, personFrom, directoryEntry, directoryFields, directoryFrom,
     employeesFor, payslipFields, payrollFrom, personal, personalFields, applyPersonal, merge3, diff, sameFields, docBytes,
     PAY_ID, logValue, supportChanges, STAFF_HOST, icDigits, validIc, staffEmail, isStaffEmail, staffKey, companyCode, joinSecret, joinKeyHash, joinKeyNorm, newSalt,
-    getDeviceId, getDeviceName, DEVICE_KEY_A, DEVICE_KEY_B, COOKIE_DEV_KEY
+    normPhone, validPhone, fmtPhone, getDeviceId, getDeviceName, DEVICE_KEY_A, DEVICE_KEY_B, COOKIE_DEV_KEY
   };
 })(typeof window !== 'undefined' ? window : globalThis);

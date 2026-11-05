@@ -968,6 +968,12 @@ const api = {
       return { ok: true };
     } catch (e) { return { error: 'Couldn’t remove access.' }; }
   },
+  // Notes from the join page when a new account's details couldn't be saved (no IC or phone in them).
+  async joinIssues() {
+    const r = await getDocs(collection(db, `${T()}/joinIssues`)).catch(() => ({ docs: [] }));
+    return r.docs.map((d) => ({ uid: d.id, ...d.data() }));
+  },
+  async clearJoinIssue(uid) { await FS.deleteDoc(doc(db, `${T()}/joinIssues/${uid}`)).catch(() => {}); },
   async staffInvites() {
     const r = await getDocs(query(collection(db, 'staffInvites'), where('tenantId', '==', S.profile.tenantId))).catch(() => ({ docs: [] }));
     return r.docs.map((d) => ({ id: d.id, ...d.data(), link: undefined }));
