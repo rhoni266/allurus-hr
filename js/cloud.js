@@ -372,9 +372,18 @@ async function start(profile) {
   }
   // Listen to own user profile: if disabled by admin or session terminated, sign out
   if (profile.uid) {
+    let seen = null;
     S.unsubs.push(onSnapshot(doc(db, `users/${profile.uid}`), (snap) => {
       if (!snap.exists()) return;
       const u = snap.data();
+      // Access changed by an admin: reload so menus, pages and reads follow the new areas at once.
+      const sig = JSON.stringify([u.roles || [], Array.isArray(u.perms) ? u.perms.slice().sort() : null, u.posRole || '']);
+      if (seen !== null && sig !== seen && !u.disabled && !profile.support) {
+        try { sessionStorage.setItem('allurus_access_changed', '1'); } catch (e) { /* storage unavailable */ }
+        location.reload();
+        return;
+      }
+      seen = sig;
       if (u.disabled) {
         console.warn('[Allurus cloud] user disabled by admin');
         api.signOut().then(() => {
@@ -979,8 +988,17 @@ const api = {
 };
 window.AllurusCloud = api;
 // Roles and areas for a template, as stored on an invite or a profile. An Owner has no list (every area).
+// The Access panel passes { perms, posRole }: perms null = Owner, [] = Employee, a list = those areas.
 function access(template, update) {
+  if (template && typeof template === 'object') {
+    const { perms, posRole = '' } = template;
+    // The POS role is set on the profile only (after joining); an invitation can't carry it.
+    const pos = !update ? {} : { posRole: posRole && (perms === null || !perms.length || perms.includes('pos')) ? posRole : '' };
+    if (perms === null || !perms.length) return { roles: perms ? ['employee'] : ['admin', 'employee'], ...(update ? { perms: deleteField() } : {}), ...pos };
+    return { roles: ['admin', 'employee'], perms: perms.slice(), ...pos };
+  }
   const t = window.AllurusAccess?.TEMPLATES?.[template];
+  if (template !== 'employee' && template !== 'owner' && !t) throw new Error(`Unknown access template: ${template}`);
   const roles = template === 'employee' ? ['employee'] : ['admin', 'employee'];
   if (template !== 'employee' && t && template !== 'owner') return { roles, perms: t.perms.slice() };
   return update ? { roles, perms: deleteField() } : { roles }; // no list: every area (Owner), or none (Employee)
