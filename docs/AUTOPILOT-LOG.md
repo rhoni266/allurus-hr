@@ -43,3 +43,29 @@ Suggested fix, for the owner to approve: go back to "pending until HR approves" 
 - Step 5 (design standard): the run order says to start it only after steps 0 to 4 are merged and checked.
 - Pull requests and preview checks: not possible without the `gh` CLI. **Owner:** run `winget install GitHub.cli`, then `gh auth login`.
 - Rules tests: **Owner:** install Java (for example `winget install EclipseAdoptium.Temurin.21.JDK`).
+
+## 2026-11-05, Role access with tick boxes (docs/ROLE-ACCESS-SPEC.md)
+Pull request: https://github.com/rhoni266/allurus-hr/pull/12 (branch `claude/role-ticks`). **Not merged.**
+Tests: `npm test` 326/326, `npm run test:rules` 123/123 (new `tests-rules/roles.rules.test.js`), run with a portable Java kept outside the repo.
+
+### Study
+- Admin pages with no area check: `settings` (its admin parts already check the Settings area, so it is left open for personal settings), `dashboard`, `guide` (information only, left open).
+- Dashboard: Finance saw the attendance rate, who's on leave and open roles. Fixed: these tiles now need the matching area.
+- Search: every admin saw every admin action (for example "Run payroll" for Finance). Fixed: actions follow the area of the page they open; person search opens the full profile only with Staff records or Payroll.
+- Server: staff records, payslips, payroll, finance, stock, hiring, attendance and per-person documents are already refused to roles without the area (now covered by tests).
+- **Gap left open (needs a migration, hard stop 5):** about 20 lists use read class `'m'` (every member reads **and writes** them): `reviews`, `goals`, `cycles` (read), `rosters`, `leaveCredits`, `leaveCarry`, `attAudit`, `assets`, `checklists`, `courses`, `enrolments`, `trainingRequests`, `costing.*` (project labour costs), `projects`, `rooms`, `bookings`, `announcements`, `notifications`, `outbox`, `jobs`. So Finance can read appraisals and any employee could overwrite them. Staff also use many of these for their own records, so the fix is to split them per person like attendance (`u:<area>:<empId>`) and move the existing data. That needs a dry-run migration and the owner's approval. Not done in this run.
+
+### Built
+- Team access: an **Access** button per person opens a panel with a role picker (Employee, the ready-made roles, Custom), tick boxes grouped Workforce, Business and Admin with what each covers, **All areas** (not Owner), a "Can open / Cannot open" summary and the POS role.
+- Ticks switch the picker to the matching role or Custom. Areas you don't have are greyed out ("You don't have this area"), and Owner can only be given by an Owner.
+- Last Owner: the panel and "Turn off access" both refuse with "Make someone else Owner first". The rules already make this safe: nobody can change their own access, and only an Owner can change an Owner.
+- "An admin removes their own Settings area": not possible, because your own row has no Access button and the rules refuse changes to your own profile.
+- Changes apply at once. The server refuses straight away (tested), and the person's app reloads with the new menu and shows "Your access changed". Each change gets an activity-log line (who, whose access, from what, to what) and the person gets an in-app notice.
+- Invites: access chosen before an email invitation goes onto the invitation. **IC staff get their access after they register.** Decision: the join page lets anyone with code + IC register, so letting HR or Finance access ride on that path would let a stranger who knows the IC register into that role.
+- Bugs fixed: `access()` in `js/cloud.js` turned any unknown role name into Owner. The old dropdown overwrote Team access's `pending()` method, which lists people waiting for approval.
+- Rules: a person can no longer set their own `posRole` when creating their account (an invited person could have made themselves POS manager). A self-update must actually change `deviceId`, which fixes the failing activation test.
+- Cache v3.37.
+
+### Why not merged or published
+- The Access panel only works signed in to the real cloud. Checking it on the preview means signing in as an admin, and I don't enter passwords. **Owner:** open the PR preview, sign in as an Owner, and try the Access panel on a test person (give Custom > Claims only, check, then untick it). Then merge PR #12.
+- After merging, publish the rules: `firebase deploy --only firestore:rules` (live backup: `docs/rules-backup/firestore.rules.2026-11-05`). Check sign-in, add employee, a leave request and the join page.
