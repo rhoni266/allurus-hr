@@ -147,6 +147,8 @@ service cloud.firestore {
       allow create: if signedIn() && request.auth.uid == uid && !hasProfile()
         && request.resource.data.email == myEmail()
         && !('disabled' in request.resource.data)
+        // The point-of-sale role is given by an admin after joining, never chosen by the person joining.
+        && !('posRole' in request.resource.data)
         && (staffJoin() || openJoin() || verified() && (
           (exists(/databases/$(database)/documents/invites/$(myEmail()))
             && inviteFor(myEmail()).expiresAt is timestamp && inviteFor(myEmail()).expiresAt > request.time
@@ -167,6 +169,7 @@ service cloud.firestore {
       allow update: if signedIn() && (
         (request.auth.uid == uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deviceId'])
+          && request.resource.data.diff(resource.data).affectedKeys().size() == 1
           && (!('deviceId' in request.resource.data) || (request.resource.data.deviceId is string && request.resource.data.deviceId.size() < 128)))
         || (request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings')
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole', 'pending', 'empId', 'keyProof', 'deviceId'])

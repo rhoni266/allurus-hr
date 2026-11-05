@@ -362,12 +362,26 @@ window.AllurusUX = (function () {
   const go = (id) => { if (location.hash === '#' + id) ctx.render(); else location.hash = id; };
   const act = (name, id, v) => ctx.ACTIONS[name]?.(id, v);
   const goThen = (route, name, id, v) => { go(route); setTimeout(() => act(name, id, v), 80); };
+  // The area an admin action needs, from the page it opens (or Settings for settings sections).
+  const ACT_AREA = { 'add-emp': 'people', 'lv-': 'time', 'tm-': 'time', 'new-leave': 'time', 'einv-': 'finance', 'fin-': 'finance' };
+  const REPORT_AREA = { payroll: 'payroll', statutory: 'payroll', ot: 'time', lateness: 'time', leave: 'time' };
+  function actionArea(a) {
+    const src = String(a.run), A = window.AllurusAccess;
+    const page = /go(?:Then)?\('([a-z-]+)'/.exec(src)?.[1];
+    if (page) return A?.ROUTE_AREA?.[page] || '';
+    if (/goSection\(/.test(src)) return 'settings';
+    const rep = /'rp-open', undefined, '([a-z]+)'/.exec(src)?.[1];
+    if (rep) return REPORT_AREA[rep] || 'people';
+    const name = /act\('([a-z-]+)'/.exec(src)?.[1] || '';
+    return Object.entries(ACT_AREA).find(([k]) => name === k || (k.endsWith('-') && name.startsWith(k)))?.[1] || '';
+  }
+  const actionAllowed = (a, r) => r !== 'admin' || !a.roles.includes('admin') || !actionArea(a) || !!window.AllurusAccess?.can(actionArea(a));
   function commands() {
     const r = ctx.role(), items = [];
     ctx.routes().forEach((rt) => items.push({ key: 'page:' + rt.id, group: 'Go to', label: rt.label, sub: rt.group, icon: rt.icon, run: () => go(rt.id) }));
-    ROLE_ACTIONS.filter((a) => (a.roles.includes('*') || a.roles.includes(r)) && (!a.when || a.when())).forEach((a) => items.push({ key: 'act:' + a.label, group: 'Actions', label: a.label, icon: a.icon, keywords: a.keywords, run: a.run }));
+    ROLE_ACTIONS.filter((a) => (a.roles.includes('*') || a.roles.includes(r)) && actionAllowed(a, r) && (!a.when || a.when())).forEach((a) => items.push({ key: 'act:' + a.label, group: 'Actions', label: a.label, icon: a.icon, keywords: a.keywords, run: a.run }));
     ctx.state.session.roles.filter((x) => x !== r).forEach((x) => items.push({ key: 'role:' + x, group: 'Switch view', label: `Switch to ${ctx.ROLES[x].label} view`, icon: 'people', run: () => ctx.switchRole(x) }));
-    if (r === 'admin' || r === 'employee') ctx.activeEmployees().forEach((e) => items.push({ key: 'person:' + e.id, group: 'People', label: ctx.fullName(e), sub: e.role, person: e, keywords: `${e.email || ''} ${e.role || ''}`, run: () => (r === 'admin' ? ctx.openProfile(e.id) : go('directory')) }));
+    if (r === 'admin' || r === 'employee') ctx.activeEmployees().forEach((e) => items.push({ key: 'person:' + e.id, group: 'People', label: ctx.fullName(e), sub: e.role, person: e, keywords: `${e.email || ''} ${e.role || ''}`, run: () => (r === 'admin' && (window.AllurusAccess?.can('people') || window.AllurusAccess?.can('payroll')) ? ctx.openProfile(e.id) : go('directory')) }));
     return items;
   }
   function score(q, s) {

@@ -447,16 +447,18 @@
   // "Company Admin" is one view, but people get only the areas their role template gives them. An account with
   // no `perms` (the founder, older accounts, the platform owner) has every area, like an Owner.
   const AREAS = {
-    people: 'Staff records, onboarding, assets, org chart',
-    time: 'Attendance, schedules, leave and overtime',
-    payroll: 'Payroll, statutory files, pay changes, loans',
-    claims: 'Claims',
-    finance: 'Books, invoices, bills, budget, tax, audit',
-    talent: 'Hiring, appraisals, training, grievances',
-    operations: 'Stock, purchasing, production, deliveries, machines',
-    pos: 'Point of sale: till, tables, kitchen, menu and sales',
-    settings: 'Company settings and team access',
+    people: 'Employees, onboarding, assets, org chart, announcements, HR reports',
+    time: 'Check-ins, schedules, leave, overtime',
+    payroll: 'Payroll runs, payslips, statutory files, pay changes, loans',
+    claims: 'Staff claims',
+    finance: 'Books, invoices, bills, suppliers and contacts, budget, tax, finance reports',
+    talent: 'Recruitment, appraisals, training, grievances',
+    operations: 'Stock, purchasing, supplies, production, deliveries, machines',
+    pos: 'Till, tables, kitchen, menu, sales',
+    settings: 'Company settings and giving access to others',
   };
+  const AREA_NAMES = { people: 'Staff records', time: 'Attendance and leave', payroll: 'Payroll', claims: 'Claims', talent: 'Hiring and performance', finance: 'Finance', operations: 'Stock and operations', pos: 'Point of sale', settings: 'Company settings and team access' };
+  const AREA_GROUPS = [['Workforce', ['people', 'time', 'payroll', 'claims', 'talent']], ['Business', ['finance', 'operations', 'pos']], ['Admin', ['settings']]];
   const ALL_AREAS = Object.keys(AREAS);
   const TEMPLATES = {
     owner: { label: 'Owner', desc: 'Everything, including the books and who has access', perms: ALL_AREAS },
@@ -483,7 +485,9 @@
   // Whether the person may work in an area of the company console (only ever in Company Admin view).
   // Also off when the company's industries don't include that area (window.AllurusFeatures, set by cloud.js).
   const can = (area) => role() === 'admin' && (!myPerms() || myPerms().includes(area)) && (!window.AllurusFeatures || (area === 'pos' ? window.AllurusFeatures.has('pos') : window.AllurusFeatures.area(area)));
-  window.AllurusAccess = { can, AREAS, TEMPLATES, templateOf };
+  // Areas this company uses (window.AllurusFeatures), for the tick boxes. Unknown features: every area.
+  const areaInUse = (a) => !window.AllurusFeatures || (a === 'pos' ? window.AllurusFeatures.has('pos') : window.AllurusFeatures.area(a));
+  window.AllurusAccess = { can, ROUTE_AREA, AREAS, AREA_NAMES, AREA_GROUPS, TEMPLATES, templateOf };
   // "HR admin", "Finance", "Owner"… for the company console; the role's own name otherwise.
   const roleLabel = (r) => (r === 'admin' && myPerms() ? TEMPLATES[templateOf(myPerms())]?.label || 'Company Admin' : ROLES[r]?.label || r);
   ROLE_ROUTES.admin = [
@@ -832,9 +836,9 @@
       { id: 'setup', title: 'Getting started', span: 12, fixed: true, render: () => AllurusUX.setupCard() },
       { id: 'kpis', title: 'Key numbers', span: 12, render: () => `<div class="grid g-4 keep-2">
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Employees</div><div class="kpi-value">${active.length}</div><div class="kpi-foot">${joined ? `${delta(joined)} joined this month` : `${state.departments.length} departments`}</div></div>
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>Attendance</div><div class="kpi-value">${rate}%</div><div class="kpi-foot">${delta(rate - avg, ' pts')} vs 7-day average · ${wd === T ? 'today' : U.fmtDate(wd, { weekday: 'short' })}</div></div>
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>On leave today</div><div class="kpi-value">${out.length}</div><div class="kpi-foot">${out.length ? esc(out.map((e) => e.first).join(', ')) : 'Everyone is in'}</div></div>
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Open roles</div><div class="kpi-value">${state.jobs.length}</div><div class="kpi-foot">${state.candidates.filter((c) => c.stage !== 'Hired').length} candidates in the pipeline</div></div></div>` },
+        ${can('time') ? `<div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>Attendance</div><div class="kpi-value">${rate}%</div><div class="kpi-foot">${delta(rate - avg, ' pts')} vs 7-day average · ${wd === T ? 'today' : U.fmtDate(wd, { weekday: 'short' })}</div></div>
+        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>On leave today</div><div class="kpi-value">${out.length}</div><div class="kpi-foot">${out.length ? esc(out.map((e) => e.first).join(', ')) : 'Everyone is in'}</div></div>` : ''}
+        ${can('talent') ? `<div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Open roles</div><div class="kpi-value">${state.jobs.length}</div><div class="kpi-foot">${state.candidates.filter((c) => c.stage !== 'Hired').length} candidates in the pipeline</div></div>` : ''}</div>` },
       { id: 'attendance', area: 'time', title: 'Attendance trend', span: 8, render: () => `<div class="card"><div class="card-head"><h3>Attendance, last 7 workdays</h3><div class="legend"><span><i style="background:var(--brand)"></i>In office</span><span><i style="background:var(--gold)"></i>Remote</span></div></div>${attendanceChart(wd)}</div>` },
       { id: 'live', area: 'time', title: 'Who’s in now', span: 4, render: liveWidget },
       { id: 'off', area: 'time', title: 'Who’s off today', span: 4, render: () => leaveApi.whoOffCard() },
@@ -2683,7 +2687,7 @@
     'acc-bulk': () => teamAccess.bulk([...(ui.empSel || [])]),
     'emp-sel-none': () => { ui.empSel = new Set(); render(); },
     'acc-cancel': (email) => teamAccess.cancel(email),
-    'acc-disable': (uid) => teamAccess.setDisabled(uid, true),
+    'acc-disable': (uid) => (teamAccess.isLastOwner(uid) ? toast('Make someone else Owner first.', 'error') : teamAccess.setDisabled(uid, true)),
     'acc-enable': (uid) => teamAccess.setDisabled(uid, false),
     'acc-revoke': (email) => teamAccess.revoke(email),
     'login-ic': (_, v) => { ui.loginIc = v === '1'; render(); },
@@ -3593,7 +3597,7 @@
         const st = this.status(e), isMe = e.id === self.empId;
         return `<tr><td>${person(e)}</td><td class="muted">${e.email ? esc(e.email) : '<span class="faint">No email</span>'}</td>
           <td>${this.badge(e)}</td>
-          <td>${isMe ? `<span class="muted">You · ${esc(roleLabel('admin'))}</span>` : `<select class="select" data-acc-role="${e.id}" aria-label="Access for ${esc(fullName(e))}">${this.options(st.template)}</select>`}</td>
+          <td>${isMe ? `<span class="muted">You · ${esc(roleLabel('admin'))}</span>` : this.accessCell(e, st)}</td>
           <td class="r"><div class="row-actions" style="opacity:1">${isMe ? '' : e.email || this.byIc(e) ? this.actions(e) : `<span class="faint">${NO_EMAIL}</span>`}</div></td></tr>`;
       }).join('');
       const waiting = all.filter((e) => e.email && this.status(e).key === 'none').length;
@@ -3602,21 +3606,102 @@
         <div class="chips" style="margin-bottom:12px;flex-wrap:wrap">${shownTemplates().map(([, t]) => `<span class="tag" title="${esc(t.desc)}"><b>${esc(t.label)}</b>: ${esc(t.desc)}</span>`).join('')}</div>
         ${joinCard}${pendingCard}${tracker}
         <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="muted">Nobody here.</td></tr>`}</tbody></table></div>`;
-      $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value)));
+      $$('[data-acc-panel]', el).forEach((b) => b.addEventListener('click', () => this.openAccess(b.dataset.accPanel)));
     },
-    // The templates this person may give: only ones within their own areas; Owner only by an Owner.
-    options(current) {
-      const mine = myPerms(), ok = (k) => k === 'employee' || (k === 'owner' ? !mine : !mine || TEMPLATES[k].perms.every((a) => mine.includes(a)));
-      const list = [['employee', 'Employee'], ...shownTemplates().map(([k, t]) => [k, t.label])];
-      if (current === 'custom') list.push(['custom', 'Custom']);
-      return list.map(([k, label]) => `<option value="${k}" ${k === current ? 'selected' : ''} ${ok(k) || k === current ? '' : 'disabled'}>${label}</option>`).join('');
+    // ---- Access panel: a ready-made role or tick boxes per area ----
+    // Access is { perms, posRole }: perms null = Owner, [] = Employee, a list = those areas (Custom or a role).
+    accessOf(e) {
+      if (this.planned?.[e.id]) return this.planned[e.id];
+      const d = this.data || { invites: [], users: [] }, st = this.status(e);
+      const x = (st.uid && d.users.find((u) => u.uid === st.uid)) || d.users.find((u) => u.empId === e.id) || (e.email && d.invites.find((i) => i.email === e.email.toLowerCase()));
+      if (!x || !(x.roles || []).includes('admin')) return { perms: [], posRole: x?.posRole || '' };
+      return { perms: Array.isArray(x.perms) ? x.perms.slice() : null, posRole: x.posRole || '' };
+    },
+    accessLabel(a) {
+      if (a.perms === null) return 'Owner';
+      if (!a.perms.length) return 'Employee';
+      const k = templateOf(a.perms);
+      return k !== 'custom' && TEMPLATES[k] ? TEMPLATES[k].label : `Custom: ${a.perms.map((p) => AREA_NAMES[p]).join(', ')}`;
+    },
+    accessCell(e, st) {
+      const a = this.accessOf(e), planned = !!this.planned?.[e.id] && st.key !== 'joined';
+      const label = this.accessLabel(a), short = label.length > 34 ? label.slice(0, 32) + '…' : label;
+      // IC staff join through the open page as employees; their access is given once they have registered.
+      const icWait = this.byIc(e) && st.key !== 'joined' && st.key !== 'disabled';
+      return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span title="${esc(label)}">${esc(short)}${planned ? ' <span class="faint">(when they join)</span>' : ''}</span>
+        ${icWait ? '<span class="faint" style="font-size:12.5px">Set after they register</span>' : `<button type="button" class="btn btn-sm" data-acc-panel="${esc(e.id)}" aria-label="Change access for ${esc(fullName(e))}">Access</button>`}</div>`;
+    },
+    owners() { return (this.data?.users || []).filter((u) => (u.roles || []).includes('admin') && !Array.isArray(u.perms) && !u.disabled && !u.pending); },
+    isLastOwner(uid) { const o = this.owners(); return !!uid && o.length <= 1 && o.some((u) => u.uid === uid); },
+    openAccess(empId) {
+      const e = emp(empId); if (!e) return;
+      const before = this.accessOf(e), st = this.status(e), mine = myPerms(), iAmOwner = !mine;
+      const shown = ALL_AREAS.filter(areaInUse), mayGive = (a) => iAmOwner || mine.includes(a);
+      const tplOk = (k) => k === 'employee' || (k === 'owner' ? iAmOwner : TEMPLATES[k].perms.every(mayGive));
+      const picker = [['employee', 'Employee'], ...shownTemplates().map(([k, t]) => [k, t.label]), ['custom', 'Custom']];
+      const box = (a) => `<label class="acc-tick" style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;${mayGive(a) ? '' : 'opacity:.55'}"><input type="checkbox" data-area="${a}" ${mayGive(a) ? '' : 'disabled'} style="margin-top:3px">
+          <span><b>${esc(AREA_NAMES[a])}</b><br><span class="muted" style="font-size:13px">${esc(AREAS[a])}${mayGive(a) ? '' : ' · You don’t have this area'}</span></span></label>`;
+      const groups = AREA_GROUPS.map(([g, list]) => { const l = list.filter((a) => shown.includes(a)); return l.length ? `<fieldset style="border:0;padding:0;margin:0 0 10px"><legend class="nav-label" style="margin-bottom:2px">${g}</legend>${l.map(box).join('')}</fieldset>` : ''; }).join('');
+      const pos = ['manager', 'cashier', 'waiter', 'kitchen'];
+      openModal({ title: `Access for ${fullName(e)}`, submit: 'Save access', body: `
+        <div class="field"><label for="acc-tpl">Role</label><select class="select" id="acc-tpl">${picker.map(([k, l]) => `<option value="${k}" ${tplOk(k) || k === 'custom' ? '' : 'disabled'}>${esc(l)}${tplOk(k) || k === 'custom' ? '' : ' (you can’t give this)'}</option>`).join('')}</select>
+          <span class="field-hint" id="acc-tpl-hint"></span></div>
+        <label style="display:flex;gap:10px;align-items:center;margin:4px 0 10px"><input type="checkbox" id="acc-all"><b>All areas</b><span class="muted" style="font-size:13px">(still not Owner: only an Owner can give access to Owners)</span></label>
+        <div id="acc-boxes">${groups}</div>
+        <div class="field" id="acc-pos-f" hidden><label for="acc-pos">Point of sale role</label><select class="select" id="acc-pos"><option value="">Default (admins with Point of sale are managers; others are not on the till)</option>${pos.map((p) => `<option value="${p}">${p[0].toUpperCase() + p.slice(1)}</option>`).join('')}</select></div>
+        <p id="acc-sum" class="muted" style="margin-top:8px"></p>`,
+        onSubmit: () => {
+          const after = read();
+          if (JSON.stringify(after) === JSON.stringify(before)) return;
+          if (before.perms === null && after.perms !== null && this.isLastOwner(st.uid)) { toast('Make someone else Owner first.', 'error'); return false; }
+          setTimeout(() => this.applyAccess(e, before, after), 0);
+        } });
+      const tpl = $('#acc-tpl'), boxes = $$('#acc-boxes [data-area]'), all = $('#acc-all'), posSel = $('#acc-pos');
+      const ticked = () => boxes.filter((b) => b.checked).map((b) => b.dataset.area);
+      const read = () => {
+        const perms = tpl.value === 'owner' ? null : ticked();
+        return { perms, posRole: (perms === null || !perms.length || perms.includes('pos')) ? posSel.value : '' };
+      };
+      const sync = () => {
+        const own = tpl.value === 'owner', t = ticked();
+        boxes.forEach((b) => { b.disabled = own || !mayGive(b.dataset.area); if (own) b.checked = true; });
+        all.disabled = own; all.checked = own || boxes.filter((b) => !b.disabled).every((b) => b.checked) && t.length > 0;
+        $('#acc-pos-f').hidden = !(own || !t.length || t.includes('pos')) || !shown.includes('pos');
+        $('#acc-tpl-hint').textContent = tpl.value === 'custom' ? 'Only the ticked areas.' : tpl.value === 'employee' ? 'Only their own app: payslips, leave, claims, check-in.' : TEMPLATES[tpl.value]?.desc || '';
+        const yes = own ? shown : t, no = shown.filter((a) => !yes.includes(a));
+        $('#acc-sum').innerHTML = !yes.length ? 'Only their own employee app.' : `<b>Can open:</b> ${yes.map((a) => esc(AREA_NAMES[a])).join(', ')}.${no.length ? ` <b>Cannot open:</b> ${no.map((a) => esc(AREA_NAMES[a]).toLowerCase()).join(', ')}.` : ''}`;
+      };
+      const setTicks = (perms) => boxes.forEach((b) => { b.checked = perms.includes(b.dataset.area); });
+      const fromTicks = () => { const t = ticked(); const k = t.length ? templateOf(t) : 'employee'; tpl.value = k !== 'owner' && picker.some(([x]) => x === k) ? k : 'custom'; sync(); };
+      tpl.value = before.perms === null ? 'owner' : !before.perms.length ? 'employee' : (templateOf(before.perms) in TEMPLATES ? templateOf(before.perms) : 'custom');
+      setTicks(before.perms === null ? ALL_AREAS : before.perms); posSel.value = before.posRole || ''; sync();
+      tpl.addEventListener('change', () => { if (tpl.value === 'employee') setTicks([]); else if (TEMPLATES[tpl.value]) setTicks(TEMPLATES[tpl.value].perms); sync(); });
+      boxes.forEach((b) => b.addEventListener('change', fromTicks));
+      all.addEventListener('change', () => { boxes.forEach((b) => { if (!b.disabled) b.checked = all.checked; }); fromTicks(); });
+    },
+    async applyAccess(e, before, after) {
+      const st = this.status(e), from = this.accessLabel(before), to = this.accessLabel(after);
+      if (st.key !== 'joined' && st.key !== 'invited' && st.key !== 'expired') {
+        this.planned = { ...(this.planned || {}), [e.id]: after };
+        toast(`${e.first} will get ${to} when you invite them.`); this.draw(); return;
+      }
+      const r = st.key === 'joined' ? await fire().setRole(st.uid, after) : await fire().invite(e, after);
+      if (!r.ok) { toast(r.error, 'error'); return; }
+      log(`Access for ${fullName(e)} changed from ${from} to ${to} by ${fire()?.profile?.email || 'an admin'}`); save();
+      if (st.key === 'joined') {
+        const gained = (after.perms === null ? ALL_AREAS : after.perms).filter((a) => !(before.perms === null ? ALL_AREAS : before.perms).includes(a));
+        notifyApi?.event('access.changed', { detail: gained.length ? `You can now open ${gained.map((a) => AREA_NAMES[a]).join(', ')}.` : `You now have: ${to}.`, href: '#' }, e.id);
+        save();
+      }
+      toast(`${e.first} now has ${to}.${st.key === 'joined' ? ' It applies straight away.' : ''}`);
+      await this.mount();
     },
     async invite(empId, quiet) {
       const e = emp(empId); if (!e) return;
       const st = this.status(e);
-      const chosen = this.pending?.[empId] || (st.template === 'custom' ? 'employee' : st.template);
+      const chosen = this.planned?.[empId] || this.accessOf(e);
       const r = await fire().invite(e, chosen);
-      if (r.ok && this.pending) delete this.pending[empId];
+      if (r.ok && this.planned) delete this.planned[empId];
       if (r.ok) { log(`Invitation ${st.key === 'none' ? 'sent' : 'resent'} to ${fullName(e)}${r.emailed ? '' : ' (email not sent)'}`); save(); }
       if (!quiet) toast(r.ok && r.emailed ? `Invitation sent to ${e.email}. It’s valid until ${U.fmtDate(r.expiresAt.toISOString().slice(0, 10))}.` : r.error, r.ok && r.emailed ? '' : 'error');
       if (!quiet) await this.refresh();
@@ -3649,13 +3734,6 @@
       await this.refresh();
     },
     async refresh() { await this.load(); if ($('#team-access')) this.draw(); else render(); },
-    async setRole(empId, template) {
-      const e = emp(empId), st = this.status(e);
-      if (st.key === 'none') { this.pending = { ...(this.pending || {}), [empId]: template }; toast(`${e.first} will be invited as ${template === 'employee' ? 'an Employee' : TEMPLATES[template].label}. Choose Invite.`); return; }
-      const r = st.key === 'joined' ? await fire().setRole(st.uid, template) : await fire().invite(e, template);
-      toast(r.ok ? `${e.first} is now ${template === 'employee' ? 'an Employee' : TEMPLATES[template].label}${st.key === 'joined' ? '. It applies the next time they sign in.' : ''}` : r.error, r.ok ? '' : 'error');
-      await this.mount();
-    },
     async revoke(email) {
       const d = this.data || { users: [] }, u = d.users.find((x) => x.email === email);
       const r = await fire().revoke(email, u?.uid);
@@ -3715,7 +3793,11 @@
       if (sup?.edit) bar.style.background = '#7A2E0E';
     },
     // Just activated on /activate and already signed in: open the app as them.
-    cloudSignedIn() { cloudWaiting = false; startSession(state.accounts[0]); toast('Your account is ready. Welcome to Allurus.'); },
+    cloudSignedIn() {
+      cloudWaiting = false; startSession(state.accounts[0]);
+      let changed = false; try { changed = sessionStorage.getItem('allurus_access_changed') === '1'; sessionStorage.removeItem('allurus_access_changed'); } catch (e) { /* storage unavailable */ }
+      toast(changed ? 'Your access changed. The menu now shows what you can open.' : 'Your account is ready. Welcome to Allurus.', changed ? 'info' : '');
+    },
     cloudReady(reason) {
       cloudWaiting = false;
       const hadAcct = !!state.session.account;
