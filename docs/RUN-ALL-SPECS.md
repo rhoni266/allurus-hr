@@ -37,7 +37,9 @@ Do them in this order. Finish, merge and check each one before starting the next
 2. **Bulk invite by IC** (`BULK-IC-INVITE-SPEC.md`). Much of it already exists ("Invite all with IC"). Check it against the spec, finish what is missing, and test.
 3. **Company join page, join key and PIN** (`OPEN-JOIN-LINK-SPEC.md`). Needs server-side checks. If Cloud Functions are not available (Blaze), build and test it on a branch but do not merge, and log it.
 4. **Support access for superadmin** (`SUPPORT-ACCESS-SPEC.md`). Hard stop 4 applies to setting the claim.
-5. **One design standard** (`DESIGN-STANDARD-SPEC.md`). **Do this last**, after 0 to 4 are merged, on one branch `claude/design-standard`. Afterwards rebase any branch still open onto `main`.
+5. **Role access with tick boxes** (`ROLE-ACCESS-SPEC.md`). Includes rules fixes so each role sees only its own data.
+6. **POS public demo** (`POS-DEMO-SPEC.md`): `allurus.my/demo/pos`, runs in the browser only, POS restyled to the design standard.
+7. **One design standard** (`DESIGN-STANDARD-SPEC.md`). **Do this last**, after 0 to 6 are merged, on one branch `claude/design-standard`. Afterwards rebase any branch still open onto `main`.
 
 Not in this run: tasks 0 to 7 of `HR-FIX-SPEC.md` (the owner has not approved them yet).
 
@@ -46,6 +48,7 @@ Not in this run: tasks 0 to 7 of `HR-FIX-SPEC.md` (the owner has not approved th
 - **BULK-IC-INVITE:** "Copy all" includes names and phone numbers. Remind HR after 3 days of "Link sent". Bulk email invite stays on the existing button.
 - **OPEN-JOIN-LINK:** Second check = last 4 digits of phone on file (people with no phone: join key + IC, and HR gets a notice for each). Open registration turns off after 7 days. "Allow 6-digit PIN" ON for Major Far East, plain crew roles only, and only if the server-side lockout works. HR gets a notice for every registration.
 - **SUPPORT-ACCESS:** Default grant 7 days. Pay and ID data hidden unless the client turns on the second switch.
+- **ROLE-ACCESS:** Keep the ready-made roles as listed in the spec. Finance keeps Claims. Notify the person when their access changes.
 - **DESIGN-STANDARD:** Light by default for website and HR app, dark for POS. Glass only on top bars, nav and dialogs. Inter everywhere. Tidy branches first, restyle once.
 
 ## Keep the owner informed
