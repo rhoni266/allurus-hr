@@ -2,7 +2,7 @@
 // Pages are fetched from the network first (falling back to the saved copy offline); scripts, styles, images and
 // the face-check models are served from the saved copy and refreshed in the background. Check-ins taken offline
 // wait in the app's outbox (js/kiosk.js) and sync when the phone is back online.
-const CACHE = 'allurus-v3.36';
+const CACHE = 'allurus-v3.37';
 const SHELL = ['app.html', 'assets/logo-mark.svg'];   // the app lives at /app (app.html); / is the landing page
 
 self.addEventListener('install', (ev) => {
@@ -15,6 +15,11 @@ self.addEventListener('fetch', (ev) => {
   const req = ev.request, url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
   if (req.mode === 'navigate') {
+    // Only the HR app itself (/ and /app) is part of this offline shell. Everything else (/pos, /demo/pos,
+    // /industries, /join, ...) is never in SHELL and must not overwrite the 'app.html' cache entry with its own
+    // page - that would make the HR app open offline to the wrong content.
+    const isAppShell = url.pathname === '/' || url.pathname === '/app' || url.pathname.startsWith('/app/');
+    if (!isAppShell) { ev.respondWith(fetch(req)); return; }
     ev.respondWith(fetch(req).then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(url.pathname === '/' ? '/' : 'app.html', copy)); return res; })
       .catch(() => caches.match(url.pathname === '/' ? '/' : 'app.html').then((r) => r || caches.match('app.html'))));
     return;

@@ -2,6 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <script>
+    // Must run before any relative URL on this page is resolved (the stylesheet link right below included).
+    // Local dev (README.md: `python -m http.server 5173` from this folder) serves this page at "/", where every
+    // relative path already works. On allurus.my these files are served under /pos/ (firebase.json), reached
+    // directly at /pos or, with no trailing slash, rewritten from /demo/pos - both need a <base> or "style.css"
+    // etc. would resolve against "/" instead of "/pos/".
+    if (/^\/(demo\/pos|pos)(\/|$)/.test(location.pathname)) document.write('<base href="/pos/">');
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
   <title>Cafe POS</title>
