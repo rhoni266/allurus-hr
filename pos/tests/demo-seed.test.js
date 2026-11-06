@@ -36,10 +36,13 @@ test('seeds 20-25 active menu items across several categories', () => {
   assert.ok(categories.size >= 4, `expected at least 4 categories, got ${[...categories]}`);
 });
 
-test('at least 3 ingredients are at or below their reorder level', () => {
+test('at least 3 ingredients are at or below their reorder level, and none of the heavily-used ones ran negative', () => {
   const demo = loadDemo();
-  const low = demo.getStockReport_().items.filter((i) => i.below_reorder);
+  const items = demo.getStockReport_().items;
+  const low = items.filter((i) => i.below_reorder);
   assert.ok(low.length >= 3, `expected at least 3 low-stock items, got ${low.length}`);
+  const negative = items.filter((i) => i.track_stock && i.on_hand < 0);
+  assert.deepEqual(negative.map((i) => i.name), [], 'a believable week should not sell out any ingredient entirely');
 });
 
 test('one open container and one received purchase exist', () => {

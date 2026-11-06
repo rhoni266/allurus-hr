@@ -301,7 +301,7 @@
     h += r('<b>TOTAL</b>', '<b>' + rm(sen(s.total)) + '</b>', 'big');
     h += r('Paid by', esc(METHODS[s.payment_method] || s.payment_method));
     if (s.payment_method === 'cash' && received) { h += r('Received', rm(received)) + r('Change', rm(received - sen(s.total))); }
-    h += '<hr><div class="c">' + esc(cfg.RECEIPT_FOOTER || 'Thank you!') + '</div></div>';
+    h += '<hr><div class="c">' + esc(cfg.RECEIPT_FOOTER || 'Thank you!') + '</div>' + demoWatermark() + '</div>';
     return h;
   }
 
@@ -312,7 +312,12 @@
       h += '<div class="r big"><span>' + esc(it.qty) + ' × ' + esc(it.name) + '</span></div>';
       if (it.note) h += '<div><b>→ ' + esc(it.note) + '</b></div>';
     });
-    return h + '<hr></div>';
+    return h + '<hr>' + demoWatermark() + '</div>';
+  }
+
+  // Printed on every receipt and bar ticket in demo mode only (demo/demo-ui.js sets window.POS_DEMO_MODE).
+  function demoWatermark() {
+    return window.POS_DEMO_MODE ? '<div class="c" style="font-weight:700">DEMO – BUKAN RESIT SEBENAR / NOT A REAL RECEIPT</div>' : '';
   }
 
   function receiptModal(sale, received) {

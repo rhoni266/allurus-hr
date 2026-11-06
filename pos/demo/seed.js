@@ -42,20 +42,20 @@
   // ---- ingredients (3 start at or below their reorder level, on purpose, so Stock shows them as low) ----
   var ingredients = [
     { name: 'Coffee beans', unit: 'g', cost: 0.09, stock: 2600, pack_size: 1000, pack_unit: 'bag', reorder_level: 1000, open_shelf_life_days: 21, track_open: true },
-    { name: 'Fresh milk', unit: 'ml', cost: 0.007, stock: 7200, pack_size: 1000, pack_unit: 'carton', reorder_level: 3000, open_shelf_life_days: 4, track_open: true },
-    { name: 'Oat milk', unit: 'ml', cost: 0.012, stock: 1400, pack_size: 1000, pack_unit: 'carton', reorder_level: 2000, open_shelf_life_days: 5, track_open: true }, // low
+    { name: 'Fresh milk', unit: 'ml', cost: 0.007, stock: 16000, pack_size: 1000, pack_unit: 'carton', reorder_level: 3000, open_shelf_life_days: 4, track_open: true },
+    { name: 'Oat milk', unit: 'ml', cost: 0.012, stock: 6000, pack_size: 1000, pack_unit: 'carton', reorder_level: 2000, open_shelf_life_days: 5, track_open: true },
     { name: 'Gula Melaka syrup', unit: 'ml', cost: 0.018, stock: 2100, pack_size: 750, pack_unit: 'bottle', reorder_level: 750, open_shelf_life_days: 60, track_open: true },
     { name: 'Vanilla syrup', unit: 'ml', cost: 0.021, stock: 540, pack_size: 750, pack_unit: 'bottle', reorder_level: 750, open_shelf_life_days: 60, track_open: true }, // low
     { name: 'Tea leaves', unit: 'g', cost: 0.05, stock: 1800, pack_size: 500, pack_unit: 'pack', reorder_level: 500, open_shelf_life_days: 180, track_open: false },
     { name: 'Condensed milk', unit: 'ml', cost: 0.009, stock: 1900, pack_size: 390, pack_unit: 'can', reorder_level: 390, open_shelf_life_days: 10, track_open: true },
     { name: 'Croissant dough (frozen)', unit: 'pcs', cost: 2.10, stock: 36, pack_size: 12, pack_unit: 'box', reorder_level: 12, open_shelf_life_days: '', track_open: false },
-    { name: 'Sourdough bread', unit: 'pcs', cost: 3.40, stock: 18, pack_size: 6, pack_unit: 'bag', reorder_level: 6, open_shelf_life_days: '', track_open: false },
+    { name: 'Sourdough bread', unit: 'pcs', cost: 3.40, stock: 40, pack_size: 6, pack_unit: 'bag', reorder_level: 6, open_shelf_life_days: '', track_open: false },
     { name: 'Chicken breast (cooked)', unit: 'g', cost: 0.028, stock: 3000, pack_size: 1000, pack_unit: 'pack', reorder_level: 1000, open_shelf_life_days: 3, track_open: false },
     { name: 'Cheddar cheese slice', unit: 'pcs', cost: 0.45, stock: 80, pack_size: 20, pack_unit: 'pack', reorder_level: 20, open_shelf_life_days: '', track_open: false },
     { name: 'Eggs', unit: 'pcs', cost: 0.55, stock: 60, pack_size: 30, pack_unit: 'tray', reorder_level: 30, open_shelf_life_days: '', track_open: false },
     { name: 'Chocolate sauce', unit: 'ml', cost: 0.016, stock: 620, pack_size: 1000, pack_unit: 'bottle', reorder_level: 300, open_shelf_life_days: 90, track_open: false },
-    { name: 'Whipped cream', unit: 'ml', cost: 0.011, stock: 240, pack_size: 500, pack_unit: 'can', reorder_level: 250, open_shelf_life_days: 7, track_open: true }, // low (3rd)
-    { name: 'Takeaway cups (16oz)', unit: 'pcs', cost: 0.28, stock: 240, pack_size: 50, pack_unit: 'sleeve', reorder_level: 50, open_shelf_life_days: '', track_open: false }
+    { name: 'Whipped cream', unit: 'ml', cost: 0.011, stock: 240, pack_size: 500, pack_unit: 'can', reorder_level: 250, open_shelf_life_days: 7, track_open: true }, // low; Whipped Cream Top-up is an add-on, so this is never actually sold in the demo's sales (see drinkNames below)
+    { name: 'Takeaway cups (16oz)', unit: 'pcs', cost: 0.28, stock: 40, pack_size: 50, pack_unit: 'sleeve', reorder_level: 50, open_shelf_life_days: '', track_open: false } // low (3rd); never used by a recipe, so it stays exactly here
   ];
   var ing = {}; // name -> saved product
   ingredients.forEach(function (x) {
@@ -118,7 +118,7 @@
       purchase_id: uid('seed-po'), supplier: 'Kedai Kopi Supplies Sdn Bhd', invoice_no: 'INV-10234', received_by: 'Afiq',
       device_id: 'till-1', lines: [
         { ingredient_id: ing['Coffee beans'].id, pack_qty: 2, pack_cost: 58, batch_no: 'CB-241', expiry_date: isoDaysAgo(-180) },
-        { ingredient_id: ing['Fresh milk'].id, pack_qty: 6, pack_cost: 6.9, batch_no: 'FM-889', expiry_date: isoDaysAgo(-2) }
+        { ingredient_id: ing['Fresh milk'].id, pack_qty: 10, pack_cost: 6.9, batch_no: 'FM-889', expiry_date: isoDaysAgo(-2) }
       ]
     });
   });
