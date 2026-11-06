@@ -27,6 +27,15 @@ const mocks = {
       <div><p class="kb-h">${esc(t(k))} <span class="tnum">${people.length}</span></p>${people.map((p) => `<p class="kb-card">${esc(p)}</p>`).join("")}</div>`).join("")}
     </div>`;
   },
+  pos: () => `
+    <div class="mock-head"><span class="mock-title">${esc(t("mock_pos"))}</span><span class="pill-s ok">${esc(t("mock_pos_kds"))}</span></div>
+    <div class="mock-scroll"><table class="mock-table">
+      <thead><tr><th>${esc(t("mock_pos_order"))}</th><th>${esc(t("mock_pos_type"))}</th><th class="r">${esc(t("mock_amount"))}</th><th>${esc(t("mock_status"))}</th></tr></thead>
+      <tbody>
+        <tr><td class="tnum">W1A2F-0087</td><td>${esc(t("mock_pos_dinein"))}</td><td class="r tnum money">${rm(22.15)}</td><td><span class="pill-s ok">${esc(t("mock_pos_ready"))}</span></td></tr>
+        <tr><td class="tnum">W1A2F-0088</td><td>${esc(t("mock_pos_takeaway"))}</td><td class="r tnum money">${rm(9.50)}</td><td><span class="pill-s wait">${esc(t("mock_pos_cooking"))}</span></td></tr>
+        <tr><td class="tnum">W1A2F-0089</td><td>${esc(t("mock_pos_takeaway"))}</td><td class="r tnum money">${rm(14.40)}</td><td><span class="pill-s wait">${esc(t("mock_pos_offline"))}</span></td></tr>
+      </tbody></table></div>`,
   marketing: () => `
     <div class="mock-head"><span class="mock-title">${esc(t("mock_campaigns"))}</span></div>
     <div class="funnel">

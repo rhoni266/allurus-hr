@@ -33,13 +33,15 @@ export const MODULES = [
     careful: ["care_jobs"] },
   { id: "app",        status: "live", connects: ["hr", "payroll"],
     phones: [["09-phone-employee-home", "shot_p_home"], ["10-phone-payslips", "shot_p_slips"], ["11-phone-time-off", "shot_p_leave"], ["12-phone-driver-deliveries", "shot_p_driver"]] },
+  { id: "pos",        status: "rolling", connects: ["operations", "finance", "hr"],
+    careful: ["care_pos_offline", "care_pos_card", "care_pos_delivery"] },
   { id: "marketing",  status: "rolling", connects: ["operations"] },
 ];
 
 /* Roadmap. "live" items are what works today; "rolling" items are being finished now. */
 export const ROADMAP = {
   live: ["road_people", "road_leave", "road_att", "road_claims", "road_payroll", "road_finance", "road_talent", "road_ops", "road_app"],
-  rolling: ["road_myinvois", "road_statutory", "road_loans", "road_jobboards", "road_marketing", "road_hosting"],
+  rolling: ["road_myinvois", "road_statutory", "road_loans", "road_jobboards", "road_pos", "road_marketing", "road_hosting"],
 };
 
 /* Industry packs: planned add-ons built on the live core. Not available yet; shown as "Planned".
