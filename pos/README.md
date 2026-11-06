@@ -17,7 +17,7 @@ Status: **all 3 steps built** (backend, `api.js`, screens). Test checklist passe
 ## Setup (about 10 minutes)
 
 1. **Create the Sheet.** Go to sheets.google.com and create a blank spreadsheet, for example "Cafe POS".
-2. **Add the script.** In the Sheet, open Extensions > Apps Script. Delete what is in `Code.gs` and paste in all of [apps-script/Code.gs](apps-script/Code.gs). Save.
+2. **Add the script.** In the Sheet, open Extensions > Apps Script. Delete what is in `Code.gs` and paste in all of [apps-script/Code.gs](apps-script/Code.gs). Click **+** next to Files and add a second script file named `PosCore`; paste in all of [apps-script/PosCore.gs](apps-script/PosCore.gs) (the prices, totals, stock and recipe logic — shared with the public demo at `/demo/pos`, see [shared/pos-core.js](shared/pos-core.js)). Save both.
 3. **Create the tabs.** In the script editor, pick `setup` in the function list and click Run. Allow the permissions Google asks for; they are your own account and your own Sheet. You now have the tabs `Products`, `Sales` and `SaleItems`, each with a header row.
 4. **Optional: load the sample menu.** Run `loadSampleMenu`. This adds 10 items whose names end in "(sample)". Deactivate them (`active` = FALSE) before real trading.
 5. **Set the secret key.** Open Project Settings (gear icon) > Script Properties > Add property:
@@ -30,7 +30,7 @@ Status: **all 3 steps built** (backend, `api.js`, screens). Test checklist passe
    Click Deploy and copy the **Web app URL** (it ends in `/exec`). It goes into `config.js` in step 2.
 7. **Install the daily backup.** Run `installBackupTrigger` once. Every night between 2 and 3 am it copies the whole Sheet into the Drive folder "Cafe POS backups" and keeps the newest 30 copies. You can run `backupSheet` by hand at any time.
 
-**After you change `Code.gs`:** use Deploy > Manage deployments > edit (pencil) > Version: **New version**. That keeps the same URL. A "New deployment" gives you a new URL.
+**After you change `Code.gs` or `shared/pos-core.js`:** if you edited `pos-core.js`, run `npm run sync-pos-core` from the repo root and paste the updated `apps-script/PosCore.gs` into the Apps Script `PosCore` file too (`npm test` fails if the two drift apart). Then use Deploy > Manage deployments > edit (pencil) > Version: **New version**. That keeps the same URL. A "New deployment" gives you a new URL.
 
 **Check it works:** open the Web app URL in a browser. You should see `{"ok":true,"data":{"service":"cafe-pos"}}`.
 

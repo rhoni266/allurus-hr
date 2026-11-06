@@ -35,6 +35,9 @@ function load(props = {}) {
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (s) => ({ setMimeType: () => JSON.parse(s) }) },
   };
   vm.createContext(ctx);
+  // pos-core.js builds its Host from SpreadsheetApp/PropertiesService/LockService/Utilities above, exactly as
+  // Code.gs did before the two files split (see pos/shared/pos-core.js).
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'shared', 'pos-core.js'), 'utf8'), ctx);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8'), ctx);
   ctx.setup();
   ctx.loadSampleMenu();
