@@ -90,14 +90,28 @@ function valueSen_(unitCost, qty) { return unitCost === '' ? '' : Math.round(uni
 // ---------- the host: where rows live ----------
 
 /**
- * Builds a Host backed directly by the active Google Sheet, exactly as Code.gs did before this file existed. Only
- * used when SpreadsheetApp exists, i.e. this is running as an Apps Script web app.
+ * Builds a Host backed directly by a Google Sheet. With no argument, the active Sheet (the bound script, Code.gs -
+ * exactly as before this file existed: one cafe, one Sheet, Script Properties for settings). With a Spreadsheet
+ * object (SpreadsheetApp.openById(id)), that Sheet instead - the central Apps Script server
+ * (pos/apps-script-server/Router.gs, POS-LIVE-APPSCRIPT-SPEC.md) opens one company's Sheet per request this way,
+ * and settings then come from that Sheet's own Settings tab (key, value columns) instead of Script Properties,
+ * since Script Properties are shared by every company on that one server.
+ * Only used when SpreadsheetApp exists, i.e. this is running as an Apps Script web app.
  */
-function buildSheetHost_() {
+function buildSheetHost_(ss) {
+  var bound = !ss; // no spreadsheet passed in: the single-cafe bound script, same behaviour as always
+  function spreadsheet() { return ss || SpreadsheetApp.getActiveSpreadsheet(); }
   function sheet(name) {
-    var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+    var sh = spreadsheet().getSheetByName(name);
     if (!sh) fail_('Missing tab "' + name + '". Run setup() in the script editor.');
     return sh;
+  }
+  function settingsMap() {
+    var sh = spreadsheet().getSheetByName('Settings');
+    var map = {};
+    if (!sh) return map;
+    sh.getDataRange().getValues().forEach(function (r) { if (r[0] !== '') map[r[0]] = r[1]; });
+    return map;
   }
   function rows(name) {
     var sh = sheet(name);
@@ -142,12 +156,13 @@ function buildSheetHost_() {
     addDays: function (days) { return Utilities.formatDate(new Date(Date.now() + days * 864e5), TZ, 'yyyy-MM-dd'); },
     uuid: function () { return Utilities.getUuid(); },
     settings: function () {
-      var p = PropertiesService.getScriptProperties();
-      return { taxBp: pctToBp_(p.getProperty('SST_PERCENT')), serviceBp: pctToBp_(p.getProperty('SERVICE_PERCENT')), lowStock: Number(p.getProperty('LOW_STOCK') || 5) };
+      var get = bound ? function (k) { return PropertiesService.getScriptProperties().getProperty(k); } : function (k) { var v = settingsMap()[k]; return v === undefined || v === '' ? null : v; };
+      return { taxBp: pctToBp_(get('SST_PERCENT')), serviceBp: pctToBp_(get('SERVICE_PERCENT')), lowStock: Number(get('LOW_STOCK') || 5) };
     },
     property: function (name, def) {
-      var v = PropertiesService.getScriptProperties().getProperty(name);
-      return v === null ? def : v;
+      if (bound) { var v = PropertiesService.getScriptProperties().getProperty(name); return v === null ? def : v; }
+      var m = settingsMap();
+      return name in m && m[name] !== '' ? m[name] : def;
     }
   };
 }

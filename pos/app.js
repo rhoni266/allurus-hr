@@ -315,12 +315,11 @@
     return h + '<hr>' + demoWatermark() + '</div>';
   }
 
-  // Printed on every receipt and bar ticket in demo mode (demo/demo-ui.js sets window.POS_DEMO_MODE) and practice
-  // mode (api-cloud.js sets window.POS_PRACTICE_MODE: a company trying live POS before functions/pos-cafe.js is
-  // deployed, POS-LIVE-FLOW-SPEC.md section 9 - real money, but totals aren't re-checked by a server yet).
+  // Printed on every receipt and bar ticket in demo mode only (demo/demo-ui.js sets window.POS_DEMO_MODE). Live
+  // mode (api-live.js) needs no watermark: the central Apps Script server checks prices, totals and stock the
+  // same as the single-cafe backend, so a live sale is a real sale (POS-LIVE-APPSCRIPT-SPEC.md).
   function demoWatermark() {
     if (window.POS_DEMO_MODE) return '<div class="c" style="font-weight:700">DEMO – BUKAN RESIT SEBENAR / NOT A REAL RECEIPT</div>';
-    if (window.POS_PRACTICE_MODE) return '<div class="c" style="font-weight:700">PRACTICE – NOT A REAL RECEIPT</div>';
     return '';
   }
 

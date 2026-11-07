@@ -763,68 +763,6 @@ service cloud.firestore {
       match /pos_counters/{id} { allow read, write: if false; }
       match /pos_audit/{id} { allow read: if onTill(['manager']) && canRead(t); allow write: if false; }
 
-      // ---- Cafe POS, live for any company (pos/, POS-LIVE-FLOW-SPEC.md) ----
-      // One collection per pos/shared/pos-core.js table (posc_<TableName>), read by anyone on the till, written
-      // under pos/hosts/firestore-host.js's "practice mode": the browser writes directly, because no Cloud
-      // Function is deployed yet (functions/pos-cafe.js, hard stop 3 - needs the Blaze plan). That means prices,
-      // totals, stock and receipt numbers are NOT re-checked by a server here, unlike every other write in this
-      // file - the till itself says so (a banner, and "PRACTICE - NOT A REAL RECEIPT" on every receipt). Once
-      // pos-cafe is deployed, these become server-write-only, exactly like pos_payments above.
-      // addons.pos must be trial (not expired) or active; a company with it off, or its trial run out, gets
-      // read-only access through canRead(t)/admin(t) below, same shape as working(t)/canRead(t) for the company.
-      function posAddon(t) { return co(t).get('addons', {}).get('pos', {}); }
-      function posTrialing(t) { return posAddon(t).get('status', '') == 'trial' && posAddon(t).get('trialEndsAt', timestamp.date(1970, 1, 1)) > request.time; }
-      function posPaid(t) { return posAddon(t).get('status', '') == 'active'; }
-      function posOn(t) { return posTrialing(t) || posPaid(t); }
-      function posCanRead(t) { return (posOn(t) && posStaff() && canRead(t)) || (onTill(['manager']) && admin(t)); }
-      match /posc_settings/{id} {
-        allow read: if posCanRead(t);
-        allow write: if onTill(['manager']) && working(t) && posOn(t);
-      }
-      match /posc_Products/{id} {
-        allow read: if posCanRead(t);
-        allow write: if onTill(['manager']) && working(t) && posOn(t);
-      }
-      match /posc_Recipes/{id} {
-        allow read: if posCanRead(t);
-        allow write: if onTill(['manager']) && working(t) && posOn(t);
-      }
-      match /posc_Sales/{id} {
-        allow read: if posCanRead(t);
-        allow create, update: if onTill(['manager', 'cashier']) && working(t) && posOn(t);
-        allow delete: if false;
-      }
-      match /posc_SaleItems/{id} {
-        allow read: if posCanRead(t);
-        allow create: if onTill(['manager', 'cashier']) && working(t) && posOn(t);
-        allow update, delete: if false;
-      }
-      match /posc_Waste/{id} {
-        allow read: if posCanRead(t);
-        allow create, update: if onTill(['manager', 'cashier']) && working(t) && posOn(t);
-        allow delete: if false;
-      }
-      match /posc_StockMovements/{id} {
-        allow read: if posCanRead(t);
-        allow create: if onTill(['manager', 'cashier']) && working(t) && posOn(t);
-        allow update, delete: if false;
-      }
-      match /posc_Purchases/{id} {
-        allow read: if posCanRead(t);
-        allow create, update: if onTill(['manager']) && working(t) && posOn(t);
-        allow delete: if false;
-      }
-      match /posc_OpenContainers/{id} {
-        allow read: if posCanRead(t);
-        allow create, update: if onTill(['manager', 'cashier']) && working(t) && posOn(t);
-        allow delete: if false;
-      }
-      match /posc_StockCounts/{id} {
-        allow read: if posCanRead(t);
-        allow create: if onTill(['manager']) && working(t) && posOn(t);
-        allow update, delete: if false;
-      }
-
       match /blobs/{id} {
         // One file at a time, by its id (a hash of the content). Listing every photo and file is not allowed.
         allow get: if member(t) && canRead(t);
