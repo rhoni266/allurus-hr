@@ -172,16 +172,23 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().size() == 1
           && (!('deviceId' in request.resource.data) || (request.resource.data.deviceId is string && request.resource.data.deviceId.size() < 128)))
         || (request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings')
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole', 'pending', 'empId', 'keyProof', 'deviceId'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole', 'pending', 'empId', 'keyProof', 'deviceId', 'confirmedAt'])
           && !('keyProof' in request.resource.data && !('keyProof' in resource.data))
           && request.resource.data.get('pending', false) is bool
           && (request.resource.data.get('pending', false) == false || resource.data.get('pending', false) == true)
           && (request.resource.data.empId == resource.data.empId || resource.data.get('pending', false) == true)
           && request.resource.data.get('posRole', '') in ['', 'manager', 'cashier', 'waiter', 'kitchen']
           // Until open-join gap 1 (code + IC only) is fixed: no POS role for an account that joined through the
-          // open join page unless HR has already confirmed it (cleared pending in an earlier, separate write).
+          // open join page unless HR has separately confirmed it first - confirmedAt, set once, by HR, never
+          // alongside the posRole grant itself. join.js auto-approves (pending: false) this account the moment
+          // it's created, so "pending" itself can't gate this (owner's 2026-11-07 review, gap 6).
           && (request.resource.data.get('posRole', '') == resource.data.get('posRole', '')
-            || resource.data.get('via', '') != 'open' || resource.data.get('pending', false) == false)
+            || resource.data.get('via', '') != 'open' || resource.data.get('confirmedAt', null) != null)
+          // confirmedAt: settable once, by HR, timestamped now; never backdated or changed after.
+          && (!('confirmedAt' in request.resource.data) || (request.resource.data.confirmedAt is timestamp
+            && (resource.data.get('confirmedAt', null) == null
+              ? request.resource.data.confirmedAt == request.time
+              : request.resource.data.confirmedAt == resource.data.confirmedAt)))
           && request.resource.data.get('disabled', false) is bool
           && validRoles(request.resource.data) && grantable(request.resource.data) && grantable(resource.data))
       );
@@ -237,7 +244,6 @@ service cloud.firestore {
         && ((get(code).data.get('openUntil', null) is timestamp && get(code).data.openUntil > request.time) || exists(key))
         && (exists(key) ? get(key).data.gen : 1) == int(p[2].replace('g', ''))
         && (!exists(jk) || d.get('keyProof', '') == get(jk).data.hash)
-        && (!exists(key) || !('empId' in get(key).data) || d.empId == get(key).data.empId)
         && (d.get('pending', false) == false || d.pending == true)
         && d.roles == ['employee'] && !('perms' in d) && d.via == 'open';
     }
@@ -262,9 +268,9 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deviceId']))
       )
         && id.matches(request.resource.data.tenantId + '~[0-9]{12}')
-        // No 'name': this doc is readable without signing in (the IC check before auth), so it must never carry
-        // a real employee's name (security gap 3, 2026-11-07 review).
-        && request.resource.data.keys().hasOnly(['tenantId', 'gen', 'empId', 'deviceId'])
+        // No 'name' or 'empId': this doc is readable without signing in (the IC check before auth), so it must
+        // never carry a real employee's name or link to their record (security gaps 3 and 5, 2026-11-07 review).
+        && request.resource.data.keys().hasOnly(['tenantId', 'gen', 'deviceId'])
         && request.resource.data.gen is int;
       allow delete: if hasArea(resource.data.tenantId, 'settings');
     }

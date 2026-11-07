@@ -832,11 +832,13 @@ const api = {
         app.state.employees.filter((e) => e && e.ic).forEach((e) => {
           const ic = M.icDigits(e.ic);
           if (M.validIc(ic)) {
-            // No name here: staffKeys is readable without signing in, for the IC check before auth (gap 3).
+            // No name or empId here: staffKeys is readable without signing in, for the IC check before auth
+            // (gap 3/5, owner's 2026-11-07 review) - neither is needed before sign-in; approve() matches the
+            // account to its employee by IC, not by this field.
             b.set(doc(db, `staffKeys/${S.profile.tenantId}~${ic}`), {
               tenantId: S.profile.tenantId,
               gen: 1,
-              empId: e.id,
+              empId: deleteField(),
               name: deleteField()
             }, { merge: true });
           }
@@ -855,11 +857,11 @@ const api = {
     try {
       const k = await getDoc(doc(db, `staffKeys/${key}`)).catch(() => null);
       const gen = k?.exists() ? (Number(k.data().gen) || 1) : 1;
-      // No name here: staffKeys is readable without signing in, for the IC check before auth (gap 3).
+      // No name or empId here: staffKeys is readable without signing in, for the IC check before auth (gap 3/5).
       await setDoc(doc(db, `staffKeys/${key}`), {
         tenantId: tid,
         gen,
-        empId: emp.id,
+        empId: deleteField(),
         name: deleteField()
       }, { merge: true });
     } catch (e) { console.warn('[Allurus cloud] syncStaffKey', e); }
@@ -873,11 +875,11 @@ const api = {
       if (e?.ic) {
         const ic = M.icDigits(e.ic);
         if (M.validIc(ic)) {
-          // No name here: staffKeys is readable without signing in, for the IC check before auth (gap 3).
+          // No name or empId here: staffKeys is readable without signing in, for the IC check before auth (gap 3/5).
           b.set(doc(db, `staffKeys/${tid}~${ic}`), {
             tenantId: tid,
             gen: 1,
-            empId: e.id,
+            empId: deleteField(),
             name: deleteField()
           }, { merge: true });
           count++;

@@ -4,7 +4,7 @@ const test = require('node:test');
 const fs = require('fs');
 const path = require('path');
 const { initializeTestEnvironment, assertSucceeds, assertFails } = require('@firebase/rules-unit-testing');
-const { doc, setDoc, getDoc, updateDoc, deleteDoc, deleteField, Timestamp } = require('firebase/firestore');
+const { doc, setDoc, getDoc, updateDoc, deleteDoc, deleteField, serverTimestamp, Timestamp } = require('firebase/firestore');
 
 let env;
 const T = 'Co1X';
@@ -80,15 +80,17 @@ test('only HR with Settings approves; nobody makes someone pending or changes an
   await assertSucceeds(updateDoc(doc(hr(), 'users/s1'), { disabled: true }));          // "This is not them"
 });
 
-// Security gap 6 (GO-LIVE-POS.md step 1): until open-join gap 1 (code + IC only) is fixed, HR can't give a
-// till role to an open-joined account before it's confirmed (pending cleared) - and not in the same write
-// that clears pending, either; only in a later, separate one.
-test('an open-joined account gets no POS role until HR has already confirmed it, in an earlier write', async () => {
-  await setDoc(doc(staff('s1', mail(IC, 1)), 'users/s1'), prof(mail(IC, 1)));
-  await assertFails(updateDoc(doc(hr(), 'users/s1'), { posRole: 'cashier' }));                                  // still pending
-  await assertFails(updateDoc(doc(hr(), 'users/s1'), { pending: false, empId: 'e7', posRole: 'cashier' }));     // same write as the approval
-  await assertSucceeds(updateDoc(doc(hr(), 'users/s1'), { pending: false, empId: 'e7' }));                      // approve first
-  await assertSucceeds(updateDoc(doc(hr(), 'users/s1'), { posRole: 'cashier' }));                               // then, separately, give POS access
+// Security gap 6 (owner's 2026-11-07 review): join.js auto-approves (pending: false) an open-joined account the
+// moment it's created, so "pending" can't gate a POS role - HR must separately confirm it first (confirmedAt,
+// set once, timestamped now, never alongside the posRole grant itself).
+test('an open-joined account gets no POS role until HR has set confirmedAt, in an earlier, separate write', async () => {
+  await setDoc(doc(staff('s1', mail(IC, 1)), 'users/s1'), prof(mail(IC, 1), { pending: false }));
+  await assertFails(updateDoc(doc(hr(), 'users/s1'), { posRole: 'cashier' }));                                        // not confirmed yet
+  await assertFails(updateDoc(doc(hr(), 'users/s1'), { confirmedAt: serverTimestamp(), posRole: 'cashier' }));        // same write as confirming
+  await assertFails(updateDoc(doc(hr(), 'users/s1'), { confirmedAt: Timestamp.fromMillis(Date.now() - 864e5) }));     // backdated
+  await assertSucceeds(updateDoc(doc(hr(), 'users/s1'), { confirmedAt: serverTimestamp() }));                         // confirm first
+  await assertFails(updateDoc(doc(hr(), 'users/s1'), { confirmedAt: serverTimestamp() }));                            // can't be changed after
+  await assertSucceeds(updateDoc(doc(hr(), 'users/s1'), { posRole: 'cashier' }));                                     // then, separately, give POS access
 });
 
 test('HR opens and closes registration; at most 31 days; others can’t', async () => {
