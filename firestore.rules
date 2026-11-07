@@ -440,10 +440,28 @@ service cloud.firestore {
         && shortText(request.resource.data.staffRange, 20);
       allow update: if member(t) && resource.data.owner == null && myEmail() == resource.data.admin && owner() && 'admin' in me().roles
         && request.resource.data.owner == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['owner']);
-      // The company's own admins edit its profile, never its owner, industries or billing.
+      // The company's own admins edit its profile, never its owner, industries, billing or POS addon (that has its
+      // own validated rule below, so a free-form edit here can't fake a paid POS trial).
       allow update: if hasArea(t, 'settings') && request.resource.data.owner == resource.data.owner && working(t)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['industryIds', 'lastAuditId', 'status', 'plan', 'isTest', 'trialStartedAt', 'trialEndsAt',
-          'paidUntil', 'expiredAt', 'statusNote', 'createdVia', 'termsVersion', 'termsAcceptedAt', 'admin', 'phone']);
+          'paidUntil', 'expiredAt', 'statusNote', 'createdVia', 'termsVersion', 'termsAcceptedAt', 'admin', 'phone', 'addons']);
+      // ---- Allurus POS trial switch-on (POS-LIVE-FLOW-SPEC.md) ----
+      // Starting the trial only ever adds/replaces addons.pos, with its shape checked (30 days, started by and at
+      // this write), and can't touch anything else - so a company admin can switch POS on, but never fake a paid
+      // 'active' status (that needs the superadmin rule below, until functions/pos-cafe.js's billing hook exists).
+      allow update: if hasArea(t, 'settings') && working(t)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['addons'])
+        && request.resource.data.addons.diff(resource.data.get('addons', {})).affectedKeys().hasOnly(['pos'])
+        && request.resource.data.addons.pos.status == 'trial'
+        && request.resource.data.addons.pos.startedBy == request.auth.uid && request.resource.data.addons.pos.startedAt == request.time
+        && request.resource.data.addons.pos.trialEndsAt is timestamp
+        && request.resource.data.addons.pos.trialEndsAt > request.time + duration.value(29, 'd')
+        && request.resource.data.addons.pos.trialEndsAt < request.time + duration.value(31, 'd');
+      // Superadmin: change a company's POS addon (status, dates - e.g. "Extend trial", or marking it active once
+      // paid), with an audit entry.
+      allow update: if audited('tenantPosAddon', t)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['addons', 'lastAuditId'])
+        && request.resource.data.addons.diff(resource.data.get('addons', {})).affectedKeys().hasOnly(['pos']);
       // Superadmin: sees every company, and sets only which industries it belongs to (with an audit entry).
       allow read: if isSuperadmin();
       // ---- Allurus support (the superadmin) inside a company ----
@@ -744,6 +762,68 @@ service cloud.firestore {
       match /pos_shifts/{id} { allow read: if onTill(['manager', 'cashier']) && canRead(t); allow write: if false; }
       match /pos_counters/{id} { allow read, write: if false; }
       match /pos_audit/{id} { allow read: if onTill(['manager']) && canRead(t); allow write: if false; }
+
+      // ---- Cafe POS, live for any company (pos/, POS-LIVE-FLOW-SPEC.md) ----
+      // One collection per pos/shared/pos-core.js table (posc_<TableName>), read by anyone on the till, written
+      // under pos/hosts/firestore-host.js's "practice mode": the browser writes directly, because no Cloud
+      // Function is deployed yet (functions/pos-cafe.js, hard stop 3 - needs the Blaze plan). That means prices,
+      // totals, stock and receipt numbers are NOT re-checked by a server here, unlike every other write in this
+      // file - the till itself says so (a banner, and "PRACTICE - NOT A REAL RECEIPT" on every receipt). Once
+      // pos-cafe is deployed, these become server-write-only, exactly like pos_payments above.
+      // addons.pos must be trial (not expired) or active; a company with it off, or its trial run out, gets
+      // read-only access through canRead(t)/admin(t) below, same shape as working(t)/canRead(t) for the company.
+      function posAddon(t) { return co(t).get('addons', {}).get('pos', {}); }
+      function posTrialing(t) { return posAddon(t).get('status', '') == 'trial' && posAddon(t).get('trialEndsAt', timestamp.date(1970, 1, 1)) > request.time; }
+      function posPaid(t) { return posAddon(t).get('status', '') == 'active'; }
+      function posOn(t) { return posTrialing(t) || posPaid(t); }
+      function posCanRead(t) { return (posOn(t) && posStaff() && canRead(t)) || (onTill(['manager']) && admin(t)); }
+      match /posc_settings/{id} {
+        allow read: if posCanRead(t);
+        allow write: if onTill(['manager']) && working(t) && posOn(t);
+      }
+      match /posc_Products/{id} {
+        allow read: if posCanRead(t);
+        allow write: if onTill(['manager']) && working(t) && posOn(t);
+      }
+      match /posc_Recipes/{id} {
+        allow read: if posCanRead(t);
+        allow write: if onTill(['manager']) && working(t) && posOn(t);
+      }
+      match /posc_Sales/{id} {
+        allow read: if posCanRead(t);
+        allow create, update: if onTill(['manager', 'cashier']) && working(t) && posOn(t);
+        allow delete: if false;
+      }
+      match /posc_SaleItems/{id} {
+        allow read: if posCanRead(t);
+        allow create: if onTill(['manager', 'cashier']) && working(t) && posOn(t);
+        allow update, delete: if false;
+      }
+      match /posc_Waste/{id} {
+        allow read: if posCanRead(t);
+        allow create, update: if onTill(['manager', 'cashier']) && working(t) && posOn(t);
+        allow delete: if false;
+      }
+      match /posc_StockMovements/{id} {
+        allow read: if posCanRead(t);
+        allow create: if onTill(['manager', 'cashier']) && working(t) && posOn(t);
+        allow update, delete: if false;
+      }
+      match /posc_Purchases/{id} {
+        allow read: if posCanRead(t);
+        allow create, update: if onTill(['manager']) && working(t) && posOn(t);
+        allow delete: if false;
+      }
+      match /posc_OpenContainers/{id} {
+        allow read: if posCanRead(t);
+        allow create, update: if onTill(['manager', 'cashier']) && working(t) && posOn(t);
+        allow delete: if false;
+      }
+      match /posc_StockCounts/{id} {
+        allow read: if posCanRead(t);
+        allow create: if onTill(['manager']) && working(t) && posOn(t);
+        allow update, delete: if false;
+      }
 
       match /blobs/{id} {
         // One file at a time, by its id (a hash of the content). Listing every photo and file is not allowed.
