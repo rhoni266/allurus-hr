@@ -35,6 +35,11 @@ var ROLE_ACTIONS = {
   reads: ['getProducts', 'getDailySummary', 'getSale', 'getWaste', 'getRecipes', 'getContainers', 'getStockReport', 'getUsageReport', 'getPurchases']
 };
 
+/** JSON reply for the web app (was only in the single-cafe Code.gs, so the server crashed on every request without it). */
+function json_(o) {
+  return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+}
+
 function doGet() { return json_({ ok: true, data: { service: 'allurus-pos-server' } }); }
 
 function doPost(e) {

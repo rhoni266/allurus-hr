@@ -204,6 +204,16 @@ test('the same sale_id sent twice returns the one sale (across two "requests", s
   assert.equal(r2.data.duplicate, true);
 });
 
+test('provision takes the script lock around the registry check and the Sheet creation', () => {
+  const { ctx, call, addUser, addCompany } = load();
+  addUser('ownerUid', { email: 'boss@a.my', tenantId: 'tA', roles: ['admin'] }, 'owner-token');
+  addCompany('tA', { name: 'Kedai A', status: 'active' });
+  const calls = [];
+  ctx.LockService = { getScriptLock: () => ({ waitLock: () => calls.push('wait'), releaseLock: () => calls.push('release') }) };
+  call({ action: 'provision', tenantId: 'tA', idToken: 'owner-token', data: { outletName: 'Kedai A' } });
+  assert.deepEqual(calls, ['wait', 'release']);
+});
+
 test('provision twice returns the same Sheet (no second spreadsheet); provision by a non-admin is refused', () => {
   const { call, addUser, addCompany } = load();
   addUser('ownerUid', { email: 'boss@a.my', tenantId: 'tA', roles: ['admin'] }, 'owner-token');
@@ -214,6 +224,34 @@ test('provision twice returns the same Sheet (no second spreadsheet); provision 
   assert.equal(first.data.spreadsheetId, second.data.spreadsheetId);
   assert.equal(second.data.created, false);
   assert.throws(() => call({ action: 'provision', tenantId: 'tA', idToken: 'staff-token', data: { outletName: 'Kedai A' } }), /Owner or a Settings admin/);
+});
+
+test('doPost (not just handle_) replies through a real ContentService.createTextOutput/setMimeType chain', () => {
+  // This is the path a real web app request takes (handle_() alone, used by call() above, skips json_() entirely -
+  // that's exactly how a missing json_() shipped undetected until a live deploy, see docs/POS-SERVER-DEPLOYED.md).
+  const { ctx, addUser, addCompany } = load();
+  addUser('ownerUid', { email: 'boss@a.my', tenantId: 'tA', roles: ['admin'] }, 'owner-token');
+  addCompany('tA', { name: 'Kedai A', status: 'active' });
+  const outputs = [];
+  ctx.ContentService = {
+    MimeType: { JSON: 'json' },
+    createTextOutput: (s) => {
+      const out = { text: s, mime: null, setMimeType(m) { this.mime = m; return this; } };
+      outputs.push(out);
+      return out;
+    }
+  };
+  const get = ctx.doGet();
+  assert.deepEqual(JSON.parse(get.text), { ok: true, data: { service: 'allurus-pos-server' } });
+  assert.equal(get.mime, 'json');
+
+  const post = ctx.doPost({ postData: { contents: JSON.stringify({ action: 'provision', tenantId: 'tA', idToken: 'owner-token', data: { outletName: 'Kedai A' } }) } });
+  const body = JSON.parse(post.text);
+  assert.equal(body.ok, true);
+  assert.ok(body.data.spreadsheetId);
+
+  const bad = ctx.doPost({ postData: { contents: 'not json' } });
+  assert.equal(JSON.parse(bad.text).ok, false);
 });
 
 test('two companies: each request only ever touches its own Sheet', () => {

@@ -130,3 +130,35 @@ test('11 company A can’t read company B; plans are public, billing settings ne
   await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'config/billing')));
   await assertFails(setDoc(doc(admin('trialOk'), 'plans/basic'), { priceMyr: 1 }));
 });
+
+// ---------- Allurus POS trial switch-on (security gap 2, GO-LIVE-POS.md step 1) ----------
+const posTrial = (db, id, uid, endsInDays = 30) => updateDoc(doc(db, `tenants/${id}`),
+  { addons: { pos: { status: 'trial', startedBy: uid, startedAt: serverTimestamp(), trialEndsAt: at(endsInDays) } } });
+
+test('starting the POS trial: once only - a second start, or overwriting a paid status, is refused', async () => {
+  await assertSucceeds(posTrial(admin('trialOk'), 'trialOk', 'own_trialOk'));
+  await assertFails(posTrial(admin('trialOk'), 'trialOk', 'own_trialOk'));       // already has addons.pos now
+  await assertSucceeds(posTrial(admin('paidOk'), 'paidOk', 'own_paidOk'));       // paidOk never started POS before: ok
+  // ...but once active (as if paid), the same admin write can't restart or overwrite it:
+  await env.withSecurityRulesDisabled((ctx) => updateDoc(doc(ctx.firestore(), 'tenants/paidOk'), { addons: { pos: { status: 'active' } } }));
+  await assertFails(posTrial(admin('paidOk'), 'paidOk', 'own_paidOk'));
+});
+
+test('starting the POS trial: the dates, starter and shape are checked; nobody else’s company', async () => {
+  await assertFails(updateDoc(doc(admin('trialOk'), 'tenants/trialOk'), { addons: { pos: { status: 'active', startedBy: 'own_trialOk', startedAt: serverTimestamp(), trialEndsAt: at(30) } } }));
+  await assertFails(updateDoc(doc(admin('trialOk'), 'tenants/trialOk'), { addons: { pos: { status: 'trial', startedBy: 'someoneElse', startedAt: serverTimestamp(), trialEndsAt: at(30) } } }));
+  await assertFails(posTrial(admin('trialOk'), 'trialOk', 'own_trialOk', 10));   // too short
+  await assertFails(posTrial(admin('trialOk'), 'trialOk', 'own_trialOk', 60));   // too long
+  await assertFails(posTrial(admin('paidOk'), 'trialOk', 'own_paidOk'));         // another company's tenant doc
+  await assertFails(posTrial(staff('trialOk'), 'trialOk', 'staff_trialOk'));     // staff, not an admin
+});
+
+test('superadmin: extends or marks the POS addon active, with an audit entry; nobody else can', async () => {
+  await assertSucceeds(posTrial(admin('trialOk'), 'trialOk', 'own_trialOk'));
+  const sup = as('super1', SUPER), b = writeBatch(sup), a = doc(collection(sup, 'auditLog'));
+  b.set(a, { actorUid: 'super1', actorEmail: 'boss@allurus.my', action: 'extend-pos-trial', entityType: 'tenantPosAddon', entityId: 'trialOk', before: null, after: {}, createdAt: serverTimestamp() });
+  b.set(doc(sup, 'tenants/trialOk'), { addons: { pos: { status: 'active' } }, lastAuditId: a.id }, { merge: true });
+  await assertSucceeds(b.commit());
+  await assertFails(setDoc(doc(sup, 'tenants/trialOk'), { addons: { pos: { status: 'trial' } } }, { merge: true }), 'not without an audit entry');
+  await assertFails(updateDoc(doc(admin('trialOk'), 'tenants/trialOk'), { addons: { pos: { status: 'active' } } }), 'a company admin still can’t fake active');
+});

@@ -1509,6 +1509,10 @@
       { id: 'users', label: 'Users & roles', icon: 'shield', summary: 'Who can sign in, and what they can do', keys: 'user role admin permission access invite invitation disable owner hr finance',
         html: () => (CLOUD ? '<div class="card" id="team-access"><div class="card-head"><h3>Team access</h3><span class="hint">Loading…</span></div></div>'
           : '<div class="card"><div class="card-head"><h3>Team access</h3></div><p class="muted">Invitations and roles are set up in your real workspace. In this demo, sign in as the sample people from the sign-in page.</p></div>') },
+      ...(CLOUD ? [{ id: 'pos', label: 'Point of sale', icon: 'wallet', summary: 'Start your POS trial, or open the till', keys: 'pos point of sale till cafe pos trial checkout',
+        html: () => `<div class="card"><div class="card-head"><h3>Point of sale</h3></div>
+          ${row('Allurus POS', 'A cafe till - checkout, stock and sales reports in a Google Sheet of your own. Starting a trial needs an Owner or a Settings admin.',
+            `<a class="btn btn-primary" href="/pos/start">Start POS trial</a> <a class="btn" href="/pos">Open POS</a>`)}</div>` }] : []),
       ...(CLOUD ? [{ id: 'billing', label: 'Billing & subscription', icon: 'doc', summary: 'Plan, trial, invoices, payment proof', keys: 'billing plan trial subscription invoice payment proof upgrade paid',
         html: () => `<div class="card"><div class="card-head"><h3>Billing &amp; subscription</h3></div>${row('Plan and invoices', 'Your plan, trial or paid-until date, invoices and payment proof.', `<a class="btn btn-primary" href="#billing">${icon('doc')}Open Billing</a>`)}</div>` }] : []),
       { id: 'security', label: 'Security', icon: 'shield', summary: 'Password rules', keys: 'security password rule length two-step session sign-in',

@@ -18,8 +18,17 @@ function provisionCompany_(idToken, tenantId, data) {
   var isOwner = !Array.isArray(profile.perms);
   if (!isAdmin || !(isOwner || profile.perms.indexOf('settings') >= 0)) fail_('Only an Owner or a Settings admin can start the POS trial.');
 
-  var existing = registryLookup_(tenantId);
-  if (existing) return { spreadsheetId: existing, created: false }; // double-click safe: don't make a second Sheet
+  // One provision at a time, so two quick clicks can't both pass the registry check and make two Sheets.
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var existing = registryLookup_(tenantId);
+    if (existing) return { spreadsheetId: existing, created: false }; // double-click safe: don't make a second Sheet
+    return provisionLocked_(uid, idToken, tenantId, data);
+  } finally { lock.releaseLock(); }
+}
+
+function provisionLocked_(uid, idToken, tenantId, data) {
 
   var company = firestoreGet_('tenants/' + tenantId, idToken);
   var outletName = cleanText_(data.outletName, 80) || (company && company.name) || 'My Cafe';

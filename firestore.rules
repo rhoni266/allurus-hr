@@ -147,6 +147,8 @@ service cloud.firestore {
       allow create: if signedIn() && request.auth.uid == uid && !hasProfile()
         && request.resource.data.email == myEmail()
         && !('disabled' in request.resource.data)
+        // The point-of-sale role is given by an admin after joining, never chosen by the person joining.
+        && !('posRole' in request.resource.data)
         && (staffJoin() || openJoin() || verified() && (
           (exists(/databases/$(database)/documents/invites/$(myEmail()))
             && inviteFor(myEmail()).expiresAt is timestamp && inviteFor(myEmail()).expiresAt > request.time
@@ -175,6 +177,10 @@ service cloud.firestore {
           && (request.resource.data.get('pending', false) == false || resource.data.get('pending', false) == true)
           && (request.resource.data.empId == resource.data.empId || resource.data.get('pending', false) == true)
           && request.resource.data.get('posRole', '') in ['', 'manager', 'cashier', 'waiter', 'kitchen']
+          // Until open-join gap 1 (code + IC only) is fixed: no POS role for an account that joined through the
+          // open join page unless HR has already confirmed it (cleared pending in an earlier, separate write).
+          && (request.resource.data.get('posRole', '') == resource.data.get('posRole', '')
+            || resource.data.get('via', '') != 'open' || resource.data.get('pending', false) == false)
           && request.resource.data.get('disabled', false) is bool
           && validRoles(request.resource.data) && grantable(request.resource.data) && grantable(resource.data))
       );
@@ -255,7 +261,9 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deviceId']))
       )
         && id.matches(request.resource.data.tenantId + '~[0-9]{12}')
-        && request.resource.data.keys().hasOnly(['tenantId', 'gen', 'empId', 'name', 'deviceId'])
+        // No 'name': this doc is readable without signing in (the IC check before auth), so it must never carry
+        // a real employee's name (security gap 3, 2026-11-07 review).
+        && request.resource.data.keys().hasOnly(['tenantId', 'gen', 'empId', 'deviceId'])
         && request.resource.data.gen is int;
       allow delete: if hasArea(resource.data.tenantId, 'settings');
     }
@@ -452,6 +460,8 @@ service cloud.firestore {
       allow update: if hasArea(t, 'settings') && working(t)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['addons'])
         && request.resource.data.addons.diff(resource.data.get('addons', {})).affectedKeys().hasOnly(['pos'])
+        // Once ever: no restarting an ended/active trial, and no overwriting a paid 'active' status this way.
+        && resource.data.get('addons', {}).get('pos', null) == null
         && request.resource.data.addons.pos.status == 'trial'
         && request.resource.data.addons.pos.startedBy == request.auth.uid && request.resource.data.addons.pos.startedAt == request.time
         && request.resource.data.addons.pos.trialEndsAt is timestamp

@@ -743,7 +743,6 @@ const api = {
         }
         saveStaffSession({
           email,
-          pin: password,
           tenantId: tid,
           code: lower(code),
           ic,
@@ -833,11 +832,12 @@ const api = {
         app.state.employees.filter((e) => e && e.ic).forEach((e) => {
           const ic = M.icDigits(e.ic);
           if (M.validIc(ic)) {
+            // No name here: staffKeys is readable without signing in, for the IC check before auth (gap 3).
             b.set(doc(db, `staffKeys/${S.profile.tenantId}~${ic}`), {
               tenantId: S.profile.tenantId,
               gen: 1,
               empId: e.id,
-              name: `${e.first || ''} ${e.last || ''}`.trim() || 'Staff'
+              name: deleteField()
             }, { merge: true });
           }
         });
@@ -855,11 +855,12 @@ const api = {
     try {
       const k = await getDoc(doc(db, `staffKeys/${key}`)).catch(() => null);
       const gen = k?.exists() ? (Number(k.data().gen) || 1) : 1;
+      // No name here: staffKeys is readable without signing in, for the IC check before auth (gap 3).
       await setDoc(doc(db, `staffKeys/${key}`), {
         tenantId: tid,
         gen,
         empId: emp.id,
-        name: `${emp.first || ''} ${emp.last || ''}`.trim() || 'Staff'
+        name: deleteField()
       }, { merge: true });
     } catch (e) { console.warn('[Allurus cloud] syncStaffKey', e); }
   },
@@ -872,11 +873,12 @@ const api = {
       if (e?.ic) {
         const ic = M.icDigits(e.ic);
         if (M.validIc(ic)) {
+          // No name here: staffKeys is readable without signing in, for the IC check before auth (gap 3).
           b.set(doc(db, `staffKeys/${tid}~${ic}`), {
             tenantId: tid,
             gen: 1,
             empId: e.id,
-            name: `${e.first || ''} ${e.last || ''}`.trim() || 'Staff'
+            name: deleteField()
           }, { merge: true });
           count++;
         }
@@ -986,17 +988,27 @@ function access(template, update) {
   return update ? { roles, perms: deleteField() } : { roles }; // no list: every area (Owner), or none (Employee)
 }
 
-// Persistent staff session helpers ("Never Log Out" policy)
+// Persistent staff session helpers ("Never Log Out" policy). Firebase Auth's own browser persistence (not this
+// record) is what keeps someone signed in across reloads; this just remembers who/which device for UX (device
+// mismatch warnings, etc). It must never hold the PIN or password itself - security gap 2, 2026-11-07 review.
 function getStaffSession() {
+  let sess = null;
   try {
     const raw = localStorage.getItem('allurus_staff_session');
-    if (raw) return JSON.parse(raw);
+    if (raw) sess = JSON.parse(raw);
   } catch (e) {}
-  try {
-    const m = document.cookie.match(/(?:^|;\s*)allurus_staff_token=([^;]+)/);
-    if (m) return JSON.parse(decodeURIComponent(m[1]));
-  } catch (e) {}
-  return null;
+  if (!sess) {
+    try {
+      const m = document.cookie.match(/(?:^|;\s*)allurus_staff_token=([^;]+)/);
+      if (m) sess = JSON.parse(decodeURIComponent(m[1]));
+    } catch (e) {}
+  }
+  if (sess && 'pin' in sess) {
+    // Migrate away a PIN saved before the 2026-11-07 security fix.
+    delete sess.pin;
+    saveStaffSession(sess);
+  }
+  return sess;
 }
 function saveStaffSession(sess) {
   try {
@@ -1025,23 +1037,15 @@ Auth.onAuthStateChanged(auth, async (user) => {
   if (!firstAuth) return;
   firstAuth = false;
 
-  // Silent background re-authentication for staff with persistent session
+  // Staff sign-in persistence is Firebase Auth's own (browser local persistence) - it survives reloads on its
+  // own, so there is no stored password/PIN to re-authenticate with here. We only check the remembered device
+  // still matches, as a UX warning; the actual access decision is Firebase Auth's session, checked by the rules.
   if (!user) {
     const staffSess = getStaffSession();
     const curDev = (M.getDeviceId ? M.getDeviceId() : (localStorage.getItem('allurus_device_id') || 'dev-unsaved'));
     if (staffSess?.deviceId && curDev && curDev !== 'dev-unsaved' && staffSess.deviceId !== curDev) {
-      console.warn('[Allurus cloud] silent re-auth skipped: session device mismatch');
+      console.warn('[Allurus cloud] stored staff session is for a different device');
       clearStaffSession();
-    } else if (staffSess?.email && staffSess?.pin) {
-      try {
-        const cred = await Auth.signInWithEmailAndPassword(auth, lower(staffSess.email), staffSess.pin);
-        if (cred?.user) user = cred.user;
-      } catch (e) {
-        console.warn('[Allurus cloud] silent re-auth failed', e?.code);
-        if (e?.code === 'auth/user-disabled' || e?.code === 'auth/user-not-found' || e?.code === 'auth/wrong-password' || e?.code === 'auth/invalid-credential') {
-          clearStaffSession();
-        }
-      }
     }
   }
 
