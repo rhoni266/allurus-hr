@@ -169,6 +169,7 @@ service cloud.firestore {
       allow update: if signedIn() && (
         (request.auth.uid == uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deviceId'])
+          && request.resource.data.diff(resource.data).affectedKeys().size() == 1
           && (!('deviceId' in request.resource.data) || (request.resource.data.deviceId is string && request.resource.data.deviceId.size() < 128)))
         || (request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings')
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole', 'pending', 'empId', 'keyProof', 'deviceId'])
