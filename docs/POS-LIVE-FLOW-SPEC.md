@@ -1,5 +1,7 @@
 # Allurus POS Live: any Allurus company can switch on the cafe POS and use it (Instructions for the coding agent)
 
+> **Update 7 Nov 2026:** the owner decided client POS data is stored in **Google Sheets via Apps Script**. Sections 4 (Firestore data), 5 (Cloud Function) and 9 (practice mode) are **replaced by `POS-LIVE-APPSCRIPT-SPEC.md`**. Everything else here still applies.
+
 ## Goal
 Today the cafe till (`pos/`) works in two ways only: the public demo (`/demo/pos`, data in one browser) and one cafe's Google Sheet (Apps Script plus a secret key in `config.js`). Neither works for many companies.
 
