@@ -67,6 +67,7 @@ export function mountIndustries(root) {
         <div class="ind-actions">
           <button type="button" class="btn ${planned ? "btn-ghost" : "btn-primary"} btn-sm" data-detail="${esc(i.slug)}">${esc(t("ind_details"))}</button>
           <button type="button" class="btn ${planned ? "btn-primary" : "btn-ghost"} btn-sm" data-want="${esc(i.slug)}">${esc(t("ind_want"))}</button>
+          ${i.slug === "fnb" ? `<a class="btn btn-ghost btn-sm" href="/demo/pos" target="_blank" rel="noopener">${esc(t("ind_pos_demo"))}</a>` : ""}
         </div>
         <label class="ind-mix"><input type="checkbox" data-mix="${esc(i.slug)}" ${mix.has(i.slug) ? "checked" : ""}> ${esc(t("ind_mix_add"))}</label>
       </article>`;
@@ -129,6 +130,7 @@ export function mountIndustries(root) {
       <div class="dl-foot">
         <button type="button" class="btn btn-primary" data-choose="${esc(slug)}">${esc(t("dl_choose"))}</button>
         <button type="button" class="btn btn-ghost" data-want="${esc(slug)}">${esc(t("ind_want"))}</button>
+        ${slug === "fnb" ? `<a class="btn btn-ghost" href="/demo/pos" target="_blank" rel="noopener">${esc(t("ind_pos_demo"))}</a>` : ""}
       </div>`;
     if (!dlg.open) dlg.showModal();
     dlg.querySelector(".dl-close").focus();

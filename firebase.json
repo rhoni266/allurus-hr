@@ -12,7 +12,11 @@
         ".git/**",
         "**/node_modules/**",
         "functions/**",
-        "pos/**",
+        "pos/config.js",
+        "pos/apps-script/**",
+        "pos/tests/**",
+        "pos/tools/**",
+        "pos/docs/**",
         "docs/**",
         "tests/**",
         "tests-rules/**",
@@ -30,7 +34,8 @@
       "trailingSlash": false,
       "rewrites": [
         { "source": "/industries", "destination": "/index.html" },
-        { "source": "/industries/**", "destination": "/index.html" }
+        { "source": "/industries/**", "destination": "/index.html" },
+        { "source": "/demo/pos", "destination": "/pos/index.html" }
       ],
       "redirects": [
         { "source": "/index.html", "destination": "/", "type": 301 },
@@ -59,7 +64,9 @@
         { "source": "**/*.html", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
         { "source": "/", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
         { "source": "/app", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-        { "source": "sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+        { "source": "sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+        { "source": "/demo/pos", "headers": [{ "key": "Content-Security-Policy", "value": "connect-src 'self'" }] },
+        { "source": "/pos", "headers": [{ "key": "Content-Security-Policy", "value": "connect-src 'self'" }] }
       ]
     },
     {

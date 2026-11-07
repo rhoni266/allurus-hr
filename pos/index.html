@@ -2,10 +2,50 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <script>
+    // Must run before any relative URL on this page is resolved (the stylesheet link right below included).
+    // Local dev (README.md: `python -m http.server 5173` from this folder) serves this page at "/", where every
+    // relative path already works. On allurus.my these files are served under /pos/ (firebase.json), reached
+    // directly at /pos or, with no trailing slash, rewritten from /demo/pos - both need a <base> or "style.css"
+    // etc. would resolve against "/" instead of "/pos/".
+    if (/^\/(demo\/pos|pos)(\/|$)/.test(location.pathname)) document.write('<base href="/pos/">');
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
   <title>Cafe POS</title>
-  <link rel="stylesheet" href="style.css?v=13">
+  <link rel="stylesheet" href="style.css?v=15">
+  <script>
+    // Demo mode: /demo/pos, or /pos/?demo=1 for local testing, or no config.js at all (see README.md "Setup").
+    // In demo mode this page never requests config.js or calls script.google.com (POS-DEMO-SPEC.md).
+    (function () {
+      var byPath = /^\/demo\/pos\/?$/.test(location.pathname);
+      var byQuery = /(?:^|[?&])demo=1(?:&|$)/.test(location.search);
+      window.POS_DEMO_MODE = byPath || byQuery;
+
+      window.__posLoadDemo = function () {
+        window.POS_DEMO_MODE = true;
+        // connect-src 'self': belt-and-braces alongside the HTTP header firebase.json sets on /demo/pos, and the
+        // only CSP local dev (plain static file servers send no headers) gets.
+        document.write('<meta http-equiv="Content-Security-Policy" content="connect-src \'self\'">');
+        document.title = 'Allurus POS demo';
+        document.write('<meta name="description" content="Try the Allurus POS: a full cafe till with checkout, waste, stock and sales reports, running on a made-up cafe. Nothing you do here is saved anywhere but this browser.">');
+        document.write('<meta property="og:title" content="Allurus POS demo">');
+        document.write('<meta property="og:description" content="A full cafe till you can try right now — checkout, waste, stock, sales. Runs in your browser only.">');
+        document.write('<meta property="og:image" content="https://allurus.my/site/assets/og-image.png">');
+        document.write('<link rel="icon" href="/site/favicon.svg" type="image/svg+xml">');
+        ['demo/local-host.js', 'shared/pos-core.js', 'demo/seed.js', 'demo/demo-ui.js', 'api-demo.js?v=1'].forEach(function (src) {
+          document.write('<scr' + 'ipt src="' + src + '"></scr' + 'ipt>');
+        });
+      };
+      if (window.POS_DEMO_MODE) window.__posLoadDemo();
+      else {
+        // config.js is git-ignored; if it isn't there (a fresh checkout, or this page served without it on
+        // purpose), fall back to the demo instead of a dead till.
+        document.write('<scr' + 'ipt src="config.js" onerror="window.__posLoadDemo()"></scr' + 'ipt>');
+        document.write('<scr' + 'ipt src="api.js?v=6" onerror="window.__posLoadDemo()"></scr' + 'ipt>');
+      }
+    })();
+  </script>
 </head>
 <body>
   <a class="skip" href="#view-till">Skip to checkout</a>
@@ -106,8 +146,6 @@
   <div id="toast" class="toast no-print" role="status" aria-live="polite"></div>
   <div id="print" class="print-only"></div>
 
-  <script src="config.js"></script>
-  <script src="api.js?v=6"></script>
-  <script src="app.js?v=10"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>
