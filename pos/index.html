@@ -15,15 +15,26 @@
   <title>Cafe POS</title>
   <link rel="stylesheet" href="style.css?v=15">
   <script>
-    // Demo mode: /demo/pos, or /pos/?demo=1 for local testing, or no config.js at all (see README.md "Setup").
-    // In demo mode this page never requests config.js or calls script.google.com (POS-DEMO-SPEC.md).
+    // Three modes, decided here, in one place:
+    //   /demo/pos, or /pos/?demo=1 for local testing: the public demo, browser-only, no login (POS-DEMO-SPEC.md).
+    //   /pos (no ?demo=1): live for a signed-in company, its own Google Sheet, through the central Allurus POS
+    //     Server (pos/apps-script-server/, POS-LIVE-APPSCRIPT-SPEC.md) - real trading, server-checked totals.
+    //   anything else (local dev, README.md "Setup"): the original single-cafe Google Sheet backend.
+    // Falls back from live or Sheet mode to the demo if there's no way to reach a real backend, instead of a dead
+    // till. In demo mode this page never requests config.js or calls script.google.com.
     (function () {
       var byPath = /^\/demo\/pos\/?$/.test(location.pathname);
       var byQuery = /(?:^|[?&])demo=1(?:&|$)/.test(location.search);
       window.POS_DEMO_MODE = byPath || byQuery;
+      var byLivePath = !window.POS_DEMO_MODE && /^\/pos\/?$/.test(location.pathname);
+      window.POS_LIVE_MODE = byLivePath; // read at the bottom of body: app.js loads there for every mode except
+                                          // live, where api-live.js injects it itself once signed in and ready
+
+      function write(src) { document.write('<scr' + 'ipt src="' + src + '"></scr' + 'ipt>'); }
 
       window.__posLoadDemo = function () {
         window.POS_DEMO_MODE = true;
+        window.POS_LIVE_MODE = false;
         // connect-src 'self': belt-and-braces alongside the HTTP header firebase.json sets on /demo/pos, and the
         // only CSP local dev (plain static file servers send no headers) gets.
         document.write('<meta http-equiv="Content-Security-Policy" content="connect-src \'self\'">');
@@ -33,12 +44,19 @@
         document.write('<meta property="og:description" content="A full cafe till you can try right now — checkout, waste, stock, sales. Runs in your browser only.">');
         document.write('<meta property="og:image" content="https://allurus.my/site/assets/og-image.png">');
         document.write('<link rel="icon" href="/site/favicon.svg" type="image/svg+xml">');
-        ['demo/local-host.js', 'shared/pos-core.js', 'demo/seed.js', 'demo/demo-ui.js', 'api-demo.js?v=1'].forEach(function (src) {
-          document.write('<scr' + 'ipt src="' + src + '"></scr' + 'ipt>');
-        });
+        ['demo/local-host.js', 'shared/pos-core.js', 'demo/seed.js', 'demo/demo-ui.js', 'api-demo.js?v=1'].forEach(write);
       };
       if (window.POS_DEMO_MODE) window.__posLoadDemo();
-      else {
+      else if (byLivePath) {
+        // api-live.js checks sign-in and the company's POS trial/active status itself, then injects app.js once
+        // ready - so app.js is deliberately NOT written here (unlike the other two modes). connect-src covers the
+        // central POS server's redirect through script.googleusercontent.com (api.js already relies on the same
+        // redirect for the single-cafe backend; see firebase.json for the matching HTTP header).
+        document.write('<meta http-equiv="Content-Security-Policy" content="connect-src \'self\' https://script.google.com https://script.googleusercontent.com https://identitytoolkit.googleapis.com https://firestore.googleapis.com https://www.gstatic.com">');
+        document.write('<scr' + 'ipt src="/js/firebase-config.js" onerror="window.__posLoadDemo()"></scr' + 'ipt>');
+        write('/js/pos-server-config.js');
+        write('api-live.js?v=1');
+      } else {
         // config.js is git-ignored; if it isn't there (a fresh checkout, or this page served without it on
         // purpose), fall back to the demo instead of a dead till.
         document.write('<scr' + 'ipt src="config.js" onerror="window.__posLoadDemo()"></scr' + 'ipt>');
@@ -146,6 +164,11 @@
   <div id="toast" class="toast no-print" role="status" aria-live="polite"></div>
   <div id="print" class="print-only"></div>
 
-  <script src="app.js?v=11"></script>
+  <script>
+    // Demo and real (Sheet) mode: app.js loads here, after every DOM element above it touches already exists.
+    // Live mode: api-live.js injects this same tag itself, once it knows sign-in succeeded and the company's
+    // POS is on - so app.js never runs against a company that turns out not to have access.
+    if (!window.POS_LIVE_MODE) document.write('<scr' + 'ipt src="app.js?v=11"></scr' + 'ipt>');
+  </script>
 </body>
 </html>

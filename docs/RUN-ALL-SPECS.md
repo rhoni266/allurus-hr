@@ -39,7 +39,7 @@ Do them in this order. Finish, merge and check each one before starting the next
 4. **Support access for superadmin** (`SUPPORT-ACCESS-SPEC.md`). Hard stop 4 applies to setting the claim.
 5. **Role access with tick boxes** (`ROLE-ACCESS-SPEC.md`). Includes rules fixes so each role sees only its own data.
 6. **POS public demo** (`POS-DEMO-SPEC.md`): `allurus.my/demo/pos`, runs in the browser only, POS restyled to the design standard.
-6b. **POS live for every company** (`POS-LIVE-FLOW-SPEC.md`): trial switch-on, Firestore per company, staff sign in with Allurus logins. Live sales need Blaze (hard stop 3); without it, ship practice mode only.
+6b. **POS live for every company** (`POS-LIVE-FLOW-SPEC.md` + `POS-LIVE-APPSCRIPT-SPEC.md`): trial switch-on, one Google Sheet per company through a central Apps Script server, staff sign in with Allurus logins. No Blaze needed. Steps that need the owner's Google account go in the log.
 7. **One design standard** (`DESIGN-STANDARD-SPEC.md`). **Do this last**, after 0 to 6b are merged, on one branch `claude/design-standard`. Afterwards rebase any branch still open onto `main`.
 
 Not in this run: tasks 0 to 7 of `HR-FIX-SPEC.md` (the owner has not approved them yet).

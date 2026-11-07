@@ -70,6 +70,13 @@ test('role, company and employee come only from the invitation', async () => {
   await assertFails(setDoc(doc(siti(), 'users/sitiUid'), prof('siti@a.my', { perms: ['payroll'] })));
 });
 
+// Security gap 1 (GO-LIVE-POS.md step 1): the point-of-sale role is given by an admin after joining, never
+// chosen by the person activating their own invitation.
+test('activating an invitation can’t also claim a posRole', async () => {
+  await assertFails(setDoc(doc(siti(), 'users/sitiUid'), prof('siti@a.my', { posRole: 'manager' })));
+  await assertSucceeds(setDoc(doc(siti(), 'users/sitiUid'), prof('siti@a.my')));
+});
+
 test('8 activating twice is refused (the profile exists)', async () => {
   await assertSucceeds(setDoc(doc(siti(), 'users/sitiUid'), prof('siti@a.my')));
   await assertFails(setDoc(doc(siti(), 'users/sitiUid'), prof('siti@a.my')));

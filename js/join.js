@@ -35,15 +35,19 @@ function getDeviceId() {
 }
 
 function getStaffSession() {
+  let sess = null;
   try {
     const raw = localStorage.getItem('allurus_staff_session');
-    if (raw) return JSON.parse(raw);
+    if (raw) sess = JSON.parse(raw);
   } catch (e) {}
-  try {
-    const m = document.cookie.match(/(?:^|;\s*)allurus_staff_token=([^;]+)/);
-    if (m) return JSON.parse(decodeURIComponent(m[1]));
-  } catch (e) {}
-  return null;
+  if (!sess) {
+    try {
+      const m = document.cookie.match(/(?:^|;\s*)allurus_staff_token=([^;]+)/);
+      if (m) sess = JSON.parse(decodeURIComponent(m[1]));
+    } catch (e) {}
+  }
+  if (sess && 'pin' in sess) { delete sess.pin; saveStaffSession(sess); } // migrate away a pre-fix stored PIN
+  return sess;
 }
 
 function saveStaffSession(sess) {
@@ -223,19 +227,20 @@ function step1_ic(ctx, msg = '') {
         return;
       }
 
-      const staffName = kData.name || 'Staff';
+      // staffKeys is readable without signing in (so this IC check can run before auth), so it never holds a
+      // name - anyone who guessed a tenantId + IC could otherwise read a real employee's name. Security gap 3,
+      // 2026-11-07 review.
       ctx.staff = {
         ic,
-        name: staffName,
         empId: kData.empId || '',
         gen: Number(kData.gen) || 1
       };
 
-      // Green welcome banner + auto-approval feedback
+      // Green welcome banner + auto-approval feedback (no name shown here: not signed in yet)
       welcomeSlot.innerHTML = `
         <div class="welcome-box">
           <span class="welcome-badge">✓ Rekod Ditemui / Record Found</span>
-          <h3 style="margin:4px 0 0;font-size:18px">Jumpa! Selamat datang, ${esc(staffName)}</h3>
+          <h3 style="margin:4px 0 0;font-size:18px">Jumpa! Teruskan pendaftaran anda.</h3>
         </div>`;
       btn.textContent = 'Disahkan ✓';
       btn.classList.add('btn-ok');
@@ -257,7 +262,7 @@ function step2_phone(ctx) {
   renderScreen({
     badge: ctx.companyName,
     pill: 'Langkah 2 daripada 3 · No. Telefon',
-    title: `Hai ${esc(ctx.staff.name)} 👋`,
+    title: 'Hai 👋',
     sub: 'Sila masukkan No. Telefon anda / Enter your phone number',
     card: `
       <form id="f-phone" novalidate style="display:flex;flex-direction:column;gap:14px" autocomplete="off">
@@ -424,7 +429,7 @@ function step3_pin(ctx) {
     const twice = async (fn) => { try { await fn(); return true; } catch (e) { console.warn('[Allurus join] save failed, retrying', e?.code); } try { await fn(); return true; } catch (e) { console.warn('[Allurus join] save failed', e?.code); return false; } };
     const profileOk = await twice(() => FS.setDoc(FS.doc(db, `users/${cred.user.uid}`), {
       email,
-      name: ctx.staff.name || 'Staff',
+      name: 'Staff', // the real name is on the linked employee record (empId); not read pre-sign-in (gap 3)
       tenantId: ctx.tenantId,
       code: ctx.code,
       roles: ['employee'],
@@ -449,8 +454,9 @@ function step3_pin(ctx) {
         if (link) await FS.deleteDoc(FS.doc(db, `joinLinks/${link}`)).catch(() => {});
         await FS.deleteDoc(FS.doc(db, `staffInvites/${key}`)).catch(() => {});
       }
-      // Save persistent staff session for "Never Log Out" policy (10-year expiry)
-      saveStaffSession({ email, pin, tenantId: ctx.tenantId, code: ctx.code, ic: ctx.staff.ic, deviceId });
+      // Save persistent staff session for "Never Log Out" policy (10-year expiry). Firebase Auth's own
+      // persistence is what actually keeps the sign-in alive; this never stores the PIN itself.
+      saveStaffSession({ email, tenantId: ctx.tenantId, code: ctx.code, ic: ctx.staff.ic, deviceId });
     }
 
     if (!profileOk || !phoneOk) {
@@ -473,7 +479,7 @@ function step3_pin(ctx) {
       sub: 'Registration Successful!',
       card: `
         <div class="welcome-box" style="margin-bottom:12px">
-          <p style="font-size:15px;margin:0 0 6px"><b>Selamat datang, ${esc(ctx.staff.name)}!</b></p>
+          <p style="font-size:15px;margin:0 0 6px"><b>Selamat datang!</b></p>
           <p style="font-size:13.5px;margin:0">Membuka aplikasi Allurus anda…</p>
         </div>
         <p class="ac-ok" role="status">Sila gunakan kod syarikat <b>${esc(ctx.code)}</b>, No. IC dan PIN 6 angka anda untuk log masuk seterusnya.</p>`,

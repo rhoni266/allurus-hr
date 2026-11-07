@@ -39,6 +39,12 @@ test('while open: joins as auto-approved (pending: false), employee role only', 
   await assertFails(setDoc(doc(staff('s5', mail('900101149996', 1)), 'users/s5'), prof(mail('900101149996', 1), { code: 'nope' })));
 });
 
+// Security gap 1 (GO-LIVE-POS.md step 1): nobody chooses their own point-of-sale role while joining.
+test('joining through the open page can’t also claim a posRole', async () => {
+  await assertFails(setDoc(doc(staff('s1', mail(IC, 1)), 'users/s1'), prof(mail(IC, 1), { posRole: 'manager' })));
+  await assertSucceeds(setDoc(doc(staff('s2', mail('900101149998', 1)), 'users/s2'), prof(mail('900101149998', 1))));
+});
+
 test('closed or expired: nobody joins', async () => {
   await setCode({ openUntil: null });
   await assertFails(setDoc(doc(staff('s1', mail(IC, 1)), 'users/s1'), prof(mail(IC, 1))));
@@ -72,6 +78,17 @@ test('only HR with Settings approves; nobody makes someone pending or changes an
   await assertFails(updateDoc(doc(hr(), 'users/s1'), { empId: 'e8' }));
   await assertFails(updateDoc(doc(hr(), 'users/pay'), { pending: true }));
   await assertSucceeds(updateDoc(doc(hr(), 'users/s1'), { disabled: true }));          // "This is not them"
+});
+
+// Security gap 6 (GO-LIVE-POS.md step 1): until open-join gap 1 (code + IC only) is fixed, HR can't give a
+// till role to an open-joined account before it's confirmed (pending cleared) - and not in the same write
+// that clears pending, either; only in a later, separate one.
+test('an open-joined account gets no POS role until HR has already confirmed it, in an earlier write', async () => {
+  await setDoc(doc(staff('s1', mail(IC, 1)), 'users/s1'), prof(mail(IC, 1)));
+  await assertFails(updateDoc(doc(hr(), 'users/s1'), { posRole: 'cashier' }));                                  // still pending
+  await assertFails(updateDoc(doc(hr(), 'users/s1'), { pending: false, empId: 'e7', posRole: 'cashier' }));     // same write as the approval
+  await assertSucceeds(updateDoc(doc(hr(), 'users/s1'), { pending: false, empId: 'e7' }));                      // approve first
+  await assertSucceeds(updateDoc(doc(hr(), 'users/s1'), { posRole: 'cashier' }));                               // then, separately, give POS access
 });
 
 test('HR opens and closes registration; at most 31 days; others can’t', async () => {
