@@ -3,7 +3,7 @@
 // valid Allurus sign-in (the server checks the caller's Firebase ID token itself) - so this is committed, the
 // same as js/firebase-config.js.
 //
-// PLACEHOLDER: the owner deploys pos/apps-script-server/ (Deploy > New deployment > Web app) and pastes the
-// resulting /exec URL in here. Until then this stays null and /pos shows "POS server not configured" instead of
-// a dead till (see pos/api-live.js).
-window.ALLURUS_POS_SERVER = null;
+// Deployed 2026-11-07 (docs/POS-SERVER-DEPLOYED.md): "Allurus POS Server" v1, Execute as Me, Who has access:
+// Anyone. Any later change to the server files needs a new version at this same URL (Deploy > Manage deployments
+// > edit > Version: New version) - this value doesn't change then.
+window.ALLURUS_POS_SERVER = 'https://script.google.com/macros/s/AKfycbxgCJliuxFxZhuFOPz51nV8EhmZzdEyM8TDHi3vsKxvlKDYrbq1hitV0uFAoFlkcCf9bw/exec';
