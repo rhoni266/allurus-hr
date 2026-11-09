@@ -235,3 +235,28 @@ A small sign-in-gated page, the same shape as `js/join.js`: an Owner or Settings
 ### Not done
 - Step 5 (test company, real sale, void, cross-company isolation, trial expiry, `backupAll`, per-sale timing) needs the owner signed in as a test company's Owner - not started here for the same reason as above (no passwords typed by this agent). Ready to run as soon as the owner has a test company and is signed in.
 - The "Confirm identity" UI for `confirmedAt` (step 1.6 above) - no Access panel exists in `main` to attach it to yet.
+
+## 2026-11-09: Hafidz Rosali → Owner of Major Far East (docs/SET-OWNER-MAJOR-FAR-EAST.md)
+
+### Step 1 (check only, nothing changed)
+`node scripts/set-owner.js "Major Far East" "Hafidz"` (emails and ICs left out here):
+```
+Company: Major Far East (V7huAtefSobLmKN8yEcZ)
+  Recorded owner uid: wfg7LQguhGSssw0Rc7YRm9kNWUu1
+  Accounts in this company: 5. Owners now: Nadia (wfg7LQguhGSssw0Rc7YRm9kNWUu1)
+Person: hafidz rosali  uid=sj7dk3PfaXSbb0GUE4iPqMATpEx2
+  Now: roles=["employee"] perms=(none)   (not pending, not disabled)
+Will set: roles=["employee","admin"], remove the perms list.
+(tenants.owner already set, so it stays Nadia.)
+```
+
+### Step 2: not run, waiting for the owner
+Step 1 matched exactly one company and exactly one Hafidz Rosali, active, so the spec's conditions for step 2 hold.
+But the spec's premise doesn't: it says nobody is Owner (expected "NONE"), and step 1 shows **Nadia is already
+Owner** and the recorded company owner. She can make Hafidz Owner herself in Settings → Team access. Giving full
+Owner access from the server, around an existing Owner, was not done without asking the owner first.
+
+### Also
+`scripts/set-owner.js` committed with `tests/set-owner.test.js` (fake Firestore via `tests/fixtures/fake-admin.js`:
+check-only changes nothing; --yes makes only that person Owner and claims an unclaimed company; refuses pending,
+disabled, unknown and ambiguous matches).
