@@ -265,3 +265,28 @@ disabled, unknown and ambiguous matches).
 `node scripts/set-owner.js "Major Far East" "Hafidz" --yes` → `Done: hafidz rosali is now Owner of Major Far East.`
 Re-check: Owners now: hafidz rosali (sj7dk3PfaXSbb0GUE4iPqMATpEx2), Nadia (wfg7LQguhGSssw0Rc7YRm9kNWUu1).
 roles=["employee","admin"], no perms list. Recorded company owner unchanged (Nadia). Nobody else changed.
+
+## 2026-11-09: macOS-style interface (docs/MACOS-STYLE-UI-SPEC.md), branch `claude/design-standard`
+
+### Built
+- `brand/tokens.css`: brand, status, radius (window 14, card 16, control 8), window/sidebar/desktop/selection and shadow tokens, light and dark; Inter bundled (`brand/inter-latin-wght-normal.woff2`, licence `brand/Inter-OFL.txt`). No SF Pro.
+- `css/mac.css` (replaces `css/glass.css`, deleted with the Manrope font): the window on a desktop background, translucent sidebar (selected item teal + white), 52px toolbar with page title and search, macOS buttons/segmented controls/fields/tables (selected row teal), sheets sliding from the top (bottom sheets on phones), 4/2/1-column widget grid, phones full-screen with the existing bottom tab bar. Dark: obsidian window, `#2BB3A3` selection with obsidian text.
+- Launcher ("All apps"): grid button in the sidebar header and ⌘K / Ctrl K. 6/4/3 columns, brand-colour tiles with our own line icons, red count badges, search, arrow keys, Enter, Esc, a dock of up to 6 favourites (per person, per device). It lists exactly `routes()`, so `can(area)` and company features apply.
+- Inspector: every record drawer now opens as a 340px panel on the right of the window (full-screen sheet on phones); on Employees the shown row turns teal. Sidebar collapses to icons (remembered per device).
+- Teal is the default accent (lime removed); theme follows the system unless the person picks one.
+- `tests/design-style.test.js`: no lime/Manrope shipped, brand colours and tokens present, no raw hex in `css/mac.css`, 14 text/background pairs ≥ 4.5:1.
+
+### Tests
+- `npm test` 402/402. Browser check in the demo (Edge, 19/19): window, teal selection, Inter, 4-column home, ⌘K launcher (search, Enter, arrows, Esc, dock pin), inspector + selected row, sidebar collapse, 3px focus ring, Finance-only launcher has no HR modules, Employee launcher has only their own pages, no page errors. Screenshots light/dark at 1440/1024/390 of Home, All apps, Employees + inspector, Leave, Payroll, Settings → Users & roles, sign-in.
+- Earlier checks: claims 6/6, work-email 13/13. The old bulk-IC browser check fails while seeding its fake data on `main` too (demo data changed since it was written), so it's not from this change.
+
+### Decisions made on the owner's behalf
+- `DESIGN-STANDARD-SPEC.md` is not in the repo; built from the colours, font and rules restated in the macOS spec.
+- The mockup canvas wasn't available to this session, so the layout follows the written spec. **Not merged:** the spec says merge only once the preview looks like the mockup, and that can't be judged without it.
+- ⌘K opens the launcher (the spec asks for that); typing a name that isn't an app and pressing Enter opens the full command search. The toolbar search field still opens the command search directly.
+- The home keeps its existing widgets and the existing Customize (hide, show, reorder, resize; already area-gated), re-laid on the 4-column grid. No new widgets (POS sales, Next payroll, This week strip) yet.
+
+### Not done (left for the next pass)
+- Right-click / long-press context menus on rows.
+- Row selection highlight on Leave, Claims, Invoices, Stock and POS products (their drawers already open as the inspector).
+- POS: left as it is (it already uses the teal/Inter dark standard from the POS work).

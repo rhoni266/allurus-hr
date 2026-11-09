@@ -6,9 +6,10 @@
 <title>Allurus HR</title>
 <meta name="description" content="Allurus — people operations for growing companies.">
 <link rel="icon" type="image/svg+xml" href="assets/logo-mark.svg">
-<link rel="stylesheet" href="css/styles.css?v=3.19">
-<link rel="preload" href="assets/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="css/glass.css?v=3.19">
+<link rel="stylesheet" href="css/styles.css?v=3.40">
+<link rel="preload" href="brand/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="brand/tokens.css?v=3.40">
+<link rel="stylesheet" href="css/mac.css?v=3.40">
 </head>
 <body>
 <!--app:start-->
@@ -18,9 +19,14 @@
 
 <div class="app" hidden>
   <aside class="sidebar" id="sidebar" aria-label="Main navigation">
-    <div class="brand">
-      <span id="brand-mark"></span>
-      <div><div class="brand-word">ALLURUS</div><div class="brand-sub" id="company-name"></div></div>
+    <div class="win-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div class="side-head">
+      <div class="brand">
+        <span id="brand-mark"></span>
+        <div><div class="brand-word">ALLURUS</div><div class="brand-sub" id="company-name"></div></div>
+      </div>
+      <button type="button" class="side-btn" data-act="mac-launch" aria-label="All apps" title="All apps"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg></button>
+      <button type="button" class="side-btn" data-act="mac-collapse" aria-label="Collapse sidebar" title="Collapse sidebar"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M9.5 4.5v15"/></svg></button>
     </div>
     <nav class="nav" id="nav"></nav>
     <div class="side-foot">
@@ -35,6 +41,7 @@
     <header class="topbar">
       <button class="btn btn-icon btn-ghost menu-btn" data-act="menu" aria-label="Open menu"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
       <a class="logo-tile" href="#" aria-label="Allurus HR, home"><span class="logo-sq" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M19 47 L32 17 L45 47" fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M23.5 37.5 Q32 32 40.5 37.5" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></svg></span><span class="logo-word">Allurus HR</span></a>
+      <div class="tb-title" id="tb-title"></div>
       <div class="top-spacer"></div>
       <nav class="pillnav" id="pillnav" aria-label="Sections"></nav>
       <div class="top-spacer"></div>
@@ -114,10 +121,10 @@
 <script src="js/import/import.js?v=3.12"></script>
 <script src="js/kiosk.js?v=3.7"></script>
 <script src="js/geo-map.js?v=3.7"></script>
-<script src="js/experience.js?v=3.7"></script>
+<script src="js/experience.js?v=3.40"></script>
 <script src="js/firebase-config.js?v=3.7"></script>
 <script src="js/cloud-map.js?v=3.38"></script>
-<script src="js/app.js?v=3.38"></script>
+<script src="js/app.js?v=3.40"></script>
 <!--app:end-->
 </body>
 </html>

@@ -533,11 +533,119 @@
   // A page may carry a query after "?" (#ops-stock?po=…); it is the page's to read.
   const route = () => { const h = location.hash.replace('#', '').split('?')[0].replace(/^settings\/.*/, 'settings'); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
+  // ---------- macOS-style shell (css/mac.css): toolbar title, collapsible sidebar, inspector, launcher and dock ----------
+  // The launcher shows only the pages this person can open (routes(), which already applies can(area) and the
+  // company's features). The dock and the collapsed sidebar are per person, per device (localStorage).
+  const macShell = (() => {
+    const store = { get: (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } } };
+    const TINTS = ['teal', 'deep', 'champagne', 'obsidian', 'slate', 'mist'];
+    const tintOf = (r, rs) => TINTS[[...new Set(rs.map((x) => x.group))].indexOf(r.group) % TINTS.length];
+    const dockKey = () => `allurus-dock:${state.session.account || 'guest'}:${role()}`;
+    let open = false, query = '', kb = 0, lastFocus = null;
+    function title(r) {
+      const el = $('#tb-title'); if (!el) return;
+      const cur = routes().find((x) => x.id === r);
+      el.innerHTML = cur ? `<b>${esc(cur.label)}</b><span>${esc(cur.group)}</span>` : '';
+    }
+    function collapse() {
+      const app = $('.app'), on = !app.classList.contains('side-collapsed');
+      app.classList.toggle('side-collapsed', on); store.set('allurus-side-collapsed', on);
+      $('[data-act=mac-collapse]')?.setAttribute('aria-label', on ? 'Expand sidebar' : 'Collapse sidebar');
+    }
+    function restore() { if (store.get('allurus-side-collapsed', false)) $('.app')?.classList.add('side-collapsed'); }
+    function dock(rs) {
+      const saved = store.get(dockKey(), null);
+      const ids = (saved || rs.slice(0, 5).map((r) => r.id)).filter((id) => rs.some((r) => r.id === id)).slice(0, 6);
+      return ids.map((id) => rs.find((r) => r.id === id));
+    }
+    const tile = (r, rs, inDock) => {
+      const n = navCount(r), pinned = dock(rs).some((d) => d.id === r.id);
+      return `<a class="launch-app" href="#${r.id}" data-launch="${r.id}" aria-label="${esc(r.label)}${n ? `, ${n} waiting` : ''}"><span class="app-ic ic-${tintOf(r, rs)}" aria-hidden="true">${icon(r.icon)}</span>${n ? `<span class="app-badge" aria-hidden="true">${n > 99 ? '99+' : n}</span>` : ''}<span class="lbl">${esc(r.label)}</span>${inDock ? '' : `<button type="button" class="launch-pin" data-dock="${r.id}" aria-label="${pinned ? 'Remove from dock' : 'Add to dock'}: ${esc(r.label)}" title="${pinned ? 'Remove from dock' : 'Add to dock'}">${icon(pinned ? 'x' : 'plus')}</button>`}</a>`;
+    };
+    function draw() {
+      const root = $('#mac-launch'); if (!root) return;
+      const rs = routes(), q = query.trim().toLowerCase();
+      const list = rs.filter((r) => !q || `${r.label} ${r.group}`.toLowerCase().includes(q));
+      kb = Math.min(kb, Math.max(0, list.length - 1));
+      $('.launch-grid', root).innerHTML = list.length ? list.map((r) => tile(r, rs)).join('') : `<p class="launch-empty">No app called “${esc(query)}”. Press Enter to search everything.</p>`;
+      $$('.launch-app', $('.launch-grid', root)).forEach((a, i) => a.classList.toggle('kb', i === kb && !!q));
+      $('.dock', root).innerHTML = dock(rs).map((r) => tile(r, rs, true)).join('');
+    }
+    function cols() { const g = $('#mac-launch .launch-grid'); return g ? getComputedStyle(g).gridTemplateColumns.split(' ').length : 6; }
+    function show() {
+      if (open || !role()) return;
+      open = true; query = ''; kb = 0; lastFocus = document.activeElement;
+      const el = document.createElement('div');
+      el.id = 'mac-launch'; el.className = 'launch'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', 'All apps');
+      el.innerHTML = '<input class="launch-search" type="search" placeholder="Search apps" aria-label="Search apps" autocomplete="off"><div class="launch-grid"></div><div class="dock" aria-label="Dock"></div><p class="dock-note">Hover an app and press + to add it to the dock. Esc to close.</p>';
+      document.body.appendChild(el);
+      draw();
+      const input = $('.launch-search', el);
+      input.addEventListener('input', () => { query = input.value; kb = 0; draw(); });
+      el.addEventListener('click', (ev) => {
+        const pin = ev.target.closest('[data-dock]');
+        if (pin) {
+          ev.preventDefault(); ev.stopPropagation();
+          const ids = dock(routes()).map((r) => r.id), id = pin.dataset.dock;
+          store.set(dockKey(), ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id].slice(-6));
+          draw(); input.focus(); return;
+        }
+        if (ev.target.closest('.launch-app')) { hide(false); return; }
+        if (ev.target === el) hide();
+      });
+      el.addEventListener('keydown', (ev) => {
+        const apps = $$('.launch-grid .launch-app', el);
+        if (ev.key === 'Escape') { ev.preventDefault(); hide(); return; }
+        if (ev.key === 'Enter' && document.activeElement === input) {
+          ev.preventDefault();
+          if (apps[kb]) { location.hash = apps[kb].dataset.launch; hide(false); } else { hide(false); AllurusUX.openPalette?.(); }
+          return;
+        }
+        const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: cols(), ArrowUp: -cols() }[ev.key];
+        if (step && apps.length) {
+          ev.preventDefault();
+          const i = apps.includes(document.activeElement) ? apps.indexOf(document.activeElement) : kb;
+          kb = Math.max(0, Math.min(apps.length - 1, i + step));
+          apps[kb].focus();
+          return;
+        }
+        if (ev.key === 'Tab') {
+          const f = $$('input, a, button', el);
+          if (!f.length) return;
+          if (ev.shiftKey && document.activeElement === f[0]) { ev.preventDefault(); f[f.length - 1].focus(); }
+          else if (!ev.shiftKey && document.activeElement === f[f.length - 1]) { ev.preventDefault(); f[0].focus(); }
+        }
+      });
+      setTimeout(() => input.focus(), 20);
+    }
+    function hide(back = true) {
+      const el = $('#mac-launch'); if (el) el.parentNode.removeChild(el);
+      open = false;
+      if (back && lastFocus?.focus) lastFocus.focus();
+    }
+    // The record drawer is the inspector: it sits on the right of the window, and the row it shows is selected.
+    function select(id) { $$('#view tr[data-id]').forEach((tr) => { const on = tr.dataset.id === id; tr.classList.toggle('selected', on); tr.setAttribute('aria-selected', String(on)); }); }
+    function watch() {
+      const root = $('#overlay-root'); if (!root || !window.MutationObserver) return;
+      new MutationObserver(() => {
+        const on = !!root.querySelector('.drawer');
+        $('.app')?.classList.toggle('has-inspector', on);
+        if (!on) $$('#view tr.selected').forEach((tr) => { tr.classList.toggle('selected', false); tr.setAttribute('aria-selected', 'false'); });
+      }).observe(root, { childList: true });
+    }
+    return { title, collapse, restore, show, hide, toggle: () => (open ? hide() : show()), isOpen: () => open, select, watch };
+  })();
+  window.AllurusMacLaunch = macShell;
+
+  // How many things wait on a page (the sidebar count and the launcher badge).
+  function navCount(r) {
+    return r.id === 'my-approvals' ? leaveApi.myCount(me().id) + timeApi.myCount(me().id) + claimsApi.myCount(me().id) + (recruitApi?.taskCount(me().id) || 0) : r.id === 'training' ? lmsApi?.pendingCount() || 0 : r.id === 'my-training' ? lmsApi?.todoCount(me().id) || 0 : r.id === 'grievances' ? grievApi?.badge() || 0 : r.id === 'recruitment' ? recruitApi?.badge() || 0 : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'employees' ? hrApi?.pendingCount() || 0 : r.id === 'onboarding' ? hrApi?.overdueCount() || 0 : r.id === 'performance' || r.id === 'my-appraisal' ? appraisalApi?.badge(r.id) || 0 : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || opsApi?.badge(r.id) || posApi?.badge(r.id) || 0);
+  }
   function renderNav() {
     let html = '', group = '';
     const rs = routes(), pinned = AllurusUX.pins().map((id) => rs.find((r) => r.id === id)).filter(Boolean);
     const navItem = (r) => {
-      const count = r.id === 'my-approvals' ? leaveApi.myCount(me().id) + timeApi.myCount(me().id) + claimsApi.myCount(me().id) + (recruitApi?.taskCount(me().id) || 0) : r.id === 'training' ? lmsApi?.pendingCount() || 0 : r.id === 'my-training' ? lmsApi?.todoCount(me().id) || 0 : r.id === 'grievances' ? grievApi?.badge() || 0 : r.id === 'recruitment' ? recruitApi?.badge() || 0 : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'employees' ? hrApi?.pendingCount() || 0 : r.id === 'onboarding' ? hrApi?.overdueCount() || 0 : r.id === 'performance' || r.id === 'my-appraisal' ? appraisalApi?.badge(r.id) || 0 : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || opsApi?.badge(r.id) || posApi?.badge(r.id) || 0);
+      const count = navCount(r);
       const on = AllurusUX.pins().includes(r.id), cur = route() === r.id;
       return `<div class="nav-item"><a href="#${r.id}" class="${cur ? 'active' : ''}" ${cur ? 'aria-current="page"' : ''}>${icon(r.icon)}<span>${r.label}</span>${count ? `<span class="count" aria-label="${count} waiting">${count}</span>` : ''}</a><button type="button" class="nav-pin ${on ? 'on' : ''}" data-act="ux-pin" data-id="${r.id}" aria-pressed="${on}" aria-label="${on ? 'Unpin' : 'Pin'} ${esc(r.label)}" title="${on ? 'Unpin' : 'Pin to top'}">${icon(on ? 'starFill' : 'star')}</button></div>`;
     };
@@ -559,7 +667,7 @@
     $('#role-switch')?.addEventListener('change', (ev) => switchRole(ev.target.value));
   }
 
-  // The glass shell (css/glass.css): a pill of sections (the route groups) at the top, and a rail of the current
+  // The old pill-and-rail shell (kept for its markup; css/mac.css hides it): a pill of sections (the route groups) at the top, and a rail of the current
   // section's pages on the left. The sidebar above stays as the full list, opened from the avatar or the menu button.
   const GROUP_SHORT = { 'Finance & Accounting': 'Finance' };
   let pillAt = null;
@@ -618,13 +726,7 @@
   function decorateHead(r) {
     const head = $('#view .page-head') || $('#view .hero-text'), h1 = head?.querySelector('h1');
     if (!h1) return;
-    // Two lines, split where the halves are closest in length ("Statutory & Claim / Guide" → "Statutory & / Claim Guide").
-    const words = h1.textContent.trim().split(/\s+/);
-    if (!h1.children.length && words.length > 1) {
-      let best = 1, diff = Infinity;
-      for (let i = 1; i < words.length; i++) { const d = Math.abs(words.slice(0, i).join(' ').length - words.slice(i).join(' ').length); if (d < diff) { diff = d; best = i; } }
-      h1.innerHTML = `${esc(words.slice(0, best).join(' '))}<br>${esc(words.slice(best).join(' '))}`;
-    }
+    // One-line titles (the macOS toolbar already names the page); key numbers sit under them as small chips.
     const k = pageKpis(r); if (!k.length || head.querySelector('.kpis')) return;
     const html = `<div class="kpis" role="list" aria-label="Key numbers">${k.map(([ic, v, l]) => `<div class="kpi-chip" role="listitem"><span class="kpi-ic" aria-hidden="true">${icon(ic)}</span><span class="kpi-txt"><b class="num">${esc(String(v))}</b><small>${esc(l)}</small></span></div>`).join('')}</div>`;
     if (head.classList.contains('page-head')) head.firstElementChild.insertAdjacentHTML('afterend', html); else h1.insertAdjacentHTML('afterend', html);
@@ -661,6 +763,7 @@
     const r = route();
     AllurusUX.beforeRender(r);
     renderNav();
+    macShell.title(r);
     const topSignout = $('.top-signout');
     if (topSignout) topSignout.hidden = role() === 'employee';
     const view = $('#view');
@@ -1032,6 +1135,7 @@
 
   function openProfile(id, tab = 'summary') {
     const e = emp(id); if (!e) return;
+    setTimeout(() => macShell.select(id), 0);
     if (tab !== 'summary') {
       openDrawer(`<div class="drawer-hero"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><div style="display:flex;gap:12px;align-items:center;min-width:0">${avatar(fullName(e))}<div style="min-width:0"><h2 style="font-size:20px">${esc(fullName(e))}</h2><div class="muted">${esc(e.role)}</div></div></div><button class="btn btn-icon btn-ghost" data-act="close-overlay" aria-label="Close">${icon('x')}</button></div>${hrApi.tabBar(e, tab)}</div>${hrApi.tabBody(e, tab)}`);
       return;
@@ -2897,7 +3001,7 @@
     setTimeout(() => $('input:not([type=hidden]), select, textarea', form)?.focus(), 30);
   }
   function openDrawer(html) {
-    $('#overlay-root').innerHTML = `<div class="scrim drawer-scrim" data-scrim><aside class="drawer" role="dialog" aria-modal="true">${html}</aside></div>`;
+    $('#overlay-root').innerHTML = `<div class="scrim drawer-scrim" data-scrim><aside class="drawer" role="dialog" aria-modal="true" aria-label="Details">${html}</aside></div>`;
     AllurusUX.trapFocus($('.drawer'));
   }
   // Destructive actions and decisions can be undone for a few seconds from their toast.
@@ -3026,6 +3130,8 @@
     // Switch demo company: each one lives under its own address and storage key.
     'demo-company': (_, id) => { if (CLOUD || id === DEMO.id) return; location.href = `${location.pathname}?demo${id === 'serimaju' ? '' : `=${id}`}`; },
     'menu': () => $('#sidebar').classList.toggle('open'),
+    'mac-launch': () => macShell.toggle(),
+    'mac-collapse': () => macShell.collapse(),
     ...ACTIONS_EXTRA,
   };
 
@@ -3788,6 +3894,7 @@
     if (!$('#overlay-root').children.length && !AllurusUX.isEditing() && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) render();
     AllurusUX.pulseLive();
   });
+  macShell.restore(); macShell.watch();
   render();
   if (CLOUD) {
     import('./cloud.js?v=' + APP_VERSION).catch((e) => {

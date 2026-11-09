@@ -1,0 +1,68 @@
+/* Allurus design tokens: the one place for colours, radii, shadows and type. Every page loads this first.
+   Brand: teal #0F766E, deep teal #0B5F59, champagne #D9B66F, obsidian #16181D, slate #5F636B, mist #F5F5F7.
+   Status: ok #17804A, warn #A05F00, bad #B3261E, info #2F6AD0. Font: Inter (brand/Inter-OFL.txt).
+   Light by default for the website and HR app; dark follows the system or the person's choice. */
+@font-face {
+  font-family: "Inter"; font-style: normal; font-weight: 100 900; font-display: swap;
+  src: url("inter-latin-wght-normal.woff2") format("woff2");
+}
+:root {
+  --teal: #0F766E; --teal-deep: #0B5F59; --champagne: #D9B66F; --obsidian: #16181D; --slate: #5F636B; --mist: #F5F5F7;
+  --white: #FFFFFF; --teal-light: #13877E; --teal-darker: #08423E; --champagne-light: #E4C789; --obsidian-light: #2A2D34; --slate-light: #73777F;
+  --dot-close: #FF5F57; --dot-min: #FEBC2E; --dot-max: #28C840; --badge: #D93025;
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --radius-window: 14px; --radius-card: 16px; --radius-control: 8px; --radius-pill: 999px;
+  --desktop-bg: #DCE3E2;
+  --window-bg: #FFFFFF;
+  --sidebar-bg: rgba(243, 244, 246, .82); --sidebar-solid: #F1F2F4;
+  --window-border: rgba(22, 24, 29, .10); --card-border: rgba(22, 24, 29, .07);
+  --selection: #0F766E; --on-selection: #FFFFFF;
+  --focus-ring: rgba(15, 118, 110, .40);
+  --shadow-window: 0 1px 1px rgba(22, 24, 29, .04), 0 22px 70px -12px rgba(22, 24, 29, .30);
+  --shadow-card: 0 1px 2px rgba(22, 24, 29, .05);
+  --shadow-pop: 0 18px 50px -12px rgba(22, 24, 29, .30);
+  /* App colour roles (used by css/styles.css) */
+  --bg: #F5F5F7; --surface: #FFFFFF; --surface-2: #F7F7F9; --panel: #FFFFFF; --sidebar: var(--sidebar-bg);
+  --line: rgba(22, 24, 29, .08); --line-strong: rgba(22, 24, 29, .16);
+  --fg: #16181D; --fg-2: #5F636B; --fg-3: #686C74;
+  --brand: #0F766E; --brand-hover: #0B5F59; --brand-soft: rgba(15, 118, 110, .10); --on-brand: #FFFFFF; --brand-ring: var(--focus-ring);
+  --gold: #8A6628; --gold-soft: rgba(217, 182, 111, .22);
+  --ok: #17804A; --ok-soft: rgba(23, 128, 74, .12); --warn: #A05F00; --warn-soft: rgba(160, 95, 0, .12);
+  --bad: #B3261E; --bad-soft: rgba(179, 38, 30, .10); --info: #2F6AD0; --info-soft: rgba(47, 106, 208, .11);
+  --scrim: rgba(22, 24, 29, .32); --launch-bg: rgba(22, 24, 29, .62);
+  --shadow: var(--shadow-card); --shadow-lg: var(--shadow-pop);
+  --dur: .18s; --ease: cubic-bezier(.2, .8, .2, 1);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --desktop-bg: #0E0F12; --window-bg: #16181D; --sidebar-bg: rgba(30, 33, 38, .78); --sidebar-solid: #1E2126;
+    --window-border: rgba(255, 255, 255, .10); --card-border: rgba(255, 255, 255, .07);
+    --selection: #2BB3A3; --on-selection: #16181D; --focus-ring: rgba(43, 179, 163, .45);
+    --shadow-window: 0 22px 70px -12px rgba(0, 0, 0, .7); --shadow-card: 0 1px 2px rgba(0, 0, 0, .4); --shadow-pop: 0 18px 50px -12px rgba(0, 0, 0, .7);
+    --bg: #101115; --surface: #1D2025; --surface-2: #23262C; --panel: #1D2025;
+    --line: rgba(255, 255, 255, .08); --line-strong: rgba(255, 255, 255, .16);
+    --fg: #F5F5F7; --fg-2: #B4B7BE; --fg-3: #9A9EA6;
+    --brand: #2BB3A3; --brand-hover: #45C7B7; --brand-soft: rgba(43, 179, 163, .16); --on-brand: #16181D;
+    --gold: #D9B66F; --gold-soft: rgba(217, 182, 111, .18);
+    --ok: #4CC487; --ok-soft: rgba(76, 196, 135, .15); --warn: #E6A646; --warn-soft: rgba(230, 166, 70, .16);
+    --bad: #FF7A70; --bad-soft: rgba(255, 122, 112, .15); --info: #7AA6FF; --info-soft: rgba(122, 166, 255, .15);
+    --scrim: rgba(0, 0, 0, .55); --launch-bg: rgba(8, 10, 12, .72);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --desktop-bg: #0E0F12; --window-bg: #16181D; --sidebar-bg: rgba(30, 33, 38, .78); --sidebar-solid: #1E2126;
+  --window-border: rgba(255, 255, 255, .10); --card-border: rgba(255, 255, 255, .07);
+  --selection: #2BB3A3; --on-selection: #16181D; --focus-ring: rgba(43, 179, 163, .45);
+  --shadow-window: 0 22px 70px -12px rgba(0, 0, 0, .7); --shadow-card: 0 1px 2px rgba(0, 0, 0, .4); --shadow-pop: 0 18px 50px -12px rgba(0, 0, 0, .7);
+  --bg: #101115; --surface: #1D2025; --surface-2: #23262C; --panel: #1D2025;
+  --line: rgba(255, 255, 255, .08); --line-strong: rgba(255, 255, 255, .16);
+  --fg: #F5F5F7; --fg-2: #B4B7BE; --fg-3: #9A9EA6;
+  --brand: #2BB3A3; --brand-hover: #45C7B7; --brand-soft: rgba(43, 179, 163, .16); --on-brand: #16181D;
+  --gold: #D9B66F; --gold-soft: rgba(217, 182, 111, .18);
+  --ok: #4CC487; --ok-soft: rgba(76, 196, 135, .15); --warn: #E6A646; --warn-soft: rgba(230, 166, 70, .16);
+  --bad: #FF7A70; --bad-soft: rgba(255, 122, 112, .15); --info: #7AA6FF; --info-soft: rgba(122, 166, 255, .15);
+  --scrim: rgba(0, 0, 0, .55); --launch-bg: rgba(8, 10, 12, .72);
+  color-scheme: dark;
+}

@@ -7,10 +7,9 @@ window.AllurusUX = (function () {
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
   // ---------- Preferences (per signed-in account, kept with the app data) ----------
-  // Lime is the default (the glass look, css/glass.css); on light backgrounds it darkens to olive so text on it stays readable.
+  // Teal is the brand default (brand/tokens.css). In dark mode the lighter teal carries dark text, so it stays readable.
   const ACCENTS = {
-    lime: { name: 'Allurus lime', light: ['#4A6B00', '#3B5600'], dark: ['#C6F432', '#D3F75E'] },
-    teal: { name: 'Allurus teal', light: ['#0F766E', '#0B5F59'], dark: ['#2FB4A4', '#45C7B7'] },
+    teal: { name: 'Allurus teal', light: ['#0F766E', '#0B5F59'], dark: ['#2BB3A3', '#45C7B7'] },
     ocean: { name: 'Ocean', light: ['#1F5FCC', '#184DA6'], dark: ['#6EA0FF', '#8DB5FF'] },
     violet: { name: 'Violet', light: ['#6A47D1', '#5638B0'], dark: ['#A68BFF', '#BBA6FF'] },
     rose: { name: 'Rose', light: ['#C23B66', '#A02F54'], dark: ['#FF7DA4', '#FF9BBB'] },
@@ -24,7 +23,7 @@ window.AllurusUX = (function () {
     return (s.prefs[k] = s.prefs[k] || {});
   }
   // Dark unless the person picked otherwise (a company's stored 'system' is the old default, not a choice).
-  const theme = () => prefs().theme || (ctx.state.settings.theme && ctx.state.settings.theme !== 'system' ? ctx.state.settings.theme : 'dark');
+  const theme = () => prefs().theme || (ctx.state.settings.theme && ctx.state.settings.theme !== 'system' ? ctx.state.settings.theme : 'system');
   const mq = (q) => window.matchMedia && matchMedia(q).matches;
   const isDark = () => theme() === 'dark' || (theme() === 'system' && mq('(prefers-color-scheme: dark)'));
   const reduceMotion = () => prefs().motion === 'reduce' || (prefs().motion !== 'full' && mq('(prefers-reduced-motion: reduce)'));
@@ -37,10 +36,10 @@ window.AllurusUX = (function () {
     root.dataset.text = p.text || 'default';
     root.dataset.contrast = p.contrast ? 'more' : 'normal';
     root.dataset.motion = reduceMotion() ? 'reduce' : 'full';
-    const a = ACCENTS[p.accent] || ACCENTS.lime, dark = isDark(), [brand, hover] = dark ? a.dark : a.light;
+    const a = ACCENTS[p.accent] || ACCENTS.teal, dark = isDark(), [brand, hover] = dark ? a.dark : a.light;
     if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'ux-vars'; document.head.appendChild(styleEl); }
-    root.dataset.accent = ACCENTS[p.accent] ? p.accent : 'lime';
-    styleEl.textContent = `html:root[data-accent]{--brand:${brand};--brand-hover:${hover};--brand-soft:${hexA(brand, dark ? 0.16 : 0.1)};--brand-ring:${hexA(brand, 0.45)};--on-brand:${dark ? '#10130A' : '#FFFFFF'};}`;
+    root.dataset.accent = ACCENTS[p.accent] ? p.accent : 'teal';
+    styleEl.textContent = `html:root[data-accent]{--brand:${brand};--brand-hover:${hover};--brand-soft:${hexA(brand, dark ? 0.16 : 0.1)};--brand-ring:${hexA(brand, 0.45)};--on-brand:${dark ? '#16181D' : '#FFFFFF'};--selection:${brand};--on-selection:${dark ? '#16181D' : '#FFFFFF'};}`;
     const tb = $('#theme-btn');
     if (tb) { tb.innerHTML = ctx.icon(t === 'dark' ? 'moon' : t === 'light' ? 'sun' : 'auto'); tb.setAttribute('aria-label', `Theme: ${t === 'system' ? 'automatic' : t}. Switch theme`); tb.title = 'Switch theme'; }
   }
@@ -649,7 +648,7 @@ window.AllurusUX = (function () {
     // Keyboard: ⌘K or / for search, ? for help, Esc closes the palette or tour.
     document.addEventListener('keydown', (ev) => {
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
-      if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); if (ctx.role()) (pal ? closePalette() : openPalette()); return; }
+      if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); if (!ctx.role()) return; if (pal) { closePalette(); return; } if (window.AllurusMacLaunch) window.AllurusMacLaunch.toggle(); else openPalette(); return; }
       if (ev.key === 'Escape') { if (pal) { ev.stopImmediatePropagation(); closePalette(); return; } if (tour) { ev.stopImmediatePropagation(); endTour(); return; } }
       if (typing || !ctx.role() || pal || tour || ev.metaKey || ev.ctrlKey || ev.altKey) return;
       if (ev.key === '/') { ev.preventDefault(); openPalette(); }
