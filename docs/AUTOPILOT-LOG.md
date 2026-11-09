@@ -260,3 +260,8 @@ Owner access from the server, around an existing Owner, was not done without ask
 `scripts/set-owner.js` committed with `tests/set-owner.test.js` (fake Firestore via `tests/fixtures/fake-admin.js`:
 check-only changes nothing; --yes makes only that person Owner and claims an unclaimed company; refuses pending,
 disabled, unknown and ambiguous matches).
+
+### Step 2: done (owner said "run step 2")
+`node scripts/set-owner.js "Major Far East" "Hafidz" --yes` → `Done: hafidz rosali is now Owner of Major Far East.`
+Re-check: Owners now: hafidz rosali (sj7dk3PfaXSbb0GUE4iPqMATpEx2), Nadia (wfg7LQguhGSssw0Rc7YRm9kNWUu1).
+roles=["employee","admin"], no perms list. Recorded company owner unchanged (Nadia). Nobody else changed.
