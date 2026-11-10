@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.41';
+  const APP_VERSION = '3.42';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -2063,6 +2063,38 @@
   const myRecord = (day) => state.attendance[day]?.[me().id];
   const myRuns = () => Object.keys(state.payroll).filter((k) => state.payroll[k].status === 'Paid' && state.payroll[k].items.some((i) => i.empId === me().id)).sort().reverse();
 
+  // ---------- Employee Home on a phone (docs/mockups/PhoneEmployee.dc.html) ----------
+  function phoneHome({ e, T, rec, aLeft, aTot, lastPay, runs, birthday }) {
+    const h = new Date().getHours(), hello = h < 12 ? 'Selamat pagi' : h < 15 ? 'Selamat tengah hari' : h < 19 ? 'Selamat petang' : 'Selamat malam';
+    const initials = (fullName(e).split(/\s+/).map((w) => w[0]).slice(0, 2).join('') || '?').toUpperCase();
+    const unread = +(document.querySelector('#nt-bell .bell-count')?.textContent || 0);
+    const st = rec?.s === 'leave' ? 'leave' : !rec || !rec.in ? 'out' : !rec.out ? 'in' : 'done';
+    const badge = { leave: 'On leave', out: 'Not checked in', in: 'Checked in', done: 'Checked out' }[st];
+    const big = st === 'in' ? (rec.lastIn || rec.in) : st === 'done' ? rec.out : nowHM();
+    const sub = { leave: 'enjoy it', out: 'now', in: 'in since ' + (rec?.lastIn || rec?.in), done: hoursBetween(rec?.in || '0:00', rec?.out || '0:00').toFixed(1) + ' h today' }[st];
+    const main = st === 'leave' ? '' : st === 'in'
+      ? '<button type="button" class="ph-btn" data-act="check-out">' + icon('pin') + 'Check out</button>'
+      : '<button type="button" class="ph-btn" data-act="check-in" data-v="present">' + icon('pin') + (st === 'done' ? 'Check in again' : 'Check in') + '</button>';
+    const pct = aTot > 0 ? Math.max(0, Math.min(100, Math.round((aLeft / aTot) * 100))) : 0;
+    const chip = (s) => ({ Approved: ['ok', 'Approved'], Pending: ['wait', 'Waiting'], Rejected: ['bad', 'Declined'], Paid: ['ok', 'Paid'], Cancelled: ['off', 'Cancelled'] }[s] || ['off', s || '']);
+    const mine = [
+      ...(state.leaves || []).filter((l) => l.empId === e.id).map((l) => ({ at: l.from, title: leaveApi.typeName(l.type) + ' leave · ' + l.days + ' day' + (l.days > 1 ? 's' : ''), sub: U.fmtDate(l.from, { month: 'short', day: 'numeric' }), s: l.status })),
+      ...(state.claims || []).filter((c) => c.empId === e.id).map((c) => ({ at: c.date || c.createdAt || '', title: 'Claim · ' + c.title, sub: money(AllurusClaimRules.claimTotal(c), 2) + (c.date ? ' · ' + U.fmtDate(c.date, { month: 'short', day: 'numeric' }) : ''), s: c.status })),
+    ].sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 4);
+    const q = (label, ic, cls, attrs) => '<button type="button" class="ph-q" ' + attrs + '><span class="ph-qi ' + cls + '">' + icon(ic) + '</span>' + label + '</button>';
+    return `<div class="phone-home">
+      <header class="ph-head"><span class="ph-av" aria-hidden="true">${esc(initials)}</span><div class="ph-hi"><span>${hello}</span><b>${esc(birthday ? 'Happy birthday, ' + e.first : fullName(e))}</b></div>
+        <button type="button" class="ph-bell" data-act="nt-open" aria-label="Notifications">${icon('bell')}${unread ? '<i></i>' : ''}</button></header>
+      <section class="ph-check" aria-label="Check in"><div class="ph-row"><span>${U.fmtDate(T, { weekday: 'long', day: 'numeric', month: 'short' })}</span><em>${badge}</em></div>
+        <div class="ph-time"><b id="live-clock">${esc(String(big))}</b><span>${esc(sub)}</span></div>${main}
+        <small>${rec?.loc ? esc(locText(rec.loc)) : 'Your registered phone checks you in'}</small></section>
+      <div class="ph-two">
+        <section class="ph-card"><span class="ph-l">Annual leave</span><b class="ph-n">${aLeft}<small> days left</small></b><div class="ph-bar"><i style="width:${pct}%"></i></div></section>
+        <section class="ph-card"><span class="ph-l">Last payslip</span><b class="ph-n">${lastPay ? compactMoney(lastPay.net) : '—'}</b><span class="ph-gold">${runs[0] ? U.fmtMonth(runs[0], { month: 'long' }) + ' payslip ready' : 'None yet'}</span></section></div>
+      <section class="ph-card"><span class="ph-l">Do it now</span><div class="ph-quick">
+        ${q('Apply leave', 'calendar', 'teal', 'data-act="new-leave"')}${claimsApi?.enabled() ? q('New claim', 'receipt', 'gold', 'data-act="cl-new"') : ''}${q('Payslips', 'wallet', 'grey', 'data-go="my-pay"')}${q('Overtime', 'clock', 'grey', 'data-act="tm-request"')}</div></section>
+      <section class="ph-card ph-reqs"><span class="ph-l">My requests</span>${mine.length ? mine.map((m) => { const c = chip(m.s); return '<div class="ph-req"><div><b>' + esc(m.title) + '</b><span>' + esc(m.sub) + '</span></div><i class="ph-chip ' + c[0] + '">' + c[1] + '</i></div>'; }).join('') : '<p class="ph-none">Nothing yet. Your leave and claims show here.</p>'}</section></div>`;
+  }
   VIEWS.home = () => {
     const e = me(), T = U.today();
     const rec = myRecord(T);
@@ -2086,6 +2118,8 @@
     const ps = AllurusPlanner.summary(state, e);
     const coming = (state.claims || []).filter((c) => c.empId === e.id && c.status === 'Approved').reduce((s, c) => s + c.approved, 0);
     const payday = U.lastWorkday(U.monthEnd(U.monthKey(T)));
+    // An employee on a phone gets the phone Home (docs/mockups/PhoneEmployee.dc.html), from the same data and actions.
+    if (window.AllurusDevice?.here() === 'phone') return phoneHome({ e, T, rec, aLeft, aTot, lastPay, runs, birthday });
     const W = [
       { id: 'today', title: 'Today', span: 12, fixed: true, render: () => hero({
         title: birthday ? `Happy birthday, ${esc(e.first)}!` : greeting(e.first),
@@ -2534,6 +2568,8 @@
   }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && gateState && gateState !== 'granted') checkLocationGate(); });
   document.addEventListener('click', (ev) => { if (ev.target.closest('[data-act=loc-allow]')) { ev.preventDefault(); gateAllow(); } });
+  // A button that just opens a page (the phone Home's quick actions).
+  document.addEventListener('click', (ev) => { const g = ev.target.closest('[data-go]'); if (g) { ev.preventDefault(); location.hash = g.dataset.go; } });
 
   async function ciLocate() {
     const z = zone();

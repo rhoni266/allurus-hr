@@ -225,3 +225,51 @@ table tbody tr.selected .pill::before { background: var(--on-selection); }
 }
 .demo-pick .seg { flex-wrap: wrap; height: auto; } .demo-pick .seg button { flex: 1 1 auto; }
 .demo-pick .btn { white-space: normal; min-width: 0; height: auto; }
+
+/* ---------- Employee Home on a phone (docs/mockups/PhoneEmployee.dc.html) ---------- */
+.phone-home { display: flex; flex-direction: column; gap: 14px; max-width: 520px; margin: 0 auto; }
+.ph-head { display: flex; align-items: center; gap: 12px; }
+.ph-av { width: 42px; height: 42px; border-radius: 50%; background: var(--brand-soft); color: var(--brand); font-weight: 700; display: grid; place-items: center; flex: none; }
+.ph-hi { display: flex; flex-direction: column; line-height: 1.25; margin-right: auto; min-width: 0; }
+.ph-hi span { font-size: 13px; color: var(--fg-2); }
+.ph-hi b { font-size: 18px; overflow-wrap: anywhere; }
+.ph-bell { position: relative; width: 44px; height: 44px; border: 0; border-radius: 12px; background: var(--surface); color: var(--fg); display: grid; place-items: center; box-shadow: var(--shadow-card); }
+.ph-bell svg { width: 20px; height: 20px; }
+.ph-bell i { position: absolute; top: 9px; right: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+.ph-check { background: var(--brand); color: var(--on-brand); border-radius: 20px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+.ph-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; }
+.ph-row em { font-style: normal; font-size: 12px; font-weight: 600; background: color-mix(in srgb, currentColor 18%, transparent); border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+.ph-time { display: flex; align-items: baseline; gap: 8px; }
+.ph-time b { font-size: 40px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.ph-time span { font-size: 13px; opacity: .9; }
+.ph-btn { height: 54px; border: 0; border-radius: 14px; background: var(--surface); color: var(--brand); font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; }
+.ph-btn svg { width: 20px; height: 20px; }
+.ph-check small { font-size: 12px; opacity: .9; }
+.ph-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.ph-card { background: var(--surface); border-radius: 18px; padding: 14px; display: flex; flex-direction: column; gap: 4px; box-shadow: var(--shadow-card); }
+.ph-l { font-size: 12px; font-weight: 600; color: var(--fg-2); }
+.ph-n { font-size: 26px; font-weight: 700; letter-spacing: -.02em; }
+.ph-n small { font-size: 13px; font-weight: 500; color: var(--fg-2); letter-spacing: 0; }
+.ph-gold { font-size: 12px; font-weight: 600; color: var(--gold); }
+.ph-bar { height: 6px; border-radius: 3px; background: var(--line); }
+.ph-bar i { display: block; height: 6px; border-radius: 3px; background: var(--brand); }
+.ph-quick { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 6px; }
+.ph-q { display: flex; flex-direction: column; align-items: center; gap: 6px; border: 0; background: transparent; padding: 0; min-height: 44px; font-size: 12px; font-weight: 500; color: var(--fg); cursor: pointer; }
+.ph-qi { width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center; }
+.ph-qi svg { width: 22px; height: 22px; }
+.ph-qi.teal { background: var(--brand-soft); color: var(--brand); }
+.ph-qi.gold { background: var(--gold-soft); color: var(--gold); }
+.ph-qi.grey { background: var(--line); color: var(--fg); }
+.ph-reqs { padding: 6px 14px; gap: 0; }
+.ph-reqs .ph-l { padding: 8px 0 4px; }
+.ph-req { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.ph-req:last-child { border-bottom: 0; }
+.ph-req div { display: flex; flex-direction: column; min-width: 0; }
+.ph-req b { font-size: 14px; font-weight: 600; }
+.ph-req span { font-size: 12px; color: var(--fg-2); }
+.ph-chip { font-style: normal; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+.ph-chip.ok { background: var(--ok-soft); color: var(--ok); }
+.ph-chip.wait { background: var(--gold-soft); color: var(--gold); }
+.ph-chip.bad { background: var(--bad-soft); color: var(--bad); }
+.ph-chip.off { background: var(--line); color: var(--fg-2); }
+.ph-none { margin: 0; padding: 10px 0 14px; font-size: 13px; color: var(--fg-2); }
