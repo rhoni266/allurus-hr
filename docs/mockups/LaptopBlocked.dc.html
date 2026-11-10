@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Use your phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#16181D;-webkit-font-smoothing:antialiased}
+a{color:#0F766E}a:hover{color:#0B5F59}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="min-height: 100vh; box-sizing: border-box; padding: 28px; background: #DCE3E2; display: flex; align-items: center; justify-content: center">
+<div style="width: 100%; max-width: 760px; border-radius: 14px; background: rgba(255,255,255,0.86); backdrop-filter: blur(30px); border: 1px solid rgba(22,24,29,0.10); box-shadow: 0 24px 60px rgba(22,24,29,0.18); overflow: hidden">
+<div style="display: flex; gap: 8px; padding: 14px 16px; border-bottom: 1px solid rgba(22,24,29,0.06)" aria-hidden="true">
+<span style="width: 12px; height: 12px; border-radius: 50%; background: #FF5F57"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #FEBC2E"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #28C840"></span>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: center; padding: 36px 40px 40px">
+<div style="flex: 1 1 300px; display: flex; flex-direction: column; gap: 14px">
+<div style="width: 40px; height: 40px; border-radius: 10px; background: #0F766E; color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 20px">A</div>
+<h1 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2">Please use your phone</h1>
+<p lang="ms" style="margin: 0; font-size: 15px; color: #16181D; line-height: 1.5">Sila guna telefon anda untuk masuk ke Allurus.</p>
+<p style="margin: 0; font-size: 14px; color: #5F636B; line-height: 1.6">Staff accounts at Major Far East open on a phone only. Scan the code with your phone camera, or open <b style="color: #16181D">allurus.my/app</b> on your phone and sign in with your company code and IC.</p>
+<p style="margin: 0; font-size: 13px; color: #5F636B; line-height: 1.6">No phone? Ask HR to allow this computer for you.</p>
+<div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px">
+<button type="button" style="height: 36px; padding: 0 16px; border-radius: 9px; border: 1px solid rgba(22,24,29,0.14); background: #fff; color: #16181D; font-size: 14px; font-weight: 600; cursor: pointer">Sign out</button>
+</div>
+</div>
+<figure style="flex: 0 0 auto; margin: 0; display: flex; flex-direction: column; align-items: center; gap: 10px">
+<div role="img" aria-label="QR code that opens allurus.my/app on a phone" style="width: 196px; height: 196px; border-radius: 16px; background: #fff; border: 1px solid rgba(22,24,29,0.10); display: grid; place-items: center; box-shadow: 0 2px 6px rgba(22,24,29,0.06)">
+<div style="width: 156px; height: 156px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px">
+<sc-for list="{{cells}}" as="c" hint-placeholder-count="49"><span style="{{c.style}}"></span></sc-for>
+</div>
+</div>
+<figcaption style="font-size: 12px; color: #5F636B">QR placeholder: real code in the app</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    // A decorative stand-in pattern; the app draws a real QR code for allurus.my/app.
+    const on = '1110111100100110111001110010110101101101001101011100111111110011111';
+    const cells = Array.from({ length: 49 }, (_, i) => {
+      const r = Math.floor(i / 7), c = i % 7;
+      const corner = (r < 2 && c < 2) || (r < 2 && c > 4) || (r > 4 && c < 2);
+      const dark = corner || on[i] === '1';
+      return { style: 'border-radius:3px;background:' + (dark ? '#16181D' : 'transparent') };
+    });
+    return { cells };
+  }
+}
+</script>
+</body>
+</html>

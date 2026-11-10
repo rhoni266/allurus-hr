@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Allurus employee home on phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#16181D;-webkit-font-smoothing:antialiased}
+a{color:#0F766E}a:hover{color:#0B5F59}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #F2F3F5; display: flex; flex-direction: column; overflow: hidden">
+<header style="padding: 54px 20px 14px; display: flex; align-items: center; gap: 12px">
+<span style="width: 42px; height: 42px; border-radius: 50%; background: rgba(15,118,110,0.14); color: #0F766E; font-weight: 700; display: grid; place-items: center">RK</span>
+<div style="display: flex; flex-direction: column; line-height: 1.25; margin-right: auto"><span style="font-size: 13px; color: #5F636B">Selamat petang</span><b style="font-size: 18px">Ravi Kumar</b></div>
+<button type="button" aria-label="Notifications" style="position: relative; width: 44px; height: 44px; border: 0; border-radius: 12px; background: #fff; color: #16181D; display: grid; place-items: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21h4"></path></svg><span style="position: absolute; top: 9px; right: 10px; width: 8px; height: 8px; border-radius: 50%; background: #B3261E"></span></button>
+</header>
+
+<main style="flex: 1; overflow: auto; padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 14px">
+<section style="background: #0F766E; color: #fff; border-radius: 20px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; justify-content: space-between; align-items: center"><span style="font-size: 13px; color: rgba(255,255,255,0.85)">Tuesday, 10 Nov · Shift 8:00–17:00</span><span style="font-size: 12px; font-weight: 600; background: rgba(255,255,255,0.18); border-radius: 999px; padding: 3px 10px">{{statusText}}</span></div>
+<div style="display: flex; align-items: baseline; gap: 8px"><span style="font-size: 40px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums">{{timeText}}</span><span style="font-size: 13px; color: rgba(255,255,255,0.85)">{{subText}}</span></div>
+<button type="button" onClick="{{toggle}}" style="height: 54px; border: 0; border-radius: 14px; background: #fff; color: #0F766E; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21zM12 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"></path></svg>{{buttonText}}</button>
+<span style="font-size: 12px; color: rgba(255,255,255,0.85)">This phone is registered for check-in · at Factory Gate A</span>
+</section>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+<section style="background: #fff; border-radius: 18px; padding: 14px; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12px; font-weight: 600; color: #5F636B">Annual leave</span><span style="font-size: 26px; font-weight: 700">10<span style="font-size: 13px; font-weight: 500; color: #5F636B"> days left</span></span>
+<div style="height: 6px; border-radius: 3px; background: #EEF0F2"><div style="width: 83%; height: 6px; border-radius: 3px; background: #0F766E"></div></div>
+</section>
+<section style="background: #fff; border-radius: 18px; padding: 14px; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12px; font-weight: 600; color: #5F636B">Next payslip</span><span style="font-size: 26px; font-weight: 700">25 Nov</span><span style="font-size: 12px; color: #85662C; font-weight: 600">October payslip ready</span>
+</section>
+</div>
+
+<section style="background: #fff; border-radius: 18px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 12px; font-weight: 600; color: #5F636B">Do it now</span>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{quick}}" as="q" hint-placeholder-count="4">
+<button type="button" style="display: flex; flex-direction: column; align-items: center; gap: 6px; border: 0; background: transparent; padding: 0; font-size: 12px; font-weight: 500; color: #16181D; cursor: pointer">
+<span style="width: 52px; height: 52px; border-radius: 14px; background: {{q.bg}}; color: {{q.fg}}; display: grid; place-items: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{q.d}}"></path></svg></span>{{q.label}}</button>
+</sc-for>
+</div>
+</section>
+
+<section style="background: #fff; border-radius: 18px; padding: 6px 14px; display: flex; flex-direction: column">
+<span style="font-size: 12px; font-weight: 600; color: #5F636B; padding: 8px 0 4px">My requests</span>
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(22,24,29,0.06)"><div style="display: flex; flex-direction: column"><b style="font-size: 14px; font-weight: 600">Claim · Petrol</b><span style="font-size: 12px; color: #5F636B">RM 86.40 · 8 Nov</span></div><span style="font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: rgba(217,182,111,0.28); color: #6E5420">Waiting</span></div>
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0"><div style="display: flex; flex-direction: column"><b style="font-size: 14px; font-weight: 600">Annual leave · 1 day</b><span style="font-size: 12px; color: #5F636B">3 Nov</span></div><span style="font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: rgba(23,128,74,0.12); color: #17804A">Approved</span></div>
+</section>
+</main>
+
+<nav aria-label="Main" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 8px 6px 26px; background: rgba(255,255,255,0.88); backdrop-filter: blur(20px); border-top: 1px solid rgba(22,24,29,0.08)">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="5">
+<button type="button" onClick="{{t.pick}}" aria-current="{{t.current}}" style="{{t.style}}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{t.d}}"></path></svg>{{t.label}}</button>
+</sc-for>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 'Home', inAt: '' }; }
+  renderVals() {
+    const I = {
+      home: 'M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
+      cal: 'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4',
+      wallet: 'M3 7h18v12H3zM3 7l2-3h14l2 3M16 13h2',
+      receipt: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
+      user: 'M20 21v-1a5 5 0 0 0-5-5H9a5 5 0 0 0-5 5v1M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+      clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2'
+    };
+    const inAt = this.state.inAt;
+    const tabs = [['Home', I.home], ['Leave', I.cal], ['Payslips', I.wallet], ['Claims', I.receipt], ['Me', I.user]].map(([label, d]) => {
+      const on = label === this.state.tab;
+      return { label, d, current: on ? 'page' : 'false', pick: () => this.setState({ tab: label }),
+        style: 'display:flex;flex-direction:column;align-items:center;gap:3px;min-height:48px;border:0;background:transparent;font-size:11px;font-weight:600;cursor:pointer;color:' + (on ? '#0F766E' : '#5F636B') };
+    });
+    const quick = [['Apply leave', I.cal, 'rgba(15,118,110,.12)', '#0F766E'], ['New claim', I.receipt, 'rgba(217,182,111,.28)', '#85662C'], ['Payslips', I.wallet, 'rgba(22,24,29,.07)', '#16181D'], ['Overtime', I.clock, 'rgba(22,24,29,.07)', '#16181D']].map(([label, d, bg, fg]) => ({ label, d, bg, fg }));
+    return {
+      tabs, quick,
+      statusText: inAt ? 'Checked in' : 'Not checked in',
+      timeText: inAt || '7:52',
+      subText: inAt ? 'in since ' + inAt : 'now',
+      buttonText: inAt ? 'Check out' : 'Check in',
+      toggle: () => this.setState({ inAt: inAt ? '' : '7:52 am' })
+    };
+  }
+}
+</script>
+</body>
+</html>

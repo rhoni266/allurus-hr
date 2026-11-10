@@ -375,7 +375,7 @@ service cloud.firestore {
       allow read: if isSuperadmin();
       allow create: if isSuperadmin() && request.resource.data.actorUid == request.auth.uid && request.resource.data.createdAt == request.time
         && request.resource.data.keys().hasOnly(['actorUid', 'actorEmail', 'action', 'entityType', 'entityId', 'before', 'after', 'createdAt'])
-        && request.resource.data.entityType in ['module', 'feature', 'industry', 'industryFeature', 'finderRule', 'tenant', 'tenantOverride', 'lead', 'plan', 'config', 'payment', 'invoice'];
+        && request.resource.data.entityType in ['module', 'feature', 'industry', 'industryFeature', 'finderRule', 'tenant', 'tenantOverride', 'lead', 'plan', 'config', 'payment', 'invoice', 'tenantPosAddon'];
       allow update, delete: if false;
     }
 

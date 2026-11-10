@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Allurus admin approvals on phone</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#16181D;-webkit-font-smoothing:antialiased}
+a{color:#0F766E}a:hover{color:#0B5F59}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #F2F3F5; display: flex; flex-direction: column; overflow: hidden">
+<header style="padding: 54px 20px 10px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; align-items: center; gap: 10px">
+<div style="width: 30px; height: 30px; border-radius: 8px; background: #0F766E; color: #fff; display: grid; place-items: center; font-weight: 700">A</div>
+<div style="display: flex; flex-direction: column; line-height: 1.2; margin-right: auto"><b style="font-size: 14px">Major Far East</b><span style="font-size: 12px; color: #5F636B">Hafidz · Owner</span></div>
+<span style="font-size: 11px; font-weight: 600; color: #5F636B; background: rgba(22,24,29,0.07); border-radius: 999px; padding: 3px 9px">Full workspace on laptop</span>
+</div>
+<h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.02em">Approvals <span style="color: #0F766E">{{openCount}}</span></h1>
+<div role="group" aria-label="Type" style="display: flex; padding: 2px; border-radius: 9px; background: rgba(22,24,29,0.07)">
+<sc-for list="{{filters}}" as="f" hint-placeholder-count="4"><button type="button" onClick="{{f.pick}}" aria-pressed="{{f.on}}" style="{{f.style}}">{{f.label}}</button></sc-for>
+</div>
+</header>
+
+<main style="flex: 1; overflow: auto; padding: 6px 16px 16px; display: flex; flex-direction: column; gap: 10px">
+<sc-for list="{{items}}" as="it" hint-placeholder-count="4">
+<section style="background: #fff; border-radius: 18px; padding: 14px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="width: 38px; height: 38px; border-radius: 50%; background: rgba(15,118,110,0.12); color: #0F766E; font-size: 13px; font-weight: 700; display: grid; place-items: center">{{it.initials}}</span>
+<div style="display: flex; flex-direction: column; line-height: 1.3; margin-right: auto"><b style="font-size: 15px; font-weight: 600">{{it.name}}</b><span style="font-size: 13px; color: #5F636B">{{it.what}}</span></div>
+<span style="{{it.chip}}">{{it.kind}}</span>
+</div>
+<sc-if value="{{it.open}}" hint-placeholder-val="{{ true }}">
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<button type="button" onClick="{{it.reject}}" style="height: 44px; border: 1px solid rgba(22,24,29,0.14); border-radius: 12px; background: #fff; color: #16181D; font-size: 15px; font-weight: 600; cursor: pointer">Decline</button>
+<button type="button" onClick="{{it.approve}}" style="height: 44px; border: 0; border-radius: 12px; background: #0F766E; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer">Approve</button>
+</div>
+</sc-if>
+<sc-if value="{{it.done}}" hint-placeholder-val="{{ false }}"><span style="font-size: 13px; font-weight: 600; color: #17804A">{{it.doneText}}</span></sc-if>
+</section>
+</sc-for>
+<p style="margin: 6px 4px 0; font-size: 12px; color: #5F636B; line-height: 1.5">Payroll runs, imports, reports and settings open on a laptop or PC. On the phone you can approve, look people up and check today.</p>
+</main>
+
+<nav aria-label="Main" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 8px 6px 26px; background: rgba(255,255,255,0.88); backdrop-filter: blur(20px); border-top: 1px solid rgba(22,24,29,0.08)">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="4">
+<button type="button" onClick="{{t.pick}}" aria-current="{{t.current}}" style="{{t.style}}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{t.d}}"></path></svg>{{t.label}}</button>
+</sc-for>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { tab: 'Approvals', filter: 'All', decided: {} }; }
+  renderVals() {
+    const I = {
+      today: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
+      check: 'M20 6L9 17l-5-5',
+      users: 'M16 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM22 19v-1a4 4 0 0 0-3-3.9M16 4.1a3 3 0 0 1 0 5.8',
+      user: 'M20 21v-1a5 5 0 0 0-5-5H9a5 5 0 0 0-5 5v1M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z'
+    };
+    const tabs = [['Today', I.today], ['Approvals', I.check], ['People', I.users], ['Me', I.user]].map(([label, d]) => {
+      const on = label === this.state.tab;
+      return { label, d, current: on ? 'page' : 'false', pick: () => this.setState({ tab: label }),
+        style: 'display:flex;flex-direction:column;align-items:center;gap:3px;min-height:48px;border:0;background:transparent;font-size:11px;font-weight:600;cursor:pointer;color:' + (on ? '#0F766E' : '#5F636B') };
+    });
+    const f = this.state.filter;
+    const filters = ['All', 'Leave', 'Claims', 'Overtime'].map((label) => {
+      const on = label === f;
+      return { label, on: on ? 'true' : 'false', pick: () => this.setState({ filter: label }),
+        style: 'flex:1;height:32px;border:0;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer;' + (on ? 'background:#fff;color:#16181D;box-shadow:0 1px 2px rgba(22,24,29,.15)' : 'background:transparent;color:#5F636B') };
+    });
+    const chip = { Leave: 'background:rgba(15,118,110,.12);color:#0B5F59', Claims: 'background:rgba(217,182,111,.28);color:#6E5420', Overtime: 'background:rgba(47,106,208,.12);color:#2F6AD0', Device: 'background:rgba(22,24,29,.07);color:#5F636B' };
+    const dec = this.state.decided;
+    const raw = [
+      { id: 'a1', initials: 'NA', name: 'Nur Aisyah', what: 'Annual leave · 12–13 Nov (2 days)', kind: 'Leave' },
+      { id: 'a2', initials: 'RK', name: 'Ravi Kumar', what: 'Petrol · RM 86.40 · receipt attached', kind: 'Claims' },
+      { id: 'a3', initials: 'LM', name: 'Lim Mei Ling', what: 'Saturday · 3 h', kind: 'Overtime' },
+      { id: 'a4', initials: 'AZ', name: 'Azman Zain', what: 'New phone for check-in', kind: 'Device' }
+    ];
+    const items = raw.filter((a) => f === 'All' || a.kind === f).map((a) => ({ ...a,
+      chip: 'font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;' + chip[a.kind],
+      open: !dec[a.id], done: !!dec[a.id], doneText: dec[a.id] === 'ok' ? 'Approved · ' + a.name + ' is told' : 'Declined · ' + a.name + ' is told',
+      approve: () => this.setState({ decided: { ...dec, [a.id]: 'ok' } }), reject: () => this.setState({ decided: { ...dec, [a.id]: 'no' } }) }));
+    return { tabs, filters, items, openCount: String(raw.filter((a) => !dec[a.id]).length) };
+  }
+}
+</script>
+</body>
+</html>
