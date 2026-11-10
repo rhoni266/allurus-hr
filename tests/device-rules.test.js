@@ -35,23 +35,53 @@ test('kind(): phones, tablets and computers from real browsers', () => {
   for (const [env, want] of cases) assert.equal(D.kind(env), want, `${env.ua.slice(13, 40)} → ${want}`);
 });
 
-test('allowed(): admins anywhere; employees on phones; the company setting and the per-person exception', () => {
-  const emp = { roles: ['employee'] }, adm = { roles: ['admin', 'employee'] };
-  assert.equal(D.allowed(adm, 'computer', {}), true);
-  assert.equal(D.allowed(adm, 'phone', {}), true);
-  assert.equal(D.allowed(emp, 'phone', {}), true);
-  assert.equal(D.allowed(emp, 'computer', {}), false);                     // on by default
-  assert.equal(D.allowed(emp, 'tablet', {}), false);
-  assert.equal(D.allowed(emp, 'tablet', { staffDevices: { tablets: true } }), true);
-  assert.equal(D.allowed(emp, 'computer', { staffDevices: { tablets: true } }), false);
-  assert.equal(D.allowed(emp, 'computer', { staffDevices: { phonesOnly: false } }), true);
-  assert.equal(D.allowed({ ...emp, allowComputer: true }, 'computer', {}), true);
-  assert.equal(D.allowed(null, 'computer', {}), true);                      // nobody signed in yet: the sign-in page
+test('allowed(): everyone on a computer by default; the phones-only setting, tablets and the per-person exception still work when on', () => {
+  const emp = { roles: ['employee'] }, adm = { roles: ['admin', 'employee'] }, on = { staffDevices: { phonesOnly: true } };
+  // Default (no setting): laptops for everyone.
+  for (const d of ['phone', 'tablet', 'computer']) { assert.equal(D.allowed(emp, d, {}), true, d); assert.equal(D.allowed(adm, d, {}), true, d); }
+  assert.equal(D.policy({}).phonesOnly, false);
+  assert.equal(D.policy({ staffDevices: { phonesOnly: true } }).phonesOnly, true);          // an explicit "on" is kept
+  // Phones-only explicitly on: staff are blocked on computers and tablets, admins never.
+  assert.equal(D.allowed(adm, 'computer', on), true);
+  assert.equal(D.allowed(emp, 'phone', on), true);
+  assert.equal(D.allowed(emp, 'computer', on), false);
+  assert.equal(D.allowed(emp, 'tablet', on), false);
+  assert.equal(D.allowed(emp, 'tablet', { staffDevices: { phonesOnly: true, tablets: true } }), true);
+  assert.equal(D.allowed({ ...emp, allowComputer: true }, 'computer', on), true);
+  assert.equal(D.allowed(null, 'computer', on), true);
+});
+
+test('phoneAccess(): computers and tablets are not checked; one registered phone per person', () => {
+  const P = (o) => D.phoneAccess({ device: 'phone', thisPhoneId: 'me', devices: [], policy: D.policy({}), ...o });
+  const dev = (id, status) => ({ id, name: id, status, added: '2026-11-01' });
+  // Not a phone: ok, whatever the list says.
+  for (const device of ['computer', 'tablet']) assert.equal(D.phoneAccess({ device, thisPhoneId: 'me', devices: [dev('x', 'approved')] }), 'ok');
+  assert.equal(P({ devices: [dev('me', 'approved')] }), 'ok');                                   // their approved phone
+  assert.equal(P({ devices: [] }), 'first');                                                     // no phone yet
+  assert.equal(P({ devices: [], policy: D.policy({ staffDevices: { autoFirst: false } }) }), 'first');   // same answer; the caller registers it pending
+  assert.equal(P({ devices: [dev('me', 'pending')] }), 'pending');                               // asked, waiting
+  assert.equal(P({ devices: [dev('old', 'approved')] }), 'other');                               // they have another phone
+  assert.equal(P({ devices: [dev('old', 'approved'), dev('me', 'pending')] }), 'pending');
+  assert.equal(P({ devices: [dev('old', 'approved'), dev('me', 'retired')] }), 'other');         // a retired phone is refused
+  assert.equal(P({ devices: [dev('me', 'retired'), dev('new', 'approved')] }), 'other');
+  assert.equal(P({ devices: [dev('me', 'retired')] }), 'first');                                 // HR removed the other: register again
+  assert.equal(P({ devices: [dev('me', 'removed')] }), 'first');
+  assert.equal(P({ devices: [dev('old', 'removed')] }), 'first');
+  assert.equal(P({ devices: undefined }), 'first');
+  assert.equal(D.policy({}).autoFirst, true);
+  assert.equal(D.policy({ staffDevices: { autoFirst: false } }).autoFirst, false);
 });
 
 test('the screen’s words in English and Bahasa Malaysia, and the QR address', () => {
   assert.equal(D.TEXT.en.title, 'Please use your phone');
   assert.equal(D.TEXT.ms.title, 'Sila guna telefon anda');
-  for (const l of ['en', 'ms']) for (const k of ['how', 'scan', 'none', 'out', 'joined']) assert.ok(D.TEXT[l][k], `${l}.${k}`);
+  for (const l of ['en', 'ms']) for (const k of ['how', 'scan', 'none', 'out', 'joined', 'phonePending', 'phoneOther', 'phoneUse', 'phoneAsked']) assert.ok(D.TEXT[l][k], `${l}.${k}`);
   assert.equal(D.APP_URL, 'https://allurus.my/app');
+});
+
+test('the one-phone screens use the owner’s words', () => {
+  assert.equal(D.TEXT.en.phoneOther, 'This isn’t your registered phone');
+  assert.equal(D.TEXT.ms.phoneOther, 'Ini bukan telefon berdaftar anda');
+  assert.equal(D.TEXT.en.phonePending, 'Waiting for HR to approve this phone');
+  assert.equal(D.TEXT.ms.phonePending, 'Menunggu kelulusan HR untuk telefon ini');
 });

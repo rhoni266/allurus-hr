@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.41';
+  const APP_VERSION = '3.43';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -198,6 +198,7 @@
   const fire = () => (CLOUD ? window.AllurusCloud : null);
   // "Please use your phone" is showing (js/device-rules.js); pages an admin on a phone is told are easier on a computer.
   let deviceBlock = null;
+  let phoneBlock = null;   // { mode: 'pending' | 'other', info, asked } while this phone isn't the person's registered one
   const HEAVY = new Set(['payroll', 'reports', 'settings', 'books', 'invoices', 'bills', 'finance', 'tax', 'ops-stock', 'costing']);
   // A signed-in cloud user reopening the app waits for the workspace to load before seeing it.
   const hasStaffSess = () => {
@@ -753,6 +754,7 @@
     $('#login').classList.toggle('is-careers', !!careers);
     if (careers) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = recruitApi.careersPage(careers[1], careers[2] || ''); recruitApi.bindCareers(careers[1], careers[2] || ''); document.title = `Careers · ${recruitApi.tenantName(careers[1]) || 'Allurus'}`; return; }
     // An employee on a computer (docs/DEVICE-RULES-SPEC.md): this screen and nothing else; no workspace was loaded.
+    if (phoneBlock) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = phoneBlockView(); return; }
     if (deviceBlock) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = phoneOnlyView(); return; }
     if (cloudWaiting) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = `<div class="login-inner"><div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div><h1>Loading your workspace…</h1><p class="sub">Getting the latest from the cloud.</p></div>`; return; }
     const signedIn = !!role();
@@ -1769,20 +1771,35 @@
   };
 
   // ---------- "Please use your phone" (staff on a computer; js/device-rules.js) ----------
+  function phoneBlockView() {
+    const T = AllurusDevice.TEXT, g = phoneBlock || {}, i = g.info || {};
+    const used = i.lastUsed ? ` · used ${U.fmtDate(i.lastUsed, { day: 'numeric', month: 'short' })}` : '';
+    const body = g.mode === 'other' && !g.asked
+      ? `<p>${esc(i.name ? 'Your registered phone: ' + i.name + used : 'You already have a registered phone.')}</p><p class="muted" lang="ms" style="font-size:13px">${esc(i.name ? 'Telefon berdaftar anda: ' + i.name + used : '')}</p>
+         <p class="muted" style="font-size:13px">New phone? HR approves it, and then the old one stops working.</p>
+         <button type="button" class="btn btn-primary login-submit" data-act="phone-use">${esc(T.en.phoneUse)} · <span lang="ms">${esc(T.ms.phoneUse)}</span></button>`
+      : `<p>${esc(g.asked ? T.en.phoneAsked : 'HR needs to approve this phone before you can use Allurus on it.')}</p><p class="muted" lang="ms" style="font-size:13px">${esc(g.asked ? T.ms.phoneAsked : 'HR perlu meluluskan telefon ini sebelum anda boleh guna Allurus di sini.')}</p>
+         <button type="button" class="btn login-submit" data-act="phone-recheck">Check again · Semak semula</button>`;
+    return `<div class="login-inner phone-only" role="main"><div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div>
+      <h1>${esc(g.mode === 'other' && !g.asked ? T.en.phoneOther : T.en.phonePending)}</h1><p class="sub" lang="ms">${esc(g.mode === 'other' && !g.asked ? T.ms.phoneOther : T.ms.phonePending)}</p>
+      <div class="login-card" style="text-align:center">${body}<button type="button" class="btn login-submit" data-act="device-signout" style="margin-top:10px">${esc(T.en.out)} · <span lang="ms">${esc(T.ms.out)}</span></button></div></div>`;
+  }
   // Settings → Security: the company's rule (tenants/{t}.staffDevices). Owner or the Settings area changes it.
   function staffDevicesCard() {
     const p = AllurusDevice.policy(window.AllurusCompany || {}), mayEdit = can('settings');
     const sw = (key, on, label, desc) => `<div class="settings-row"><div><div class="label">${label}</div><div class="desc">${desc}</div></div>
       <label class="switch"><input type="checkbox" data-staffdev="${key}" ${on ? 'checked' : ''} ${mayEdit ? '' : 'disabled'} aria-label="${esc(label)}"><span></span></label></div>`;
-    return `<div class="card" id="staff-devices"><div class="card-head"><h3>Which devices staff use</h3><span class="hint">Admins can always use a computer and a phone</span></div>
-      ${sw('phonesOnly', p.phonesOnly, 'Staff use Allurus on phones only', 'On a laptop or PC, staff see “Please use your phone” with a QR code, and nothing else. To let one person use a computer, open Users &amp; roles and tick “Allow this person on a computer”.')}
-      ${sw('tablets', p.tablets, 'Staff may also use tablets', 'Counts tablets as phones for staff.')}
-      <p class="faint" style="font-size:12.5px;margin-top:8px">This is a house rule, not a lock: the browser tells Allurus what kind of device it is, and someone who knows how can change that. What each person can see is still decided by their role.</p></div>`;
+    return `<div class="card" id="staff-devices"><div class="card-head"><h3>Which devices staff use</h3><span class="hint">Everyone can sign in on a laptop or PC</span></div>
+      <p class="muted" style="margin-bottom:10px">On a phone, each person uses <b>one registered phone</b>. Their first phone registers itself; any other phone waits for HR. Check-in only works on that phone, never on a computer.</p>
+      ${sw('autoFirst', p.autoFirst, 'Approve a person’s first phone automatically', 'On: the first phone someone uses is registered at once and HR gets a notice. Off: HR approves every phone, including the first.')}
+      ${sw('phonesOnly', p.phonesOnly, 'Staff use Allurus on phones only', 'Off: staff can sign in on a laptop or PC too. Check-in still only works on their registered phone. On: staff on a laptop or PC see “Please use your phone”; to let one person use a computer, tick “Allow this person on a computer” in Users &amp; roles.')}
+      ${p.phonesOnly ? sw('tablets', p.tablets, 'Staff may also use tablets', 'Counts tablets as phones for staff.') : ''}
+      <p class="faint" style="font-size:12.5px;margin-top:8px">How it works, honestly: a phone is recognised by an id saved in its browser. Clearing the browser’s data, switching browser or reinstalling looks like a new phone and needs HR’s approval again, so tell staff to use one browser and add Allurus to the home screen. Someone very technical could copy that id: this stops casual sharing (signing in on a friend’s phone, checking in for someone else), not a determined attacker. What each person can see is still decided by their role.</p></div>`;
   }
   async function setStaffDevices(key, on) {
     const cur = AllurusDevice.policy(window.AllurusCompany || {}), next = { ...cur, [key]: !!on };
     const r = await fire().setStaffDevices(next);
-    if (r.ok) { log(`Device rule changed: ${key === 'phonesOnly' ? 'staff use phones only' : 'staff may also use tablets'} ${on ? 'on' : 'off'}`); save(); toast(on ? 'Turned on.' : 'Turned off.'); }
+    if (r.ok) { log(`Device rule changed: ${{ phonesOnly: 'staff use phones only', tablets: 'staff may also use tablets', autoFirst: 'approve a first phone automatically' }[key] || key} ${on ? 'on' : 'off'}`); save(); toast(on ? 'Turned on.' : 'Turned off.'); }
     else { toast(r.error, 'error'); render(); }
   }
   function phoneQr() {
@@ -2083,6 +2100,7 @@
     else if (!rec || !rec.in) clock = `<div class="actions"><button class="btn btn-primary btn-lg" data-act="check-in" data-v="present">${icon('camera')}Check in with selfie</button>${zone().remote ? '<button class="btn" data-act="check-in" data-v="remote">Work remotely</button>' : ''}</div>`;
     else if (!rec.out) clock = `<div class="clock-state"><div class="actions">${selfieThumb(me().id, T, rec)}<span class="pill ok">${rec.s === 'remote' ? 'Remote' : 'In office'} since ${rec.lastIn || rec.in}</span><button class="btn btn-primary" data-act="check-out">Check out</button></div>${rec.loc ? `<span class="faint" style="font-size:12.5px">${esc(locText(rec.loc))}</span>` : ''}</div>`;
     else clock = `<div class="clock-state"><div class="actions">${selfieThumb(me().id, T, rec)}<span class="pill brand">Checked out at ${rec.out} · ${hoursBetween(rec.in, rec.out).toFixed(1)} h today</span><button class="btn btn-primary" data-act="check-in" data-v="present">${icon('camera')}Check in again</button>${zone().remote ? '<button class="btn" data-act="check-in" data-v="remote">Work remotely</button>' : ''}</div><span class="faint" style="font-size:12.5px">Checked out by mistake? Check in again. Your hours still count from ${rec.in}.</span></div>`;
+    if (CLOUD && window.AllurusDevice && AllurusDevice.here() !== 'phone' && rec?.s !== 'leave') clock = '<span class="faint">Check in from your registered phone. Check-in doesn’t work on a computer.</span>';
     const ps = AllurusPlanner.summary(state, e);
     const coming = (state.claims || []).filter((c) => c.empId === e.id && c.status === 'Approved').reduce((s, c) => s + c.approved, 0);
     const payday = U.lastWorkday(U.monthEnd(U.monthKey(T)));
@@ -2440,6 +2458,9 @@
   }
   // Whether this phone may check in for employee e.
   function deviceGate(e) {
+    // Cloud: the phone was already checked when signing in (phoneGate), so a phone here is the registered one. A
+    // computer or tablet never checks in (docs/ONE-PHONE-SPEC.md).
+    if (CLOUD && window.AllurusDevice) return AllurusDevice.here() === 'phone' ? { ok: true } : { ok: false, title: 'Check in on your phone', text: 'Check-in only works on your registered phone, not on a computer or tablet.' };
     if (!lockOn()) return { ok: true };
     const id = deviceId();
     const owner = state.employees.find((x) => x.id !== e.id && (x.devices || []).some((d) => d.id === id && d.status === 'approved'));
@@ -2791,8 +2812,8 @@
         <div style="flex:1;min-width:0"><div class="person-name">${e.face ? (e.face.status === 'confirmed' ? 'Reference photo confirmed' : 'Reference photo waiting for HR') : 'No reference photo yet'}</div>
           <div class="person-sub" style="white-space:normal">${e.face ? `Set on ${U.fmtDate(e.face.enrolledOn)}, with consent.` : 'Taken at their first check-in, after they agree.'}</div>
           <div class="actions" style="margin-top:8px">${e.face?.status === 'pending' ? `<button class="btn btn-sm btn-ok" data-act="face-confirm" data-id="${e.id}">Confirm</button>` : ''}${e.face ? `<button class="btn btn-sm" data-act="face-reset" data-id="${e.id}">Retake at next check-in</button>` : ''}</div></div></div>
-      <div class="list">${devs.length ? devs.map((d) => `<div class="list-item"><div class="grow"><div class="person-name">${esc(d.name)}</div><div class="person-sub">${d.status === 'approved' ? 'Approved' : 'Waiting for approval'} · added ${U.fmtDate(d.added)}${d.id === deviceId() ? ' · this device' : ''}</div></div>
-        ${d.status === 'pending' ? `<button class="btn btn-sm btn-ok" data-act="dev-approve" data-id="${e.id}" data-v="${d.id}">Approve</button>` : ''}<button class="btn btn-sm btn-ghost" data-act="dev-remove" data-id="${e.id}" data-v="${d.id}">Remove</button></div>`).join('') : '<p class="faint" style="font-size:13px">No phone registered. Their first check-in registers it.</p>'}</div></div>`;
+      ${CLOUD ? phonesPanel(e) : `<div class="list">${devs.length ? devs.map((d) => `<div class="list-item"><div class="grow"><div class="person-name">${esc(d.name)}</div><div class="person-sub">${d.status === 'approved' ? 'Approved' : 'Waiting for approval'} · added ${U.fmtDate(d.added)}${d.id === deviceId() ? ' · this device' : ''}</div></div>
+        ${d.status === 'pending' ? `<button class="btn btn-sm btn-ok" data-act="dev-approve" data-id="${e.id}" data-v="${d.id}">Approve</button>` : ''}<button class="btn btn-sm btn-ghost" data-act="dev-remove" data-id="${e.id}" data-v="${d.id}">Remove</button></div>`).join('') : '<p class="faint" style="font-size:13px">No phone registered. Their first check-in registers it.</p>'}</div>`}</div>`;
   }
 
   // ---------- Platform map ----------
@@ -3373,6 +3394,74 @@
   ACTIONS['bill-export'] = () => billingUi.exportAll();
   ACTIONS['onboard-hide'] = () => { state.settings.onboardDone = true; commit('Checklist hidden'); };
 
+  // ---------- One phone per person: HR's side (docs/ONE-PHONE-SPEC.md) ----------
+  // Everyone's phone records (people or time area) feed the Approvals list and each person's Phones panel. HR gets an
+  // in-app notice when someone registers a phone or asks for a new one; every register, approve, decline, retire and
+  // remove is in the activity log with the phone's NAME (never its id).
+  const phoneWatch = {
+    data: [],
+    async load(redraw) {
+      if (!CLOUD || !fire()?.live || fire().profile?.support || !(can('people') || can('time'))) return;
+      // An Owner may approve their own phone only when they are the only Owner, so count the Owners first.
+      if (!myPerms() && !teamAccess.data) await teamAccess.load().catch(() => {});
+      const all = await fire().phonesAll(), before = JSON.stringify(this.data);
+      this.data = Array.isArray(all) ? all : [];
+      this.notices();
+      // Redraw only when something changed, or opening Approvals would load and redraw forever.
+      if (redraw && JSON.stringify(this.data) !== before && /^approvals\b/.test(location.hash.slice(1))) render();
+    },
+    for(empId) { return this.data.find((d) => d.empId === empId) || null; },
+    notices() {
+      if (!notifyApi) return;
+      const recent = (day) => day && (Date.now() - new Date(day).getTime()) < 14 * 864e5;
+      this.data.forEach((d) => {
+        const e = emp(d.empId); if (!e) return;
+        if (d.active?.auto && recent(d.active.added) && notifyApi.event('phone.registered', { who: fullName(e), href: '#approvals' }, 'hr', { key: `ph-reg-${d.empId}-${d.active.added}`, self: true })) log(`${fullName(e)} registered a phone (${d.active.name})`);
+        if (d.pending && notifyApi.event('phone.asked', { who: fullName(e), href: '#approvals' }, 'hr', { key: `ph-ask-${d.empId}-${d.pending.requested}-${d.pending.name}`, self: true })) log(`${fullName(e)} asked to use a new phone (${d.pending.name})`);
+      });
+    },
+    // The only Owner may approve their own new phone, after typing their password again.
+    owners() { return (teamAccess.data?.users || []).filter((u) => (u.roles || []).includes('admin') && !Array.isArray(u.perms) && !u.disabled && !u.pending).length; },
+    canSelf() { return role() === 'admin' && !myPerms() && this.owners() === 1; },
+  };
+  function phonesPanel(e) {
+    const d = phoneWatch.for(e.id), me_ = e.id === me()?.id, fd = (x) => (x ? U.fmtDate(x, { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
+    const row = (p, tag, btns = '') => `<div class="list-item"><div class="grow"><div class="person-name">${esc(p.name)}</div><div class="person-sub">${tag}${p.added ? ' · registered ' + fd(p.added) : ''}${p.lastUsed ? ' · last used ' + fd(p.lastUsed) : ''}${p.retiredOn ? ' · retired ' + fd(p.retiredOn) : ''}</div></div>${btns}</div>`;
+    const self = me_ && !phoneWatch.canSelf();
+    const rows = !d ? '' : [
+      d.active ? row(d.active, 'Registered phone', `<button class="btn btn-sm btn-ghost" data-act="ph-remove" data-id="${e.id}" ${self ? 'disabled title="Ask another admin"' : ''}>Remove phone</button>`) : '',
+      d.pending ? row(d.pending, 'Waiting for approval', me_ ? (phoneWatch.canSelf() ? `<button class="btn btn-sm btn-ok" data-act="ph-self" data-id="${e.id}">Approve my phone</button>` : '<span class="faint" style="font-size:12px">Another admin approves this</span>') : `<button class="btn btn-sm btn-ok" data-act="ph-approve" data-id="${e.id}">Approve</button><button class="btn btn-sm btn-ghost" data-act="ph-decline" data-id="${e.id}">Decline</button>`) : '',
+      ...(d.retired || []).slice().reverse().slice(0, 5).map((p) => row(p, 'Retired')),
+    ].join('');
+    return `<div class="list"><h4 style="margin:6px 0">Phones</h4>${rows || '<p class="faint" style="font-size:13px">No phone registered yet. The first phone they use registers itself (or waits for you, if first phones need approval).</p>'}</div>`;
+  }
+  const phoneAct = async (empId, fn, done, warn) => {
+    const e = emp(empId), r = await fn();
+    if (r.ok) { log(`${done} ${e ? fullName(e) : 'a person'}${r.name ? ' (' + r.name + ')' : ''}`); save(); }
+    toast(r.ok ? warn : r.error, r.ok ? '' : 'error');
+    await phoneWatch.load(); render();
+  };
+  ACTIONS['ph-approve'] = (id) => phoneAct(id, () => fire().phoneApprove(id), 'Approved a new phone for', 'Approved. The old phone stops working.');
+  ACTIONS['ph-decline'] = (id) => phoneAct(id, () => fire().phoneDecline(id), 'Declined a new phone for', 'Declined.');
+  ACTIONS['ph-remove'] = (id) => openModal({ title: 'Remove phone?', size: 'sm', submit: 'Remove phone', body: '<p>Use this when a phone is lost or stolen. It stops working at once, and the person can register a new phone.</p>', onSubmit: () => { setTimeout(() => phoneAct(id, () => fire().phoneRemove(id), 'Removed the registered phone of', 'Phone removed.'), 0); } });
+  ACTIONS['ph-self'] = async (id) => {
+    if (!teamAccess.data) await teamAccess.load();
+    if (!phoneWatch.canSelf()) { toast('Another admin needs to approve your new phone.', 'error'); return; }
+    openModal({ title: 'Approve my new phone', size: 'sm', submit: 'Approve', body: '<p class="muted" style="margin-bottom:10px">Type your password again to approve your own new phone. Your old phone will stop working.</p><div class="field"><label for="ph-pw">Password</label><input class="input" id="ph-pw" name="pw" type="password" autocomplete="current-password" required></div>',
+      onSubmit: (d) => { (async () => {
+        const r = await fire().phoneApproveSelf(String(d.pw || ''));
+        if (r.ok) { log(`The Owner approved their own new phone (${r.name || 'phone'}) after typing their password again`); save(); notifyApi?.event('phone.changed', { href: '#settings/security' }, me().id, { self: true }); }
+        toast(r.ok ? 'Approved. Your old phone stops working.' : r.error, r.ok ? '' : 'error');
+        await phoneWatch.load(); render();
+      })(); } });
+  };
+  // On the "not your registered phone" screen.
+  ACTIONS['phone-use'] = async () => {
+    const r = await fire().phoneRequest();
+    if (r.ok) { phoneBlock = { mode: 'pending', asked: true, info: { name: deviceName() } }; render(); } else toast(r.error, 'error');
+  };
+  ACTIONS['phone-recheck'] = () => { location.reload(); };
+
   // ---------- Approvals (admins): leave, claims, overtime and new check-in phones in one list ----------
   // The phone's Approvals tab (docs/DEVICE-RULES-SPEC.md). Each kind only with its area; the actions are the same
   // ones as on the Leave, Claims and Attendance pages, so the person is told as before. Never your own requests.
@@ -3382,7 +3471,8 @@
     if (can('time')) {
       pendingLeaves().filter((l) => l.empId !== mine).forEach((l) => out.push({ kind: 'leave', id: l.id, e: emp(l.empId), what: `${leaveApi.typeName(l.type)} leave · ${l.days} day${l.days > 1 ? 's' : ''}`, when: U.fmtDate(l.from, { month: 'short', day: 'numeric' }) }));
       (timeApi?.pending?.() || []).filter((q) => q.empId !== mine).forEach((q) => out.push({ kind: 'overtime', id: q.id, e: emp(q.empId), what: q.kind === 'ot' ? 'Overtime' : 'Attendance correction', when: U.fmtDate(q.date, { month: 'short', day: 'numeric' }) }));
-      securityQueue().devices.filter(({ e }) => e.id !== mine).forEach(({ e, d }) => out.push({ kind: 'devices', id: e.id, v: d.id, e, what: `New check-in phone${d.label ? ` · ${d.label}` : ''}`, when: '' }));
+      if (CLOUD) phoneWatch.data.filter((d) => d.pending && (d.empId !== mine || phoneWatch.canSelf())).forEach((d) => { const e = emp(d.empId); if (e) out.push({ kind: 'devices', ph: true, id: d.empId, e, what: `New phone · ${d.pending.name}`, when: '' }); });
+      else securityQueue().devices.filter(({ e }) => e.id !== mine).forEach(({ e, d }) => out.push({ kind: 'devices', id: e.id, v: d.id, e, what: `New check-in phone${d.label ? ` · ${d.label}` : ''}`, when: '' }));
     }
     if (can('claims')) (state.claims || []).filter((c) => c.status === 'Pending' && c.empId !== mine).forEach((c) => out.push({ kind: 'claims', id: c.id, e: emp(c.empId), what: `${c.title} · ${money(AllurusClaimRules.claimTotal(c), 2)}`, when: '' }));
     return out.filter((x) => x.e);
@@ -3394,6 +3484,7 @@
     const btns = (x) => {
       const who = esc(fullName(x.e));
       if (x.kind === 'leave') return `<button class="btn btn-ok" data-act="approve-leave" data-id="${x.id}" aria-label="Approve ${who}’s leave">Approve</button><button class="btn btn-danger" data-act="reject-leave" data-id="${x.id}" aria-label="Decline ${who}’s leave">Decline</button>`;
+      if (x.kind === 'devices' && x.ph) return x.id === me()?.id ? `<button class="btn btn-primary" data-act="ph-self" data-id="${x.id}">Approve my phone</button>` : `<button class="btn btn-ok" data-act="ph-approve" data-id="${x.id}" aria-label="Approve ${who}’s phone">Approve</button><button class="btn btn-danger" data-act="ph-decline" data-id="${x.id}" aria-label="Decline ${who}’s phone">Decline</button>`;
       if (x.kind === 'devices') return `<button class="btn btn-ok" data-act="dev-approve" data-id="${x.id}" data-v="${x.v}" aria-label="Approve ${who}’s phone">Approve</button><button class="btn btn-danger" data-act="dev-reject" data-id="${x.id}" data-v="${x.v}" aria-label="Decline ${who}’s phone">Decline</button>`;
       return `<button class="btn btn-primary" data-act="${x.kind === 'claims' ? 'cl-review' : 'tm-review'}" data-id="${x.id}">Review</button>`;
     };
@@ -3403,6 +3494,7 @@
         : '<div class="empty"><strong>All caught up</strong>New requests will show up here.</div>'}</div>`;
   };
   ACTIONS['ap-filter'] = (_, v) => { ui.apFilter = v; render(); };
+  AFTER.approvals = () => { phoneWatch.load(true).catch(() => {}); };
   // An admin's "Me" tab on a phone: their own leave, payslips, claims and check-in (the employee view).
   ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role() !== 'employee') switchRole('employee'); else location.hash = 'my-profile'; };
 
@@ -3955,6 +4047,8 @@
     companyBlocked(eff) { billingUi.blocked(eff); },
     // An employee signed in on a computer: "Please use your phone" (cloud.js stopped before loading anything).
     deviceBlocked() { cloudWaiting = false; deviceBlock = { at: Date.now() }; render(); },
+    // This phone isn't the person's registered phone (cloud.js phoneGate): nothing of the company was loaded.
+    phoneBlocked(g) { cloudWaiting = false; phoneBlock = { ...g }; render(); },
     // Superadmin viewing a company: open it as its Owner would see it, with a banner; changes are never saved.
     // sup: { edit, until, pay } when the company has granted Allurus support access (support mode).
     cloudViewOnly(name, sup = null) {
@@ -3979,6 +4073,7 @@
         if (reason === 'signed-out' && hadAcct) toast('Please sign in again.');
       }
       render();
+      if (reason !== 'signed-out') phoneWatch.load().catch(() => {});
       if (reason !== 'signed-out') supportAccess.notice().then(() => { notifyApi?.updateBell(); save(); }).catch(() => {});
     },
   };

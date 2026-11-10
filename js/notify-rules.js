@@ -70,6 +70,10 @@ window.AllurusNotifyRules = (function () {
     'reminder.icJoin': { cat: 'reminders', icon: 'people', inAppOnly: true, text: (d) => [`${d.count} staff haven’t joined yet`, `${d.late ? `${d.late} link${d.late === 1 ? '' : 's'} sent over ${d.days} days ago` : ''}${d.late && d.expired ? ', ' : ''}${d.expired ? `${d.expired} expired` : ''}. Open Team access to send new links.`] },
     // Follows each admin's settings: in the app, and by email only if they chose email for these.
     'support.opened': { cat: 'requests', icon: 'shield', text: () => ['Allurus support opened your company', 'See what they looked at or changed in Settings → Data & privacy → Support access log.'] },
+    // One phone per person (docs/ONE-PHONE-SPEC.md). The first two are for HR, in the app only.
+    'phone.registered': { cat: 'requests', icon: 'shield', inAppOnly: true, text: (d) => [`${d.who} registered a phone`, 'Their first phone was approved automatically. Check it in Approvals or their profile if that isn’t right.'] },
+    'phone.asked': { cat: 'requests', icon: 'shield', inAppOnly: true, text: (d) => [`${d.who} asked to use a new phone`, 'Approve it in Approvals. The old phone stops working once you do.'] },
+    'phone.changed': { cat: 'requests', icon: 'shield', text: () => ['Your Allurus phone was changed', 'You approved a new phone for your account. The old phone no longer works. If this wasn’t you, change your password and tell your admin.'] },
     'staff.registered': { cat: 'requests', icon: 'people', inAppOnly: true, text: (d) => [`${d.who} registered on the join page`, 'Check it’s really them, then approve it in Team access. If it isn’t them, press This is not them.'] },
     'reminder.appraisals': { cat: 'reminders', icon: 'trend', text: (d) => [`${d.count} appraisal${d.count === 1 ? ' is' : 's are'} not submitted`, `${d.cycle} appraisals are due ${fmt(d.date)} (${inDays(d.left)}): ${d.names}.`] },
   };

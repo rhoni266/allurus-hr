@@ -750,6 +750,39 @@ service cloud.firestore {
         allow update: if supportOn() && supportLogged('people/' + e) && working(t)
           && (supportPay() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(payIdKeys()));
       }
+      // ---- One phone per person (docs/ONE-PHONE-SPEC.md): tenants/{t}/phones/{empId} ----
+      // active: the registered phone { id, name, added, lastUsed }; pending: one phone asked for; retired: older ones.
+      // The person may only ask for a phone (pending), register a first one when the company approves first phones
+      // automatically, and update lastUsed on their own. Approving, declining and removing are for people with the
+      // people or time area, never on their own record, except an Owner who has just typed their password again.
+      match /phones/{e} {
+        function nd() { return request.resource.data; }
+        function od() { return resource.data; }
+        function myPhone() { return member(t) && me().empId == e; }
+        function phoneMgr() { return hasArea(t, 'people') || hasArea(t, 'time'); }
+        function isPhone(m) { return m != null && m.keys().hasOnly(['id', 'name', 'added', 'lastUsed', 'auto', 'requested']) && m.id is string && m.id.size() < 128 && m.name is string && m.name.size() < 100; }
+        function shape() { return nd().keys().hasOnly(['active', 'pending', 'retired']) && nd().get('retired', []) is list && nd().get('retired', []).size() <= 30; }
+        function autoFirst() { return co(t).get('staffDevices', {}).get('autoFirst', true) == true; }
+        function freshPassword() { return request.auth.token.auth_time * 1000 > request.time.toMillis() - 300000; }
+        // A first phone, approved at once.
+        function firstAuto(m) { return isPhone(m) && m.get('auto', false) == true && autoFirst(); }
+        allow read: if (myPhone() || phoneMgr()) && canRead(t);
+        allow create: if myPhone() && working(t) && shape() && nd().get('retired', []).size() == 0
+          && ((nd().get('active', null) == null && isPhone(nd().get('pending', null)))
+            || (nd().get('pending', null) == null && firstAuto(nd().get('active', null))));
+        allow update: if working(t) && shape() && (
+          // The person: ask for a phone (or take the request back); register a first one; touch lastUsed.
+          (myPhone() && nd().get('retired', []) == od().get('retired', []) && (
+            (nd().get('active', null) == od().get('active', null) && (nd().get('pending', null) == null || isPhone(nd().get('pending', null))))
+            || (od().get('active', null) == null && od().get('pending', null) == null && nd().get('pending', null) == null && firstAuto(nd().get('active', null)))
+            || (od().get('active', null) != null && nd().get('pending', null) == od().get('pending', null) && nd().active.diff(od().active).affectedKeys().hasOnly(['lastUsed']))))
+          // HR: approve (the asked-for phone becomes the only approved one), decline, or remove.
+          || (phoneMgr() && (me().empId != e || (owner() && freshPassword())) && (
+            (od().get('pending', null) != null && nd().get('pending', null) == null && isPhone(nd().get('active', null)) && nd().active.id == od().pending.id)
+            || (nd().get('pending', null) == null && nd().get('active', null) == od().get('active', null))
+            || (nd().get('active', null) == null && nd().get('pending', null) == od().get('pending', null)))));
+        allow delete: if false;
+      }
       match /payslips/{e} {
         allow read: if (hasArea(t, 'payroll') || (member(t) && me().empId == e)) && canRead(t);
         allow write: if hasArea(t, 'payroll') && working(t);

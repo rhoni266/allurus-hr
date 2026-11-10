@@ -21,7 +21,7 @@ let db;
 try { db = FS.initializeFirestore(fb, { localCache: FS.persistentLocalCache({ tabManager: FS.persistentMultipleTabManager() }) }); }
 catch (e) { db = FS.getFirestore(fb); }
 
-const { doc, collection, query, where, getDoc, getDocs, setDoc, deleteField, onSnapshot, writeBatch, serverTimestamp } = FS;
+const { doc, collection, query, where, getDoc, getDocs, setDoc, updateDoc, deleteField, onSnapshot, writeBatch, serverTimestamp } = FS;
 const lower = (s) => String(s || '').trim().toLowerCase();
 const AUTH_MSG = {
   'auth/invalid-credential': 'That email and password don’t match an Allurus account.',
@@ -334,6 +334,64 @@ new MutationObserver((list) => {
 }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['src', 'href'] });
 
 // ---------- Starting and stopping ----------
+// ---------- One phone per person (docs/ONE-PHONE-SPEC.md) ----------
+// tenants/{t}/phones/{empId}: { active: {id,name,added,lastUsed,auto}, pending: {id,name,added,requested}, retired: [...] }.
+// Until a company's records are moved there (scripts/migrate-phones.js), an older registered phone still counts:
+// the check-in list on the person's own record, or the sign-in binding on their account.
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const phoneRef = (empId, t = S.profile?.tenantId) => doc(db, `tenants/${t}/phones/${empId}`);
+const publicPhone = (d) => ({ name: d.name || 'Phone', added: d.added || '', lastUsed: d.lastUsed || '' });
+async function legacyPhones(profile) {
+  const out = [];
+  if (profile.deviceId) out.push({ id: profile.deviceId, name: 'Registered phone', status: 'approved', legacy: true });
+  try {
+    const p = await getDoc(doc(db, `tenants/${profile.tenantId}/people/${profile.empId}`));
+    const raw = p.exists() ? p.data().devices : null;
+    const list = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : [];
+    (Array.isArray(list) ? list : []).filter((d) => d && d.id && d.status === 'approved').forEach((d) => { if (!out.some((x) => x.id === d.id)) out.push({ id: d.id, name: d.name || 'Registered phone', status: 'approved', added: d.added || '', legacy: true }); });
+  } catch (e) { /* no older list to read */ }
+  return out;
+}
+function phoneList(d) {
+  if (!d) return [];
+  return [...(d.active ? [{ ...d.active, status: 'approved' }] : []), ...(d.pending ? [{ ...d.pending, status: 'pending' }] : []), ...(d.retired || []).map((r) => ({ ...r, status: 'retired' }))];
+}
+// → null (carry on) or { mode: 'pending' | 'other', info } for the blocked screen.
+async function phoneGate(profile, company) {
+  const Dv = window.AllurusDevice;
+  if (!Dv || profile.viewOnly || profile.support || !profile.empId || Dv.here() !== 'phone') return null;
+  const pol = Dv.policy(company || {}), me = M.getDeviceId(), name = M.getDeviceName(), today = todayISO(), ref = phoneRef(profile.empId, profile.tenantId);
+  S.phone = { id: me, name };
+  let snap = null;
+  try { snap = await getDoc(ref); } catch (e) { console.warn('[Allurus cloud] phone record', e?.code); return null; }   // can't read it: don't lock anyone out
+  const data = snap?.exists() ? snap.data() : null;
+  let devices = phoneList(data);
+  if (!data) devices = await legacyPhones(profile);
+  const res = Dv.phoneAccess({ device: 'phone', thisPhoneId: me, devices, policy: pol });
+  const reg = devices.find((d) => d.status === 'approved');
+  if (res === 'ok') {
+    try {
+      if (data?.active?.id === me) { if (data.active.lastUsed !== today) await updateDoc(ref, { 'active.lastUsed': today }); }
+      else if (!data) await setDoc(ref, { active: { id: me, name, added: reg?.added || today, lastUsed: today, auto: true }, pending: null, retired: [] });   // move an older registration here
+    } catch (e) { /* best effort */ }
+    return null;
+  }
+  if (res === 'first') {
+    try {
+      if (pol.autoFirst) {
+        const a = { id: me, name, added: today, lastUsed: today, auto: true };
+        if (data) await updateDoc(ref, { active: a, pending: null }); else await setDoc(ref, { active: a, pending: null, retired: [] });
+        S.phone.registered = true; return null;
+      }
+      const p = { id: me, name, added: today, requested: today };
+      if (data) await updateDoc(ref, { pending: p }); else await setDoc(ref, { active: null, pending: p, retired: [] });
+      return { mode: 'pending', info: publicPhone(p) };
+    } catch (e) { console.warn('[Allurus cloud] register phone', e?.code); return { mode: 'pending', info: publicPhone({ name }) }; }
+  }
+  if (res === 'pending') return { mode: 'pending', info: publicPhone(data?.pending || { name }) };
+  return { mode: 'other', info: publicPhone(reg || {}) };   // 'other'
+}
+
 async function start(profile) {
   stop();
   S.profile = profile; S.admin = profile.roles.includes('admin'); S.perms = Array.isArray(profile.perms) ? profile.perms : null;
@@ -352,6 +410,10 @@ async function start(profile) {
   if (Dv && !profile.viewOnly && !profile.support && !Dv.allowed(profile, Dv.here(), company)) {
     app.deviceBlocked(company); throw Object.assign(new Error('device-blocked'), { device: true });
   }
+  // One phone per person (docs/ONE-PHONE-SPEC.md): on a phone, only the registered phone gets in; the first phone
+  // registers itself; any other waits for HR. Computers and tablets are not checked. Nothing loads until it's ok.
+  const gate = await phoneGate(profile, company);
+  if (gate) { app.phoneBlocked(gate); throw Object.assign(new Error('phone-blocked'), { device: true }); }
   await new Promise((ready) => listen(ready));
   if (can('finance')) await listenInvoices();
   await Promise.all(Object.keys(REQ).map(listenRequests));
@@ -549,21 +611,7 @@ const api = {
       if (prof.pending) { await Auth.signOut(auth); return { error: 'Your registration is waiting for HR to approve it. Try again once HR has checked it.' }; }
       if (prof.error === 'unverified') { await Auth.signOut(auth); return { error: `Confirm your email first. We’ve sent a link to ${lower(email)}; open it, then sign in again.` }; }
 
-      // Device binding check for employees (1 Phone = 1 Employee)
-      const isEmployeeOnly = prof.roles?.includes('employee') && !prof.roles?.includes('admin');
-      const devId = (M.getDeviceId ? M.getDeviceId() : (localStorage.getItem('allurus_device_id') || 'dev-unsaved'));
-      if (isEmployeeOnly) {
-        if (prof.deviceId && prof.deviceId !== devId) {
-          await Auth.signOut(auth);
-          return { error: 'Akaun ini telah dipautkan ke telefon lain (1 Pekerja = 1 Telefon). Anda tidak boleh log masuk menggunakan peranti ini. Sila gunakan telefon berdaftar anda atau hubungi pihak HR.' };
-        }
-        if (!prof.deviceId) {
-          try {
-            await setDoc(doc(db, `users/${cred.user.uid}`), { deviceId: devId }, { merge: true });
-            prof.deviceId = devId;
-          } catch (e) { console.warn('[Allurus cloud] could not bind deviceId on users', e); }
-        }
-      }
+      // Which phone may be used is decided in start() (phoneGate), for everyone, on phones only.
 
       await start(prof);
       return { ok: true, profile: prof };
@@ -661,9 +709,66 @@ const api = {
   async cancelInvite(email) {
     try { await FS.deleteDoc(doc(db, `invites/${lower(email)}`)); return { ok: true }; } catch (e) { return { error: 'Couldn’t cancel the invitation.' }; }
   },
+  // ----- One phone per person (docs/ONE-PHONE-SPEC.md) -----
+  // "Use this phone instead": ask HR (the person's own request). An older registration is moved into the new record
+  // first, so approving the request retires it.
+  async phoneRequest() {
+    const p = S.profile; if (!p?.empId || !S.phone) return { error: 'Not signed in.' };
+    const ref = phoneRef(p.empId), today = todayISO(), ask = { id: S.phone.id, name: S.phone.name, added: today, requested: today };
+    try {
+      const s = await getDoc(ref);
+      if (!s.exists()) {
+        const old = (await legacyPhones(p))[0];
+        if (old) await setDoc(ref, { active: { id: old.id, name: old.name, added: old.added || '', lastUsed: '', auto: true }, pending: null, retired: [] });
+        else await setDoc(ref, { active: null, pending: ask, retired: [] });
+        if (old) await updateDoc(ref, { pending: ask });
+      } else await updateDoc(ref, { pending: ask });
+      return { ok: true };
+    } catch (e) { console.warn('[Allurus cloud] phone request', e?.code); return { error: 'Couldn’t send the request. Check your connection and try again.' }; }
+  },
+  // HR: everyone's phone records (the people or time area), for the Approvals list and each person's Phones panel.
+  async phonesAll() {
+    const r = await getDocs(collection(db, `${T()}/phones`)).catch(() => ({ docs: [] }));
+    return r.docs.map((d) => ({ empId: d.id, ...d.data() }));
+  },
+  async phoneApprove(empId) {
+    try {
+      const ref = phoneRef(empId), s = await getDoc(ref), d = s.exists() ? s.data() : null;
+      if (!d?.pending) return { error: 'There’s no request to approve.' };
+      const retired = [...(d.retired || []), ...(d.active ? [{ ...d.active, retiredOn: todayISO(), why: 'replaced' }] : [])].slice(-30);
+      await updateDoc(ref, { active: { id: d.pending.id, name: d.pending.name, added: todayISO(), lastUsed: '', auto: false }, pending: null, retired });
+      return { ok: true, name: d.pending.name };
+    } catch (e) { return { error: e?.code === 'permission-denied' ? 'You can’t approve your own phone. Ask another admin.' : 'Couldn’t approve. Reload and try again.' }; }
+  },
+  async phoneDecline(empId) {
+    try { await updateDoc(phoneRef(empId), { pending: null }); return { ok: true }; }
+    catch (e) { return { error: e?.code === 'permission-denied' ? 'You can’t decline your own request.' : 'Couldn’t decline. Reload and try again.' }; }
+  },
+  // Lost or stolen: retire the registered phone, so the person can register a new one.
+  async phoneRemove(empId) {
+    try {
+      const ref = phoneRef(empId), s = await getDoc(ref), d = s.exists() ? s.data() : null;
+      let retired = d?.retired || [];
+      if (d?.active) retired = [...retired, { ...d.active, retiredOn: todayISO(), why: 'removed' }].slice(-30);
+      if (!d) { await setDoc(ref, { active: null, pending: null, retired: [] }); return { ok: true }; }   // (older registration only: see migrate-phones)
+      await updateDoc(ref, { active: null, retired });
+      return { ok: true };
+    } catch (e) { return { error: e?.code === 'permission-denied' ? 'You can’t change your own phone. Ask another admin.' : 'Couldn’t remove it. Reload and try again.' }; }
+  },
+  // The only Owner approving their own new phone: type the password again first (the rules also need the sign-in to
+  // be under 5 minutes old).
+  async phoneApproveSelf(password) {
+    try {
+      const u = auth.currentUser;
+      await Auth.reauthenticateWithCredential(u, Auth.EmailAuthProvider.credential(u.email, password));
+      await u.getIdToken(true);
+    } catch (e) { return { error: 'That password isn’t right.' }; }
+    return api.phoneApprove(S.profile.empId);
+  },
+  phoneId: () => S.phone?.id || '',
   // Which devices staff use (docs/DEVICE-RULES-SPEC.md): the company rule, and one person allowed on a computer.
   async setStaffDevices(p) {
-    const staffDevices = { phonesOnly: p.phonesOnly !== false, tablets: p.tablets === true };
+    const staffDevices = { phonesOnly: p.phonesOnly === true, tablets: p.tablets === true, autoFirst: p.autoFirst !== false };
     try {
       await setDoc(doc(db, `tenants/${S.profile.tenantId}`), { staffDevices }, { merge: true });
       window.AllurusCompany = { ...(window.AllurusCompany || {}), staffDevices };
@@ -749,18 +854,10 @@ const api = {
 
       const devId = (M.getDeviceId ? M.getDeviceId() : (localStorage.getItem('allurus_device_id') || 'dev-unsaved'));
       const kData = k.data();
-      // Pre-check staffKeys device binding: prevent logging in on another device
-      if (kData.deviceId && kData.deviceId !== devId) {
-        return { error: 'Akaun ini telah dipautkan ke telefon lain (1 Pekerja = 1 Telefon). Anda tidak boleh log masuk menggunakan peranti ini. Sila gunakan telefon berdaftar anda atau hubungi HR.' };
-      }
 
       const email = M.staffEmail(ic, tid, kData.gen);
       const res = await api.signIn(email, password);
       if (res.ok) {
-        if (res.profile?.deviceId && res.profile.deviceId !== devId) {
-          await Auth.signOut(auth);
-          return { error: 'Akaun ini telah dipautkan ke telefon lain (1 Pekerja = 1 Telefon). Anda tidak boleh log masuk menggunakan peranti ini. Sila gunakan telefon berdaftar anda atau hubungi HR.' };
-        }
         saveStaffSession({
           email,
           tenantId: tid,
@@ -768,13 +865,6 @@ const api = {
           ic,
           deviceId: devId
         });
-        if (res.profile?.uid && !res.profile?.deviceId) {
-          setDoc(doc(db, `users/${res.profile.uid}`), { deviceId: devId }, { merge: true }).catch(() => {});
-          res.profile.deviceId = devId;
-        }
-        if (!kData.deviceId || kData.deviceId !== devId) {
-          setDoc(kRef, { deviceId: devId }, { merge: true }).catch(() => {});
-        }
       }
       return res.ok ? res : { ...res, error: /email|invite/i.test(res.error || '') ? nope.error : res.error };
     } catch (e) { console.warn('[Allurus cloud] IC sign-in', e?.code); return { error: authMsg(e) }; }
@@ -1134,23 +1224,7 @@ Auth.onAuthStateChanged(auth, async (user) => {
         return;
       }
       if (!prof.error) {
-        // Strict device binding check for staff (1 Phone = 1 Employee)
-        const myDev = (M.getDeviceId ? M.getDeviceId() : (localStorage.getItem('allurus_device_id') || 'dev-unsaved'));
-        const isEmployeeOnly = prof.roles?.includes('employee') && !prof.roles?.includes('admin');
-        if (isEmployeeOnly) {
-          if (prof.deviceId && prof.deviceId !== myDev) {
-            console.warn('[Allurus cloud] device binding mismatch: prof.deviceId', prof.deviceId, '!= myDev', myDev);
-            clearStaffSession();
-            await Auth.signOut(auth);
-            app.cloudReady('signed-out');
-            app.toast('Akaun ini telah dipautkan ke telefon lain (1 Pekerja = 1 Telefon). Sila log masuk dari telefon berdaftar anda.', 'error');
-            return;
-          }
-          if (!prof.deviceId && myDev && myDev !== 'dev-unsaved') {
-            setDoc(doc(db, `users/${user.uid}`), { deviceId: myDev }, { merge: true }).catch(() => {});
-            prof.deviceId = myDev;
-          }
-        }
+        // Which phone may be used is decided in start() (phoneGate), for everyone, on phones only.
         await start(prof);
         app.cloudSignedIn();
         return;

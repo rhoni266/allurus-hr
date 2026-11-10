@@ -335,3 +335,23 @@ Rules: copy the backup over `firestore.rules`, `firebase deploy --only firestore
 
 ### Heads up for companies
 "Staff use Allurus on phones only" is ON by default everywhere. Office staff with no admin role who need a computer: HR ticks "Allow this person on a computer" in Team access, or switches the setting off in Settings → Security.
+
+## 2026-11-11: One phone per person (docs/ONE-PHONE-SPEC.md), branch `claude/one-phone`
+
+### What was there (10 lines, written before changing anything)
+1. A phone's id is `AllurusCloudMap.getDeviceId()`: a random `dev-…` id kept in the browser's localStorage (two keys) and a cookie.
+2. `deviceGate()` in `app.js` decided check-in: the person's `devices` list (an encoded JSON field on `people/{empId}`), approved or pending, when "device lock" is on.
+3. `SELF_FIELDS = ['devices','face']`: the person may write their whole `devices` field, so a modified client could mark its own phone approved. The rules cannot look inside that encoded field.
+4. `DIRECTORY_FIELDS` includes `devices`, so colleagues' phone ids are in the directory (older data; left alone, noted below).
+5. A separate sign-in binding (`users.deviceId`, `staffKeys.deviceId`, added by the other session) refused any employee-only account on any other device, laptops included, at email sign-in, IC sign-in and on reload.
+6. `js/device-rules.js` (live since 10 Nov) blocked staff on computers by default (`phonesOnly` on).
+7. HR approved phones on the Attendance page and in the new Approvals list.
+8. Check-in buttons showed on every device.
+9. No notice to HR when a phone registered.
+10. Rules could not tell an approval from a self-edit, so the "approved" status was a convention, not a lock.
+
+### Plan (spec §4: the list sits in an encoded field, so the decision moves to a doc the rules can read)
+- New doc `tenants/{t}/phones/{empId}` = `{ active, pending, retired[] }`. Rules: the person may only ask (`pending`), register a first phone when the company approves first phones automatically (`staffDevices.autoFirst`, default on), or update `lastUsed`. Approve / decline / remove: people or time area, never on their own record, except an Owner with a sign-in under 5 minutes old (the app asks for the password again, which refreshes it). Rules tests cover all of it.
+- `AllurusDevice.phoneAccess()` (pure, tested) → ok | first | pending | other. `cloud.js phoneGate()` runs in `start()` on phones only, before any company data loads.
+- The old sign-in binding is removed (it contradicted "laptops for everyone"); an older registered phone still counts until `scripts/migrate-phones.js --apply` moves it (read-only dry run first).
+- HR: Phones panel on the profile, Approvals list, "Remove phone", Owner self-approval with password, in-app notices, activity-log lines with the phone's name only.
