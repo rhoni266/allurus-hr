@@ -1,0 +1,818 @@
+rules_version = '2';
+// Who may read and write what in the Allurus cloud database. Publish in Firebase console → Firestore → Rules,
+// or with `firebase deploy --only firestore:rules`. The bucket classes must match js/cloud-map.js.
+//
+//   users/{uid}            Each person's link to their company: tenantId, roles, empId.
+//   invites/{email}        HR's invitation for a work email. Joining needs that email, confirmed.
+//   tenants/{t}            The company. Members read; admins update.
+//     buckets/{id}         Shared records. Field r says who reads: 'm' every member, 'a' any Company Admin,
+//                          'p' admins with the payroll area, 'f' admins with the finance area, 'o' admins with
+//                          the operations area, 'd:<empId>' that driver's deliveries (ops.dos~<empId>), read and
+//                          updated by the driver and admins with the operations area. Breakdowns
+//                          (ops.breakdowns) are read by every member; without the operations area a member may
+//                          only add a report, not change or remove one.
+//     people/{empId}       Full employee record: admins with the people or payroll area, and the person (who may
+//                          change only their phones and face).
+//     payslips/{empId}     Admins with the payroll area write and read; the person reads their own.
+//
+// Company Admins have role templates: a `perms` list of areas (people, time, payroll, claims, finance, talent,
+// operations, settings) on their profile. No list means every area (Owner). Nobody can give access they don't have.
+//     personal/{empId}     The person's own financial plan and tax reliefs. Only them.
+//     blobs/{id}           Photos and files. Members read and add; nobody overwrites.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function userDoc() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function hasProfile() { return signedIn() && exists(userDoc()); }
+    function me() { return get(userDoc()).data; }
+    // A disabled person (users/{uid}.disabled, set by an admin) is no longer a member: blocked at once.
+    // Someone who registered on the open join page is "pending" until HR approves them: not a member yet.
+    function member(t) { return hasProfile() && me().tenantId == t && me().get('disabled', false) != true && me().get('pending', false) != true; }
+    function admin(t) { return member(t) && ('admin' in me().roles); }
+    function myEmail() { return request.auth.token.email.lower(); }
+
+    // ---- Industries and features (allurus.my/superadmin) ----
+    // Superadmin comes only from the Firebase custom claim role == 'superadmin' (scripts/set-superadmin.js), never
+    // from a field a browser can write.
+    function isSuperadmin() { return request.auth != null && request.auth.token.role == 'superadmin'; }
+    function auditDoc(id) { return /databases/$(database)/documents/auditLog/$(id); }
+    // Every superadmin change carries lastAuditId: the audit entry written in the same batch, about this very
+    // document. Without it the write is refused, so nothing changes without a record of who, what and when.
+    function audited(entityType, id) {
+      // The entry must be new in this same batch: an older entry left on the document doesn't count again.
+      return isSuperadmin() && request.resource.data.lastAuditId is string
+        && !exists(auditDoc(request.resource.data.lastAuditId))
+        && existsAfter(auditDoc(request.resource.data.lastAuditId))
+        && getAfter(auditDoc(request.resource.data.lastAuditId)).data.entityType == entityType
+        && getAfter(auditDoc(request.resource.data.lastAuditId)).data.entityId == id
+        && getAfter(auditDoc(request.resource.data.lastAuditId)).data.actorUid == request.auth.uid;
+    }
+    function shortText(v, n) { return v is string && v.size() <= n; }
+    function verified() { return request.auth.token.email_verified == true; }
+    function inviteFor(email) { return get(/databases/$(database)/documents/invites/$(email)).data; }
+
+    // ---- Trials and subscriptions (the same logic as js/billing-rules.js) ----
+    // The status is worked out from the dates at every request, so a trial ends on time without a daily job.
+    // Companies from before billing have no status and count as active.
+    function co(t) { return get(/databases/$(database)/documents/tenants/$(t)).data; }
+    function coStatus(d) { return d.get('status', 'active'); }
+    function coExpired(d) {
+      return coStatus(d) == 'expired'
+        || (coStatus(d) == 'trial' && d.get('trialEndsAt', null) is timestamp && d.trialEndsAt < request.time)
+        || (coStatus(d) in ['active', 'past_due'] && d.get('paidUntil', null) is timestamp && d.paidUntil + duration.value(7, 'd') < request.time);
+    }
+    // Normal use: trial, active, past due (in its grace period).
+    function working(t) { return !(coStatus(co(t)) in ['suspended', 'cancelled']) && !coExpired(co(t)); }
+    // Expired or cancelled: the company's admins may still read everything (to export) and pay; staff can't.
+    function canRead(t) { return working(t) || (admin(t) && (coExpired(co(t)) || coStatus(co(t)) == 'cancelled')); }
+    function disposable(email) {
+      return email.split('@')[1] in ['mailinator.com', 'guerrillamail.com', 'guerrillamail.info', 'sharklasers.com', '10minutemail.com', 'tempmail.com',
+        'temp-mail.org', 'yopmail.com', 'trashmail.com', 'getnada.com', 'dispostable.com', 'maildrop.cc', 'mailnesia.com', 'throwawaymail.com',
+        'fakeinbox.com', 'mintemail.com', 'emailondeck.com', 'mohmal.com', 'tempail.com', 'moakt.com'];
+    }
+    function tenantPath(t) { return /databases/$(database)/documents/tenants/$(t); }
+
+    // Areas of the company console (see AREAS in js/app.js and js/cloud-map.js).
+    function owner() { return !('perms' in me()); }
+    function hasArea(t, a) { return admin(t) && (owner() || a in me().perms); }
+    function seesPeople(t) { return hasArea(t, 'people') || hasArea(t, 'payroll'); }
+    function isFinance(b) { return b == 'finance' || b.matches('finance[.].*'); }
+    function isOps(b) { return b == 'ops' || b.matches('ops[.].*'); }
+    function isDriverBucket(b) { return b.matches('ops[.]dos~.+'); }
+    function driverOf(b) { return b.split('~')[1]; }
+    function opsShared(b) { return b in ['ops.machines', 'ops.products', 'ops.breakdowns']; }
+    // Grievances (with who raised them), candidates and hiring requests: admins with the talent area.
+    function isTalent(b) { return b in ['grievances', 'candidates', 'requisitions']; }
+    // Per-person lists, one bucket each ("documents~e5"): HR letters and documents, requests to change personal
+    // details. Read by that person and admins with the people area; class 'u:people:<empId>'.
+    function isOwned(b) { return b.matches('(documents|editRequests)~.+'); }
+    function ownerOf(b) { return b.split('~')[1]; }
+    // Attendance, one bucket per person per month ("attendance~2026-11~e5"): read by that person and the time area,
+    // class 'u:time:<empId>'; written by the person (their own check-ins) and the time area. Approvers and supervisors
+    // never write someone else's: approved leave and corrections are applied by the person's own app or HR's.
+    function isAttendance(b) { return b.matches('attendance~[0-9]{4}-[0-9]{2}~.+'); }
+    function attOwner(b) { return b.split('~')[2]; }
+    function bucketClass(b) {
+      return b in ['payroll', 'payChanges', 'loans', 'insurance', 'statutory'] ? 'p' : (isFinance(b) ? 'f' : (b in ['savedReports', 'importData', 'activity'] ? 'a'
+        : (isTalent(b) ? 't' : (isOwned(b) ? 'u:people:' + ownerOf(b) : (isAttendance(b) ? 'u:time:' + attOwner(b)
+        : (isDriverBucket(b) ? 'd:' + driverOf(b) : (isOps(b) && !opsShared(b) ? 'o' : 'm')))))));
+    }
+    // An admin's area, from values looked up once (a query is checked for every class it asks for, and rules may
+    // evaluate at most 1,000 expressions). No perms list means every area (Owner).
+    function inArea(adm, p, a) { return adm && (p == null || a in p); }
+    // Callers check member(t) first.
+    function readsClass(t, r) {
+      let adm = admin(t);
+      let p = me().get('perms', null);
+      let emp = me().get('empId', '');
+      return r == 'm' || (r == 'a' && adm) || (r == 'p' && inArea(adm, p, 'payroll')) || (r == 'f' && inArea(adm, p, 'finance'))
+        || (r == 'o' && inArea(adm, p, 'operations')) || (r == 't' && inArea(adm, p, 'talent'))
+        // A driver's deliveries. Written as a range (not a pattern) so the operations admins' query on 'd:'…'d;' passes.
+        || (r >= 'd:' && r < 'd;' && (inArea(adm, p, 'operations') || r == 'd:' + emp))
+        // A person's own documents and requests; the people area reads everyone's (a range query on 'u:people:'…).
+        || (r >= 'u:people:' && r < 'u:people;' && (inArea(adm, p, 'people') || r == 'u:people:' + emp))
+        // A person's own attendance; the time area reads everyone's (a range query on 'u:time:'…).
+        || (r >= 'u:time:' && r < 'u:time;' && (inArea(adm, p, 'time') || r == 'u:time:' + emp));
+    }
+    function bucketArea(b) {
+      return b in ['payroll', 'payChanges', 'loans', 'insurance', 'statutory'] ? 'payroll'
+        : (isFinance(b) ? 'finance' : (b == 'settings' ? 'settings' : (b in ['departments', 'directory', 'importData'] ? 'people'
+        : (b == 'cycles' || isTalent(b) ? 'talent' : (isOwned(b) ? 'people' : (isAttendance(b) ? 'time' : (b in ['savedReports', 'activity'] ? 'admin' : (isOps(b) && b != 'ops.breakdowns' ? 'operations' : ''))))))));
+    }
+    // A breakdown report added by someone without the operations area: new records only, nothing changed or removed.
+    function onlyAdds() {
+      return resource == null || (request.resource.data.f.diff(resource.data.f).changedKeys().hasOnly(['~ord'])
+        && request.resource.data.f.diff(resource.data.f).removedKeys().size() == 0);
+    }
+    function writesBucket(t, b) {
+      return (isDriverBucket(b) && member(t) && driverOf(b) == me().empId)
+        || (isOwned(b) && member(t) && ownerOf(b) == me().empId)
+        || (isAttendance(b) && member(t) && attOwner(b) == me().empId)
+        || (b == 'ops.breakdowns' && (hasArea(t, 'operations') || (member(t) && onlyAdds())))
+        || (b != 'ops.breakdowns' && (bucketArea(b) == '' ? member(t) : (bucketArea(b) == 'admin' ? admin(t) : hasArea(t, bucketArea(b)))));
+    }
+    // Access d (an invite or profile) gives no more than the giver has: an Owner may give anything; anyone else only
+    // a list of their own areas, never Owner (an admin with no list).
+    function grantable(d) { return !('admin' in d.roles) || owner() || ('perms' in d && d.perms.hasOnly(me().perms)); }
+    function validRoles(d) { return d.roles in [['employee'], ['admin', 'employee']] && (!('perms' in d) || d.perms is list); }
+    function samePerms(d, inv) { return ('perms' in inv) ? ('perms' in d && d.perms == inv.perms) : !('perms' in d); }
+
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || hasArea(resource.data.tenantId, 'settings'));
+      allow list: if hasProfile() && resource.data.tenantId == me().tenantId && hasArea(me().tenantId, 'settings');
+      allow read: if isSuperadmin();
+      // The only way into a company: activating an admin's invitation (allurus.my/activate) with that email
+      // confirmed, before the invitation expires. Company, roles, areas and employee come from the invitation,
+      // never from the browser. Nobody signs a company up themselves; the superadmin creates companies.
+      allow create: if signedIn() && request.auth.uid == uid && !hasProfile()
+        && request.resource.data.email == myEmail()
+        && !('disabled' in request.resource.data)
+        // The point-of-sale role is given by an admin after joining, never chosen by the person joining.
+        && !('posRole' in request.resource.data)
+        && (staffJoin() || openJoin() || verified() && (
+          (exists(/databases/$(database)/documents/invites/$(myEmail()))
+            && inviteFor(myEmail()).expiresAt is timestamp && inviteFor(myEmail()).expiresAt > request.time
+            && inviteFor(myEmail()).tenantId == request.resource.data.tenantId
+            && inviteFor(myEmail()).roles == request.resource.data.roles
+            && inviteFor(myEmail()).empId == request.resource.data.empId
+            && samePerms(request.resource.data, inviteFor(myEmail())))
+          // ...or the founder of a company signing itself up now (allurus.my/signup), in the same batch: its Owner.
+          || (!exists(tenantPath(request.resource.data.tenantId)) && existsAfter(tenantPath(request.resource.data.tenantId))
+            && getAfter(tenantPath(request.resource.data.tenantId)).data.owner == uid
+            && getAfter(tenantPath(request.resource.data.tenantId)).data.createdVia == 'self_signup'
+            && request.resource.data.roles == ['admin', 'employee'] && request.resource.data.empId == 'e1' && !('perms' in request.resource.data))
+        ));
+      // Admins with the settings area change someone else's access in their company, or disable them; nobody
+      // changes their own.
+      // Approving someone from the open join page: pending goes to false (never back on) and their employee is set
+      // then, once only. Users can update their own deviceId (1 Phone = 1 ID).
+      allow update: if signedIn() && (
+        (request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deviceId'])
+          && request.resource.data.diff(resource.data).affectedKeys().size() == 1
+          && (!('deviceId' in request.resource.data) || (request.resource.data.deviceId is string && request.resource.data.deviceId.size() < 128)))
+        || (request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings')
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole', 'pending', 'empId', 'keyProof', 'deviceId', 'confirmedAt', 'allowComputer'])
+          && request.resource.data.get('allowComputer', false) is bool
+          && !('keyProof' in request.resource.data && !('keyProof' in resource.data))
+          && request.resource.data.get('pending', false) is bool
+          && (request.resource.data.get('pending', false) == false || resource.data.get('pending', false) == true)
+          && (request.resource.data.empId == resource.data.empId || resource.data.get('pending', false) == true)
+          && request.resource.data.get('posRole', '') in ['', 'manager', 'cashier', 'waiter', 'kitchen']
+          // Until open-join gap 1 (code + IC only) is fixed: no POS role for an account that joined through the
+          // open join page unless HR has separately confirmed it first - confirmedAt, set once, by HR, never
+          // alongside the posRole grant itself. join.js auto-approves (pending: false) this account the moment
+          // it's created, so "pending" itself can't gate this (owner's 2026-11-07 review, gap 6).
+          && (request.resource.data.get('posRole', '') == resource.data.get('posRole', '')
+            || resource.data.get('via', '') != 'open' || resource.data.get('confirmedAt', null) != null)
+          // confirmedAt: settable once, by HR, timestamped now; never backdated or changed after.
+          && (!('confirmedAt' in request.resource.data) || (request.resource.data.confirmedAt is timestamp
+            && (resource.data.get('confirmedAt', null) == null
+              ? request.resource.data.confirmedAt == request.time
+              : request.resource.data.confirmedAt == resource.data.confirmedAt)))
+          && request.resource.data.get('disabled', false) is bool
+          && validRoles(request.resource.data) && grantable(request.resource.data) && grantable(resource.data))
+      );
+      allow delete: if signedIn() && request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings') && grantable(resource.data);
+    }
+
+    match /invites/{email} {
+      allow get: if signedIn() && (myEmail() == email || hasArea(resource.data.tenantId, 'settings'));
+      allow list: if hasProfile() && resource.data.tenantId == me().tenantId && hasArea(me().tenantId, 'settings');
+      // An invitation lasts at most 8 days (the app gives 7); resending writes a new expiry.
+      allow create, update: if email == email.lower() && hasArea(request.resource.data.tenantId, 'settings')
+        && validRoles(request.resource.data) && grantable(request.resource.data) && validExpiry();
+      allow delete: if hasArea(resource.data.tenantId, 'settings');
+      // The superadmin invites a new company's first admin (an Owner: every area), and sees every invitation.
+      allow read: if isSuperadmin();
+      allow create, update: if isSuperadmin() && email == email.lower() && request.resource.data.roles == ['admin', 'employee']
+        && request.resource.data.empId == 'e1' && !('perms' in request.resource.data) && validExpiry()
+        && exists(/databases/$(database)/documents/tenants/$(request.resource.data.tenantId));
+    }
+    function validExpiry() {
+      return request.resource.data.expiresAt is timestamp && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt < request.time + duration.value(8, 'd');
+    }
+
+    // ---- Staff with no work email: sign-in with IC (see js/staff-ic.js) ----
+    // The account's email is made up: <ic>.<company id, lowercase>.g<n>@staff.allurus.invalid, where n is the sign-in
+    // generation (Reset sign-in bumps it, so the old account can't join again). Joining needs HR's invitation for
+    // that IC at that generation and the secret from HR's join link; the profile is the employee one HR set.
+    function staffJoin() {
+      let e = myEmail();
+      let p = e.split('@')[0].split('[.]');
+      let d = request.resource.data;
+      let key = /databases/$(database)/documents/staffInvites/$(d.tenantId + '~' + p[0]);
+      return e.matches('[0-9]{12}[.][a-z0-9_-]+[.]g[0-9]{1,4}@staff[.]allurus[.]invalid')
+        && d.tenantId is string && d.tenantId.lower() == p[1] && exists(key)
+        && get(key).data.gen == int(p[2].replace('g', '')) && get(key).data.link == d.get('link', '')
+        && get(key).data.expiresAt > request.time
+        && d.empId == get(key).data.empId && d.roles == ['employee'] && !('perms' in d) && d.via == 'ic';
+    }
+    // The open join page (allurus.my/join, no link): company code + IC + password, while HR has Open registration
+    // on. The profile can be auto-approved (pending == false) and linked to their employee record.
+    function openJoin() {
+      let e = myEmail();
+      let p = e.split('@')[0].split('[.]');
+      let d = request.resource.data;
+      let code = /databases/$(database)/documents/companyCodes/$(d.get('code', '-'));
+      let key = /databases/$(database)/documents/staffKeys/$(d.tenantId + '~' + p[0]);
+      // The company's join key, when HR has set one: the salted hash of what the person typed must match.
+      let jk = /databases/$(database)/documents/joinKeys/$(d.tenantId);
+      return e.matches('[0-9]{12}[.][a-z0-9_-]+[.]g[0-9]{1,4}@staff[.]allurus[.]invalid')
+        && d.tenantId is string && d.tenantId.lower() == p[1] && d.code is string && exists(code)
+        && get(code).data.tenantId == d.tenantId
+        && ((get(code).data.get('openUntil', null) is timestamp && get(code).data.openUntil > request.time) || exists(key))
+        && (exists(key) ? get(key).data.gen : 1) == int(p[2].replace('g', ''))
+        && (!exists(jk) || d.get('keyProof', '') == get(jk).data.hash)
+        && (d.get('pending', false) == false || d.pending == true)
+        && d.roles == ['employee'] && !('perms' in d) && d.via == 'open';
+    }
+    function staffDoc(t) {
+      return request.resource.data.tenantId == t && hasArea(t, 'settings');
+    }
+    // HR's invitation for one IC: tenantId, ic, empId, gen (a whole number), link (the join secret), expiresAt.
+    match /staffInvites/{id} {
+      allow read: if hasArea(resource.data.tenantId, 'settings');
+      allow create, update: if staffDoc(request.resource.data.tenantId)
+        && id == request.resource.data.tenantId + '~' + request.resource.data.ic
+        && request.resource.data.ic.matches('[0-9]{12}') && request.resource.data.gen is int
+        && request.resource.data.link is string && request.resource.data.link.size() >= 24 && validExpiry();
+      allow delete: if hasArea(resource.data.tenantId, 'settings');
+    }
+    // The sign-in generation for one IC, read before signing in (by id only: nobody lists them).
+    match /staffKeys/{id} {
+      allow get: if true;
+      allow create, update: if (
+        (hasArea(request.resource.data.tenantId, 'settings') || hasArea(request.resource.data.tenantId, 'people'))
+        || (signedIn() && request.resource.data.tenantId == me().tenantId
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deviceId']))
+      )
+        && id.matches(request.resource.data.tenantId + '~[0-9]{12}')
+        // No 'name' or 'empId': this doc is readable without signing in (the IC check before auth), so it must
+        // never carry a real employee's name or link to their record (security gaps 3 and 5, 2026-11-07 review).
+        && request.resource.data.keys().hasOnly(['tenantId', 'gen', 'deviceId'])
+        && request.resource.data.gen is int;
+      allow delete: if hasArea(resource.data.tenantId, 'settings');
+    }
+    // A join link (allurus.my/join?k=<secret>): which company, generation and employee, so the page can make the
+    // account. Knowing the link isn't enough: the person must also type the IC HR invited.
+    match /joinLinks/{secret} {
+      allow get: if true;
+      allow create, update: if staffDoc(request.resource.data.tenantId) && secret.size() >= 24
+        && request.resource.data.keys().hasOnly(['tenantId', 'company', 'code', 'gen', 'empId', 'name', 'expiresAt']) && validExpiry();
+      allow delete: if hasArea(resource.data.tenantId, 'settings');
+    }
+    // The company join key for the open join page: only its salted hash (sha256 of salt + ':' + key, hex). No
+    // browser can read it, not even HR's; the rules compare against it when someone registers (openJoin).
+    match /joinKeys/{t} {
+      allow read: if false;
+      allow create, update: if hasArea(t, 'settings') && request.resource.data.keys().hasOnly(['salt', 'hash'])
+        && request.resource.data.salt is string && request.resource.data.salt.matches('[0-9a-f]{32}')
+        && request.resource.data.hash is string && request.resource.data.hash.matches('[0-9a-f]{64}');
+      allow delete: if hasArea(t, 'settings');
+    }
+    // A short company code typed at IC sign-in, pointing to the company. openUntil: the open join page works
+    // until then.
+    match /companyCodes/{code} {
+      allow get: if true;
+      allow create: if staffDoc(request.resource.data.tenantId) && code.matches('[a-z0-9]{3,12}')
+        && request.resource.data.keys().hasOnly(['tenantId']);
+      // HR turns Open registration on (at most 31 days ahead) or off (openUntil null), and sets the name shown.
+      allow update: if staffDoc(resource.data.tenantId) && request.resource.data.tenantId == resource.data.tenantId
+        && request.resource.data.keys().hasOnly(['tenantId', 'openUntil', 'company', 'salt'])
+        && shortText(request.resource.data.get('salt', ''), 64)
+        && (request.resource.data.get('openUntil', null) == null || (request.resource.data.openUntil is timestamp
+          && request.resource.data.openUntil < request.time + duration.value(31, 'd')))
+        && shortText(request.resource.data.get('company', ''), 120);
+      allow delete: if hasArea(resource.data.tenantId, 'settings');
+    }
+
+    // Enquiries from the contact form on allurus.my: anyone may add one with these fields only; nobody can read,
+    // change or delete them from a browser. They are read in the Firebase console.
+    match /enquiries/{id} {
+      allow create: if request.resource.data.keys().hasOnly(['name','company','email','phone','staff','message','at'])
+        && request.resource.data.name is string && request.resource.data.name.size() < 100
+        && request.resource.data.email is string && request.resource.data.email.size() < 200
+        && (!('message' in request.resource.data) || (request.resource.data.message is string && request.resource.data.message.size() < 2000));
+      allow read, update, delete: if false;
+    }
+
+    // Catalogue: the public site reads it; only an audited superadmin change writes it. Nothing is ever deleted:
+    // archive (archived: true), unlink (linked: false) and clear an override (mode: 'none') instead.
+    match /modules/{id} {
+      allow read: if true;
+      allow create, update: if audited('module', id);
+    }
+    match /features/{id} {
+      allow read: if true;
+      allow create, update: if audited('feature', id);
+    }
+    match /industries/{id} {
+      // The public page lists with where('visible', '==', true); hidden ones are for superadmin only.
+      allow read: if resource.data.visible == true || isSuperadmin();
+      allow create, update: if audited('industry', id) && request.resource.data.slug == id;
+    }
+    match /industryFeatures/{id} {
+      allow read: if true;
+      allow create, update: if audited('industryFeature', id) && id == request.resource.data.industryId + '_' + request.resource.data.featureId;
+    }
+    match /finderRules/{id} {
+      allow read: if true;
+      allow create, update: if audited('finderRule', id);
+    }
+    // Per-company switches on top of the industry: read by that company's members (the app uses them) and superadmin.
+    match /tenantFeatureOverrides/{id} {
+      allow read: if isSuperadmin() || member(resource.data.tenantId);
+      allow create, update: if audited('tenantOverride', id) && request.resource.data.mode in ['add', 'remove', 'none']
+        && id == request.resource.data.tenantId + '_' + request.resource.data.featureId;
+    }
+    // "Tell us you need this" leads from allurus.my. Anyone may add one (fixed fields, sensible sizes, consent given,
+    // status 'new', timestamped now); only superadmin reads them or moves them along. Never deleted.
+    match /leads/{id} {
+      allow create: if request.resource.data.keys().hasOnly(['businessName', 'contactName', 'phone', 'email', 'industryIds', 'otherIndustry',
+            'featureInterests', 'teamSize', 'notes', 'consent', 'status', 'lang', 'createdAt'])
+        && shortText(request.resource.data.businessName, 150) && request.resource.data.businessName.size() > 0
+        && shortText(request.resource.data.contactName, 100) && request.resource.data.contactName.size() > 0
+        && shortText(request.resource.data.phone, 30) && request.resource.data.phone.size() >= 9
+        && (!('email' in request.resource.data) || shortText(request.resource.data.email, 200))
+        && request.resource.data.industryIds is list && request.resource.data.industryIds.size() <= 12
+        && (!('otherIndustry' in request.resource.data) || shortText(request.resource.data.otherIndustry, 200))
+        && (!('featureInterests' in request.resource.data) || (request.resource.data.featureInterests is list && request.resource.data.featureInterests.size() <= 60))
+        && (!('teamSize' in request.resource.data) || shortText(request.resource.data.teamSize, 40))
+        && (!('notes' in request.resource.data) || shortText(request.resource.data.notes, 2000))
+        && (!('lang' in request.resource.data) || shortText(request.resource.data.lang, 5))
+        && request.resource.data.consent == true && request.resource.data.status == 'new'
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.createdAt > request.time - duration.value(10, 'm') && request.resource.data.createdAt < request.time + duration.value(10, 'm');
+      allow read: if isSuperadmin();
+      allow update: if audited('lead', id) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'assignedTo', 'lastAuditId'])
+        && request.resource.data.status in ['new', 'contacted', 'demo', 'won', 'lost'];
+    }
+    // Who changed what and when. Superadmin adds entries (as themselves, timestamped by the server); nobody edits or
+    // deletes them.
+    match /auditLog/{id} {
+      allow read: if isSuperadmin();
+      allow create: if isSuperadmin() && request.resource.data.actorUid == request.auth.uid && request.resource.data.createdAt == request.time
+        && request.resource.data.keys().hasOnly(['actorUid', 'actorEmail', 'action', 'entityType', 'entityId', 'before', 'after', 'createdAt'])
+        && request.resource.data.entityType in ['module', 'feature', 'industry', 'industryFeature', 'finderRule', 'tenant', 'tenantOverride', 'lead', 'plan', 'config', 'payment', 'invoice', 'tenantPosAddon'];
+      allow update, delete: if false;
+    }
+
+    // ---- Sign-up and billing ----
+    // One free trial per mobile number: a record named by the number's SHA-256, created once with the company and
+    // never read, changed or removed from a browser (the number itself isn't stored here).
+    match /signupAttempts/{h} {
+      allow create: if signedIn() && verified() && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid && request.resource.data.createdAt == request.time;
+    }
+    // Plans and prices: anyone may read them (the pricing and billing pages); only the superadmin edits them.
+    match /plans/{id} {
+      allow read: if true;
+      allow write: if audited('plan', id);
+    }
+    // Billing settings (bank and DuitNow details) and the invoice counter.
+    match /config/{id} {
+      allow read: if signedIn();
+      allow write: if audited('config', id);
+    }
+    // A company admin sends proof of a bank transfer, even while expired; the superadmin approves or rejects it.
+    match /payments/{id} {
+      allow read: if isSuperadmin() || (signedIn() && admin(resource.data.tenantId));
+      allow create: if signedIn() && admin(request.resource.data.tenantId) && !(coStatus(co(request.resource.data.tenantId)) in ['suspended'])
+        && request.resource.data.keys().hasOnly(['tenantId', 'planId', 'months', 'amountMyr', 'reference', 'method', 'proof', 'proofName', 'proofType', 'status', 'submittedBy', 'createdAt'])
+        && request.resource.data.status == 'submitted' && request.resource.data.submittedBy == myEmail() && request.resource.data.createdAt == request.time
+        && request.resource.data.months is int && request.resource.data.months >= 1 && request.resource.data.months <= 24
+        && request.resource.data.amountMyr is number && request.resource.data.amountMyr >= 0
+        && shortText(request.resource.data.reference, 40) && shortText(request.resource.data.planId, 40) && shortText(request.resource.data.method, 20)
+        && request.resource.data.proof is string && request.resource.data.proof.size() < 950000 && shortText(request.resource.data.proofName, 120);
+      allow update: if audited('payment', id) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'reviewedBy', 'reviewedAt', 'note', 'invoiceId', 'lastAuditId'])
+        && request.resource.data.status in ['approved', 'rejected'];
+    }
+    match /invoices/{id} {
+      allow read: if isSuperadmin() || (signedIn() && admin(resource.data.tenantId));
+      allow create: if audited('invoice', id);
+    }
+    // The public demo (?demo, ?demo=suria, ?demo=majorfe): the check-in point its admin set, so every phone trying the
+    // demo checks in against it. No sign-in, demo companies only, and only these fields with sensible values.
+    match /demoZones/{co} {
+      allow read: if co in ['serimaju', 'suria', 'majorfe', 'banafsha'];
+      allow write: if co in ['serimaju', 'suria', 'majorfe', 'banafsha']
+        && request.resource.data.keys().hasOnly(['lat', 'lng', 'radius', 'label', 'field', 'setAt'])
+        && request.resource.data.lat is number && request.resource.data.lat >= -90 && request.resource.data.lat <= 90
+        && request.resource.data.lng is number && request.resource.data.lng >= -180 && request.resource.data.lng <= 180
+        && request.resource.data.radius is int && request.resource.data.radius >= 10 && request.resource.data.radius <= 5000
+        && request.resource.data.label is string && request.resource.data.label.size() < 80
+        && request.resource.data.field is list && request.resource.data.field.size() < 50
+        && request.resource.data.setAt is int;
+    }
+
+    match /tenants/{t} {
+      allow read: if member(t);
+      // Only the superadmin opens a company (with an audit entry). It has no owner until its first admin
+      // activates their invitation and claims it, once.
+      allow create: if audited('tenant', t) && request.resource.data.owner == null
+        && request.resource.data.keys().hasOnly(['owner', 'name', 'admin', 'adminName', 'industry', 'city', 'country', 'plan', 'seats', 'createdAt', 'inviteStatus', 'inviteSentAt',
+          'status', 'isTest', 'trialStartedAt', 'trialEndsAt', 'paidUntil', 'createdVia', 'industryIds', 'lastAuditId'])
+        && request.resource.data.admin is string && request.resource.data.admin == request.resource.data.admin.lower();
+      // A company signing itself up (allurus.my/signup), with its confirmed email: a 30-day trial, owned by them,
+      // with a mobile number never used for a trial before (signupAttempts, created in the same batch).
+      allow create: if signedIn() && verified() && !hasProfile() && !disposable(myEmail())
+        && request.resource.data.keys().hasOnly(['owner', 'name', 'admin', 'adminName', 'phone', 'industryIds', 'industryOther', 'staffRange', 'city', 'country',
+          'status', 'plan', 'isTest', 'trialStartedAt', 'trialEndsAt', 'createdVia', 'termsVersion', 'termsAcceptedAt', 'createdAt'])
+        && request.resource.data.owner == request.auth.uid && request.resource.data.admin == myEmail()
+        && request.resource.data.status == 'trial' && request.resource.data.plan == 'trial' && request.resource.data.isTest == false
+        && request.resource.data.createdVia == 'self_signup'
+        && request.resource.data.trialStartedAt == request.time && request.resource.data.createdAt == request.time
+        && request.resource.data.trialEndsAt is timestamp && request.resource.data.trialEndsAt > request.time + duration.value(29, 'd')
+        && request.resource.data.trialEndsAt < request.time + duration.value(31, 'd')
+        && request.resource.data.termsAcceptedAt == request.time && shortText(request.resource.data.termsVersion, 20)
+        && shortText(request.resource.data.name, 120) && request.resource.data.name.size() >= 2 && shortText(request.resource.data.adminName, 100)
+        && request.resource.data.phone is string && request.resource.data.phone.matches('^601[0-9]{8,9}$')
+        && existsAfter(/databases/$(database)/documents/signupAttempts/$(hashing.sha256(request.resource.data.phone).toHexString().lower()))
+        && getAfter(/databases/$(database)/documents/signupAttempts/$(hashing.sha256(request.resource.data.phone).toHexString().lower())).data.uid == request.auth.uid
+        && request.resource.data.industryIds is list && request.resource.data.industryIds.size() <= 5
+        && (!('industryOther' in request.resource.data) || shortText(request.resource.data.industryOther, 80))
+        && shortText(request.resource.data.staffRange, 20);
+      allow update: if member(t) && resource.data.owner == null && myEmail() == resource.data.admin && owner() && 'admin' in me().roles
+        && request.resource.data.owner == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['owner']);
+      // The company's own admins edit its profile, never its owner, industries, billing or POS addon (that has its
+      // own validated rule below, so a free-form edit here can't fake a paid POS trial).
+      allow update: if hasArea(t, 'settings') && request.resource.data.owner == resource.data.owner && working(t)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['industryIds', 'lastAuditId', 'status', 'plan', 'isTest', 'trialStartedAt', 'trialEndsAt',
+          'paidUntil', 'expiredAt', 'statusNote', 'createdVia', 'termsVersion', 'termsAcceptedAt', 'admin', 'phone', 'addons']);
+      // (staffDevices, which devices staff use, is set here too. Its shape isn't checked in the rules, to stay under
+      // the 1,000-expression limit: js/device-rules.js policy() reads anything unexpected as the default.)
+      // ---- Allurus POS trial switch-on (POS-LIVE-FLOW-SPEC.md) ----
+      // Starting the trial only ever adds/replaces addons.pos, with its shape checked (30 days, started by and at
+      // this write), and can't touch anything else - so a company admin can switch POS on, but never fake a paid
+      // 'active' status (that needs the superadmin rule below, until functions/pos-cafe.js's billing hook exists).
+      allow update: if hasArea(t, 'settings') && working(t)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['addons'])
+        && request.resource.data.addons.diff(resource.data.get('addons', {})).affectedKeys().hasOnly(['pos'])
+        // Once ever: no restarting an ended/active trial, and no overwriting a paid 'active' status this way.
+        && resource.data.get('addons', {}).get('pos', null) == null
+        && request.resource.data.addons.pos.status == 'trial'
+        && request.resource.data.addons.pos.startedBy == request.auth.uid && request.resource.data.addons.pos.startedAt == request.time
+        && request.resource.data.addons.pos.trialEndsAt is timestamp
+        && request.resource.data.addons.pos.trialEndsAt > request.time + duration.value(29, 'd')
+        && request.resource.data.addons.pos.trialEndsAt < request.time + duration.value(31, 'd');
+      // Superadmin: change a company's POS addon (status, dates - e.g. "Extend trial", or marking it active once
+      // paid), with an audit entry.
+      allow update: if audited('tenantPosAddon', t)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['addons', 'lastAuditId'])
+        && request.resource.data.addons.diff(resource.data.get('addons', {})).affectedKeys().hasOnly(['pos']);
+      // Superadmin: sees every company, and sets only which industries it belongs to (with an audit entry).
+      allow read: if isSuperadmin();
+      // ---- Allurus support (the superadmin) inside a company ----
+      // Views it read-only, except pay and ID data. Edits only while the company's grant (support/grant, set by its
+      // own admins in Settings) is on; pay and ID data need its second switch too. Every support write names a new
+      // supportLog entry about that document, by this account, in the same batch (_support), so nothing changes
+      // without a record the client can read.
+      function grantDoc() { return /databases/$(database)/documents/tenants/$(t)/support/grant; }
+      function supportOn() { return isSuperadmin() && exists(grantDoc()) && get(grantDoc()).data.get('until', null) is timestamp && get(grantDoc()).data.until > request.time; }
+      function supportPay() { return isSuperadmin() && exists(grantDoc()) && get(grantDoc()).data.get('payUntil', null) is timestamp && get(grantDoc()).data.payUntil > request.time; }
+      function logPath(id) { return /databases/$(database)/documents/tenants/$(t)/supportLog/$(id); }
+      function supportLogged(path) {
+        let id = request.resource.data.get('_support', '');
+        return id is string && id.size() > 0 && !exists(logPath(id)) && existsAfter(logPath(id))
+          && getAfter(logPath(id)).data.actorUid == request.auth.uid && getAfter(logPath(id)).data.path == path;
+      }
+      // Fields of an employee record that are pay or ID data.
+      function payIdKeys() { return ['ic', 'idType', 'passportNo', 'passport', 'accountNo', 'bank', 'salary', 'epfNo', 'socsoNo', 'eisNo', 'taxNo', 'zakat', 'allowances', 'face']; }
+      // Viewing: everything except pay and ID data (full employee records, payslips, personal plans, payroll and
+      // per-person document buckets), which needs the second switch.
+      match /{coll}/{id} {
+        allow read: if isSuperadmin() && !(coll in ['people', 'payslips', 'personal', 'buckets']);
+      }
+      // A note from the join page when the new account's details couldn't be saved, for HR in Team access. Made
+      // by that staff sign-in itself (it may have no profile yet), once; no IC, phone or PIN in it.
+      match /joinIssues/{uid} {
+        allow create: if signedIn() && request.auth.uid == uid
+          && myEmail().matches('[0-9]{12}[.][a-z0-9_-]+[.]g[0-9]{1,4}@staff[.]allurus[.]invalid')
+          && myEmail().split('@')[0].split('[.]')[1] == t.lower()
+          && request.resource.data.keys().hasOnly(['kind', 'empId', 'at'])
+          && request.resource.data.kind in ['profile', 'phone'] && request.resource.data.empId is string
+          && request.resource.data.empId.size() < 40 && request.resource.data.at == request.time;
+        allow read, delete: if hasArea(t, 'settings');
+      }
+      match /support/{id} {
+        // The grant: until (edits), payUntil (pay and ID data). Set only by the company's own admins, at most
+        // 31 days ahead; never by support.
+        allow read: if admin(t) || isSuperadmin();
+        allow write: if hasArea(t, 'settings') && id == 'grant' && request.resource.data.keys().hasOnly(['until', 'payUntil', 'by', 'at'])
+          && request.resource.data.by == request.auth.uid && request.resource.data.at == request.time
+          && (request.resource.data.get('until', null) == null || (request.resource.data.until is timestamp && request.resource.data.until < request.time + duration.value(31, 'd')))
+          && (request.resource.data.get('payUntil', null) == null || (request.resource.data.payUntil is timestamp && request.resource.data.payUntil < request.time + duration.value(31, 'd')));
+      }
+      // The support access log: sessions and changes. The company's admins read it; nobody changes or deletes it.
+      match /supportLog/{id} {
+        allow read: if admin(t) || isSuperadmin();
+        allow create: if isSuperadmin() && request.resource.data.actorUid == request.auth.uid && request.resource.data.at == request.time
+          && request.resource.data.actorEmail == myEmail()
+          && request.resource.data.keys().hasOnly(['kind', 'actorUid', 'actorEmail', 'at', 'path', 'label', 'changes', 'pay'])
+          && request.resource.data.kind in ['session', 'change'] && (request.resource.data.kind == 'session' || supportOn())
+          && request.resource.data.get('changes', []) is list && request.resource.data.get('changes', []).size() <= 200;
+        allow update, delete: if false;
+      }
+      allow update: if audited('tenant', t) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['industryIds', 'lastAuditId'])
+        && request.resource.data.industryIds is list && request.resource.data.industryIds.size() <= 12;
+      // ...and records whether the first admin's invitation went out ("sent" or "failed"), for Retry invite.
+      allow update: if audited('tenant', t) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['inviteStatus', 'inviteSentAt', 'lastAuditId'])
+        && request.resource.data.inviteStatus in ['sent', 'failed'];
+      // ...and runs billing: extend a trial, mark as paid, change plan, suspend, reactivate (each audited).
+      allow update: if audited('tenant', t) && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'plan', 'trialEndsAt', 'paidUntil', 'expiredAt', 'statusNote', 'isTest', 'lastAuditId'])
+        && request.resource.data.get('status', 'active') in ['trial', 'active', 'past_due', 'expired', 'suspended', 'cancelled'];
+
+      // Everything inside a company also follows its status: written only while it's working; read while working,
+      // or by its admins once expired or cancelled (export). Suspended: nobody.
+      match /buckets/{b} {
+        allow read: if member(t) && readsClass(t, resource.data.r) && canRead(t);
+        allow create, update: if writesBucket(t, b) && request.resource.data.r == bucketClass(b) && working(t);
+        allow delete: if writesBucket(t, b) && admin(t) && working(t);
+        // Support: reads all but payroll and per-person documents (those need the second switch); writes with
+        // the grant on and a log entry.
+        function payIdBucket(r) { return r == 'p' || r.matches('u:people:.*'); }
+        // (Plain comparisons, not matches(): the rules must be able to check a whole query against them.)
+        allow read: if isSuperadmin() && ((resource.data.r != 'p' && (resource.data.r < 'u:people:' || resource.data.r >= 'u:people;')) || supportPay());
+        allow create, update: if supportOn() && supportLogged('buckets/' + b) && request.resource.data.r == bucketClass(b)
+          && (!payIdBucket(bucketClass(b)) || supportPay()) && working(t);
+      }
+
+      // ---- Invoices: one document each, so a sent invoice is locked here, not only on screen ----
+      // The same rules as js/invoice-rules.js. Admins with the finance area only; staff never.
+      //   Draft: edited freely. Every save raises v by one, so a save from an out-of-date copy is refused
+      //          ("This invoice changed. Reload."). Number, type and creator never change. Only drafts are deleted.
+      //   Mark as sent: only status, sentAt and sentBy change; the lines are as last saved.
+      //   Sent, part paid, paid: only payments, credit or debit note effects and the e-Invoice status change.
+      //   Void: from Sent with no payments yet, with a reason; keeps its number. (Paid money: credit or refund note.)
+      //   Credit, debit and refund notes are issued final; only their e-Invoice status changes later.
+      // Each status change carries lastAuditId: an invoiceAudit entry about this invoice, by this person, written
+      // in the same batch. Each number is held in invoiceNos, so no two invoices share one.
+      match /invoices/{id} {
+        function nd() { return request.resource.data; }
+        function od() { return resource.data; }
+        function finOk() { return hasArea(t, 'finance') && working(t); }
+        function stamped() { return nd().updatedBy == request.auth.uid && nd().updatedAt == request.time; }
+        function nextV() { return nd().v == od().v + 1; }
+        function changed() { return nd().diff(od()).affectedKeys(); }
+        function lines() { return nd().items is list && nd().items.size() > 0 && nd().items.size() <= 200; }
+        function auditPath(a) { return /databases/$(database)/documents/tenants/$(t)/invoiceAudit/$(a); }
+        function invAudit(action) {
+          return nd().lastAuditId is string && !exists(auditPath(nd().lastAuditId)) && existsAfter(auditPath(nd().lastAuditId))
+            && getAfter(auditPath(nd().lastAuditId)).data.action == action
+            && getAfter(auditPath(nd().lastAuditId)).data.invoiceId == id
+            && getAfter(auditPath(nd().lastAuditId)).data.actorUid == request.auth.uid;
+        }
+        function noPath(no) { return /databases/$(database)/documents/tenants/$(t)/invoiceNos/$(no); }
+        function newNumber() { return nd().no is string && nd().no.size() <= 40 && !exists(noPath(nd().no)) && existsAfter(noPath(nd().no)); }
+
+        allow read: if hasArea(t, 'finance') && canRead(t);
+        // A new draft (a duplicate is audited), an invoice issued at delivery (sent, perhaps with cash collected;
+        // audited as sent), or a note issued final.
+        allow create: if nd().v == 1 && nd().createdBy == request.auth.uid && stamped() && newNumber() && lines() && finOk()
+          && ((nd().get('type', 'invoice') == 'invoice' && nd().status == 'Draft' && (!('duplicatedFrom' in nd()) || invAudit('duplicate')))
+            || (nd().get('type', 'invoice') == 'invoice' && nd().status in ['Sent', 'Partially paid', 'Paid']
+              && nd().sentBy == request.auth.uid && nd().sentAt == request.time && invAudit('send'))
+            || (nd().get('type', 'invoice') in ['credit', 'debit', 'refund'] && nd().status == 'Issued' && invAudit('issue')));
+        // Saving a draft.
+        function saveDraft() {
+          return od().status == 'Draft' && nd().status == 'Draft' && lines()
+            && !changed().hasAny(['no', 'type', 'createdBy', 'createdAt', 'sentAt', 'sentBy', 'payments', 'paidOn', 'voidReason', 'voidedAt', 'voidedBy']);
+        }
+        // Mark as sent.
+        function markSent() {
+          return od().status == 'Draft' && nd().status == 'Sent'
+            && changed().hasOnly(['status', 'sentAt', 'sentBy', 'v', 'updatedAt', 'updatedBy', 'lastAuditId'])
+            && nd().sentBy == request.auth.uid && nd().sentAt == request.time && invAudit('send');
+        }
+        // After sending: payments, note effects, e-Invoice status. A status change (part paid, paid) is audited.
+        function afterSent() {
+          return od().status in ['Sent', 'Partially paid', 'Paid'] && nd().status in ['Sent', 'Partially paid', 'Paid']
+            && changed().hasOnly(['status', 'payments', 'paidOn', 'adjust', 'refunded', 'einvoice', 'v', 'updatedAt', 'updatedBy', 'lastAuditId'])
+            && (nd().status == od().status || invAudit('pay'));
+        }
+        // Void, with a reason.
+        function voided() {
+          return od().status in ['Sent', 'Partially paid'] && nd().status == 'Void' && od().get('payments', []).size() == 0
+            && changed().hasOnly(['status', 'voidReason', 'voidedAt', 'voidedBy', 'v', 'updatedAt', 'updatedBy', 'lastAuditId'])
+            && shortText(nd().voidReason, 300) && nd().voidReason.size() >= 3
+            && nd().voidedBy == request.auth.uid && nd().voidedAt == request.time && invAudit('void');
+        }
+        // A note's e-Invoice status.
+        function noteStatus() { return od().get('type', 'invoice') != 'invoice' && changed().hasOnly(['einvoice', 'v', 'updatedAt', 'updatedBy']); }
+        // One rule, so the company and access checks run once (rules may evaluate at most 1,000 expressions).
+        allow update: if nextV() && stamped() && (saveDraft() || markSent() || afterSent() || voided() || noteStatus()) && finOk();
+        allow delete: if od().status == 'Draft' && finOk();
+      }
+      // ---- Leave requests: one document each (js/leave-store.js) ----
+      // Read by the person, their approvers (approverIds) and HR (time or people area). The person files a pending
+      // request and may cancel it while pending; they are never one of its approvers and can't decide it. An approver
+      // (never the requester) changes only the decision: chain and status. HR may change anything except whose leave
+      // it is, but not decide their own. Needs Cloud Functions (Blaze), not rules: checking approverIds against the
+      // company's approval chains, and that each approver acts only at their own step and in order.
+      match /leaves/{id} {
+        function nd() { return request.resource.data; }
+        function od() { return resource.data; }
+        function emp() { return me().get('empId', ''); }
+        function hrLeave() { return hasArea(t, 'time') || hasArea(t, 'people'); }
+        function stamped() { return nd().updatedBy == request.auth.uid && nd().updatedAt == request.time && nd().v == od().v + 1; }
+        function changed() { return nd().diff(od()).affectedKeys(); }
+        allow read: if member(t) && canRead(t) && (resource.data.empId == emp() || emp() in resource.data.get('approverIds', []) || hrLeave());
+        allow create: if member(t) && working(t) && nd().v == 1 && nd().createdBy == request.auth.uid && nd().approverIds is list && nd().approverIds.size() <= 12
+          && ((nd().empId == emp() && nd().status == 'Pending' && !(emp() in nd().approverIds)) || hrLeave());
+        allow update: if member(t) && working(t) && stamped() && nd().empId == od().empId && (
+          // the person cancels their own pending request
+          (od().empId == emp() && od().status == 'Pending' && nd().status == 'Cancelled' && changed().hasOnly(['status', 'v', 'updatedAt', 'updatedBy']))
+          // an approver decides (never their own request)
+          || (od().empId != emp() && emp() in od().approverIds && od().status == 'Pending' && nd().status in ['Pending', 'Approved', 'Rejected']
+            && changed().hasOnly(['chain', 'status', 'v', 'updatedAt', 'updatedBy']))
+          // HR: anything but whose leave it is; HR doesn't decide their own either
+          || (hrLeave() && (od().empId != emp() || nd().status == od().status || nd().status == 'Cancelled')));
+        allow delete: if hrLeave() && working(t);
+      }
+      // The safe team calendar: who is off and when, nothing more. Every member reads it. Each entry must match its
+      // leave request in the same batch, so nobody can put a colleague on the calendar by hand.
+      match /leaveCal/{id} {
+        function lv() { return getAfter(/databases/$(database)/documents/tenants/$(t)/leaves/$(id)).data; }
+        allow read: if member(t) && canRead(t);
+        allow create, update: if member(t) && working(t)
+          && request.resource.data.keys().hasOnly(['empId', 'from', 'to', 'half', 'status'])
+          && existsAfter(/databases/$(database)/documents/tenants/$(t)/leaves/$(id))
+          && request.resource.data.empId == lv().empId && request.resource.data.from == lv().from && request.resource.data.to == lv().to
+          && request.resource.data.status == lv().status && request.resource.data.half == lv().get('half', '');
+        allow delete: if member(t) && working(t) && !existsAfter(/databases/$(database)/documents/tenants/$(t)/leaves/$(id));
+      }
+      // ---- Claims: one document each (js/leave-store.js) ----
+      // Read by the claimant, their approvers and HR (claims or payroll area; payroll marks claims paid). The
+      // claimant files a pending claim and may cancel it while pending; they are never its approver and can't decide
+      // it. An approver (never the claimant) changes only the decision: chain, status, approved amounts, decided
+      // by/on and the reason. HR corrects (kept in `edits`) and pays, but doesn't decide their own claim.
+      // Needs Cloud Functions (Blaze): checking approverIds against the company's chains, step order, and that an
+      // approver changes only the approved amounts on the lines (not what was claimed) within the policy limits.
+      match /claims/{id} {
+        function nd() { return request.resource.data; }
+        function od() { return resource.data; }
+        function emp() { return me().get('empId', ''); }
+        function hrClaims() { return hasArea(t, 'claims') || hasArea(t, 'payroll'); }
+        function stamped() { return nd().updatedBy == request.auth.uid && nd().updatedAt == request.time && nd().v == od().v + 1; }
+        function changed() { return nd().diff(od()).affectedKeys(); }
+        allow read: if member(t) && canRead(t) && (resource.data.empId == emp() || emp() in resource.data.get('approverIds', []) || hrClaims());
+        allow create: if member(t) && working(t) && nd().v == 1 && nd().createdBy == request.auth.uid && nd().approverIds is list && nd().approverIds.size() <= 12
+          && ((nd().empId == emp() && nd().status == 'Pending' && !(emp() in nd().approverIds)) || hrClaims());
+        allow update: if member(t) && working(t) && stamped() && nd().empId == od().empId && (
+          (od().empId == emp() && od().status == 'Pending' && nd().status == 'Cancelled' && changed().hasOnly(['status', 'v', 'updatedAt', 'updatedBy']))
+          || (od().empId != emp() && emp() in od().approverIds && od().status == 'Pending' && nd().status in ['Pending', 'Approved', 'Rejected']
+            && changed().hasOnly(['chain', 'status', 'lines', 'approved', 'decidedOn', 'decidedBy', 'reason', 'v', 'updatedAt', 'updatedBy']))
+          // (paying an approved claim is bookkeeping, so payroll marks its own approved claim paid too)
+          || (hrClaims() && (od().empId != emp() || nd().status == od().status || nd().status == 'Cancelled' || (od().status == 'Approved' && nd().status == 'Paid'))));
+        allow delete: if hrClaims() && working(t);
+      }
+      // ---- Time requests (overtime, attendance corrections): one document each, as for leave ----
+      // Read by the person, their approvers and the time area. The person files and may cancel while pending; an
+      // approver (never the person) decides: chain, status, decision date. The time area may change anything except
+      // whose request it is, but doesn't decide its own. Needs Cloud Functions (Blaze): chain and step checks.
+      match /timeRequests/{id} {
+        function nd() { return request.resource.data; }
+        function od() { return resource.data; }
+        function emp() { return me().get('empId', ''); }
+        function hrTime() { return hasArea(t, 'time'); }
+        function stamped() { return nd().updatedBy == request.auth.uid && nd().updatedAt == request.time && nd().v == od().v + 1; }
+        function changed() { return nd().diff(od()).affectedKeys(); }
+        allow read: if member(t) && canRead(t) && (resource.data.empId == emp() || emp() in resource.data.get('approverIds', []) || hrTime());
+        allow create: if member(t) && working(t) && nd().v == 1 && nd().createdBy == request.auth.uid && nd().approverIds is list && nd().approverIds.size() <= 12
+          && ((nd().empId == emp() && nd().status == 'Pending' && !(emp() in nd().approverIds)) || hrTime());
+        allow update: if member(t) && working(t) && stamped() && nd().empId == od().empId && (
+          (od().empId == emp() && od().status == 'Pending' && nd().status == 'Cancelled' && changed().hasOnly(['status', 'v', 'updatedAt', 'updatedBy']))
+          || (od().empId != emp() && emp() in od().approverIds && od().status == 'Pending' && nd().status in ['Pending', 'Approved', 'Rejected']
+            && changed().hasOnly(['chain', 'status', 'decidedAt', 'v', 'updatedAt', 'updatedBy']))
+          || (hrTime() && (od().empId != emp() || nd().status == od().status || nd().status == 'Cancelled')));
+        allow delete: if hrTime() && working(t);
+      }
+      // Who did what to which invoice, and when. Added only; never changed or removed.
+      match /invoiceAudit/{a} {
+        allow read: if hasArea(t, 'finance') && canRead(t);
+        allow create: if hasArea(t, 'finance') && working(t) && request.resource.data.actorUid == request.auth.uid
+          && request.resource.data.at == request.time && request.resource.data.invoiceId is string
+          && request.resource.data.action in ['send', 'void', 'pay', 'duplicate', 'issue', 'delete'];
+      }
+      // Each invoice number, held by its invoice. Freed only when its draft is deleted in the same batch.
+      match /invoiceNos/{no} {
+        allow read: if hasArea(t, 'finance') && canRead(t);
+        allow create: if hasArea(t, 'finance') && working(t) && request.resource.data.invoiceId is string
+          && getAfter(/databases/$(database)/documents/tenants/$(t)/invoices/$(request.resource.data.invoiceId)).data.no == no;
+        allow delete: if hasArea(t, 'finance') && working(t)
+          && !existsAfter(/databases/$(database)/documents/tenants/$(t)/invoices/$(resource.data.invoiceId));
+      }
+      match /people/{e} {
+        allow read: if (seesPeople(t) || (member(t) && me().empId == e)) && canRead(t);
+        allow create, delete: if seesPeople(t) && working(t);
+        allow update: if (seesPeople(t) || (member(t) && me().empId == e
+          && (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['devices', 'face']) || selfPhone()))) && working(t);
+        // The phone typed on the join page (js/join.js savePhone), stored like every field as JSON text: the person
+        // sets their own phone only while it is empty; if HR already has one, they may only suggest phoneNew (with
+        // the date), and HR decides. Malaysian mobile 01… (10 to 12 digits) or + and a country code (max 16).
+        function selfPhone() {
+          let ch = request.resource.data.diff(resource.data).affectedKeys();
+          let ok = '"(01[0-9]{8,10}|[+][1-9][0-9]{6,14})"';
+          let empty = !('phone' in resource.data) || resource.data.phone in ['', '""', 'null'];
+          return (ch.hasOnly(['phone']) && empty && request.resource.data.phone is string && request.resource.data.phone.matches(ok))
+            || (ch.hasOnly(['phoneNew', 'phoneNewAt']) && !empty
+              && request.resource.data.phoneNew is string && request.resource.data.phoneNew.matches(ok)
+              && request.resource.data.phoneNewAt is string && request.resource.data.phoneNewAt.matches('"[0-9]{4}-[0-9]{2}-[0-9]{2}"'));
+        }
+        // Support reads the record (the app masks pay and ID fields unless the second switch is on) and changes it
+        // with a log entry; pay and ID fields only with the second switch.
+        allow read: if isSuperadmin();
+        allow create: if supportOn() && supportLogged('people/' + e) && working(t)
+          && (supportPay() || !request.resource.data.keys().hasAny(payIdKeys()));
+        allow update: if supportOn() && supportLogged('people/' + e) && working(t)
+          && (supportPay() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(payIdKeys()));
+      }
+      match /payslips/{e} {
+        allow read: if (hasArea(t, 'payroll') || (member(t) && me().empId == e)) && canRead(t);
+        allow write: if hasArea(t, 'payroll') && working(t);
+        allow read: if supportPay();
+        allow create, update: if supportOn() && supportPay() && supportLogged('payslips/' + e) && working(t);
+      }
+      match /personal/{e} {
+        allow read: if member(t) && me().empId == e && canRead(t);
+        allow write: if member(t) && me().empId == e && working(t);
+      }
+      // ---- Point of sale (js/pos.js, functions/pos) ----
+      // Everyone on the till reads the outlet, menu, tables and today's orders. Money is written only by Cloud
+      // Functions (Admin SDK, which skips these rules): payments, refunds, receipt numbers, paid/void status, shift
+      // close and the audit log. So a browser can never mark a payment approved, change a paid order or rewrite
+      // what the drawer should hold. Nothing is deleted. All of it stops when the company isn't working(t).
+      function posRole() { return me().get('posRole', admin(t) && (owner() || 'pos' in me().perms) ? 'manager' : ''); }
+      function onTill(roles) { return member(t) && posRole() in roles; }
+      function posStaff() { return onTill(['manager', 'cashier', 'waiter', 'kitchen']); }
+      // Fields of an order that only the server sets.
+      function serverOrderFields() { return ['status', 'paidAt', 'receiptNo', 'rounding', 'voidedAt', 'voidedBy', 'voidReason', 'refunded']; }
+      match /pos_outlets/{id} {
+        allow read: if posStaff() && canRead(t);
+        allow write: if onTill(['manager']) && working(t);
+      }
+      match /pos_menu/{id} {
+        allow read: if posStaff() && canRead(t);
+        allow write: if onTill(['manager']) && working(t);
+      }
+      match /pos_tables/{id} {
+        allow read: if posStaff() && canRead(t);
+        allow create, delete: if false;
+        allow update: if (onTill(['manager']) || (onTill(['cashier', 'waiter'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'currentOrderId']))) && working(t);
+      }
+      match /pos_orders/{id} {
+        allow read: if posStaff() && canRead(t);
+        // The document id is the order's clientOrderId, so an order synced twice from the offline queue is one order.
+        allow create: if onTill(['manager', 'cashier', 'waiter']) && working(t) && id == request.resource.data.clientOrderId
+          && request.resource.data.status in ['open', 'sent'] && request.resource.data.createdBy == me().empId
+          && !request.resource.data.keys().hasAny(['paidAt', 'receiptNo', 'voidedAt', 'refunded']);
+        allow update: if working(t) && resource.data.status in ['open', 'sent']
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(serverOrderFields().removeAll(['status']))
+          && request.resource.data.status in ['open', 'sent']
+          && (onTill(['manager', 'cashier', 'waiter'])
+            // The kitchen only moves lines along (new → preparing → ready → served).
+            || (onTill(['kitchen']) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lines'])));
+        allow delete: if false;
+      }
+      // Written only by Cloud Functions: recordPayment (cash and recorded card/QR), createQrPayment and the gateway
+      // webhook (phase 2), the SoftPOS confirmation (phase 3), refunds, shift close and the daily Finance posting.
+      match /pos_payments/{id} { allow read: if onTill(['manager', 'cashier']) && canRead(t); allow write: if false; }
+      match /pos_refunds/{id} { allow read: if onTill(['manager']) && canRead(t); allow write: if false; }
+      match /pos_shifts/{id} { allow read: if onTill(['manager', 'cashier']) && canRead(t); allow write: if false; }
+      match /pos_counters/{id} { allow read, write: if false; }
+      match /pos_audit/{id} { allow read: if onTill(['manager']) && canRead(t); allow write: if false; }
+
+      match /blobs/{id} {
+        // One file at a time, by its id (a hash of the content). Listing every photo and file is not allowed.
+        allow get: if member(t) && canRead(t);
+        allow list: if false;
+        allow create: if member(t) && request.resource.data.d is string && request.resource.data.d.size() < 1048000 && working(t);
+        allow delete: if admin(t) && working(t);
+      }
+    }
+  }
+}
