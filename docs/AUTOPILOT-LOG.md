@@ -312,3 +312,26 @@ roles=["employee","admin"], no perms list. Recorded company owner unchanged (Nad
 ### Not done / waiting for the owner
 - **Not merged, rules not published:** the rules change is small (`allowComputer` field for HR), but the macOS spec says merge only when the preview matches the mockup, which this session can't see, and the existing failing POS rules test needs a look first. Before publishing: save the live rules to `docs/rules-backup/` (RUN-ALL-SPECS).
 - Not built: the full Employee Home widgets from the mockup (check-in card, quick actions) beyond the existing Home; a People "masked IC/bank" check on the phone list (uses the existing masking).
+
+## 2026-11-10: macOS-style UI + device rules went live (owner approved)
+
+### Done, in order
+1. Committed `8462e3b` (rules: `tenantPosAddon` added to the auditLog entityType list; `docs/mockups/`) and `d26ef8d` (device rules) on `claude/design-standard`.
+2. Tests before merging: `npm test` 405/405, `npm run test:rules` 119/119 (the POS-addon test now passes).
+3. Live rules saved first: `docs/rules-backup/firestore.rules.2026-11-10` (from `main`), commit `681fbf3`.
+4. `claude/design-standard` fast-forwarded into `main` (nothing else had landed on `main`), `npm test` 405/405 again, `git push origin main` (`73da251..681fbf3`).
+5. `firebase deploy --only firestore:rules`: released. `firebase deploy --only hosting`: released (sw.js cache v3.41).
+
+### Checked live on allurus.my (Edge, laptop)
+- Sign-in page, `/pos` ("Cafe POS"), `/demo/pos` ("Kopi Demo POS"): load, no page errors.
+- New scripts live: `AllurusDevice`, the QR library, `app.webmanifest`; this laptop is read as a computer.
+- Admin on a laptop (demo company): the macOS-style window with translucent sidebar, toolbar, widget grid; Ctrl K opens All apps.
+
+### Not checked live (needs a real sign-in, which this agent does not type)
+- A real **staff account on a laptop** seeing "Please use your phone", and **superadmin "Extend POS trial"** saving. Both passed in the emulator with the same code and rules (device end-to-end 27/27; rules 119/119). Owner: sign in once as staff on a laptop, and press Extend POS trial once as superadmin, to confirm on the live site. If either fails, put `docs/rules-backup/firestore.rules.2026-11-10` back with `firebase deploy --only firestore:rules` and tell me.
+
+### Rollback (not needed so far)
+Rules: copy the backup over `firestore.rules`, `firebase deploy --only firestore:rules`. Site: `git revert` the merge range, push, `firebase deploy --only hosting`.
+
+### Heads up for companies
+"Staff use Allurus on phones only" is ON by default everywhere. Office staff with no admin role who need a computer: HR ticks "Allow this person on a computer" in Team access, or switches the setting off in Settings → Security.
