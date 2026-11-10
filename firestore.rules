@@ -172,7 +172,8 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().size() == 1
           && (!('deviceId' in request.resource.data) || (request.resource.data.deviceId is string && request.resource.data.deviceId.size() < 128)))
         || (request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings')
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole', 'pending', 'empId', 'keyProof', 'deviceId', 'confirmedAt'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole', 'pending', 'empId', 'keyProof', 'deviceId', 'confirmedAt', 'allowComputer'])
+          && request.resource.data.get('allowComputer', false) is bool
           && !('keyProof' in request.resource.data && !('keyProof' in resource.data))
           && request.resource.data.get('pending', false) is bool
           && (request.resource.data.get('pending', false) == false || resource.data.get('pending', false) == true)
@@ -460,6 +461,8 @@ service cloud.firestore {
       allow update: if hasArea(t, 'settings') && request.resource.data.owner == resource.data.owner && working(t)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['industryIds', 'lastAuditId', 'status', 'plan', 'isTest', 'trialStartedAt', 'trialEndsAt',
           'paidUntil', 'expiredAt', 'statusNote', 'createdVia', 'termsVersion', 'termsAcceptedAt', 'admin', 'phone', 'addons']);
+      // (staffDevices, which devices staff use, is set here too. Its shape isn't checked in the rules, to stay under
+      // the 1,000-expression limit: js/device-rules.js policy() reads anything unexpected as the default.)
       // ---- Allurus POS trial switch-on (POS-LIVE-FLOW-SPEC.md) ----
       // Starting the trial only ever adds/replaces addons.pos, with its shape checked (30 days, started by and at
       // this write), and can't touch anything else - so a company admin can switch POS on, but never fake a paid

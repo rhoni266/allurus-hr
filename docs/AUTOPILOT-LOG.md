@@ -290,3 +290,25 @@ roles=["employee","admin"], no perms list. Recorded company owner unchanged (Nad
 - Right-click / long-press context menus on rows.
 - Row selection highlight on Leave, Claims, Invoices, Stock and POS products (their drawers already open as the inspector).
 - POS: left as it is (it already uses the teal/Inter dark standard from the POS work).
+
+## 2026-11-10: Device rules (docs/DEVICE-RULES-SPEC.md), branch `claude/design-standard`
+
+### Built
+- `js/device-rules.js` (`AllurusDevice`): `kind()` phone/tablet/computer, `allowed()`, `policy()`, EN+BM text. Table test with real user agents (`tests/device-rules.test.js`).
+- Staff (no `admin` role) on a computer or tablet: "Please use your phone / Sila guna telefon anda", a real QR code for https://allurus.my/app (made in the browser by `js/vendor/qrcode.js`, qrcode-generator 1.4.4, MIT, licence in `js/vendor/QRCODE-LICENSE`), "No phone? Ask HR…", Sign out. `cloud.js start()` stops before any listener, so no company data is requested.
+- Settings → Security: "Staff use Allurus on phones only" (default ON) and "Staff may also use tablets" (default off), stored on `tenants/{t}.staffDevices`. Team access: "Allow this person on a computer" (`users/{uid}.allowComputer`), logged. Not applied to /pos, kiosk, superadmin or support mode; /join success says "open allurus.my/app on your phone" on a computer.
+- Admin phone: tabs Today, Approvals, People, Me, More; new Approvals page (leave, claims, overtime/corrections, new check-in phones; segmented filter; 44px buttons; own requests excluded; each kind only with its area). Heavy pages show "Easier on a laptop or PC". Admins now open in the company console on phones too (Me = their employee view).
+- Employee phone tabs: Home, Leave, Payslips, Claims, Me. `app.webmanifest`, PNG icons, install offer on a phone's second visit (iPhone gets the Share hint), service worker registered for /app. Cache v3.41.
+
+### Tests
+`npm test` 405/405. Emulator end-to-end (27/27, real app + rules, nothing leaves the machine): employee on computer blocked with no company data requested and Sign out works; employee on phone gets the app; tablet blocked/allowed by the setting; per-person exception; rule off; admin on computer and phone; Settings and Team access controls save through the rules.
+`npm run test:rules`: 118/119. The one failure, `billing.rules.test.js` "superadmin: extends or marks the POS addon…", **also fails on the rules as committed before this change** (checked), so it is from the POS work already on this branch. Not caused by device rules.
+
+### Decisions on the owner's behalf
+- QR library: qrcode-generator (free, MIT), no outside service.
+- Device rule only restricts the app after sign-in; it is a house rule, not a lock (said on the Settings card).
+- The company setting's shape is not checked in `firestore.rules` (1,000-expression limit); `policy()` treats anything odd as the default.
+
+### Not done / waiting for the owner
+- **Not merged, rules not published:** the rules change is small (`allowComputer` field for HR), but the macOS spec says merge only when the preview matches the mockup, which this session can't see, and the existing failing POS rules test needs a look first. Before publishing: save the live rules to `docs/rules-backup/` (RUN-ALL-SPECS).
+- Not built: the full Employee Home widgets from the mockup (check-in card, quick actions) beyond the existing Home; a People "masked IC/bank" check on the phone list (uses the existing masking).

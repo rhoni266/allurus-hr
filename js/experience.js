@@ -555,12 +555,24 @@ window.AllurusUX = (function () {
   }
 
   // ---------- Mobile tab bar ----------
-  const TABS = { admin: ['dashboard', 'employees', 'attendance', 'payroll'], employee: ['home', 'my-time', 'my-pay', 'my-plan'], super: ['platform', 'companies', 'billing'], auditor: ['reports', 'tax', 'books'] };
+  // Admins and employees get the tabs from docs/DEVICE-RULES-SPEC.md: a page ([route, label]) or an action
+  // ({ act, label, icon }). Tabs whose page this person can't open are left out.
+  const TABS = {
+    admin: [['dashboard', 'Today'], ['approvals', 'Approvals'], ['employees', 'People'], { act: 'tab-me', label: 'Me', icon: 'people' }, { act: 'mac-launch', label: 'More', icon: 'more' }],
+    employee: [['home', 'Home'], ['my-leave', 'Leave'], ['my-pay', 'Payslips'], ['my-claims', 'Claims'], { act: 'mac-launch', label: 'Me', icon: 'people' }],
+    super: ['platform', 'companies', 'billing'], auditor: ['reports', 'tax', 'books'],
+  };
   function renderTabbar(route) {
     const bar = $('#tabbar'); if (!bar) return;
-    const rs = ctx.routes(), pins = pinsFor(rs);
-    const ids = (pins.length >= 2 ? pins : TABS[ctx.role()] || rs.map((r) => r.id)).slice(0, 4);
-    bar.innerHTML = ids.map((id) => rs.find((r) => r.id === id)).filter(Boolean).map((r) => `<a href="#${r.id}" ${route === r.id ? 'aria-current="page" class="on"' : ''}>${ctx.icon(r.icon)}<span>${ctx.esc(r.label.replace(/^My (\w)/, (_, c) => c.toUpperCase()))}</span></a>`).join('')
+    const rs = ctx.routes(), set = TABS[ctx.role()];
+    const link = (r, label) => `<a href="#${r.id}" ${route === r.id ? 'aria-current="page" class="on"' : ''}>${ctx.icon(r.icon)}<span>${ctx.esc(label || r.label.replace(/^My (\w)/, (_, c) => c.toUpperCase()))}</span></a>`;
+    const btn = (t) => `<button type="button" data-act="${t.act}" aria-label="${ctx.esc(t.label)}">${ctx.icon(t.icon)}<span>${ctx.esc(t.label)}</span></button>`;
+    if (ctx.role() === 'admin' || ctx.role() === 'employee') {
+      bar.innerHTML = set.map((t) => (Array.isArray(t) ? ((r) => (r ? link(r, t[1]) : ''))(rs.find((r) => r.id === t[0])) : btn(t))).join('');
+      return;
+    }
+    const pins = pinsFor(rs), ids = (pins.length >= 2 ? pins : set || rs.map((r) => r.id)).slice(0, 4);
+    bar.innerHTML = ids.map((id) => rs.find((r) => r.id === id)).filter(Boolean).map((r) => link(r)).join('')
       + `<button type="button" data-act="menu" aria-label="More pages">${ctx.icon('more')}<span>More</span></button>`;
   }
   const pins = () => prefs().pins || [];

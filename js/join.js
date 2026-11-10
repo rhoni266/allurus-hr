@@ -482,7 +482,8 @@ function step3_pin(ctx) {
           <p style="font-size:15px;margin:0 0 6px"><b>Selamat datang!</b></p>
           <p style="font-size:13.5px;margin:0">Membuka aplikasi Allurus anda…</p>
         </div>
-        <p class="ac-ok" role="status">Sila gunakan kod syarikat <b>${esc(ctx.code)}</b>, No. IC dan PIN 6 angka anda untuk log masuk seterusnya.</p>`,
+        <p class="ac-ok" role="status">Sila gunakan kod syarikat <b>${esc(ctx.code)}</b>, No. IC dan PIN 6 angka anda untuk log masuk seterusnya.</p>
+        ${window.AllurusDevice && window.AllurusDevice.here() !== 'phone' ? `<p class="ac-note" style="margin-top:10px"><b>${esc(window.AllurusDevice.TEXT.ms.joined)}</b><br>${esc(window.AllurusDevice.TEXT.en.joined)}</p>` : ''}`,
       foot: false
     });
 

@@ -696,7 +696,7 @@ window.AllurusTime = (function () {
     return {
       dayInfo, monthFor, forPayroll, attCells, dayTotals, tagsFor, shiftCell, todayShift, setRecord, auditFor, historyHtml,
       requestsCard, myRequestsCard, myShiftsCard, approvalsCard, settingsCards, bindSettings, insights,
-      applyCorrection, pendingCount: () => reqs().filter((q) => q.status === 'Pending').length, myCount: (empId) => forMe(empId).length,
+      applyCorrection, pendingCount: () => reqs().filter((q) => q.status === 'Pending').length, pending: () => reqs().filter((q) => q.status === 'Pending'), myCount: (empId) => forMe(empId).length,
       shiftStart: (e, day) => { const x = dayInfo(e, day); return x.pattern && !x.off ? (x.pattern.flexible ? x.pattern.coreStart : x.pattern.start) : ''; },
     };
   }

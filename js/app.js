@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.35';
+  const APP_VERSION = '3.41';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -196,6 +196,9 @@
   const CLOUD = CLOUD_ON;
   const CAN_CLOUD = !!(window.ALLURUS_FIREBASE && window.ALLURUS_FIREBASE.apiKey);
   const fire = () => (CLOUD ? window.AllurusCloud : null);
+  // "Please use your phone" is showing (js/device-rules.js); pages an admin on a phone is told are easier on a computer.
+  let deviceBlock = null;
+  const HEAVY = new Set(['payroll', 'reports', 'settings', 'books', 'invoices', 'bills', 'finance', 'tax', 'ops-stock', 'costing']);
   // A signed-in cloud user reopening the app waits for the workspace to load before seeing it.
   const hasStaffSess = () => {
     try {
@@ -489,6 +492,7 @@
   ROLE_ROUTES.admin = [
     { id: 'ops-today', label: 'Operations today', icon: 'chart', group: 'Overview' },
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', group: 'Overview' },
+    { id: 'approvals', label: 'Approvals', icon: 'check', group: 'Overview' },
     { id: 'ops-stock', label: 'Stock & purchasing', icon: 'box', group: 'Operations' },
     { id: 'ops-production', label: 'Production', icon: 'layers', group: 'Operations' },
     { id: 'ops-sales', label: 'Sales & delivery', icon: 'pin', group: 'Operations' },
@@ -529,7 +533,7 @@
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
     { id: 'billing', label: 'Billing', icon: 'doc', group: 'Workspace' },
   ];
-  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'billing' || (CLOUD && (!myPerms() || myPerms().includes('settings')))) && (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)) && (posApi ? posApi.routeAllowed(r.id) : !/^pos(-|$)/.test(r.id)));
+  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'approvals' || can('time') || can('claims')) && (r.id !== 'billing' || (CLOUD && (!myPerms() || myPerms().includes('settings')))) && (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)) && (posApi ? posApi.routeAllowed(r.id) : !/^pos(-|$)/.test(r.id)));
   // A page may carry a query after "?" (#ops-stock?po=…); it is the page's to read.
   const route = () => { const h = location.hash.replace('#', '').split('?')[0].replace(/^settings\/.*/, 'settings'); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
@@ -639,7 +643,7 @@
 
   // How many things wait on a page (the sidebar count and the launcher badge).
   function navCount(r) {
-    return r.id === 'my-approvals' ? leaveApi.myCount(me().id) + timeApi.myCount(me().id) + claimsApi.myCount(me().id) + (recruitApi?.taskCount(me().id) || 0) : r.id === 'training' ? lmsApi?.pendingCount() || 0 : r.id === 'my-training' ? lmsApi?.todoCount(me().id) || 0 : r.id === 'grievances' ? grievApi?.badge() || 0 : r.id === 'recruitment' ? recruitApi?.badge() || 0 : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'employees' ? hrApi?.pendingCount() || 0 : r.id === 'onboarding' ? hrApi?.overdueCount() || 0 : r.id === 'performance' || r.id === 'my-appraisal' ? appraisalApi?.badge(r.id) || 0 : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || opsApi?.badge(r.id) || posApi?.badge(r.id) || 0);
+    return r.id === 'approvals' ? approvalItems().length : r.id === 'my-approvals' ? leaveApi.myCount(me().id) + timeApi.myCount(me().id) + claimsApi.myCount(me().id) + (recruitApi?.taskCount(me().id) || 0) : r.id === 'training' ? lmsApi?.pendingCount() || 0 : r.id === 'my-training' ? lmsApi?.todoCount(me().id) || 0 : r.id === 'grievances' ? grievApi?.badge() || 0 : r.id === 'recruitment' ? recruitApi?.badge() || 0 : r.id === 'leave' ? pendingLeaves().length : r.id === 'attendance' ? securityQueue().count : r.id === 'claims' ? claimsApi.pendingCount() : r.id === 'employees' ? hrApi?.pendingCount() || 0 : r.id === 'onboarding' ? hrApi?.overdueCount() || 0 : r.id === 'performance' || r.id === 'my-appraisal' ? appraisalApi?.badge(r.id) || 0 : r.id === 'companies' ? state.platform.tenants.filter((t) => t.status === 'Past due').length : (finApi?.badge(r.id) || opsApi?.badge(r.id) || posApi?.badge(r.id) || 0);
   }
   function renderNav() {
     let html = '', group = '';
@@ -748,6 +752,8 @@
     const careers = /^#careers\/([^/]+)(?:\/(.+))?/.exec(location.hash);
     $('#login').classList.toggle('is-careers', !!careers);
     if (careers) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = recruitApi.careersPage(careers[1], careers[2] || ''); recruitApi.bindCareers(careers[1], careers[2] || ''); document.title = `Careers · ${recruitApi.tenantName(careers[1]) || 'Allurus'}`; return; }
+    // An employee on a computer (docs/DEVICE-RULES-SPEC.md): this screen and nothing else; no workspace was loaded.
+    if (deviceBlock) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = phoneOnlyView(); return; }
     if (cloudWaiting) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = `<div class="login-inner"><div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div><h1>Loading your workspace…</h1><p class="sub">Getting the latest from the cloud.</p></div>`; return; }
     const signedIn = !!role();
     $('#login').hidden = signedIn;
@@ -769,7 +775,9 @@
     const view = $('#view');
     // Super Admin and auditor pages have no dashboard, so their setup checklist sits on their first page.
     const setup = ['super', 'auditor'].includes(role()) && r === routes()[0].id ? AllurusUX.setupCard() : '';
-    view.innerHTML = billingUi.banner() + (r === routes()[0].id ? billingUi.checklist() : '') + setup + VIEWS[r]();
+    // Admins on a phone: heavy screens still open, with a small note (docs/DEVICE-RULES-SPEC.md).
+    const heavy = role() === 'admin' && HEAVY.has(r) && window.AllurusDevice?.here() === 'phone' ? '<p class="lock-banner" role="note" style="margin-bottom:12px">Easier on a laptop or PC.</p>' : '';
+    view.innerHTML = billingUi.banner() + heavy + (r === routes()[0].id ? billingUi.checklist() : '') + setup + VIEWS[r]();
     AFTER[r]?.();
     decorateHead(r);
     // Content rises in on navigation only (saves re-render too, and shouldn't animate).
@@ -1621,9 +1629,10 @@
             `<a class="btn btn-primary" href="/pos/start">Start POS trial</a> <a class="btn" href="/pos">Open POS</a>`)}</div>` }] : []),
       ...(CLOUD ? [{ id: 'billing', label: 'Billing & subscription', icon: 'doc', summary: 'Plan, trial, invoices, payment proof', keys: 'billing plan trial subscription invoice payment proof upgrade paid',
         html: () => `<div class="card"><div class="card-head"><h3>Billing &amp; subscription</h3></div>${row('Plan and invoices', 'Your plan, trial or paid-until date, invoices and payment proof.', `<a class="btn btn-primary" href="#billing">${icon('doc')}Open Billing</a>`)}</div>` }] : []),
-      { id: 'security', label: 'Security', icon: 'shield', summary: 'Password rules', keys: 'security password rule length two-step session sign-in',
+      { id: 'security', label: 'Security', icon: 'shield', summary: 'Password rules, which devices staff use', keys: 'security password rule length two-step session sign-in phone computer laptop tablet device',
         html: () => `<div class="card"><div class="card-head"><h3>Password rules</h3></div>
-          <p class="muted">Everyone’s password must be at least ${window.AllurusPassword?.MIN || 10} characters, and can’t be a common password or contain their name, email or company name. Change your own in <a href="#settings/account">My account</a>.</p></div>` },
+          <p class="muted">Everyone’s password must be at least ${window.AllurusPassword?.MIN || 10} characters, and can’t be a common password or contain their name, email or company name. Change your own in <a href="#settings/account">My account</a>.</p></div>
+          ${CLOUD ? staffDevicesCard() : ''}` },
       { id: 'data', label: 'Data & privacy', icon: 'box', summary: CLOUD ? 'How long data is kept' : 'Reset the demo workspace', keys: 'data privacy pdpa retention reset delete export',
         html: () => `<div class="card"><div class="card-head"><h3>Data retention</h3></div><p class="muted">${CLOUD ? `If a subscription ends, company admins can still open the workspace, Billing and their data for a ${B.graceDays}-day grace period. The data is then kept for ${B.keepDays} days before it is deleted.` : 'This demo is saved in this browser only.'}</p></div>
           ${CLOUD ? '<div class="card" id="support-access"><div class="card-head"><h3>Allurus support access</h3><span class="hint">Loading…</span></div></div>' : resetCard(`Data is stored in this browser only. Resetting puts ${esc(s.company)} back to its sample data; other demo companies are not touched.`)}` },
@@ -1742,6 +1751,7 @@
     bindSettingsLayout(list, list.some((x) => x.id === sec) ? sec : '');
     if (role() !== 'admin' || !can('settings')) return;
     if (CLOUD) { teamAccess.mount(); supportAccess.mount(); }
+    $$('[data-staffdev]').forEach((el) => el.addEventListener('change', () => setStaffDevices(el.dataset.staffdev, el.checked)));
     const bind = (id, key, num) => $(id)?.addEventListener('change', (ev) => { state.settings[key] = num ? Math.max(0, Number(ev.target.value) || 0) : ev.target.value.trim() || state.settings[key]; commit('Settings saved'); });
     if ($('#z-label')) bindCheckinCard();
     leaveApi.bindSettings();
@@ -1757,6 +1767,43 @@
     bind('#s-company', 'company'); bind('#s-currency', 'currency'); bindHeadOffice(); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
     $$('[data-stat]').forEach((el) => el.addEventListener('change', () => { state.settings.statutory = { ...U.statutory(state.settings), [el.dataset.stat]: Math.min(20, Math.max(0, Number(el.value) || 0)) }; commit('Statutory rates saved'); }));
   };
+
+  // ---------- "Please use your phone" (staff on a computer; js/device-rules.js) ----------
+  // Settings → Security: the company's rule (tenants/{t}.staffDevices). Owner or the Settings area changes it.
+  function staffDevicesCard() {
+    const p = AllurusDevice.policy(window.AllurusCompany || {}), mayEdit = can('settings');
+    const sw = (key, on, label, desc) => `<div class="settings-row"><div><div class="label">${label}</div><div class="desc">${desc}</div></div>
+      <label class="switch"><input type="checkbox" data-staffdev="${key}" ${on ? 'checked' : ''} ${mayEdit ? '' : 'disabled'} aria-label="${esc(label)}"><span></span></label></div>`;
+    return `<div class="card" id="staff-devices"><div class="card-head"><h3>Which devices staff use</h3><span class="hint">Admins can always use a computer and a phone</span></div>
+      ${sw('phonesOnly', p.phonesOnly, 'Staff use Allurus on phones only', 'On a laptop or PC, staff see “Please use your phone” with a QR code, and nothing else. To let one person use a computer, open Users &amp; roles and tick “Allow this person on a computer”.')}
+      ${sw('tablets', p.tablets, 'Staff may also use tablets', 'Counts tablets as phones for staff.')}
+      <p class="faint" style="font-size:12.5px;margin-top:8px">This is a house rule, not a lock: the browser tells Allurus what kind of device it is, and someone who knows how can change that. What each person can see is still decided by their role.</p></div>`;
+  }
+  async function setStaffDevices(key, on) {
+    const cur = AllurusDevice.policy(window.AllurusCompany || {}), next = { ...cur, [key]: !!on };
+    const r = await fire().setStaffDevices(next);
+    if (r.ok) { log(`Device rule changed: ${key === 'phonesOnly' ? 'staff use phones only' : 'staff may also use tablets'} ${on ? 'on' : 'off'}`); save(); toast(on ? 'Turned on.' : 'Turned off.'); }
+    else { toast(r.error, 'error'); render(); }
+  }
+  function phoneQr() {
+    try {
+      const q = window.qrcode(0, 'M'); q.addData(AllurusDevice.APP_URL); q.make();
+      return q.createSvgTag({ cellSize: 5, margin: 2, scalable: true }).replace('<svg ', `<svg role="img" aria-label="QR code for ${AllurusDevice.APP_URL}" `);
+    } catch (e) { return ''; }
+  }
+  function phoneOnlyView() {
+    const T = AllurusDevice.TEXT;
+    return `<div class="login-inner phone-only" role="main">
+      <div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div>
+      <h1>${esc(T.en.title)}</h1><p class="sub" lang="ms">${esc(T.ms.title)}</p>
+      <div class="login-card" style="text-align:center">
+        <p>${esc(T.en.how)}</p><p class="muted" lang="ms" style="font-size:13px">${esc(T.ms.how)}</p>
+        <div class="phone-qr" style="width:180px;height:180px;margin:14px auto;background:#fff;border-radius:12px;padding:8px">${phoneQr()}</div>
+        <p class="muted" style="font-size:13px">${esc(T.en.scan)} · <span lang="ms">${esc(T.ms.scan)}</span><br><b>allurus.my/app</b></p>
+        <p style="margin-top:12px">${esc(T.en.none)}</p><p class="muted" lang="ms" style="font-size:13px">${esc(T.ms.none)}</p>
+        <button type="button" class="btn btn-primary login-submit" data-act="device-signout" style="margin-top:12px">${esc(T.en.out)} · <span lang="ms">${esc(T.ms.out)}</span></button>
+      </div></div>`;
+  }
 
   // ---------- Sign-in ----------
   function loginView() {
@@ -1797,7 +1844,8 @@
         let fails = 0; try { fails = +sessionStorage.getItem(FAIL_KEY) || 0; } catch (e) { /* no storage */ }
         if (fails >= 5) { btn.textContent = 'Please wait…'; await new Promise((r) => setTimeout(r, Math.min(30, 2 ** (fails - 4)) * 1000)); }
         const res = byIc ? await fire().signInIC(form.code.value.trim(), email, pw) : await fire().signIn(email, pw);
-        try { sessionStorage.setItem(FAIL_KEY, res.ok ? '0' : String(fails + 1)); } catch (e) { /* no storage */ }
+        try { sessionStorage.setItem(FAIL_KEY, res.ok || res.deviceBlocked ? '0' : String(fails + 1)); } catch (e) { /* no storage */ }
+        if (res.deviceBlocked) { render(); return; }   // "Please use your phone"
         if (!res.ok) { btn.disabled = false; btn.textContent = 'Sign in'; err.textContent = res.error; err.hidden = false; form.password.value = ''; form.password.focus(); return; }
         startSession(state.accounts[0]);
         supportAccess.notice().then(() => { notifyApi?.updateBell(); save(); }).catch(() => {});
@@ -1815,11 +1863,10 @@
       startSession(acct);
     });
   }
-  // People with both an HR role and an employee role start in Employee view on a phone and in the company
-  // console on a computer. They can still switch views from the menu.
+  // People with both an admin role and an employee role start in the company console, on a computer and on a
+  // phone (docs/DEVICE-RULES-SPEC.md 5: the phone opens on Today, and its Me tab is their own employee view).
   const onPhone = () => { try { return matchMedia('(max-width: 760px)').matches || (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 600); } catch (e) { return false; } };
   function preferredRole(roles) {
-    if (onPhone() && roles.includes('employee')) return 'employee';
     if (!roles.includes('super') && roles.includes('admin')) return 'admin';
     return roles[0];
   }
@@ -2825,6 +2872,12 @@
     'acc-ic-fix': () => { ui.empOnly = new Set(teamAccess.fixIds || []); closeOverlay(); location.hash = 'employees'; render(); },
     'emp-only-clear': () => { ui.empOnly = null; render(); },
     'toggle-pw': () => { const i = $('#login-password'), b = $('[data-act="toggle-pw"]'); const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.textContent = show ? 'Hide' : 'Show'; b.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); },
+    // From "Please use your phone": sign out straight away (nothing of the company was loaded here).
+    'device-signout': () => {
+      deviceBlock = null;
+      try { localStorage.removeItem(STORE_KEY); } catch (e) { /* storage unavailable */ }
+      Promise.resolve(fire()?.signOut()).catch(() => {}).finally(() => { location.hash = ''; location.reload(); });
+    },
     'logout': () => {
       openModal({
         title: 'Log Keluar / Log Out',
@@ -3320,6 +3373,39 @@
   ACTIONS['bill-export'] = () => billingUi.exportAll();
   ACTIONS['onboard-hide'] = () => { state.settings.onboardDone = true; commit('Checklist hidden'); };
 
+  // ---------- Approvals (admins): leave, claims, overtime and new check-in phones in one list ----------
+  // The phone's Approvals tab (docs/DEVICE-RULES-SPEC.md). Each kind only with its area; the actions are the same
+  // ones as on the Leave, Claims and Attendance pages, so the person is told as before. Never your own requests.
+  function approvalItems() {
+    if (role() !== 'admin') return [];
+    const mine = me()?.id, out = [];
+    if (can('time')) {
+      pendingLeaves().filter((l) => l.empId !== mine).forEach((l) => out.push({ kind: 'leave', id: l.id, e: emp(l.empId), what: `${leaveApi.typeName(l.type)} leave · ${l.days} day${l.days > 1 ? 's' : ''}`, when: U.fmtDate(l.from, { month: 'short', day: 'numeric' }) }));
+      (timeApi?.pending?.() || []).filter((q) => q.empId !== mine).forEach((q) => out.push({ kind: 'overtime', id: q.id, e: emp(q.empId), what: q.kind === 'ot' ? 'Overtime' : 'Attendance correction', when: U.fmtDate(q.date, { month: 'short', day: 'numeric' }) }));
+      securityQueue().devices.filter(({ e }) => e.id !== mine).forEach(({ e, d }) => out.push({ kind: 'devices', id: e.id, v: d.id, e, what: `New check-in phone${d.label ? ` · ${d.label}` : ''}`, when: '' }));
+    }
+    if (can('claims')) (state.claims || []).filter((c) => c.status === 'Pending' && c.empId !== mine).forEach((c) => out.push({ kind: 'claims', id: c.id, e: emp(c.empId), what: `${c.title} · ${money(AllurusClaimRules.claimTotal(c), 2)}`, when: '' }));
+    return out.filter((x) => x.e);
+  }
+  VIEWS.approvals = () => {
+    const all = approvalItems(), f = ui.apFilter || 'all', list = f === 'all' ? all : all.filter((x) => x.kind === f);
+    const kinds = [['all', 'All'], ...(can('time') ? [['leave', 'Leave']] : []), ...(can('claims') ? [['claims', 'Claims']] : []), ...(can('time') ? [['overtime', 'Overtime'], ['devices', 'Devices']] : [])];
+    const n = (k) => (k === 'all' ? all.length : all.filter((x) => x.kind === k).length);
+    const btns = (x) => {
+      const who = esc(fullName(x.e));
+      if (x.kind === 'leave') return `<button class="btn btn-ok" data-act="approve-leave" data-id="${x.id}" aria-label="Approve ${who}’s leave">Approve</button><button class="btn btn-danger" data-act="reject-leave" data-id="${x.id}" aria-label="Decline ${who}’s leave">Decline</button>`;
+      if (x.kind === 'devices') return `<button class="btn btn-ok" data-act="dev-approve" data-id="${x.id}" data-v="${x.v}" aria-label="Approve ${who}’s phone">Approve</button><button class="btn btn-danger" data-act="dev-reject" data-id="${x.id}" data-v="${x.v}" aria-label="Decline ${who}’s phone">Decline</button>`;
+      return `<button class="btn btn-primary" data-act="${x.kind === 'claims' ? 'cl-review' : 'tm-review'}" data-id="${x.id}">Review</button>`;
+    };
+    return `<div class="page-head"><div><h1>Approvals</h1><p class="sub">${all.length ? `${all.length} waiting for you` : 'Nothing waiting'}</p></div></div>
+      <div class="seg" role="group" aria-label="Show" style="margin-bottom:12px;flex-wrap:wrap">${kinds.map(([k, l]) => `<button type="button" data-act="ap-filter" data-v="${k}" class="${f === k ? 'on' : ''}" aria-pressed="${f === k}">${l} (${n(k)})</button>`).join('')}</div>
+      <div class="card card-flush">${list.length ? `<div class="list">${list.map((x) => `<div class="list-item approval-item" style="flex-wrap:wrap;gap:10px">${avatar(fullName(x.e), 'sm')}<div class="grow" style="min-width:160px"><div class="person-name">${esc(fullName(x.e))}</div><div class="person-sub">${esc(x.what)}${x.when ? ` · ${esc(x.when)}` : ''}</div></div><div class="actions" style="display:flex;gap:8px">${btns(x)}</div></div>`).join('')}</div>`
+        : '<div class="empty"><strong>All caught up</strong>New requests will show up here.</div>'}</div>`;
+  };
+  ACTIONS['ap-filter'] = (_, v) => { ui.apFilter = v; render(); };
+  // An admin's "Me" tab on a phone: their own leave, payslips, claims and check-in (the employee view).
+  ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role() !== 'employee') switchRole('employee'); else location.hash = 'my-profile'; };
+
   // ---------- Allurus support access (cloud mode): the client lets support edit, and sees every change ----------
   const supportAccess = {
     async mount() {
@@ -3685,6 +3771,21 @@
         await this.refresh();
       })(); } });
     },
+    // "Allow this person on a computer" (docs/DEVICE-RULES-SPEC.md): for staff who have signed in and aren't
+    // admins (admins can always use a computer), shown while the company rule "phones only" is on.
+    userOf(e) { const d = this.data || { users: [] }; return d.users.find((u) => u.empId === e.id && !u.disabled && !u.pending) || null; },
+    computerToggle(e) {
+      const u = this.userOf(e);
+      if (!u || (u.roles || []).includes('admin') || !AllurusDevice.policy(window.AllurusCompany || {}).phonesOnly) return '';
+      return `<label class="faint" style="display:flex;gap:6px;align-items:center;justify-content:flex-end;font-size:12px;margin-top:4px"><input type="checkbox" data-allow-pc="${esc(u.uid)}" ${u.allowComputer ? 'checked' : ''}> Allow this person on a computer</label>`;
+    },
+    async allowComputer(uid, on) {
+      const u = (this.data?.users || []).find((x) => x.uid === uid), e = u && emp(u.empId);
+      const r = await fire().setAllowComputer(uid, on);
+      if (r.ok) { if (u) u.allowComputer = !!on; log(`${on ? 'Allowed' : 'No longer allowed'} ${e ? fullName(e) : 'a person'} to use Allurus on a computer`); save(); }
+      toast(r.ok ? (on ? `${e?.first || 'They'} can now use Allurus on a computer.` : `${e?.first || 'They'} will need a phone again.`) : r.error, r.ok ? '' : 'error');
+      if (!r.ok) this.draw();
+    },
     // The buttons for one person, used on the Employees list, their profile and Settings → Team access.
     actions(e) {
       if (!this.data || e.id === fire()?.profile?.empId) return '';
@@ -3729,7 +3830,7 @@
         return `<tr><td>${person(e)}</td><td class="muted">${e.email ? esc(e.email) : '<span class="faint">No email</span>'}${this.regPhone(e, st)}</td>
           <td>${this.badge(e)}</td>
           <td>${isMe ? `<span class="muted">You · ${esc(roleLabel('admin'))}</span>` : `<select class="select" data-acc-role="${e.id}" aria-label="Access for ${esc(fullName(e))}">${this.options(st.template)}</select>`}</td>
-          <td class="r"><div class="row-actions" style="opacity:1">${isMe ? '' : e.email || this.byIc(e) ? this.actions(e) : `<span class="faint">${NO_EMAIL}</span>`}</div></td></tr>`;
+          <td class="r"><div class="row-actions" style="opacity:1">${isMe ? '' : e.email || this.byIc(e) ? this.actions(e) : `<span class="faint">${NO_EMAIL}</span>`}</div>${isMe ? '' : this.computerToggle(e)}</td></tr>`;
       }).join('');
       const waiting = all.filter((e) => e.email && this.status(e).key === 'none').length;
       el.innerHTML = `<div class="card-head"><h3>Team access</h3>${waiting ? `<button class="btn btn-sm" data-act="acc-invite-all">Invite all ${waiting}</button>` : ''}</div>
@@ -3738,6 +3839,7 @@
         ${joinCard}${this.issuesCard()}${pendingCard}${tracker}
         <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="muted">Nobody here.</td></tr>`}</tbody></table></div>`;
       $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value)));
+      $$('[data-allow-pc]', el).forEach((cb) => cb.addEventListener('change', () => this.allowComputer(cb.dataset.allowPc, cb.checked)));
     },
     // The templates this person may give: only ones within their own areas; Owner only by an Owner.
     options(current) {
@@ -3851,6 +3953,8 @@
     firstWorkspace(d) { return newWorkspace({ currency: 'MYR', plan: 'growth', city: 'Kuala Lumpur', ...d }, false); },
     // Staff of an expired or suspended company (js/cloud.js start()).
     companyBlocked(eff) { billingUi.blocked(eff); },
+    // An employee signed in on a computer: "Please use your phone" (cloud.js stopped before loading anything).
+    deviceBlocked() { cloudWaiting = false; deviceBlock = { at: Date.now() }; render(); },
     // Superadmin viewing a company: open it as its Owner would see it, with a banner; changes are never saved.
     // sup: { edit, until, pay } when the company has granted Allurus support access (support mode).
     cloudViewOnly(name, sup = null) {
@@ -3879,7 +3983,42 @@
     },
   };
 
+  // ---------- Add to home screen (docs/DEVICE-RULES-SPEC.md 6): app.webmanifest + sw.js ----------
+  // On a phone's second visit, offer "Install Allurus" once. Android/Chrome gives a real install prompt; an iPhone
+  // has none, so it gets the one-line hint instead. Nothing on computers, inside the installed app, or in previews.
+  const installOffer = (() => {
+    let deferred = null;
+    const get = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+    const set = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* storage unavailable */ } };
+    const standalone = () => { try { return matchMedia('(display-mode: standalone)').matches || navigator.standalone === true; } catch (e) { return false; } };
+    function offer() {
+      if (get('allurus-install-offered') || standalone() || window.AllurusDevice?.here() !== 'phone' || +(get('allurus-visits') || 0) < 2) return;
+      const ios = /iPhone|iPod/.test(navigator.userAgent);
+      if (!deferred && !ios) return;
+      set('allurus-install-offered', '1');
+      const bar = document.createElement('div');
+      bar.className = 'install-offer'; bar.setAttribute('role', 'dialog'); bar.setAttribute('aria-label', 'Install Allurus');
+      bar.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:80;background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-lg);padding:12px 14px;display:flex;gap:10px;align-items:center';
+      bar.innerHTML = `<img src="assets/icon-192.png" alt="" width="40" height="40" style="border-radius:10px"><div style="flex:1;font-size:13px"><b>Install Allurus</b><br>${ios ? 'Tap Share, then “Add to Home Screen”.' : 'Open it from your home screen, like an app.'}</div>${ios ? '' : '<button type="button" class="btn btn-primary" data-install="yes">Install</button>'}<button type="button" class="btn" data-install="no" aria-label="Not now">Not now</button>`;
+      bar.addEventListener('click', async (ev) => {
+        const b = ev.target.closest('[data-install]'); if (!b) return;
+        if (b.dataset.install === 'yes' && deferred) { deferred.prompt(); try { await deferred.userChoice; } catch (e) { /* closed */ } deferred = null; }
+        bar.remove();
+      });
+      document.body.appendChild(bar);
+    }
+    function start() {
+      if (!('serviceWorker' in navigator) || window.top !== window || !/^https?:$/.test(location.protocol)) return;
+      navigator.serviceWorker.register('sw.js').catch(() => { /* not allowed here */ });
+      set('allurus-visits', String(+(get('allurus-visits') || 0) + 1));
+      window.addEventListener('beforeinstallprompt', (ev) => { ev.preventDefault(); deferred = ev; setTimeout(offer, 1500); });
+      setTimeout(offer, 3000);
+    }
+    return { start };
+  })();
+
   // ---------- Boot ----------
+  installOffer.start();
   if (state.session.account && state.session.roles?.length > 1) state.session.role = preferredRole(state.session.roles);
   $('#today').textContent = U.fmtDate(U.today(), { weekday: 'short', month: 'short', day: 'numeric' });
   $('#brand-mark').innerHTML = LOGO_MARK;

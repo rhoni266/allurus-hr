@@ -346,6 +346,12 @@ async function start(profile) {
   const eff = B.effective(company || {}), acc = B.access(eff, S.admin);
   if (!profile.viewOnly && !profile.support && acc === 'none') { app.companyBlocked(eff, company); throw Object.assign(new Error('company-blocked'), { blocked: eff }); }
   if (!profile.viewOnly && !profile.support && acc !== 'full') profile.billingOnly = true;
+  // Staff use Allurus on a phone (docs/DEVICE-RULES-SPEC.md): on a computer they get "Please use your phone",
+  // before any of the company's data is read. Admins, support and the kiosk are not affected.
+  const Dv = window.AllurusDevice;
+  if (Dv && !profile.viewOnly && !profile.support && !Dv.allowed(profile, Dv.here(), company)) {
+    app.deviceBlocked(company); throw Object.assign(new Error('device-blocked'), { device: true });
+  }
   await new Promise((ready) => listen(ready));
   if (can('finance')) await listenInvoices();
   await Promise.all(Object.keys(REQ).map(listenRequests));
@@ -562,6 +568,7 @@ const api = {
       await start(prof);
       return { ok: true, profile: prof };
     } catch (e) {
+      if (e?.device) return { deviceBlocked: true };   // "Please use your phone" is showing; still signed in, so Sign out works
       if (e?.blocked) { await Auth.signOut(auth); return { error: BLOCKED_MSG[e.blocked] || BLOCKED_MSG.expired, blocked: e.blocked }; }
       console.warn('[Allurus cloud] sign-in', e?.code); return { error: authMsg(e) };
     }
@@ -653,6 +660,19 @@ const api = {
   // Cancel a pending invitation (or the old one when the email changes): the link stops working.
   async cancelInvite(email) {
     try { await FS.deleteDoc(doc(db, `invites/${lower(email)}`)); return { ok: true }; } catch (e) { return { error: 'Couldn’t cancel the invitation.' }; }
+  },
+  // Which devices staff use (docs/DEVICE-RULES-SPEC.md): the company rule, and one person allowed on a computer.
+  async setStaffDevices(p) {
+    const staffDevices = { phonesOnly: p.phonesOnly !== false, tablets: p.tablets === true };
+    try {
+      await setDoc(doc(db, `tenants/${S.profile.tenantId}`), { staffDevices }, { merge: true });
+      window.AllurusCompany = { ...(window.AllurusCompany || {}), staffDevices };
+      return { ok: true };
+    } catch (e) { return { error: e?.code === 'permission-denied' ? 'Only the Owner or someone with the Settings area can change this.' : 'Couldn’t save. Check your connection.' }; }
+  },
+  async setAllowComputer(uid, on) {
+    try { await setDoc(doc(db, `users/${uid}`), { allowComputer: !!on }, { merge: true }); return { ok: true }; }
+    catch (e) { return { error: 'Couldn’t change that. You need the Settings area, and can’t change your own.' }; }
   },
   // Turn someone's access off or back on. Off blocks them at once (firestore.rules: member()).
   async setDisabled(uid, disabled) {
@@ -1102,7 +1122,7 @@ Auth.onAuthStateChanged(auth, async (user) => {
         }
         await start(prof); app.cloudSignedIn(); return;
       }
-    } catch (e) { console.warn('[Allurus cloud] after activation', e?.code); }
+    } catch (e) { if (e?.device) return; console.warn('[Allurus cloud] after activation', e?.code); }
   }
   if (user) {
     try {
@@ -1136,7 +1156,7 @@ Auth.onAuthStateChanged(auth, async (user) => {
         return;
       }
     } catch (e) {
-      if (e?.blocked) return;
+      if (e?.blocked || e?.device) return;
       console.warn('[Allurus cloud] resume', e?.code || e?.message);
     }
   }
