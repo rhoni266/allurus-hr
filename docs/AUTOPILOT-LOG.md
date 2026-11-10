@@ -355,3 +355,20 @@ Rules: copy the backup over `firestore.rules`, `firebase deploy --only firestore
 - `AllurusDevice.phoneAccess()` (pure, tested) → ok | first | pending | other. `cloud.js phoneGate()` runs in `start()` on phones only, before any company data loads.
 - The old sign-in binding is removed (it contradicted "laptops for everyone"); an older registered phone still counts until `scripts/migrate-phones.js --apply` moves it (read-only dry run first).
 - HR: Phones panel on the profile, Approvals list, "Remove phone", Owner self-approval with password, in-app notices, activity-log lines with the phone's name only.
+
+### Results (one phone per person)
+- Tests: `npm test` 407/407; `npm run test:rules` 128/128 (new `phones.rules.test.js`); emulator end-to-end 33/33 for this change (laptops for everyone; first phone; second phone refused and "Use this phone instead"; HR approval retires the old phone; Remove phone; auto-approve off; Owner self-approval with password; non-Owner admin cannot approve their own) and the earlier device end-to-end 27/27 (with "phones only" set explicitly on).
+- A bug found by the end-to-end run and fixed before merging: opening Approvals re-rendered itself forever (the phone records reloaded and redrew on every render). It now redraws only when the data changed.
+- Refused-on-next-phone count (read-only dry run, `node scripts/migrate-phones.js`, counts only): 47 people in 4 companies; only 4 have a registered phone today (all at Major Far East); 2 of them last checked in from a different phone. That is a handful, so no bulk approval is needed first. Everyone else registers their first phone automatically.
+- Live rules saved first: `docs/rules-backup/firestore.rules.2026-11-11`. Merged: `main` is at `d6d63e1` (fast-forward), pushed.
+
+### NOT deployed yet: the deploy was blocked by Claude Code's production-deploy check
+Owner: run these two in a terminal in the allurus-hr folder:
+1. `firebase deploy --only firestore:rules`
+2. `firebase deploy --only hosting`
+Then check: staff on a laptop opens the normal app (no "Please use your phone"); a second phone shows "This isn't your registered phone"; HR sees the request under Approvals. To go back: copy `docs/rules-backup/firestore.rules.2026-11-11` over `firestore.rules`, run the rules deploy, `git revert` the merge range, push, deploy hosting.
+Until the website is deployed, staff are still blocked on laptops (the old rule is live). Deploy the rules first, then hosting.
+
+### Left for later
+- `DIRECTORY_FIELDS` still carries the older `devices` field, so colleagues can see older phone ids in the directory. The new registry does not use it. Removing the field changes what syncs, so it is a separate change.
+- `scripts/migrate-phones.js --apply` (owner runs it) moves the 4 older registrations into the new records. Until then the app still honours the older ones.
