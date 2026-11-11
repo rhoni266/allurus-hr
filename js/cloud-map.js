@@ -77,7 +77,7 @@
   // Lists kept as one document per record elsewhere (cloud.js), so the rules can check each one: invoices
   // (tenants/{t}/invoices), leave requests (tenants/{t}/leaves) and claims (tenants/{t}/claims). Their old buckets are kept as a backup and no
   // longer read or written.
-  const OWN_DOCS = new Set(['finance.invoices', 'leaves', 'claims', 'timeRequests']);
+  const OWN_DOCS = new Set(['finance.invoices', 'leaves', 'claims', 'timeRequests', 'prod', 'prodShares']);
   const MONTHLY = new Set(['attendance']);
   // Per-person display choices that must not follow the company around.
   const LOCAL_SETTINGS = new Set(['theme']);

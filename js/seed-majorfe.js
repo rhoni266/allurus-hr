@@ -35,6 +35,8 @@
     // Leave: Kuala Lumpur calendar (built in), Saturday and Sunday off.
     const L = AllurusLeaveRules;
     settings.leave = L.defaultSettings({ state: 'Kuala Lumpur', departments, hr: 'e2', hrBackup: 'e1' });
+    // Daily production commission (docs/PRODUCTION-COMMISSION-SPEC.md): in the demo it is on because these settings exist.
+    settings.prod = { rate: '0.05', unit: 'pcs', depts: ['d-wh'] };
     Object.assign(settings.leave.chains, {
       'd-mgmt': { l1: 'e1', l1b: '', l2: '', l2b: '' }, 'd-admin': { l1: 'e2', l1b: 'e1', l2: '', l2b: '' },
       'd-sales': { l1: 'e6', l1b: 'e1', l2: '', l2b: '' }, 'd-wh': { l1: 'e3', l1b: 'e2', l2: '', l2b: '' },

@@ -375,7 +375,7 @@ service cloud.firestore {
       allow read: if isSuperadmin();
       allow create: if isSuperadmin() && request.resource.data.actorUid == request.auth.uid && request.resource.data.createdAt == request.time
         && request.resource.data.keys().hasOnly(['actorUid', 'actorEmail', 'action', 'entityType', 'entityId', 'before', 'after', 'createdAt'])
-        && request.resource.data.entityType in ['module', 'feature', 'industry', 'industryFeature', 'finderRule', 'tenant', 'tenantOverride', 'lead', 'plan', 'config', 'payment', 'invoice', 'tenantPosAddon'];
+        && request.resource.data.entityType in ['module', 'feature', 'industry', 'industryFeature', 'finderRule', 'tenant', 'tenantOverride', 'lead', 'plan', 'config', 'payment', 'invoice', 'tenantPosAddon', 'tenantAddon'];
       allow update, delete: if false;
     }
 
@@ -482,6 +482,11 @@ service cloud.firestore {
       allow update: if audited('tenantPosAddon', t)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['addons', 'lastAuditId'])
         && request.resource.data.addons.diff(resource.data.get('addons', {})).affectedKeys().hasOnly(['pos']);
+      // Superadmin: switch the production-commission addon on or off for a company (with an audit entry).
+      allow update: if audited('tenantAddon', t)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['addons', 'lastAuditId'])
+        && request.resource.data.addons.diff(resource.data.get('addons', {})).affectedKeys().hasOnly(['prodCommission'])
+        && request.resource.data.addons.prodCommission is bool;
       // Superadmin: sees every company, and sets only which industries it belongs to (with an audit entry).
       allow read: if isSuperadmin();
       // ---- Allurus support (the superadmin) inside a company ----
@@ -503,7 +508,7 @@ service cloud.firestore {
       // Viewing: everything except pay and ID data (full employee records, payslips, personal plans, payroll and
       // per-person document buckets), which needs the second switch.
       match /{coll}/{id} {
-        allow read: if isSuperadmin() && !(coll in ['people', 'payslips', 'personal', 'buckets']);
+        allow read: if isSuperadmin() && !(coll in ['people', 'payslips', 'personal', 'buckets', 'prodDays', 'prodShares']);
       }
       // A note from the join page when the new account's details couldn't be saved, for HR in Team access. Made
       // by that staff sign-in itself (it may have no profile yet), once; no IC, phone or PIN in it.
@@ -749,6 +754,36 @@ service cloud.firestore {
           && (supportPay() || !request.resource.data.keys().hasAny(payIdKeys()));
         allow update: if supportOn() && supportLogged('people/' + e) && working(t)
           && (supportPay() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(payIdKeys()));
+      }
+      // ---- Daily production commission (docs/PRODUCTION-COMMISSION-SPEC.md) ----
+      // Only where the company has the addon. prodDays/{yyyy-mm-dd}: a day, with who shared it (admins with the operations
+      // or payroll area). prodShares/{date~empId}: one person's own share (they read only theirs, never others' names).
+      // prodLocks/{yyyy-mm}: written when payroll is finalised; a locked month's days can't be changed. Nothing is deleted.
+      function prodOn() { return co(t).get('addons', {}).get('prodCommission', false) == true; }
+      function prodEntry() { return hasArea(t, 'operations') || hasArea(t, 'payroll'); }
+      function prodLock(m) { return /databases/$(database)/documents/tenants/$(t)/prodLocks/$(m); }
+      match /prodDays/{d} {
+        function pdMonth() { return d.split('-')[0] + '-' + d.split('-')[1]; }
+        allow read: if prodOn() && prodEntry() && canRead(t);
+        allow create, update: if prodOn() && prodEntry() && working(t) && d.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}') && !exists(prodLock(pdMonth()))
+          && request.resource.data.keys().hasOnly(['date', 'units', 'unit', 'rate', 'poolSen', 'shareSen', 'remainderSen', 'count', 'attendees', 'excluded', 'flags', 'sig', 'note', 'savedBy', 'savedAt', 'v', 'prev', 'id'])
+          && request.resource.data.date == d && request.resource.data.v is int && request.resource.data.poolSen is int && request.resource.data.shareSen is int
+          && request.resource.data.attendees is list && request.resource.data.attendees.size() <= 500 && request.resource.data.savedBy == me().empId;
+        allow delete: if false;
+      }
+      match /prodShares/{s} {
+        function psMonth() { return s.split('-')[0] + '-' + s.split('-')[1]; }
+        allow read: if prodOn() && canRead(t) && (prodEntry() || (member(t) && resource.data.empId == me().empId));
+        allow create, update: if prodOn() && prodEntry() && working(t) && s == request.resource.data.date + '~' + request.resource.data.empId && !exists(prodLock(psMonth()))
+          && request.resource.data.keys().hasOnly(['date', 'empId', 'status', 'shareSen', 'units', 'unit', 'poolSen', 'count', 'reason', 'id'])
+          && request.resource.data.status in ['paid', 'missed'] && request.resource.data.shareSen is int;
+        allow delete: if false;
+      }
+      match /prodLocks/{m} {
+        allow read: if prodOn() && prodEntry();
+        allow create: if prodOn() && hasArea(t, 'payroll') && working(t) && m.matches('[0-9]{4}-[0-9]{2}')
+          && request.resource.data.keys().hasOnly(['month', 'by', 'at']) && request.resource.data.month == m;
+        allow update, delete: if false;
       }
       // ---- One phone per person (docs/ONE-PHONE-SPEC.md): tenants/{t}/phones/{empId} ----
       // active: the registered phone { id, name, added, lastUsed }; pending: one phone asked for; retired: older ones.

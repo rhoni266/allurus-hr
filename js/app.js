@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.44';
+  const APP_VERSION = '3.46';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -425,6 +425,7 @@
       { id: 'grievances', label: 'Grievance desk', icon: 'shield', group: 'Me' },
       { id: 'my-profile', label: 'Profile', icon: 'people', group: 'Me' },
       { id: 'my-pay', label: 'Payslips', icon: 'wallet', group: 'Finance' },
+      { id: 'my-production', label: 'Production commission', icon: 'wallet', group: 'Finance' },
       { id: 'my-claims', label: 'Claims', icon: 'receipt', group: 'Finance' },
       { id: 'my-tax', label: 'Tax reliefs', icon: 'percent', group: 'Finance' },
       { id: 'my-plan', label: 'Financial planner', icon: 'target', group: 'Finance' },
@@ -505,6 +506,7 @@
     { id: 'pos-menu', label: 'Menu & settings', icon: 'book', group: 'Point of sale' },
     { id: 'pos-reports', label: 'Sales reports', icon: 'chart', group: 'Point of sale' },
     { id: 'employees', label: 'Employees', icon: 'people', group: 'Workforce' },
+    { id: 'production', label: 'Production', icon: 'layers', group: 'Workforce' },
     { id: 'departments', label: 'Departments', icon: 'building', group: 'Workforce' },
     { id: 'onboarding', label: 'Onboarding', icon: 'userplus', group: 'Workforce' },
     { id: 'assets', label: 'Assets & loans', icon: 'box', group: 'Workforce' },
@@ -534,7 +536,7 @@
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
     { id: 'billing', label: 'Billing', icon: 'doc', group: 'Workspace' },
   ];
-  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'approvals' || can('time') || can('claims')) && (r.id !== 'billing' || (CLOUD && (!myPerms() || myPerms().includes('settings')))) && (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)) && (posApi ? posApi.routeAllowed(r.id) : !/^pos(-|$)/.test(r.id)));
+  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'approvals' || can('time') || can('claims')) && (r.id !== 'production' || prodApi?.canEntry()) && (r.id !== 'my-production' || prodApi?.showStaff()) && (r.id !== 'billing' || (CLOUD && (!myPerms() || myPerms().includes('settings')))) && (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)) && (posApi ? posApi.routeAllowed(r.id) : !/^pos(-|$)/.test(r.id)));
   // A page may carry a query after "?" (#ops-stock?po=…); it is the page's to read.
   const route = () => { const h = location.hash.replace('#', '').split('?')[0].replace(/^settings\/.*/, 'settings'); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
@@ -799,7 +801,7 @@
   const VIEWS = {};
   const AFTER = {};
   const ACTIONS_EXTRA = {};
-  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null, appraisalApi = null, hrApi = null, costingApi = null, einvApi = null, recruitApi = null, lmsApi = null, grievApi = null, roomsApi = null, opsApi = null, posApi = null;
+  let finApi = null, claimsApi = null, leaveApi = null, timeApi = null, docsApi = null, kioskApi = null, notifyApi = null, appraisalApi = null, hrApi = null, costingApi = null, einvApi = null, recruitApi = null, lmsApi = null, grievApi = null, roomsApi = null, opsApi = null, posApi = null, prodApi = null;
   let clockTimer = null;
 
   // ---------- Automated insights (what needs attention, trends and wellbeing nudges) ----------
@@ -1285,7 +1287,7 @@
     // Approved overtime and daily allowances from attendance, each flagged for EPF, SOCSO/EIS and PCB, and approved
     // claims: taxable categories go into gross pay (PCB), the rest are reimbursed on top of net pay.
     const cl = claimsApi?.enabled() ? claimsApi.forPayroll(e.id, mk) : null;
-    const extra = [...(timeApi ? timeApi.forPayroll(e, mk) : []), ...(cl?.taxable ? [{ key: 'claims-taxable', label: `Taxable claims (${cl.taxableCats.join(', ')})`, amount: cl.taxable, epf: false, socso: false, tax: true, detail: 'Benefit reimbursed through payroll' }] : [])];
+    const extra = [...(timeApi ? timeApi.forPayroll(e, mk) : []), ...(prodApi ? prodApi.forPayroll(e, mk) : []), ...(cl?.taxable ? [{ key: 'claims-taxable', label: `Taxable claims (${cl.taxableCats.join(', ')})`, amount: cl.taxable, epf: false, socso: false, tax: true, detail: 'Benefit reimbursed through payroll' }] : [])];
     const it = { empId: e.id, ...U.payCalc(e.salary, bonus, state.settings, e, U.monthEnd(mk), { unpaid: up.amount, unpaidDays: up.days, extra }) };
     if (it.unpaid) it.unpaidDivisor = up.divisor;
     it.extraLines = extra;
@@ -1612,7 +1614,7 @@
         html: () => `<div class="card"><div class="card-head"><h3>Pay</h3></div>
           ${row('Currency', 'Used for salaries and payroll.', `<select class="select" id="s-currency" aria-label="Currency">${currencies.map((c) => `<option ${s.currency === c ? 'selected' : ''}>${c}</option>`).join('')}</select>`)}
           ${my ? '<p class="field-hint">Registration numbers (SSM, EPF, SOCSO, LHDN) are under <a href="#settings/company">Company</a>.</p>' : row('Income tax withholding', 'Percent of gross pay.', `<input class="input num" id="s-tax" type="number" min="0" max="60" step="0.5" value="${s.taxRate}" style="width:100px" aria-label="Income tax withholding percent">`) + row('Benefit contributions', 'Deducted from pay, as percent of gross.', `<input class="input num" id="s-benefits" type="number" min="0" max="30" step="0.5" value="${s.benefitsRate}" style="width:100px" aria-label="Benefit contributions percent">`)}</div>
-          ${my ? statutoryCard(s) : ''}` },
+          ${my ? statutoryCard(s) : ''}${prodApi?.settingsCard() || ''}` },
       { id: 'claims', label: 'Claims', icon: 'receipt', summary: 'Claim categories, limits, mileage, medical', keys: 'claim category limit mileage medical expense reimbursement',
         html: () => claimsApi.settingsCards() },
       { id: 'people', label: 'People & talent', icon: 'userplus', summary: 'Onboarding, letters, hiring, appraisals', keys: 'employee department position import onboarding offboarding checklist letter template recruitment job offer appraisal grade band grievance',
@@ -1764,6 +1766,7 @@
     recruitApi.bindSettings();
     grievApi.bindSettings();
     einvApi.bindSettings();
+    prodApi?.bindSettings();
     claimsApi.bindSettings();
     kioskApi.bindSettings();
     bind('#s-company', 'company'); bind('#s-currency', 'currency'); bindHeadOffice(); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
@@ -2128,6 +2131,7 @@
       { id: 'timeoff', title: 'My time off', span: 4, render: () => `<div class="card"><div class="card-head"><h3>My time off</h3><a class="hint" href="#my-leave">All requests</a></div>
         ${myLeaves.length ? `<div class="list">${myLeaves.slice(0, 4).map((l) => `<div class="list-item"><div class="grow"><div class="person-name">${esc(leaveApi.typeName(l.type))} · ${l.days} day${l.days === 1 ? '' : 's'}</div><div class="person-sub">${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}${l.to !== l.from ? ' – ' + U.fmtDate(l.to, { month: 'short', day: 'numeric' }) : ''}</div></div>${leavePill(l.status)}</div>`).join('')}</div>` : `<div class="empty"><strong>Nothing booked</strong>You have ${aLeft} days to enjoy. <button class="link-btn" data-act="new-leave">Plan a break</button></div>`}</div>` },
       { id: 'shifts', title: 'My shifts', span: 4, render: () => timeApi.myShiftsCard(e) },
+      ...(prodApi?.inScheme(e) || prodApi?.showStaff() ? [{ id: 'prod', title: 'Production commission', span: 4, render: () => prodApi.homeCard(e) }] : []),
       { id: 'news', title: 'Announcements', span: 6, render: () => notifyApi.homeCard(e) },
       ...(leaveApi.isApprover(e.id) ? [{ id: 'teamoff', title: 'Who’s off in your team', span: 4, render: () => leaveApi.whoOffCard({ depts: leaveApi.myDepts(e.id), title: 'Who’s off in your team' }) }] : []),
       { id: 'goals', title: 'My goals', span: 6, render: () => `<div class="card"><div class="card-head"><h3>My goals</h3><a class="hint" href="#my-appraisal">Update</a></div>
@@ -2235,7 +2239,7 @@
   };
 
   // ---------- Workspaces (one per company) ----------
-  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'attAudit', 'statutory', 'projects', 'notifications', 'outbox', 'announcements', 'notifyKeys', 'reminderRun', 'cycles', 'goals', 'payChanges', 'editRequests', 'checklists', 'assets', 'loans', 'insurance', 'documents', 'costing', 'savedReports', 'requisitions', 'courses', 'enrolments', 'trainingRequests', 'grievances', 'rooms', 'bookings', 'ops'];
+  const WS_KEYS = ['settings', 'departments', 'employees', 'leaves', 'attendance', 'payroll', 'jobs', 'candidates', 'reviews', 'activity', 'finance', 'claims', 'plans', 'leaveCarry', 'leaveCredits', 'rosters', 'timeRequests', 'prod', 'prodShares', 'attAudit', 'statutory', 'projects', 'notifications', 'outbox', 'announcements', 'notifyKeys', 'reminderRun', 'cycles', 'goals', 'payChanges', 'editRequests', 'checklists', 'assets', 'loans', 'insurance', 'documents', 'costing', 'savedReports', 'requisitions', 'courses', 'enrolments', 'trainingRequests', 'grievances', 'rooms', 'bookings', 'ops'];
   function switchWorkspace(tid) {
     if (tid === state.session.tenantId) return;
     const cur = {}; WS_KEYS.forEach((k) => { cur[k] = state[k]; });
@@ -3234,7 +3238,7 @@
 
   // ---------- Finance & Accounting and tax modules ----------
   const moduleCtx = {
-    get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, money, compactMoney, openModal, closeOverlay, toast, commit, render,
+    get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, can, log: (m) => log(m), fire, cloud: () => CLOUD && !!fire(), payMonth: () => ui.payMonth, money, compactMoney, openModal, closeOverlay, toast, commit, render,
     downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
     save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
     get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, get einvoice() { return einvApi; }, get lms() { return lmsApi; }, get recruit() { return recruitApi; }, get ops() { return opsApi; }, get invoices() { return invStore; }, get leaveStore() { return lvStore; }, get claimStore() { return clStore; }, get timeRequestStore() { return trStore; }, get ui() { return ui; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
@@ -3264,6 +3268,9 @@
   lmsApi = AllurusLMS.install(moduleCtx);
   grievApi = AllurusGrievance.install(moduleCtx);
   roomsApi = AllurusRooms.install(moduleCtx);
+  prodApi = AllurusProduction.install(moduleCtx);   // daily production commission (only where the company has the addon)
+  { const basePay = VIEWS.payroll; VIEWS.payroll = () => (prodApi.payrollBanner(ui.payMonth) || '') + basePay(); }
+  { const baseMyPay = VIEWS['my-pay']; VIEWS['my-pay'] = () => baseMyPay() + (prodApi.inScheme(me()) ? `<div style="margin-top:14px">${prodApi.homeCard(me())}</div>` : ''); }
   opsApi = AllurusOps.install(moduleCtx);
   posApi = AllurusPos.install(moduleCtx);
   AllurusImport.install(moduleCtx);

@@ -73,7 +73,7 @@ window.U = (function () {
     bonus = Number(bonus) || 0;
     const ex = (opts.extra || []).filter((x) => Number(x.amount) > 0);
     const exSum = (f) => round2(ex.filter(f).reduce((s, x) => s + Number(x.amount), 0));
-    const extras = exSum(() => true), exEpf = exSum((x) => x.epf), exSocso = exSum((x) => x.socso), exTax = exSum((x) => x.tax);
+    const extras = exSum(() => true), exEpf = exSum((x) => x.epf), exSocso = exSum((x) => x.socso), exTax = exSum((x) => x.tax), exHrd = exSum((x) => x.hrd);
     const gross = round2(base + bonus + extras);
     const st = statutory(settings);
     if (settings.currency !== 'MYR' || !st.on) {
@@ -99,8 +99,8 @@ window.U = (function () {
     const pcbRaw = st.pcb === 'flat' ? round2(((taxBase + bonus) * settings.taxRate) / 100) : mtd(taxBase, bonus, epfMonth, epf - epfMonth);
     // Zakat paid through payroll reduces the tax deduction ringgit for ringgit.
     const tax = round2(Math.max(0, pcbRaw - zakat));
-    // HRD Corp levy is on basic pay, paid by the employer only.
-    const hrdf = round2((base * (Number(st.hrdf) || 0)) / 100);
+    // HRD Corp levy is on basic pay (and on any earning flagged hrd, such as production commission), paid by the employer only.
+    const hrdf = round2(((base + exHrd) * (Number(st.hrdf) || 0)) / 100);
     const benefits = round2(epf + socso + eis);
     return { base: fullBase, unpaid, unpaidDays, bonus, extras, gross, epfWage, socsoWage: round2(base + bonus + exSocso), tax, benefits, epf, socso, eis, zakat, erEpf, erSocso, erEis, hrdf, erCost: round2(erEpf + erSocso + erEis + hrdf), net: round2(gross - tax - benefits - zakat) };
   };

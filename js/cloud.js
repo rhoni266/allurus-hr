@@ -419,6 +419,7 @@ async function start(profile) {
   await new Promise((ready) => listen(ready));
   if (can('finance')) await listenInvoices();
   await Promise.all(Object.keys(REQ).map(listenRequests));
+  if (company?.addons?.prodCommission === true && !profile.viewOnly) await listenProd();
   // Build the workspace from what the server has, on a blank company.
   const ws = app.blankWorkspace();
   ws.plans = {}; ws.reliefs = {}; ws.taxProfiles = {};
@@ -435,6 +436,7 @@ async function start(profile) {
   ws.employees = employeesFrom();
   if (S.invoices) { ws.finance = ws.finance || {}; ws.finance.invoices = S.invoices; }
   Object.keys(REQ).forEach((c) => { ws[REQ[c].key] = requestsNow(c); });
+  if (S.prodOn) { ws.prod = { days: { ...S.prodDays }, locks: { ...S.prodLocks } }; ws.prodShares = { ...S.prodShares }; }
   app.adoptCloud(ws, profile);
   // Auto-sync staffKeys for all employees so any employee in the database can auto sign up
   if (S.admin && (can('people') || can('settings'))) {
@@ -537,6 +539,29 @@ function listenRequests(coll) {
 // Firestore can't store undefined; the store marks "server time" as { __now: true }.
 const forWrite = (v) => (v && v.__now ? serverTimestamp() : Array.isArray(v) ? v.map(forWrite)
   : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).map(([k, x]) => [k, forWrite(x)])) : v);
+
+// ---------- Daily production commission (docs/PRODUCTION-COMMISSION-SPEC.md) ----------
+// prodDays/{date}: the day, with its attendee list (admins with the operations or payroll area); prodShares/{date~empId}:
+// one person's own share (they read only theirs); prodLocks/{yyyy-mm}: a finalised payroll month. Only where the company
+// has the addon (tenants/{t}.addons.prodCommission).
+function listenProd() {
+  const t = T(), emp = S.profile.empId, entry = can('operations') || can('payroll');
+  Object.assign(S, { prodOn: true, prodDays: {}, prodLocks: {}, prodShares: {} });
+  const src = entry
+    ? [['prodDays', collection(db, `${t}/prodDays`)], ['prodLocks', collection(db, `${t}/prodLocks`)]]
+    : [['prodShares', query(collection(db, `${t}/prodShares`), where('empId', '==', emp))]];
+  const push = () => { if (S.live) { app.state.prod = { days: { ...S.prodDays }, locks: { ...S.prodLocks } }; app.state.prodShares = { ...S.prodShares }; app.refresh(); } };
+  return new Promise((ready) => {
+    let pending = src.length; const done = new Set();
+    src.forEach(([key, q]) => {
+      S.unsubs.push(onSnapshot(q, (snap) => {
+        S[key] = Object.fromEntries(snap.docs.map((d) => [d.id, key === 'prodLocks' ? true : docFrom(d)]));
+        if (!done.has(key)) { done.add(key); if (--pending === 0) ready(); return; }
+        push();
+      }, (e) => { console.warn('[Allurus cloud] production', key, e.code || e); if (!done.has(key)) { done.add(key); if (--pending === 0) ready(); } }));
+    });
+  });
+}
 
 function stop() {
   S.unsubs.forEach((u) => { try { u(); } catch (e) { /* already closed */ } });
@@ -714,6 +739,21 @@ const api = {
   // ----- One phone per person (docs/ONE-PHONE-SPEC.md) -----
   // "Use this phone instead": ask HR (the person's own request). An older registration is moved into the new record
   // first, so approving the request retires it.
+  // One production day and each person's own share record, in one batch (firestore.rules: prodDays, prodShares).
+  async prodSave(day, shares) {
+    if (!S.live || S.profile?.viewOnly || S.profile?.support) return { ok: false, error: 'This account can’t save production.' };
+    try {
+      const b = writeBatch(db);
+      b.set(doc(db, `${T()}/prodDays/${day.date}`), forWrite(day));
+      shares.forEach((s) => b.set(doc(db, `${T()}/prodShares/${s.date}~${s.empId}`), forWrite(s)));
+      await b.commit();
+      return { ok: true };
+    } catch (e) {
+      console.warn('[Allurus cloud] production save', e.code || e);
+      return { ok: false, error: e.code === 'permission-denied' ? 'That day can’t be saved: its month may be finalised, or you don’t have the Operations or Payroll area.' : 'Couldn’t save. Check your connection and try again.' };
+    }
+  },
+  async prodLock(month) { return setDoc(doc(db, `${T()}/prodLocks/${month}`), { month, by: S.profile.uid, at: serverTimestamp() }); },
   async phoneRequest() {
     const p = S.profile; if (!p?.empId || !S.phone) return { error: 'Not signed in.' };
     const ref = phoneRef(p.empId), today = todayISO(), ask = { id: S.phone.id, name: S.phone.name, added: today, requested: today };

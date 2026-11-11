@@ -388,3 +388,38 @@ Staff on a laptop get the normal app; a second phone shows "This isn't your regi
 - `scripts/migrate-phones.js` still counts `users.deviceId` as a registered phone, so its numbers are a little higher than what the app now enforces. Align it before `--apply` (the owner runs that).
 - The directory still carries the older `devices` field (colleagues can see older phone ids). Separate change.
 - The employee phone Home preview (`claude/phone-home`) is still waiting for the owner's OK.
+
+## 2026-11-11: Daily production commission (docs/PRODUCTION-COMMISSION-SPEC.md), branch `claude/prod-commission`
+
+### What is there (study, before building)
+1. **Check-ins:** `state.attendance[day][empId] = { s: present|remote|absent|leave, in, out, loc, device, … }`. Phone, kiosk and HR edits all end up here (`timeApi.setRecord`, audited in `attAudit`); approved leave days are filled in as `s: 'leave'`. A "check-in" for commission = `s` present or remote with a non-empty `in`.
+2. **Leave:** `state.leaves[]` `{ empId, from, to, half: ''|'AM'|'PM', status }`; `leaveApi.onLeave(id, day)` is true on any approved leave day, so a full day is "covers the day and no `half`".
+3. **Payroll:** `payItem()` in `app.js` builds a payslip line per person; extra earnings come in as `extra = [{ key, label, amount, epf, socso, tax, detail }]` (overtime and allowances use this through `timeApi.forPayroll`). `U.payCalc` adds them to gross and, by flag, to the EPF wage, the SOCSO/EIS band wage and the PCB base. The HRD Corp levy is on **basic pay only**, so there is no flag for it yet.
+4. **Finalising:** `'pay-approve'` sets `run.status = 'Paid'`; before that the run is a Draft that can be discarded.
+5. **Switching a feature on for one company:** the industry feature catalog is per industry; the direct per-company switch is `tenants/{t}.addons.*` (the POS addon), written by the superadmin with an audit entry (`firestore.rules` already has that shape). `prodCommission` follows it.
+6. **Departments:** `employee.dept` is a department id; `state.departments[]`.
+7. **Sync:** workspace lists sync as encoded buckets that the rules cannot read, so the per-person and locked data are their own documents (like leave): `prodDays/{date}` (admin: attendee list), `prodShares/{date~empId}` (one per person: their own share, never others' names), `prodLocks/{yyyy-mm}`.
+
+### Plan
+`js/prod-rules.js` (pure, unit-tested: `attendedForCommission`, `commissionDay` in integer sen), `js/prod.js` (Settings card, Production page, payroll line, staff card), `cloud.js` listeners/writes, rules + tests, superadmin addon rule + a script to switch it on, then a test copy of Major Far East in the emulators. Not switched on for the real company until the owner has checked real numbers and the accountant confirmed the statutory defaults.
+
+### Built (production commission)
+- `js/prod-rules.js` (pure, 10 unit tests): integer-sen money (`commissionDay`), who counts (`attendedForCommission`), the whole day (`planDay`), month totals and warnings. `js/prod.js`: Settings → Payroll card (rate to 4 decimals, unit, departments, worked example, people with no department listed), the **Production** page (date, total, note, live preview of the pool, who shares and who doesn't with the reason, save, recalculate, month list with status, by person / by department, CSV for the payroll area), the payroll line, the staff page and Home card.
+- Payroll: one line "Production commission / Komisen pengeluaran" with the number of days, flagged for EPF, SOCSO/EIS, PCB and the HRD levy. `U.payCalc` got an `hrd` flag on an earning (the levy was basic-pay only). It is not added to the overtime rate or leave pay. Finalising (`pay-approve`) first warns about days with check-ins but no production entered and days whose attendance changed since saving, then writes the month lock.
+- Data (cloud): `prodDays/{date}` (admin: the attendee list), `prodShares/{date~empId}` (one per person: only their own share and the reason they were left out, never others' names), `prodLocks/{yyyy-mm}`. Rules: only where `tenants/{t}.addons.prodCommission` is true; written by the operations or payroll area; a locked month cannot change; nothing is deleted (units 0 + a note removes a day); the superadmin's support read excludes it (it is pay data). Superadmin switch for the addon: audited rule + `scripts/set-addon.js` (check-only unless `--yes`).
+- Demo: Major Far East's demo company has the settings, so it shows there.
+
+### Tests
+`npm test` 418/418; `npm run test:rules` 135/135 (new `prod.rules.test.js`: feature off, areas, staff read only their own, the day and shares in one batch, month lock, no delete, support can't read, superadmin switch). Browser, Major Far East demo (5 warehouse staff: 3 in incl. one late, 1 on approved leave, 1 absent): 20/20 (RM50.00 ÷ 3 = RM16.66, RM0.02 not shared; a late check-in flags the day and Recalculate gives 4 × RM12.50; the payroll line, EPF wage, lock on finalising, a save on a locked day refused, settings card, staff page). Emulators, test copy of Major Far East + another company: 19/19 (saved to the server with the right shares, staff receive only their own share and never the attendee list, the other company has nothing, payroll line RM16.66 (1 day), lock written, server refuses changes after it). Earlier one-phone suite 35/35 still passes.
+Bugs found by the tests and fixed: the module context lost its `$$` helper (my patch script's `$$` collapsed to `$`).
+
+### Decisions on the owner's behalf
+- "Who may key in" is fixed to the operations or payroll area (the rules cannot read a setting stored in the workspace); not configurable.
+- The superadmin switch is a rule + a command (`node scripts/set-addon.js prodCommission "Major Far East" --yes`) rather than a screen on the superadmin page.
+- **Left for later:** the adjustment in the next open month for a correction to a locked day (today a locked day is refused with a message saying so); a Production card on the phone Home (that Home is on the unmerged `claude/phone-home` branch; the desktop Home and Payslips have the card).
+
+### For the accountant (confirm before the first real payroll with commission)
+Defaults: commission is wages for EPF (employee and employer), SOCSO and EIS, and PCB (as normal monthly remuneration), and is **included** in the HRD levy base (the spec's "if unclear, include it"; the levy was basic-pay only until now, so please confirm this one in particular). It is not part of the overtime hourly rate or leave pay. Each of these is a flag on the earning in `js/prod.js` (`forPayroll`), so the accountant's answer is a one-line change.
+
+### Not switched on for the real company
+The feature is off for every company. To switch it on for Major Far East after the owner has checked real numbers: `node scripts/set-addon.js prodCommission "Major Far East"` (check only), then again with `--yes`; `--off --yes` switches it off. Rules must be published first (back up the live rules to `docs/rules-backup/` first).
