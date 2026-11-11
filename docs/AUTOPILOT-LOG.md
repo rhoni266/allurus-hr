@@ -503,3 +503,24 @@ A worker opened his `/join?c=…` link on a phone where an HR admin (Nadia, HR A
 1. Deploy v3.49: `firebase deploy --only hosting` (no rules change).
 2. Run the dry run again, then apply: `node scripts/repair-links.js "Major Far East" --names`, then the same with `--yes`. It links Alif's sign-in to his own record and cleans the 5 names.
 3. After that, HR should still approve his registration in Team access so the approval trail is complete.
+
+## 2026-11-11 (evening): INCIDENT FOLLOW-UP 2: how a sign-in got linked to the wrong record, and the approval picker (branch `claude/approval-picker`, v3.50)
+
+### How Alif's sign-in came to show Nadia's record (e1)
+- I checked every place that writes a sign-in's employee link (`users.empId`): the HR approval (`approveOpen`), the personal join link, an email invite, and the company creator (`e1`, only for the person who creates a company). **None of them defaults to a person or to `employees[0]`.** The old approval did not pick anyone by default either: it matched the registration to an employee by IC (`claimed()`: active, no email, same IC), so it could not have chosen Nadia (she has an email and a different IC).
+- **The approval never ran for him.** The join page creates the sign-in already approved (`pending: false`) with no employee (`empId: ''`), because staffKeys no longer carries an empId (security review 2026-11-07). The Team access "waiting for approval" list only showed `pending: true` sign-ins, and the rules only let HR set `empId` while a sign-in is pending. So HR had no way to link such a sign-in at all, and none was shown in the list.
+- **What the data says now (read-only check):** his sign-in (`TX69uu…`, made 11 Nov 03:53 UTC) had `empId: ''` and `pending: false`. The "link to e1" was the app's fallback to the first employee (`me()`, fixed in v3.48), not a stored value. If the link was written by hand (set-link) it is correct now; if it still shows empty, the `repair-links.js` dry run lists it.
+- The other join-page sign-ins: all four (three older ones and Alif) had `pending: false`; three of them have an employee link, so somebody linked those by other means (HR or script) at some time. I did not find out how, and the log does not record it.
+
+### What approval is now
+1. **HR picks the person. No default, nothing matched automatically.** The waiting list ("Waiting for approval") now includes every join-page sign-in with no employee, not only pending ones. Each row has a picker that starts on "Choose the person…". The Approve button is off until the choice passes.
+2. **Name and IC ending side by side:** after choosing, the row shows the person's name, the record's IC ending and the IC ending the person registered with, plus "match" or the reason.
+3. **Refused** when: nobody is chosen; the record has no valid IC; the IC endings do not match (the full 12 digits are compared, the screen shows the last 4); the record does not exist or has quote marks in its id; or the record **already has another sign-in** (an IC or an email sign-in that is not turned off: Nadia's record has her email sign-in). The same check runs again in `cloud.js` `approveOpen` against the company's live sign-ins before anything is written, so a stale screen cannot get past it.
+4. The employee-row **Approve** button names its own person (HR clicked that person), and goes through the same checks.
+
+### Needs your OK before it is published (NOT published, NOT merged)
+- **One rules change** in `firestore.rules` (users update): HR with the Settings area may set `empId` once on a join-page sign-in (`via: 'open'`) that has none (`empId ''`). Before, HR could only do that while the sign-in was pending, which the join page never leaves it as. Already linked sign-ins can never be relinked. A rules test covers it (`tests-rules/open-join.rules.test.js`: not by the person themselves, not by payroll-only HR, once by HR, never again). Without this rule the new list shows the picker but the write is refused ("Couldn’t approve").
+- Publishing order when you approve: back up the live rules (`docs/rules-backup/firestore.rules.2026-11-11c`), `firebase deploy --only firestore:rules`, then `firebase deploy --only hosting`.
+
+### Tests
+`npm test` 440/440 (new: approval refuses no pick, the incident case, IC mismatch with both endings named, a record that already has an IC or email sign-in, a turned-off sign-in does not block, the right person passes, and the wiring pins: no `claimed()` default, the picker starts empty, the server-side check runs before any write). `npm run test:rules` 137/137 (the new rule). Not tested in a browser: the picker's on-screen look; it uses the existing select and button styles.

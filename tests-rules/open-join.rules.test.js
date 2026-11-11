@@ -133,3 +133,13 @@ test('approving removes the key proof; HR can’t add one to someone', async () 
   await assertSucceeds(updateDoc(doc(hr(), 'users/s1'), { pending: false, empId: 'e7', keyProof: deleteField() }));
   await assertFails(updateDoc(doc(hr(), 'users/s1'), { keyProof: HASH }));
 });
+
+// Incident 2026-11-11: a join-page sign-in is auto-approved with no employee (empId ''). HR links it once; a linked sign-in is
+// never relinked, and HR without the Settings area cannot link at all.
+test('HR links an auto-approved sign-in that has no employee yet, once; a linked one cannot be relinked', async () => {
+  await assertSucceeds(setDoc(doc(staff('s1', mail(IC, 1)), 'users/s1'), prof(mail(IC, 1), { pending: false })));
+  await assertFails(updateDoc(doc(staff('s1', mail(IC, 1)), 'users/s1'), { empId: 'e1' }));       // not by themselves
+  await assertFails(updateDoc(doc(env.authenticatedContext('pay', { email: 'pay@co1.my', email_verified: true }).firestore(), 'users/s1'), { empId: 'e1' }));   // not payroll-only HR
+  await assertSucceeds(updateDoc(doc(hr(), 'users/s1'), { empId: 'e7' }));                        // HR with Settings, once
+  await assertFails(updateDoc(doc(hr(), 'users/s1'), { empId: 'e1' }));                           // already linked: no change
+});

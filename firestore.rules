@@ -177,7 +177,10 @@ service cloud.firestore {
           && !('keyProof' in request.resource.data && !('keyProof' in resource.data))
           && request.resource.data.get('pending', false) is bool
           && (request.resource.data.get('pending', false) == false || resource.data.get('pending', false) == true)
-          && (request.resource.data.empId == resource.data.empId || resource.data.get('pending', false) == true)
+          // The employee link is set once: while the registration is pending, or for a join-page sign-in that was
+          // auto-approved with no employee yet (empId ''). A sign-in that already has an employee is never relinked here.
+          && (request.resource.data.empId == resource.data.empId || resource.data.get('pending', false) == true
+            || (resource.data.get('empId', '') == '' && resource.data.get('via', '') == 'open'))
           && request.resource.data.get('posRole', '') in ['', 'manager', 'cashier', 'waiter', 'kitchen']
           // Until open-join gap 1 (code + IC only) is fixed: no POS role for an account that joined through the
           // open join page unless HR has separately confirmed it first - confirmedAt, set once, by HR, never
