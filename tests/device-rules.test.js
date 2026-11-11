@@ -85,3 +85,14 @@ test('the one-phone screens use the owner’s words', () => {
   assert.equal(D.TEXT.en.phonePending, 'Waiting for HR to approve this phone');
   assert.equal(D.TEXT.ms.phonePending, 'Menunggu kelulusan HR untuk telefon ini');
 });
+
+test('a person bound on a laptop (the old sign-in lock) is not "registered": their first phone registers, it is not refused', () => {
+  const pol = D.policy({});
+  // Only HR-approved check-in phones count as a registered phone. The old lock (users.deviceId, often a laptop or an
+  // in-app browser) contributes nothing, so a new phone sees no approved phone.
+  assert.equal(D.phoneAccess({ device: 'phone', thisPhoneId: 'dev-new-phone', devices: [], policy: pol }), 'first');
+  // An approved check-in phone from HR still makes any other phone "other".
+  const hrApproved = [{ id: 'dev-checkin', name: 'Samsung A15', status: 'approved' }];
+  assert.equal(D.phoneAccess({ device: 'phone', thisPhoneId: 'dev-new-phone', devices: hrApproved, policy: pol }), 'other');
+  assert.equal(D.phoneAccess({ device: 'phone', thisPhoneId: 'dev-checkin', devices: hrApproved, policy: pol }), 'ok');
+});

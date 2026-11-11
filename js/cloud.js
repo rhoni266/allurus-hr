@@ -343,7 +343,9 @@ const phoneRef = (empId, t = S.profile?.tenantId) => doc(db, `tenants/${t}/phone
 const publicPhone = (d) => ({ name: d.name || 'Phone', added: d.added || '', lastUsed: d.lastUsed || '' });
 async function legacyPhones(profile) {
   const out = [];
-  if (profile.deviceId) out.push({ id: profile.deviceId, name: 'Registered phone', status: 'approved', legacy: true });
+  // Not profile.deviceId: that was the old sign-in lock, set on whatever device the person registered or signed in on
+  // (often a laptop, or WhatsApp's in-app browser on an iPhone), so it would wrongly refuse their real first phone.
+  // Only check-in phones HR approved (people/{empId}.devices) count as an existing registered phone.
   try {
     const p = await getDoc(doc(db, `tenants/${profile.tenantId}/people/${profile.empId}`));
     const raw = p.exists() ? p.data().devices : null;
