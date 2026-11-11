@@ -94,7 +94,66 @@ test('link guard: refuses an employee id that does not exist, is empty or has qu
 test('wiring: approving a registration runs the guard first; the app never shows employees[0] for a real sign-in', () => {
   const cloud = fs.readFileSync(path.join(__dirname, '..', 'js', 'cloud.js'), 'utf8');
   const i = cloud.indexOf('async approveOpen(u, emp) {');
-  assert.ok(i > 0 && /M\.linkProblem\(/.test(cloud.slice(i, i + 400)) && cloud.slice(i, i + 400).indexOf('linkProblem') < cloud.slice(i).indexOf('writeBatch'));
+  const w = cloud.indexOf('writeBatch(db)', i);
+  assert.ok(i > 0 && w > i && cloud.slice(i, w).includes('M.approvalProblem('), 'the check runs before any write');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
   assert.match(app, /const me = \(\) => emp\(state\.session\.empId\) \|\| \(cloud\.db \?/);
+});
+
+// ---- Approving a join-page registration (incident 2026-11-11): HR picks the person; checks the IC; one sign-in per record ----
+const ic = (d) => `${d}.v7hua.g1@staff.allurus.invalid`;
+const staffList = [
+  { id: 'e1', ic: '', email: 'nadia@x.my', first: 'Nur Nadia', last: 'Amirah' },                  // HR admin: has an email, no IC on the record
+  { id: 'eyl0aj2s', ic: '950312-03-5511', first: 'Alif', last: 'Fitri' },
+  { id: 'e3', ic: '880808085555', first: 'Siti', last: 'Aina' },
+  { id: 'e4', ic: '770707075555', first: 'Hafiz', last: 'Ali' },
+];
+const signIns = [
+  { uid: 'nadia', email: 'nadia@x.my', empId: 'e1' },
+  { uid: 'alif', email: ic('950312035511'), empId: '' },
+  { uid: 'siti', email: ic('880808085555'), empId: 'e3' },
+];
+const check = (o) => M.approvalProblem({ signInIc: '950312035511', employees: staffList, users: signIns, uid: 'alif', ...o });
+
+test('approval: nothing is chosen for HR; no pick is refused', () => {
+  assert.match(check({ emp: null }), /Choose which person/);
+  assert.match(check({ emp: undefined }), /Choose which person/);
+  assert.match(check({ emp: {} }), /Choose which person/);
+});
+
+test('approval: the incident: Alif’s registration cannot be approved as Nadia’s record (IC does not match, record already has a sign-in)', () => {
+  const why = check({ emp: staffList[0] });
+  assert.ok(why, 'refused');
+  assert.match(why, /no valid IC|not the IC|already has a sign-in/);
+});
+
+test('approval: the IC on the record must match the IC registered with; both endings are named', () => {
+  const why = check({ emp: staffList[3] });
+  assert.match(why, /ends 5555\) is not the IC this person registered with \(ends 5511\)/);
+  assert.match(check({ emp: { id: 'e5', ic: '' } }), /does not exist|no valid IC/);
+});
+
+test('approval: a record that already has another sign-in is refused, even when the IC matches', () => {
+  const dup = [...signIns, { uid: 'other', email: ic('950312035511').replace('.g1', '.g2'), empId: 'eyl0aj2s' }];
+  assert.match(check({ emp: staffList[1], users: dup }), /already has a sign-in \(an IC sign-in\)/);
+  assert.match(M.approvalProblem({ signInIc: '880808085555', emp: staffList[2], employees: staffList, users: [{ uid: 'x', email: 'siti@x.my', empId: 'e3' }], uid: 'new' }), /an email sign-in/);
+  // a turned-off sign-in does not block, and the same sign-in is not "another" one
+  assert.equal(check({ emp: staffList[1], users: [...signIns, { uid: 'old', email: ic('950312035511'), empId: 'eyl0aj2s', disabled: true }] }), '');
+  assert.equal(check({ emp: staffList[1], users: [...signIns.filter((x) => x.uid !== 'alif'), { uid: 'alif', email: ic('950312035511'), empId: 'eyl0aj2s' }] }), '');
+});
+
+test('approval: the right person with a matching IC and no other sign-in is approved', () => {
+  assert.equal(check({ emp: staffList[1] }), '');
+});
+
+test('approval wiring: no automatic pick; the picker starts empty; the server-side check runs before any write', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+  const i = app.indexOf('async approve(uid, empId) {'); assert.ok(i > 0, 'approve takes the person HR chose');
+  const body = app.slice(i, i + 900);
+  assert.ok(!/this\.claimed\(u\)/.test(body) && /emp\(empId\)/.test(body) && /approvalProblem/.test(body));
+  assert.match(app, /<option value="" selected disabled>Choose the person…<\/option>/);
+  assert.ok(!/data-act="acc-open-ok" data-id="\$\{esc\(u\.uid\)\}">Approve/.test(app), 'the waiting-list Approve button starts disabled and carries no person');
+  const cloud = fs.readFileSync(path.join(__dirname, '..', 'js', 'cloud.js'), 'utf8');
+  const j = cloud.indexOf('async approveOpen(u, emp) {'), k = cloud.indexOf('writeBatch(db)', j);
+  assert.ok(j > 0 && cloud.slice(j, k).includes('M.approvalProblem('));
 });

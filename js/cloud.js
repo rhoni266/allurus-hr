@@ -1082,7 +1082,9 @@ const api = {
   // Approve someone who registered on the open page as this employee: their profile gets the employee and is no
   // longer pending; the sign-in key is set to their generation; any personal link for that IC stops working.
   async approveOpen(u, emp) {
-    const bad = M.linkProblem(emp && emp.id, app.state.employees);
+    let users = [];
+    try { users = (await getDocs(query(collection(db, 'users'), where('tenantId', '==', S.profile.tenantId)))).docs.map((d) => ({ uid: d.id, ...d.data() })); } catch (e) { return { error: 'Couldn’t check the existing sign-ins. Nothing was changed. Reload and try again.' }; }
+    const bad = M.approvalProblem({ signInIc: String(u.email || '').split('.')[0], emp, employees: app.state.employees, users, uid: u.uid });
     if (bad) return { error: bad + ' Nothing was changed.' };
     const key = M.staffKey(S.profile.tenantId, emp.ic), gen = Number((u.email.match(/\.g(\d+)@/) || [])[1]) || 1;
     try {

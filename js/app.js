@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.49';
+  const APP_VERSION = '3.50';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -2909,7 +2909,7 @@
     'sup-on': () => supportAccess.set(Number($('#sup-days')?.value) || 7, !!$('#sup-pay')?.checked),
     'sup-off': () => supportAccess.set(null, false),
     'acc-key-remove': () => teamAccess.removeJoinKey(),
-    'acc-open-ok': (uid) => teamAccess.approve(uid),
+    'acc-open-ok': (uid, empId) => teamAccess.approve(uid, empId),
     'acc-open-no': (uid) => teamAccess.refuse(uid),
     'acc-ic-filter': (_, v) => { teamAccess.icFilter = v; teamAccess.draw(); },
     'acc-ic-fix': () => { ui.empOnly = new Set(teamAccess.fixIds || []); closeOverlay(); location.hash = 'employees'; render(); },
@@ -3725,9 +3725,11 @@
       openModal({ title: 'Join message', size: 'sm', submit: 'Save', body: `<div class="field"><label for="jm">Message</label><textarea class="input" id="jm" name="msg" rows="6">${esc(state.settings.joinMessage || AllurusInvite.IC_TEXT.joinMessage)}</textarea><p class="field-hint">{company}, {address}, {code} and {date} are filled in for you.</p></div>`,
         onSubmit: (d) => { state.settings.joinMessage = String(d.msg || '').trim().slice(0, 600) || ''; commit('Join message saved'); } });
     },
-    async approve(uid) {
-      const u = (this.data?.users || []).find((x) => x.uid === uid), e = u && this.claimed(u);
-      if (!u || !e) { toast('There’s no active employee with no email and this IC to approve it as.', 'error'); return; }
+    async approve(uid, empId) {
+      const u = (this.data?.users || []).find((x) => x.uid === uid), e = empId ? emp(empId) : null;
+      // No default and no automatic match: HR picks the person. The same checks run again on the server side (cloud.js approveOpen).
+      const why = u ? AllurusCloudMap.approvalProblem({ signInIc: this.icOf(u), emp: e, employees: state.employees, users: this.data?.users, uid }) : 'That registration is no longer here.';
+      if (why) { toast(why, 'error'); return; }
       const r = await fire().approveOpen(u, e);
       if (r.ok) { log(`Approved join-page registration for ${fullName(e)}`); save(); }
       toast(r.ok ? `${e.first} is approved and can sign in now.` : r.error, r.ok ? '' : 'error');
@@ -3745,14 +3747,28 @@
         })(); } });
     },
     // Open-page registrations waiting for HR (pending, not turned off), and the IC each one used.
-    pending() { return (this.data?.users || []).filter((u) => u.pending && !u.disabled && AllurusCloudMap.isStaffEmail(u.email)); },
+    pending() { return (this.data?.users || []).filter((u) => (u.pending || !u.empId) && !u.disabled && AllurusCloudMap.isStaffEmail(u.email)); },
     icOf: (u) => String(u.email || '').split('.')[0],
     pendingFor(e) { const ic = AllurusCloudMap.icDigits(e.ic); return ic ? this.pending().find((u) => this.icOf(u) === ic) : null; },
     // The employee an open registration claims to be: active, no email, that IC. Otherwise HR can only refuse it.
     claimed(u) { const ic = this.icOf(u); return activeEmployees().find((e) => !String(e.email || '').trim() && AllurusCloudMap.icDigits(e.ic) === ic) || null; },
+    // The person picker for one registration: starts empty, and once someone is chosen shows their name and IC ending next to
+    // the registrant's IC ending, with the reason when it cannot be approved. Nothing is selected for HR.
+    pickerFor(u) {
+      const opts = activeEmployees().slice().sort((a, b) => fullName(a).localeCompare(fullName(b))).map((x) => `<option value="${esc(x.id)}">${esc(fullName(x))}</option>`).join('');
+      return `<select class="select" data-acc-pick="${esc(u.uid)}" aria-label="Choose the employee this registration belongs to"><option value="" selected disabled>Choose the person…</option>${opts}</select><div class="muted" data-pick-note="${esc(u.uid)}" style="font-size:12.5px;margin-top:4px" aria-live="polite"></div>`;
+    },
+    pickChanged(el, uid, empId) {
+      const u = (this.data?.users || []).find((x) => x.uid === uid), e = empId ? emp(empId) : null, note = $(`[data-pick-note="${uid}"]`, el), btn = $(`[data-ok-for="${uid}"]`, el);
+      if (!u || !note || !btn) return;
+      const why = AllurusCloudMap.approvalProblem({ signInIc: this.icOf(u), emp: e, employees: state.employees, users: this.data?.users, uid });
+      const last4 = (v) => { const d = AllurusCloudMap.icDigits(v); return d ? '••••' + d.slice(-4) : '(no IC on record)'; };
+      note.innerHTML = e ? `${esc(fullName(e))} · record IC <b>${esc(last4(e.ic))}</b> · registered with <b>••••${esc(this.icOf(u).slice(-4))}</b>${why ? ` <span style="color:var(--danger,#b91c1c)">· ${esc(why)}</span>` : ' · <span style="color:var(--ok,#15803d)">match</span>'}` : '';
+      btn.disabled = !!why; btn.dataset.v = why ? '' : e.id;
+    },
     icActions(e) {
       const s = this.status(e), b = (act, label, cls = '') => `<button class="btn btn-sm ${cls}" data-act="${act}" data-id="${esc(e.id)}">${label}</button>`;
-      if (s.key === 'pending') return `<button class="btn btn-sm btn-primary" data-act="acc-open-ok" data-id="${esc(s.uid)}">Approve</button><button class="btn btn-sm btn-danger" data-act="acc-open-no" data-id="${esc(s.uid)}">This is not them</button>`;
+      if (s.key === 'pending') return `<button class="btn btn-sm btn-primary" data-act="acc-open-ok" data-id="${esc(s.uid)}" data-v="${esc(e.id)}">Approve</button><button class="btn btn-sm btn-danger" data-act="acc-open-no" data-id="${esc(s.uid)}">This is not them</button>`;
       if (s.key === 'ready' || s.key === 'none') return b('acc-share-link', 'Share link', 'btn-primary');
       if (s.key === 'joined') return b('acc-ic-reset', 'Reset sign-in') + b('acc-ic-remove', 'Remove access', 'btn-danger');
       if (s.key === 'disabled') return b('acc-share-link', 'Enable / Share link');
@@ -3936,9 +3952,9 @@
           </div></div>`;
       const waitingList = this.pending();
       const pendingCard = waitingList.length ? `<div class="card" style="margin-bottom:12px;padding:14px 16px;border-color:var(--warn, #d97706)"><h3 style="margin-bottom:6px">Waiting for approval (${waitingList.length})</h3>
-          <div class="table-wrap"><table class="table"><thead><tr><th>Registered as</th><th>IC</th><th>Phone</th><th>When</th><th></th></tr></thead><tbody>${waitingList.map((u) => { const e = this.claimed(u); const at = AllurusInvite.ms(u.joinedAt);
-            return `<tr><td>${e ? person(e) : `<span class="faint">No matching employee (active, no email, this IC)</span>`}</td><td>••••${esc(this.icOf(u).slice(-4))}</td><td>${u.phone ? esc(u.phone) : '<span class="faint">—</span>'}</td><td>${at ? U.fmtDate(new Date(at).toISOString().slice(0, 10)) : '—'}</td>
-              <td class="r">${e ? `<button class="btn btn-sm btn-primary" data-act="acc-open-ok" data-id="${esc(u.uid)}">Approve</button>` : ''}<button class="btn btn-sm btn-danger" data-act="acc-open-no" data-id="${esc(u.uid)}">This is not them</button></td></tr>`; }).join('')}</tbody></table></div></div>` : '';
+          <div class="table-wrap"><table class="table"><thead><tr><th>Who is this? (you choose)</th><th>Registered with IC</th><th>Phone</th><th>When</th><th></th></tr></thead><tbody>${waitingList.map((u) => { const at = AllurusInvite.ms(u.joinedAt);
+            return `<tr><td>${this.pickerFor(u)}</td><td><b>••••${esc(this.icOf(u).slice(-4))}</b></td><td>${u.phone ? esc(u.phone) : '<span class="faint">—</span>'}</td><td>${at ? U.fmtDate(new Date(at).toISOString().slice(0, 10)) : '—'}</td>
+              <td class="r"><button class="btn btn-sm btn-primary" data-act="acc-open-ok" data-id="${esc(u.uid)}" data-v="" data-ok-for="${esc(u.uid)}" disabled>Approve</button><button class="btn btn-sm btn-danger" data-act="acc-open-no" data-id="${esc(u.uid)}">This is not them</button></td></tr>`; }).join('')}</tbody></table></div></div>` : '';
       const rows = people.map((e) => {
         const st = this.status(e), isMe = e.id === self.empId;
         return `<tr><td>${person(e)}</td><td class="muted">${e.email ? esc(e.email) : '<span class="faint">No email</span>'}${this.regPhone(e, st)}</td>
@@ -3953,6 +3969,7 @@
         ${joinCard}${this.issuesCard()}${pendingCard}${tracker}
         <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="muted">Nobody here.</td></tr>`}</tbody></table></div>`;
       $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value)));
+      $$('[data-acc-pick]', el).forEach((sel) => sel.addEventListener('change', () => this.pickChanged(el, sel.dataset.accPick, sel.value)));
       $$('[data-allow-pc]', el).forEach((cb) => cb.addEventListener('change', () => this.allowComputer(cb.dataset.allowPc, cb.checked)));
     },
     // The templates this person may give: only ones within their own areas; Owner only by an Owner.
