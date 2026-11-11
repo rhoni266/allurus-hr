@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.47';
+  const APP_VERSION = '3.48';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -446,7 +446,12 @@
   };
   const role = () => (state.session?.account && state.session.roles?.includes(state.session.role) ? state.session.role : null);
   const account = () => state.accounts.find((a) => a.email === state.session.account);
-  const me = () => emp(state.session.empId) || activeEmployees()[0];
+  // Never show someone else's record. If a real (cloud) sign-in's employee link is missing, `me()` is an empty
+  // placeholder, not the first employee: on 11 Nov 2026 crew whose link was broken by quote marks in imported ids saw
+  // the HR admin's record (employees[0]). The demo (no cloud) keeps its old fallback.
+  const UNLINKED_ID = '__unlinked__';
+  const unlinked = () => !!cloud.db && !emp(state.session.empId);
+  const me = () => emp(state.session.empId) || (cloud.db ? { id: UNLINKED_ID, first: state.session?.name || 'Staff', last: '', role: '', dept: '', salary: 0, email: '', phone: '', status: 'Active', unlinked: true } : activeEmployees()[0]);
 
   // ---------- Access: what each person may do in the company console ----------
   // "Company Admin" is one view, but people get only the areas their role template gives them. An account with
@@ -763,6 +768,15 @@
     $('#login').hidden = signedIn;
     $('.app').hidden = !signedIn;
     if (!signedIn) { $('#login').innerHTML = loginView(); bindLogin(); return; }
+    // A staff sign-in that isn't linked to a staff record sees only this, never another person's data.
+    if (role() === 'employee' && unlinked()) {
+      $('#login').hidden = false; $('.app').hidden = true;
+      $('#login').innerHTML = `<div class="login-inner phone-only" role="main"><div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div>
+        <h1>Your sign-in isn’t linked to your staff record yet</h1><p class="sub" lang="ms">Akaun anda belum dipautkan kepada rekod pekerja anda.</p>
+        <div class="login-card" style="text-align:center"><p>Please ask HR to check your record. Nothing else is shown until it is fixed.</p><p class="muted" lang="ms" style="font-size:13px">Sila minta HR menyemak rekod anda.</p>
+        <button type="button" class="btn login-submit" data-act="device-signout" style="margin-top:10px">Sign out · <span lang="ms">Log keluar</span></button></div></div>`;
+      return;
+    }
     // A link to an Operations page of the person's other view (a notification opened in the employee app)
     // switches to that view.
     const want = location.hash.slice(1).split('?')[0];
