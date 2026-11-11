@@ -800,7 +800,8 @@ service cloud.firestore {
         function autoFirst() { return co(t).get('staffDevices', {}).get('autoFirst', true) == true; }
         function freshPassword() { return request.auth.token.auth_time * 1000 > request.time.toMillis() - 300000; }
         // A first phone, approved at once.
-        function firstAuto(m) { return isPhone(m) && m.get('auto', false) == true && autoFirst(); }
+        // (never for an account with an admin role: an admin's phone is approved by another admin)
+        function firstAuto(m) { return isPhone(m) && m.get('auto', false) == true && autoFirst() && !('admin' in me().roles); }
         allow read: if (myPhone() || phoneMgr()) && canRead(t);
         allow create: if myPhone() && working(t) && shape() && nd().get('retired', []).size() == 0
           && ((nd().get('active', null) == null && isPhone(nd().get('pending', null)))

@@ -32,7 +32,7 @@ window.AllurusKiosk = (function () {
     const payload = { company: st().settings.company, empId: e.id, employee: ctx.fullName(e), day, time: rec.lastIn || rec.in, out: rec.out || '', mode: rec.s, via, lat: rec.loc?.lat ?? null, lng: rec.loc?.lng ?? null, accuracy: rec.loc?.accuracy ?? null, label: rec.loc?.zone || rec.loc?.label || '', flags: (rec.flags || []).map((f) => f.code), face: rec.face?.result || '', project: rec.project || '', offline: !!rec.offline, capturedAt: new Date().toISOString() };
     write(OUTBOX_KEY, C.enqueue(outbox(), { id, payload, offline: !!rec.offline, capturedAt: payload.capturedAt }));
     // HR hears about check-ins that need a look.
-    const reasons = [...(rec.flags || []).map((f) => f.reason), ...(['mismatch', 'unavailable'].includes(rec.face?.result) ? [rec.face.result === 'mismatch' ? 'The face didn’t match the reference photo.' : 'The face check couldn’t run.'] : []), ...(rec.upload ? ['Uploaded photo instead of the live camera.'] : [])];
+    const reasons = [...(rec.flags || []).map((f) => f.reason), ...(rec.face?.review && rec.face.why ? [rec.face.why] : ['mismatch', 'unavailable'].includes(rec.face?.result) ? [rec.face.result === 'mismatch' ? 'The face didn’t match the reference photo.' : 'The face check couldn’t run.'] : []), ...(rec.upload ? ['Uploaded photo instead of the live camera.'] : [])];
     if (reasons.length) ctx.notify?.event('checkin.flagged', { who: ctx.fullName(e), reason: reasons.join(' '), href: '#attendance' }, 'hr', { from: e.id });
     sync();
   }
@@ -92,8 +92,9 @@ window.AllurusKiosk = (function () {
     Object.entries(st().attendance).filter(([d]) => d >= from).forEach(([day, recs]) => Object.entries(recs).forEach(([empId, r]) => {
       if (r.reviewed) return;
       const reasons = [...(r.flags || []).map((f) => f.reason)];
-      if (r.face?.result === 'mismatch') reasons.push('The face didn’t match the reference photo.');
-      if (r.face?.result === 'unavailable') reasons.push('The face check couldn’t run.');
+      if (r.face?.review && r.face.why) reasons.push(r.face.why);
+      else if (r.face?.result === 'mismatch') reasons.push('The face didn’t match the reference photo.');
+      else if (r.face?.result === 'unavailable') reasons.push('The face check couldn’t run.');
       if (r.upload) reasons.push('Uploaded photo instead of the live camera.');
       if (reasons.length && ctx.emp(empId)) out.push({ day, empId, r, reasons });
     }));

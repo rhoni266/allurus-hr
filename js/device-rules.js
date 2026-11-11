@@ -56,13 +56,17 @@
     if (live.some((d) => d.status === 'pending' && d.id === thisPhoneId)) return 'pending';
     return approved.length ? 'other' : 'first';
   }
+  // A person's first phone: approved at once ('approved') or waiting for someone else ('pending'). Never automatic for an
+  // account with an admin role, whatever the company setting (incident 2026-11-11): an admin's phone is approved by
+  // another admin, or by the Owner with their password again.
+  const firstPhoneStatus = ({ policy: pol = {}, roles = [] } = {}) => ((roles || []).includes('admin') ? 'pending' : pol.autoFirst === false ? 'pending' : 'approved');
   // The words on the "Please use your phone" screen, English and Bahasa Malaysia.
   const TEXT = {
     en: { phonePending: 'Waiting for HR to approve this phone', phoneOther: 'This isn’t your registered phone', phoneUse: 'Use this phone instead', phoneAsked: 'Asked. HR will approve it, then you can use this phone.', title: 'Please use your phone', how: 'Open allurus.my/app on your phone and sign in with your company code and IC, or your email.', scan: 'Scan to open on your phone', none: 'No phone? Ask HR to allow this computer for you.', out: 'Sign out', joined: 'Now open allurus.my/app on your phone.' },
     ms: { phonePending: 'Menunggu kelulusan HR untuk telefon ini', phoneOther: 'Ini bukan telefon berdaftar anda', phoneUse: 'Guna telefon ini sebaliknya', phoneAsked: 'Permintaan dihantar. HR akan meluluskannya, kemudian anda boleh guna telefon ini.', title: 'Sila guna telefon anda', how: 'Buka allurus.my/app di telefon anda dan log masuk dengan kod syarikat dan IC, atau e-mel anda.', scan: 'Imbas untuk buka di telefon', none: 'Tiada telefon? Minta HR benarkan komputer ini untuk anda.', out: 'Log keluar', joined: 'Sekarang buka allurus.my/app di telefon anda.' },
   };
   const APP_URL = 'https://allurus.my/app';
-  const api = { kind, here, policy, allowed, phoneAccess, TEXT, APP_URL };
+  const api = { kind, here, policy, allowed, phoneAccess, firstPhoneStatus, TEXT, APP_URL };
   root.AllurusDevice = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
