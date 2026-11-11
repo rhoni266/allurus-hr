@@ -85,7 +85,7 @@ window.AllurusStatutory = (function () {
     const reimbursements = it.claims ? [{ label: 'Claims reimbursed (not taxed)', amount: r2(it.claims) }] : [];
     const employer = statutory ? [['EPF, employer', it.erEpf], ['SOCSO, employer', it.erSocso], ['EIS, employer', it.erEis]].filter(([, v]) => v).map(([label, amount]) => ({ label, amount: r2(amount) })) : [];
     return {
-      company, month, name: fullName(e), id: idOf(e), role: e?.role || '', epfNo: e?.epfNo || '', taxNo: e?.taxNo || '', bank: e?.bank || '', account: e?.accountNo || '',
+      company, month, name: fullName(e), id: idOf(e), role: e?.role || '', epfNo: e?.epfNo || '', socsoNo: e?.socsoNo || '', taxNo: e?.taxNo || '', bank: e?.bank || '', account: e?.accountNo || '',
       earnings, deductions, reimbursements, employer,
       gross: r2(it.gross), totalDeductions: sum(deductions, (d) => d.amount), net: r2(it.net),
     };

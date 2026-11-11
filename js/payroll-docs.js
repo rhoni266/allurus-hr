@@ -61,7 +61,7 @@ window.AllurusPayDocs = (function () {
     const p = S.payslipData(it, e, { month: mk, company: company() });
     const acct = p.account ? `${p.bank} ····${p.account.slice(-4)}` : 'Not set';
     return `<section class="doc">${docHead('Payslip', U.fmtMonth(mk))}
-      ${kvs([['Name', p.name], ['IC / passport', p.id], ['Position', `${p.role}${ctx.dept(e.dept) ? ' · ' + ctx.dept(e.dept).name : ''}`], ['EPF no', p.epfNo], ['Income tax no', p.taxNo], ['Paid to', acct], ['Pay date', fmt(run.paidOn)], ['Status', run.status === 'Paid' ? 'Paid' : 'Draft']])}
+      ${kvs([['Name', p.name], ['IC / passport', p.id], ['Position', `${p.role}${ctx.dept(e.dept) ? ' · ' + ctx.dept(e.dept).name : ''}`], ['EPF no', p.epfNo], ['SOCSO no', p.socsoNo], ['Income tax no', p.taxNo], ['Paid to', acct], ['Pay date', fmt(run.paidOn)], ['Status', run.status === 'Paid' ? 'Paid' : 'Draft']])}
       <div class="doc-cols"><div><h4>Earnings</h4>${table(p.earnings.map((l) => [l.label, l.amount < 0 ? '−' + rm(-l.amount) : rm(l.amount), l.note]), ['Gross pay', rm(p.gross)])}</div>
         <div><h4>Deductions</h4>${table(p.deductions.map((l) => [l.label, rm(l.amount)]), ['Total deductions', rm(p.totalDeductions)])}
         ${p.reimbursements.length ? `<h4>Reimbursements</h4>${table(p.reimbursements.map((l) => [l.label, rm(l.amount)]))}` : ''}</div></div>

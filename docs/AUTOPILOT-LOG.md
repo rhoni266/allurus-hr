@@ -574,3 +574,32 @@ On a phone, staff **without an admin role** at a company that has the add-on see
 - **PDF payslip against the printed payslip** (the same October 2026 payslip, Major Far East demo, compared field by field): the same header (company, address, SSM), the same eight detail lines (name, IC / passport, position, EPF no, income tax no, bank ····last 4, pay date, status), the same earnings, deductions (EPF, SOCSO, EIS, tax, zakat), reimbursements, employer contributions (EPF, SOCSO, EIS), the same gross, total deductions and net, the same footer. Differences: (1) the printed slip sets headings in capitals with CSS, the PDF uses normal case; (2) the printed slip puts earnings and deductions side by side on a card, the PDF does the same on A4 but plainer, with no logo; (3) neither shows a SOCSO member number (the printed slip never did; add it to both if HR wants it); (4) the PDF is the only one that can be locked.
 - **`.gitattributes`:** `js/vendor/common-passwords.txt text eol=lf`, so the password test passes in any fresh checkout on Windows (it failed there because Git turned the file into CRLF).
 - **Major Far East staff with no ID on record** (read-only, counts here, names in this log only): 31 people, 28 can download a payslip, **3 have no IC or passport**: NUR NADIA AMIRAH ROSALI (HR Administrator), abdul ghani mohd ridzwan (admin), ABDUL MUIN ROSALI (Site Safety Supervisor). None has an ID that cannot be used as a password. HR must add these three before the password switch is on, or those three cannot download a payslip.
+
+## 2026-11-12 (evening): merged as v3.54; per-trip pay saved on its own branch
+
+### Merged to `main`: simple staff phone screen (v3.54)
+- `claude/simple-staff-home` merged into `main` WITHOUT the per-trip work. Versions are v3.54 everywhere (`APP_VERSION`, `sw.js` cache, every `?v=` in `app.html`, including `statutory.js` and `payroll-docs.js` which changed).
+- **SOCSO number added to both payslips** (the printed one and the PDF), between EPF no and Income tax no, from `socsoNo` on the employee record (`payslipData` now returns it). A record with none shows an em dash. Tests cover both.
+- `firestore.rules` is **unchanged** by this merge (diff against `origin/main`: nothing), so only `firebase deploy --only hosting` is needed.
+- Tests on merged `main`: `npm test` 459 pass / 0 fail; `npm run test:rules` 141 pass / 0 fail.
+
+### Per-trip pay: saved, not merged, not deployed
+No other session was working on it, so the uncommitted edits were committed as they were on **`claude/per-trip-pay-wip`** (`14a22ce`, message "WIP: per-trip pay (unfinished, not reviewed)") and pushed. Files: `js/app.js`, `js/cloud-map.js`, `firestore.rules`, `app.html`, `sw.js`. Not touched: `docs/mockups/README.md` and the untracked docs (they are the owner's).
+**What it contains** (read from the diff, not run):
+- An employee can be paid **per trip**: new record fields `pay` ('trip' or ''), `tripRate` and `trips` (a count per month). The pay-run table has a trips input per person.
+- A department option "Pay options" (`tripPay: 'yes'`) decides who may be set to per-trip pay; the employee form swaps Monthly salary and Rate per trip.
+- Payroll: trips × rate is added as a "Trips (N × rate)" earning line, counted as wages for EPF, SOCSO/EIS, PCB and the HRD levy; the item carries `isTrip`, `trips`, `tripRate`. A trip person's salary is treated as 0, and the appraisal salary is not applied.
+- The employee list and profile show "RM x / trip".
+- **Rules and field lists:** `payIdKeys()` in `firestore.rules` and `PAY_ID` in `js/cloud-map.js` gained `pay`, `tripRate`, `trips`, so these fields are stored with the pay and ID fields (visible only to HR with pay access and the person). Publishing this needs a rules backup first.
+**What looks unfinished or unchecked:**
+- No tests were found for it (no unit, rules or browser test).
+- The salary field in the employee form changed from "Annual salary" to "Monthly salary" (saved ×12): this changes how every existing employee is edited. It needs a decision and a check on the import, export and the "salary" figures elsewhere.
+- Not seen in the diff: the payslip PDF, the Bank file, the statutory files, reports and year-end forms for trip staff; whether leaving `salary` at 0 breaks any of them (for example overtime pay, unpaid-leave deduction and the appraisal salary).
+- It touches `firestore.rules`, so it also needs `npm run test:rules` and the owner's go-ahead before the rules are published.
+- Its version strings (v3.52) will need renumbering when it is merged (v3.55 or later).
+
+### Owner steps now
+1. `firebase deploy --only hosting` (no rules change).
+2. HR fills in the 3 missing IC or passport numbers (names are in the entry above, 2026-11-12 later).
+3. `node scripts/set-addon.js simpleStaffHome "Major Far East"`, then again with `--yes`. Staff reload once.
+4. One iPhone and one Android phone with one staff account: check in, download a payslip, open it with the IC.

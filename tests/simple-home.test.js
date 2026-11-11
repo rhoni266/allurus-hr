@@ -205,3 +205,16 @@ test('line endings: common-passwords.txt is always checked out with LF, so the p
   const ga = fs.readFileSync(path.join(__dirname, '..', '.gitattributes'), 'utf8');
   assert.match(ga, /^js\/vendor\/common-passwords\.txt text eol=lf$/m);
 });
+
+test('SOCSO number: on the printed payslip and in the PDF, with a dash when the record has none', async () => {
+  const sb = { window: {} }; require('node:vm').createContext(sb); const U = require('node:fs').readFileSync(path.join(__dirname, '..', 'js/utils.js'), 'utf8'); require('node:vm').runInContext(U, sb); require('node:vm').runInContext(fs.readFileSync(path.join(__dirname, '..', 'js/statutory.js'), 'utf8'), sb);
+  const S = sb.window.AllurusStatutory;
+  const root = path.join(__dirname, '..');
+  const docs = fs.readFileSync(path.join(root, 'js/payroll-docs.js'), 'utf8');
+  assert.match(docs, /\['EPF no', p\.epfNo\], \['SOCSO no', p\.socsoNo\], \['Income tax no', p\.taxNo\]/, 'printed payslip');
+  assert.ok(S.payslipData({ base: 1000, gross: 1000, net: 900 }, { first: 'A', last: 'B', socsoNo: 'S123456' }, { month: '2026-10' }).socsoNo === 'S123456');
+  const withNo = await open(await P.build({ PDFDocument, p: { ...slip, socsoNo: 'S1234567' }, head, password: null }));
+  assert.match(withNo, /SOCSO no/); assert.match(withNo, /S1234567/);
+  const none = await open(await P.build({ PDFDocument, p: { ...slip, socsoNo: '' }, head, password: null }));
+  assert.match(none, /SOCSO no\s+—/, 'a dash, not a blank');
+});

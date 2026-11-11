@@ -9,7 +9,7 @@
   'use strict';
   const NAVY = '#0f2a3d', TEAL = '#0f766e', INK = '#1f2937', MUTED = '#64748b', LINE = '#d6dde3';
   // The built-in PDF fonts only carry Latin-1: swap the few characters outside it (a true minus sign, curly dashes).
-  const lat = (s) => String(s ?? '').replace(/[−–—]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[^\x09\x0A\x0D\x20-\x7E -ÿ]/g, '?');
+  const lat = (s) => String(s ?? '').replace(new RegExp('[' + String.fromCharCode(0x2212, 0x2013) + ']', 'g'), '-').replace(new RegExp('[' + String.fromCharCode(0x2018, 0x2019) + ']', 'g'), "'").replace(new RegExp('[' + String.fromCharCode(0x201C, 0x201D) + ']', 'g'), '"').replace(new RegExp('[^' + String.fromCharCode(9, 10, 13) + ' -~' + String.fromCharCode(0xA0) + '-' + String.fromCharCode(0xFF, 0x2014) + ']', 'g'), '?');   // the em dash is in the PDF fonts' character set
   const rm = (n) => 'RM ' + (Number(n) || 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const randomHex = (n = 32) => { const a = new Uint8Array(n); (root.crypto || require('node:crypto').webcrypto).getRandomValues(a); return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join(''); };
 
@@ -38,11 +38,11 @@
         doc.moveTo(L, y).lineTo(R, y).lineWidth(1.2).strokeColor(TEAL).stroke(); y += 10;
 
         const acct = p.account ? `${p.bank} ····${String(p.account).slice(-4)}` : 'Not set';
-        const kv = [['Name', p.name], ['IC / passport', p.id], ['Position', head.position || p.role], ['EPF no', p.epfNo], ['Income tax no', p.taxNo], ['Paid to', acct], ['Pay date', head.paidOn], ['Status', head.status]];
+        const kv = [['Name', p.name], ['IC / passport', p.id], ['Position', head.position || p.role], ['EPF no', p.epfNo], ['SOCSO no', p.socsoNo], ['Income tax no', p.taxNo], ['Paid to', acct], ['Pay date', head.paidOn], ['Status', head.status]];
         kv.forEach(([k, v], i) => {
           const col = i % 2, row = Math.floor(i / 2), x = L + col * (W / 2), yy = y + row * 16;
           doc.fillColor(MUTED).font('Helvetica').fontSize(8.5).text(lat(k), x, yy, { width: 80 });
-          doc.fillColor(INK).font('Helvetica-Bold').fontSize(9).text(lat(v || '-'), x + 84, yy, { width: W / 2 - 92, lineBreak: false });
+          doc.fillColor(INK).font('Helvetica-Bold').fontSize(9).text(lat(v || '—'), x + 84, yy, { width: W / 2 - 92, lineBreak: false });
         });
         y += Math.ceil(kv.length / 2) * 16 + 10;
 
