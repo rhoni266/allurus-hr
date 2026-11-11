@@ -426,3 +426,12 @@ The feature is off for every company. To switch it on for Major Far East after t
 
 ### Change made by the owner before the merge: HRD levy
 The commission is **not** part of the HRD levy base (`hrd: false` in `js/prod.js` `forPayroll`; the Settings card text and `tests/prod.test.js` agree). Reason recorded in the test: HRD Corp's levy guideline exempts commissions and production incentives. This replaces the earlier default of including it, so that question for the accountant is answered; the accountant should still confirm EPF, SOCSO, EIS and PCB. The `hrd` flag on an earning still works if it is ever turned on.
+
+## 2026-11-11: Production commission merged and deployed (owner: "merge and deploy")
+- Live rules saved first: `docs/rules-backup/firestore.rules.2026-11-11-before-prod` (commit `ba3ea05`).
+- `claude/prod-commission` fast-forwarded into `main` (`997142c`, pushed). `npm test` 418/418 before and after; `npm run test:rules` 135/135.
+- `firebase deploy --only firestore:rules`: released. `firebase deploy --only hosting`: released (cache `allurus-v3.46`).
+- Checked live (public pages, no real sign-in): `/app`, `/pos`, `/demo/pos`, `/js/prod.js`, `/js/prod-rules.js` return 200; the live `prod.js` has the owner's HRD change (`hrd: false`). In a real browser on allurus.my: Major Far East's **demo** has the Production page and the live preview works (pool RM100.00); Seri Maju's demo has no Production page; no page errors.
+- **The feature is still OFF for every real company.** Nothing was switched on. To switch it on for Major Far East after the owner has checked real numbers: `node scripts/set-addon.js prodCommission "Major Far East"` (check only), then again with `--yes`. `--off --yes` switches it off.
+- Rollback if needed: copy the backup over `firestore.rules`, `firebase deploy --only firestore:rules`, `git revert` the merge range on `main`, push, `firebase deploy --only hosting`.
+- Still to confirm by the owner / accountant before the first real payroll with commission: EPF, SOCSO, EIS and PCB treatment (set as wages by default; the HRD levy is excluded).
