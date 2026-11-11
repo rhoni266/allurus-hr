@@ -372,3 +372,19 @@ Until the website is deployed, staff are still blocked on laptops (the old rule 
 ### Left for later
 - `DIRECTORY_FIELDS` still carries the older `devices` field, so colleagues can see older phone ids in the directory. The new registry does not use it. Removing the field changes what syncs, so it is a separate change.
 - `scripts/migrate-phones.js --apply` (owner runs it) moves the 4 older registrations into the new records. Until then the app still honours the older ones.
+
+## 2026-11-11: One phone per person deployed (owner ran the deploy)
+
+- Owner deployed the website (cache v3.44) and the rules (the phone registry, `tenants/{t}/phones/{empId}`) to allurus.my, in a terminal, after the agent's own deploy was blocked by Claude Code's production-deploy check.
+- Shipped with it: the owner's change to `js/cloud.js` `legacyPhones()`. The old sign-in lock (`users.deviceId`, often set on a laptop or WhatsApp's in-app browser) no longer counts as a registered phone; only check-in phones HR approved (`people/{empId}.devices`) do. So a person who signed in on a laptop first, then opens Allurus on their phone, registers that phone as their first one instead of being refused. Committed to `main` as `5b8cd52` with its tests: a unit test in `tests/device-rules.test.js` and an emulator scenario (bound on a laptop, then a new phone: opens, registered as the approved first phone).
+- Tests at that commit: `npm test` 408/408, `npm run test:rules` 128/128, emulator end-to-end 35/35.
+- Checked from here (public pages only, no sign-in): live `sw.js` is `allurus-v3.44`; `/app`, `/pos`, `/demo/pos` and `/js/device-rules.js` return 200; the live `cloud.js` contains the `legacyPhones()` change.
+- Rollback if needed: `docs/rules-backup/firestore.rules.2026-11-11` over `firestore.rules`, `firebase deploy --only firestore:rules`, `git revert` the merge range on `main`, push, `firebase deploy --only hosting`.
+
+### Still to check by the owner on the live site (real sign-ins)
+Staff on a laptop get the normal app; a second phone shows "This isn't your registered phone"; HR sees the request under Approvals and can approve it; a person who only ever signed in on a laptop registers their first phone.
+
+### Open
+- `scripts/migrate-phones.js` still counts `users.deviceId` as a registered phone, so its numbers are a little higher than what the app now enforces. Align it before `--apply` (the owner runs that).
+- The directory still carries the older `devices` field (colleagues can see older phone ids). Separate change.
+- The employee phone Home preview (`claude/phone-home`) is still waiting for the owner's OK.
