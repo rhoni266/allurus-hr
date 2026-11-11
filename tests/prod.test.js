@@ -108,15 +108,15 @@ test('a month: each person’s total and days; a later correction shows as chang
   assert.deepEqual(none.missing, []);                 // a day off isn't flagged
 });
 
-// ---------- Payroll: the commission line goes through EPF, SOCSO/EIS, PCB (and the HRD levy) like wages ----------
-test('payroll: production commission is wages for EPF, SOCSO, EIS, PCB and the HRD levy, but not overtime or leave pay', () => {
+// ---------- Payroll: the commission line goes through EPF, SOCSO/EIS and PCB like wages; not the HRD levy ----------
+test('payroll: production commission is wages for EPF, SOCSO, EIS and PCB, but not the HRD levy, overtime or leave pay', () => {
   const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
   const sb = { console }; sb.window = sb; vm.createContext(sb);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', 'utils.js'), 'utf8'), sb, { filename: 'utils.js' });
   const U = sb.AllurusUtils || sb.U || sb.window.U;
   const settings = { currency: 'MYR', taxRate: 8, benefitsRate: 11.7, statutory: { ...U.STATUTORY, hrdf: 1 } };
   const e = { birthday: '1990-05-05' };
-  const commission = { key: 'prod', label: 'Production commission / Komisen pengeluaran', amount: 84, epf: true, socso: true, tax: true, hrd: true, detail: '21 days' };
+  const commission = { key: 'prod', label: 'Production commission / Komisen pengeluaran', amount: 84, epf: true, socso: true, tax: true, hrd: false, detail: '21 days' };
   const plain = U.payCalc(24000, 0, settings, e, '2026-11-30', {});
   const withC = U.payCalc(24000, 0, settings, e, '2026-11-30', { extra: [commission] });
   assert.equal(withC.extras, 84);
@@ -125,7 +125,8 @@ test('payroll: production commission is wages for EPF, SOCSO, EIS, PCB and the H
   assert.ok(withC.epf >= plain.epf);
   assert.equal(withC.socsoWage, plain.socsoWage + 84);              // SOCSO and EIS band wage includes it
   assert.ok(withC.tax >= plain.tax);                                // PCB is on basic + commission
-  assert.ok(withC.hrdf > plain.hrdf);                               // HRD levy: included, as the spec's default
+  assert.equal(withC.hrdf, plain.hrdf);                            // HRD levy: excluded (HRD Corp's levy guideline exempts commissions and production incentives)
+  assert.ok(U.payCalc(24000, 0, settings, e, '2026-11-30', { extra: [{ ...commission, hrd: true }] }).hrdf > plain.hrdf);   // the flag still works if an accountant ever turns it on
   // Turning each flag off (the accountant's choice) removes it from that one only.
   const noEpf = U.payCalc(24000, 0, settings, e, '2026-11-30', { extra: [{ ...commission, epf: false }] });
   assert.equal(noEpf.epfWage, plain.epfWage); assert.equal(noEpf.socsoWage, plain.socsoWage + 84);

@@ -423,3 +423,6 @@ Defaults: commission is wages for EPF (employee and employer), SOCSO and EIS, an
 
 ### Not switched on for the real company
 The feature is off for every company. To switch it on for Major Far East after the owner has checked real numbers: `node scripts/set-addon.js prodCommission "Major Far East"` (check only), then again with `--yes`; `--off --yes` switches it off. Rules must be published first (back up the live rules to `docs/rules-backup/` first).
+
+### Change made by the owner before the merge: HRD levy
+The commission is **not** part of the HRD levy base (`hrd: false` in `js/prod.js` `forPayroll`; the Settings card text and `tests/prod.test.js` agree). Reason recorded in the test: HRD Corp's levy guideline exempts commissions and production incentives. This replaces the earlier default of including it, so that question for the accountant is answered; the accountant should still confirm EPF, SOCSO, EIS and PCB. The `hrd` flag on an earning still works if it is ever turned on.

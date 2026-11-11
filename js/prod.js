@@ -158,7 +158,7 @@ window.AllurusProduction = (function () {
       <div class="field" style="margin-top:8px"><label>Departments that take part</label><div style="display:flex;gap:14px;flex-wrap:wrap">${depts.map((d) => `<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-pc-dept="${esc(d.id)}" ${(c.depts || []).includes(d.id) ? 'checked' : ''}> ${esc(d.name)}</label>`).join('') || '<span class="muted">No departments yet.</span>'}</div></div>
       ${noDept.length ? `<p class="lock-banner" role="note" style="margin-top:10px">${noDept.length} ${noDept.length === 1 ? 'person has' : 'people have'} no department and ${noDept.length === 1 ? 'is' : 'are'} left out: ${esc(noDept.slice(0, 6).map((e) => ctx.fullName(e)).join(', '))}${noDept.length > 6 ? '…' : ''}. Set their department on their profile.</p>` : ''}
       <p class="muted" style="margin-top:10px">${sample ? `Example: ${esc(P.fmtUnits(2000, c.unit || ''))} × RM${esc(String(c.rate))} = ${rm(sample.poolSen)} shared by 25 people = <b>${rm(sample.shareSen)}</b> each${sample.remainderSen ? ` (${rm(sample.remainderSen)} not shared out)` : ''}.` : 'Type a rate to see an example.'}</p>
-      <p class="faint" style="font-size:12.5px;margin-top:6px">A rate change applies to days saved afterwards; each saved day keeps its rate. In payroll the commission counts as wages for EPF, SOCSO, EIS, PCB and the HRD levy. It isn’t part of the overtime rate or leave pay. Please have your accountant confirm this before the first payroll with commission.</p></div>`;
+      <p class="faint" style="font-size:12.5px;margin-top:6px">A rate change applies to days saved afterwards; each saved day keeps its rate. In payroll the commission counts as wages for EPF, SOCSO, EIS and PCB. It isn’t part of the HRD levy (HRD Corp exempts commissions and production incentives), the overtime rate or leave pay. Please have your accountant confirm this before the first payroll with commission.</p></div>`;
   }
   function bindSettings() {
     const el = ctx.$('#prod-settings'); if (!el) return;
@@ -174,7 +174,7 @@ window.AllurusProduction = (function () {
     if (!on()) return [];
     const t = P.monthTotals(days(), mk)[e.id];
     if (!t || !t.sen) return [];
-    return [{ key: 'prod', label: NAME, amount: t.sen / 100, epf: true, socso: true, tax: true, hrd: true, detail: `${t.days} day${t.days === 1 ? '' : 's'}` }];
+    return [{ key: 'prod', label: NAME, amount: t.sen / 100, epf: true, socso: true, tax: true, hrd: false, detail: `${t.days} day${t.days === 1 ? '' : 's'}` }];
   }
   function warnings(mk) {
     const attByDay = {}; Object.keys(st().attendance || {}).forEach((d) => { if (P.MONTH(d) === mk) attByDay[d] = st().attendance[d]; });
