@@ -306,7 +306,33 @@ async function push() {
   } finally {
     S.pushing = false;
     if (S.again) { S.again = false; changed(); }
+    pruneStaffKeys();
   }
+}
+// When HR removes or changes an employee's IC (or removes the employee), the old IC's sign-up key, its pending personal join link and
+// invitation are deleted, so a removed IC can no longer register (incident 2026-11-12). Needs the Settings area (the rules' delete
+// condition) and the People area (a complete employee list). A sudden drop of many ICs at once is treated as a bad load, not as edits.
+async function pruneStaffKeys() {
+  try {
+    if (!S.live || !S.admin || !S.icSeen || S.profile?.viewOnly || !can('settings') || !can('people')) return;
+    const emps = app.state?.employees; if (!Array.isArray(emps)) return;
+    const tid = S.profile.tenantId, stale = M.staleIcs(S.icSeen, emps), now = M.icMap(emps);
+    if (stale.length > 5 && stale.length > Object.keys(S.icSeen).length / 2) { console.warn('[Allurus cloud] IC keys: too many removed at once, left alone'); S.icSeen = now; return; }
+    const failed = new Set();
+    for (const ic of stale) {
+      const key = `staffKeys/${tid}~${ic}`;
+      try {
+        const inv = await getDoc(doc(db, `staffInvites/${tid}~${ic}`)).catch(() => null);
+        const b = writeBatch(db);
+        if (inv?.exists()) { if (inv.data().link) b.delete(doc(db, `joinLinks/${inv.data().link}`)); b.delete(doc(db, `staffInvites/${tid}~${ic}`)); }
+        b.delete(doc(db, key));
+        await b.commit();
+      } catch (e) { failed.add(ic); console.warn('[Allurus cloud] IC key removal', e?.code); }
+    }
+    // What we remember is the current picture, except ICs we could not remove yet (tried again at the next change).
+    S.icSeen = { ...now };
+    failed.forEach((ic) => { S.icSeen["retry:" + ic] = ic; });   // a removal that failed is tried again at the next change
+  } catch (e) { console.warn('[Allurus cloud] pruneStaffKeys', e?.code || e?.message); }
 }
 function warnOnce(key, msg) { if (S.warned.has(key)) return; S.warned.add(key); app.toast(msg, 'error'); }
 
@@ -442,6 +468,7 @@ async function start(profile) {
   // Auto-sync staffKeys for all employees so any employee in the database can auto sign up
   if (S.admin && (can('people') || can('settings'))) {
     api.syncAllStaffKeys(ws.employees);
+    S.icSeen = M.icMap(ws.employees);   // what each person's IC was, to spot a removed or changed one later
   }
   // Listen to own user profile: if disabled by admin or session terminated, sign out
   if (profile.uid) {
@@ -1013,6 +1040,7 @@ const api = {
     if (!M.validIc(ic)) return;
     const tid = S.profile.tenantId;
     const key = `${tid}~${ic}`;
+    if (S.icSeen && emp.id && !(emp.id in S.icSeen)) S.icSeen[emp.id] = ic;   // remember a new person's IC, so changing it later removes this key
     try {
       const k = await getDoc(doc(db, `staffKeys/${key}`)).catch(() => null);
       const gen = k?.exists() ? (Number(k.data().gen) || 1) : 1;

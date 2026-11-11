@@ -369,6 +369,13 @@
     if (other) return 'That record already has a sign-in (' + (isStaffEmail(other.email) ? 'an IC sign-in' : 'an email sign-in') + '). One record, one sign-in. Remove or reset that one first.';
     return '';
   }
+  // The IC an employee record registers with (12 digits), or '' (no IC, a passport, or not valid).
+  const icKeyOf = (e) => (e && e.idType !== 'passport' && validIc(icDigits(e.ic)) ? icDigits(e.ic) : '');
+  // empId → IC for every employee that has one: the picture taken at one moment, to compare with the next.
+  const icMap = (employees) => { const m = {}; (employees || []).forEach((e) => { const ic = icKeyOf(e); if (e && e.id && ic) m[e.id] = ic; }); return m; };
+  // The ICs whose sign-up key must be removed: ones an employee had before and no longer has (changed, cleared or the employee was
+  // removed), unless another employee still has that IC. A removed IC then cannot register any more.
+  const staleIcs = (prev, employees) => { const now = icMap(employees), live = new Set(Object.values(now)); return [...new Set(Object.entries(prev || {}).filter(([id, ic]) => now[id] !== ic && !live.has(ic)).map(([, ic]) => ic))]; };
   const staffKey = (tenantId, ic) => `${tenantId}~${icDigits(ic)}`;
   // A short company code typed at IC sign-in: letters of the name, then digits (3 to 12 characters, a-z and 0-9).
   const companyCode = (name, rand = Math.random) => `${String(name || '').toLowerCase().replace(/[^a-z]/g, '').slice(0, 6) || 'co'}${String(Math.floor(rand() * 900) + 100)}`;
@@ -451,7 +458,7 @@
     PAYROLL, WRITE_AREA, TALENT, OWNED, ownerOf, ownedAreas, isAdminRead, isAdminWrite, readClass, canWrite, writeArea, readable, driverOf, isOps, SPLIT, seesPeople, seesPayroll, has, DIRECTORY_FIELDS, SELF_FIELDS, MARK, BLOB_MAX,
     stable, blobId, extract, restore, enc, dec, bucketsOf, applyBucket, arrayFrom, personFields, personFrom, directoryEntry, directoryFields, directoryFrom,
     employeesFor, payslipFields, payrollFrom, personal, personalFields, applyPersonal, merge3, diff, sameFields, docBytes,
-    PAY_ID, logValue, supportChanges, STAFF_HOST, icDigits, validIc, staffEmail, isStaffEmail, staffKey, linkProblem, approvalProblem, companyCode, joinSecret, joinKeyHash, joinKeyNorm, newSalt,
+    PAY_ID, logValue, supportChanges, STAFF_HOST, icDigits, validIc, staffEmail, isStaffEmail, staffKey, icKeyOf, icMap, staleIcs, linkProblem, approvalProblem, companyCode, joinSecret, joinKeyHash, joinKeyNorm, newSalt,
     normPhone, validPhone, fmtPhone, getDeviceId, getDeviceName, DEVICE_KEY_A, DEVICE_KEY_B, COOKIE_DEV_KEY
   };
 })(typeof window !== 'undefined' ? window : globalThis);
