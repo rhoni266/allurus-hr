@@ -594,6 +594,8 @@ window.AllurusLeave = (function () {
       },
     });
     return {
+      // The balances a person sees: the types they are entitled to (same filter as the My time off page).
+      myBalances(e) { const y = yearNow(); return types().filter((t) => t.on && !t.poolOf && R.eligible(t, e, T()).ok).map((t) => ({ t, b: balance(e.id, t.id, y) })).filter(({ t, b }) => !(t.earned && !b.entitled) && !(t.calendar && !b.used && !b.pending) && !(b.unlimited && !b.used)); },
       readAttachment, typeOf, typeName, balance, onLeave, offOn, isApprover, forMe, applyLeaveDays, pendingCount: () => st().leaves.filter((l) => l.status === 'Pending').length,
       myCount: (empId) => forMe(empId).length, whoOffCard, insights, settingsCards, bindSettings, myDepts,
       // Approved unpaid leave in a pay month, and what it costs: basic ÷ divisor × days.

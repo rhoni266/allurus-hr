@@ -16,6 +16,7 @@ It uses only the stock and purchasing part of Operations, plus the forklift and 
 | `lim.kokleong@majorfareast.com.my` | Lim Kok Leong, Managing Director | **Admin** (Owner: everything) + employee | Approve the purchase order waiting for him; Operations today; the books |
 | `farah.nadia@majorfareast.com.my` | Farah Nadia binti Rahman, HR & Admin Manager | **HR admin** + employee | Staff, leave, attendance, payroll, claims. No books and no stock |
 | `hafiz.yahya@majorfareast.com.my` | Hafizuddin bin Yahya, Warehouse Supervisor | **Employee** + the stock page only | Leave approvals for the warehouse team, and a notification for every purchase order, with a link to it |
+| `amirul.hassan@majorfareast.com.my` | Amirul bin Hassan, Storekeeper | **Employee only** (no admin role) | On a phone-sized window: the simple staff screen (Check in, Apply leave, Payslip). See `SIMPLE-STAFF-HOME-SPEC.md` |
 
 ## What the supervisor sees when a purchase is made
 

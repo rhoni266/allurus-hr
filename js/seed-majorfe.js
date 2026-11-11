@@ -404,6 +404,8 @@
       { email: `farah.nadia@${DOMAIN}`, name: 'Farah Nadia binti Rahman', hash: '50f952befc3f17c0d2ebb8da54f054effae705fbce406689a76df35d0e519dec', roles: ['admin', 'employee'], perms: ['people', 'time', 'payroll', 'claims', 'talent', 'settings'], tenantId: 't1', empId: 'e2' },
       // The warehouse supervisor: the employee app, plus the stock page of Operations (nothing else in the console).
       { email: `hafiz.yahya@${DOMAIN}`, name: 'Hafizuddin bin Yahya', hash: '2841299af5dbe043805e434841c922bbfef42ff3879fb38cfae70a1c09794dd9', roles: ['admin', 'employee'], perms: ['operations'], opsScope: ['stock'], tenantId: 't1', empId: 'e3' },
+      // A plain staff member (no admin role): on a phone the simple screen is shown (docs/SIMPLE-STAFF-HOME-SPEC.md).
+      { email: `amirul.hassan@${DOMAIN}`, name: 'Amirul bin Hassan', hash: '2841299af5dbe043805e434841c922bbfef42ff3879fb38cfae70a1c09794dd9', roles: ['employee'], tenantId: 't1', empId: 'e8' },
     ];
     const platform = AllurusSeed.platform(employees.length, { row: [COMPANY, 'Kuala Lumpur', 'Wholesale trading', 'Malaysia', 'growth', employees.length, 'Active', 95], admin: `lim.kokleong@${DOMAIN}` });
     const now = Date.now();
@@ -427,6 +429,7 @@
       [`lim.kokleong@${DOMAIN}`, 'Admin', 'Lim Kok Leong · Managing Director, everything'],
       [`farah.nadia@${DOMAIN}`, 'HR admin', 'Farah Nadia · people, leave, payroll'],
       [`hafiz.yahya@${DOMAIN}`, 'Supervisor', 'Hafiz · warehouse, sees what has been bought'],
+      [`amirul.hassan@${DOMAIN}`, 'Staff', 'Amirul · storekeeper, the simple phone screen'],
     ],
   };
 })();

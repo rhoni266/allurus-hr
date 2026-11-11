@@ -70,6 +70,49 @@ window.AllurusPayDocs = (function () {
       <p class="doc-foot">This payslip is computer-generated and needs no signature.</p></section>`;
   }
   const printSlip = (empId, mk) => preview(`Payslip · ${U.fmtMonth(mk)}`, payslipHtml(empId, mk), `Payslip ${U.fmtMonth(mk)} ${ctx.fullName(ctx.emp(empId))}`);
+  // ---------- Payslip as a PDF file (docs/SIMPLE-STAFF-HOME-SPEC.md) ----------
+  // Where the company has the staff-app add-on and the "Protect payslip PDFs" switch is not off, payslips are downloaded as a
+  // PDF locked (AES) with the person's IC number instead of printed. Made in the browser: nothing leaves the device.
+  const H = () => window.AllurusSimpleHome;
+  const protect = () => { const sa = ctx.staffApp(); return !!H() && H().pdfPasswordOn({ addon: sa.avail, setting: st().settings.staffApp?.pdfPw }); };
+  // Builds one payslip file. Resolves { ok, bytes, name } or { ok: false, noIc: true } when the person has no IC to lock it with.
+  async function payslipPdf(empId, mk) {
+    const run = st().payroll[mk], it = run?.items.find((i) => i.empId === empId), e = ctx.emp(empId);
+    if (!it || !e) return { ok: false };
+    let password = null;
+    if (protect()) { password = H().pdfPassword(e); if (!password) return { ok: false, noIc: true }; }
+    const PD = await window.AllurusPayslipPdf.load();
+    const p = S.payslipData(it, e, { month: mk, company: company() });
+    const bytes = await window.AllurusPayslipPdf.build({ PDFDocument: PD, p, head: { company: company(), address: employer().address || '', ssm: employer().ssm || '', monthLabel: U.fmtMonth(mk), paidOn: fmt(run.paidOn), status: run.status === 'Paid' ? 'Paid' : 'Draft', position: `${p.role}${ctx.dept(e.dept) ? ' · ' + ctx.dept(e.dept).name : ''}` }, password });
+    return { ok: true, bytes, name: H().payslipFileName(e.first, mk) };
+  }
+  // One person's payslip: the phone's share sheet, or a download.
+  async function downloadSlip(empId, mk) {
+    ctx.toast('Preparing your payslip…', 'info');
+    try {
+      const r = await payslipPdf(empId, mk);
+      if (!r.ok) { if (!r.noIc) ctx.toast('Couldn’t make this payslip.', 'error'); return r; }
+      const how = await window.AllurusPayslipPdf.deliver(r.bytes, r.name, { share: ctx.role() === 'employee' });
+      if (how === 'downloaded') ctx.toast(`${r.name} downloaded`);
+      return r;
+    } catch (e) { console.warn('[Allurus] payslip pdf', e?.message); ctx.toast(e?.message || 'Couldn’t make the payslip. Check your connection and try again.', 'error'); return { ok: false }; }
+  }
+  // HR, everyone in a pay run: one protected file each, under that person's own IC. People with no IC on record are listed, not given an open file.
+  async function downloadAllSlips(mk) {
+    const run = st().payroll[mk]; if (!run) return;
+    ctx.toast('Preparing payslips…', 'info');
+    const skipped = [], used = {};
+    try {
+      for (const it of run.items) {
+        const r = await payslipPdf(it.empId, mk);
+        if (!r.ok) { skipped.push(ctx.fullName(ctx.emp(it.empId))); continue; }
+        used[r.name] = (used[r.name] || 0) + 1;
+        await window.AllurusPayslipPdf.deliver(r.bytes, used[r.name] > 1 ? r.name.replace(/\.pdf$/, `-${used[r.name]}.pdf`) : r.name, { share: false });
+        await new Promise((ok) => setTimeout(ok, 350));
+      }
+    } catch (e) { ctx.toast(e?.message || 'Couldn’t make the payslips.', 'error'); return; }
+    ctx.toast(`${run.items.length - skipped.length} payslips downloaded${skipped.length ? `. No IC on record, so not made: ${skipped.slice(0, 4).join(', ')}${skipped.length > 4 ? ` and ${skipped.length - 4} more` : ''}` : ''}`, skipped.length ? 'info' : '');
+  }
   function printAllSlips(mk) {
     const run = st().payroll[mk]; if (!run) return;
     printDocs(run.items.map((i) => payslipHtml(i.empId, mk)).join(''), `Payslips ${U.fmtMonth(mk)} ${company()}`);
@@ -295,9 +338,9 @@ window.AllurusPayDocs = (function () {
         if (f[k]) delete f[k]; else f[k] = T();
         ctx.commit(f[k] ? `${KINDS[k].title} marked as submitted` : 'Marked as not submitted', f[k] ? `${KINDS[k].title} for ${U.fmtMonth(mk)} was submitted` : undefined);
       },
-      'pd-slip': (empId, mk) => printSlip(empId, mk),
-      'pd-my-slip': (mk) => printSlip(ctx.me().id, mk),
-      'pd-slips-all': (_, mk) => printAllSlips(mk),
+      'pd-slip': (empId, mk) => (protect() ? downloadSlip(empId, mk) : printSlip(empId, mk)),
+      'pd-my-slip': (mk) => (protect() ? downloadSlip(ctx.me().id, mk) : printSlip(ctx.me().id, mk)),
+      'pd-slips-all': (_, mk) => (protect() ? downloadAllSlips(mk) : printAllSlips(mk)),
       'pd-print-preview': () => { const p = ctx.$('#doc-preview'); if (p) printDocs(p.innerHTML, p.dataset.title || 'Allurus'); },
       'pd-ea': (empId) => printEA(empId, ui.year),
       'pd-my-ea': (_, y) => preview(`Borang EA ${y}`, eaHtml(ctx.me(), +y), `EA ${y} ${ctx.fullName(ctx.me())}`),
@@ -310,7 +353,7 @@ window.AllurusPayDocs = (function () {
       'pd-form-filed': (empId, form) => { const e = ctx.emp(empId); if (form === 'CP22') e.cp22Filed = T(); else e.leaverFiled = T(); ctx.commit(`${form} for ${e.first} marked as submitted`, `${form} for ${ctx.fullName(e)} was submitted to LHDN`); },
     });
     return {
-      tab, tabBar, tabView, myTaxCard, printDocs, preview, employeeFields, validateEmployee, afterSave, settingsCard, bindSettings, insights,
+      downloadSlip, payslipPdf, tab, tabBar, tabView, myTaxCard, printDocs, preview, employeeFields, validateEmployee, afterSave, settingsCard, bindSettings, insights,
       bindTabs: () => {
         ctx.$('#pd-year')?.addEventListener('change', (ev) => { ui.year = +ev.target.value; ctx.render(); });
         ctx.$('#pd-tpl')?.addEventListener('change', (ev) => { ui.bankTpl = ev.target.value; ctx.render(); });
