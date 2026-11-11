@@ -189,3 +189,19 @@ test('wiring: HR payslip buttons follow the same switch and a person with no IC 
   assert.match(docs, /'pd-slips-all': \(_, mk\) => \(protect\(\) \? downloadAllSlips\(mk\) : printAllSlips\(mk\)\)/);
   assert.match(docs, /if \(protect\(\)\) \{ password = H\(\)\.pdfPassword\(e\); if \(!password\) return \{ ok: false, noIc: true \}; \}/);
 });
+
+test('PDFKit (2.5 MB) is loaded only when someone taps Download, never at app start', () => {
+  const root = path.join(__dirname, '..');
+  const html = fs.readFileSync(path.join(root, 'app.html'), 'utf8');
+  assert.ok(!/pdfkit/i.test(html), 'app.html does not load the PDF library');
+  assert.match(html, /js\/payslip-pdf\.js/, 'only the small wrapper is loaded');
+  const sw = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
+  assert.ok(!/pdfkit/i.test(sw), 'the service worker does not precache it');
+  const src = fs.readFileSync(path.join(root, 'js/payslip-pdf.js'), 'utf8');
+  assert.match(src, /function load\(base = ''\) \{\s*if \(root\.PDFDocument\) return Promise\.resolve/, 'loaded on demand and only once');
+  assert.ok(fs.readFileSync(path.join(root, 'js/payroll-docs.js'), 'utf8').includes('await window.AllurusPayslipPdf.load()'), 'load() is called inside the download action');
+});
+test('line endings: common-passwords.txt is always checked out with LF, so the password test does not depend on the machine', () => {
+  const ga = fs.readFileSync(path.join(__dirname, '..', '.gitattributes'), 'utf8');
+  assert.match(ga, /^js\/vendor\/common-passwords\.txt text eol=lf$/m);
+});
