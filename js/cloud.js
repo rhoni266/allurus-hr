@@ -1082,6 +1082,8 @@ const api = {
   // Approve someone who registered on the open page as this employee: their profile gets the employee and is no
   // longer pending; the sign-in key is set to their generation; any personal link for that IC stops working.
   async approveOpen(u, emp) {
+    const bad = M.linkProblem(emp && emp.id, app.state.employees);
+    if (bad) return { error: bad + ' Nothing was changed.' };
     const key = M.staffKey(S.profile.tenantId, emp.ic), gen = Number((u.email.match(/\.g(\d+)@/) || [])[1]) || 1;
     try {
       const old = await getDoc(doc(db, `staffInvites/${key}`)).catch(() => null);

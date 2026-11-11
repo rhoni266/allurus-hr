@@ -353,6 +353,9 @@
   const validIc = (s) => /^\d{12}$/.test(icDigits(s));
   const staffEmail = (ic, tenantId, gen) => `${icDigits(ic)}.${String(tenantId).toLowerCase()}.g${Number(gen) || 1}@${STAFF_HOST}`;
   const isStaffEmail = (e) => String(e || '').toLowerCase().endsWith(`@${STAFF_HOST}`);
+  // A sign-in may only be linked to an employee record that exists (incident 2026-11-11: an unlinked or wrongly linked
+  // sign-in opened someone else's record). Returns '' when the link is fine, otherwise the reason.
+  const linkProblem = (empId, employees) => !empId || typeof empId !== 'string' ? 'No employee record was chosen.' : /["'“”‘’]/.test(empId) ? 'That employee id has quote marks in it, so it is not a real record id.' : (employees || []).some((e) => e && e.id === empId) ? '' : 'That employee record does not exist.';
   const staffKey = (tenantId, ic) => `${tenantId}~${icDigits(ic)}`;
   // A short company code typed at IC sign-in: letters of the name, then digits (3 to 12 characters, a-z and 0-9).
   const companyCode = (name, rand = Math.random) => `${String(name || '').toLowerCase().replace(/[^a-z]/g, '').slice(0, 6) || 'co'}${String(Math.floor(rand() * 900) + 100)}`;
@@ -435,7 +438,7 @@
     PAYROLL, WRITE_AREA, TALENT, OWNED, ownerOf, ownedAreas, isAdminRead, isAdminWrite, readClass, canWrite, writeArea, readable, driverOf, isOps, SPLIT, seesPeople, seesPayroll, has, DIRECTORY_FIELDS, SELF_FIELDS, MARK, BLOB_MAX,
     stable, blobId, extract, restore, enc, dec, bucketsOf, applyBucket, arrayFrom, personFields, personFrom, directoryEntry, directoryFields, directoryFrom,
     employeesFor, payslipFields, payrollFrom, personal, personalFields, applyPersonal, merge3, diff, sameFields, docBytes,
-    PAY_ID, logValue, supportChanges, STAFF_HOST, icDigits, validIc, staffEmail, isStaffEmail, staffKey, companyCode, joinSecret, joinKeyHash, joinKeyNorm, newSalt,
+    PAY_ID, logValue, supportChanges, STAFF_HOST, icDigits, validIc, staffEmail, isStaffEmail, staffKey, linkProblem, companyCode, joinSecret, joinKeyHash, joinKeyNorm, newSalt,
     normPhone, validPhone, fmtPhone, getDeviceId, getDeviceName, DEVICE_KEY_A, DEVICE_KEY_B, COOKIE_DEV_KEY
   };
 })(typeof window !== 'undefined' ? window : globalThis);

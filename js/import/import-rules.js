@@ -10,6 +10,15 @@ window.AllurusImportRules = (function () {
   const norm = (s) => String(s ?? '').toLowerCase().replace(/[‘’'`]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   const squash = (s) => norm(s).replace(/ /g, '');
   const clean = (v) => (v == null ? '' : typeof v === 'string' ? v.replace(/^﻿/, '').replace(/ /g, ' ').replace(/\s+/g, ' ').trim() : v);
+  // Quote marks that wrap a whole cell (a CSV pasted with its own quotes, "Ali" or “Ali”, sometimes doubled) are not part of
+  // the value. Only a matching pair around the entire cell is removed; an apostrophe or quote inside a name stays.
+  const WRAPS = { '"': '"', '“': '”', '”': '”', "'": "'", '‘': '’' };
+  function unwrapQuotes(v) {
+    if (typeof v !== 'string') return v;
+    let t = v.trim();
+    while (t.length >= 2 && WRAPS[t[0]] === t[t.length - 1]) t = t.slice(1, -1).trim();
+    return t;
+  }
   const isBlank = (v) => v == null || (typeof v === 'string' && v.trim() === '');
   const digits = (s) => String(s ?? '').replace(/\D/g, '');
   function lev(a, b) {
@@ -30,7 +39,7 @@ window.AllurusImportRules = (function () {
     const out = [];
     let width = 0;
     rows.forEach((r, i) => {
-      const cells = (r || []).map(clean);
+      const cells = (r || []).map((v) => unwrapQuotes(clean(v)));
       if (cells.every(isBlank)) return;
       let w = cells.length; while (w && isBlank(cells[w - 1])) w--;
       width = Math.max(width, w);
@@ -488,6 +497,6 @@ window.AllurusImportRules = (function () {
     return [head, ...bad.map((r) => [r.n, [...r.errors, ...r.warnings].join('; '), ...headers.map((h) => safeCell(r.original[h] ?? ''))])];
   }
 
-  return { norm, squash, tidyGrid, headerScore, detectHeaderRow, parseDate, dateOrder, contentGuess, autoMap, missingRequired, signature, cleanValue, titleName, splitName,
+  return { unwrapQuotes, norm, squash, tidyGrid, headerScore, detectHeaderRow, parseDate, dateOrder, contentGuess, autoMap, missingRequired, signature, cleanValue, titleName, splitName,
     icInfo, matchBank, maskIC, maskAcct, buildPlan, toEmployee, applyPlan, undoImport, exportRows, errorReport, safeCell, EXPORT, confidence };
 })();

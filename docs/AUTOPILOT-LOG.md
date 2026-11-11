@@ -470,3 +470,36 @@ A worker opened his `/join?c=…` link on a phone where an HR admin (Nadia, HR A
 - `js/join.js` still has its own older "1 Pekerja = 1 Telefon" check at the PIN step (an existing account bound to a different device is refused). It predates the one-phone rule and can refuse a person who first signed in on a laptop. It needs the same treatment as `cloud.js`.
 - The "never log out" policy (staff stay signed in for good) is what makes a shared or lent phone dangerous. Consider a shorter session, or asking for the PIN again after a while, for admin accounts.
 - The HR screen draws the join link's QR with an outside service (`api.qrserver.com`); it sees the join address, not personal data.
+
+## 2026-11-11 (later): INCIDENT FOLLOW-UP: a staff sign-in opened the HR admin's record (hotfix v3.48, link repair, v3.49)
+
+### What the live data shows (read-only checks)
+- **The record ids and values were not damaged by quote marks.** Every field in an employee record is stored as JSON text, so the text `eyl0aj2s` is saved as `"eyl0aj2s"` with quote marks. That is normal storage. After decoding, all 32 stored `id` fields equal their document ids, and there are no quotes in any id, department or IC. `scripts/check-ic-link.js` printed the raw stored text (and let the stored `id` field replace the real document id), which made the normal encoding look like damage. It now decodes the fields and always shows the real document id.
+- **What really happened:** a staff member signed up on the open join page. That page makes the sign-in with `empId: ''` (staffKeys carries no empId or name since the 2026-11-07 security review, and the account is linked to a record only when HR approves it). In the app, `me()` was `emp(session.empId) || activeEmployees()[0]`, so a sign-in with no record fell back to the first employee: **Nadia's record (e1)**. Hotfix v3.48 (deployed by the owner) removed that fallback for real sign-ins and shows "not linked to your staff record".
+- Live, Major Far East has 6 sign-ins: 5 linked to a record that exists, **1 not linked** (an IC sign-in with an empty empId).
+- **5 records really do have quote marks inside a value**, all in `first` (for example `"ROHADI "` stored as text with the quotes): they come from a name column that was imported with wrapping quotes. Cosmetic, but they show on the screen as `"ROHADI "`.
+
+### Fixed in this change (v3.49, on `main`, NOT deployed)
+1. **Importer:** quote marks that wrap a whole cell (straight, curly or doubled, with spaces inside) are removed when a file is read (`unwrapQuotes` in `js/import/import-rules.js`). A quote or apostrophe inside a name stays. New ids are always made by the app, so no import can put quotes in an id. Test: `tests/quotes-and-links.test.js` (a sheet whose every cell is quoted imports clean name, staff no., IC, phone, email and one department).
+2. **Link check:** `AllurusCloudMap.linkProblem(empId, employees)` refuses an empty id, an id with quote marks, or an id with no employee record. `approveOpen` (HR approving a registration) runs it before it writes anything.
+3. **Repair script** `scripts/repair-links.js` (dry run by default; `--yes` applies; `--names` shows names). It strips wrapping quotes left in text values after decoding, and sets `users.empId` of an IC sign-in with no valid link to the real document id of the **one** record with that IC (never guessed: no record or two records means no change and it says so). It deletes and renames nothing.
+4. `scripts/check-ic-link.js` decodes stored fields.
+
+### Not done, on purpose
+- **staffKeys does not get an empId or a name.** It is readable before anyone signs in (the join page checks the IC against it), so a name or employee id there would let anyone who guessed a company id and an IC number read it. That was closed on 2026-11-07. The link is made on the sign-in's own `users` document, which only HR can change. Say if you want this changed; it is a security-rules decision.
+- No document ids were changed. If tidier ids are wanted, that is a separate, larger migration (every list that points at an employee id would have to change with it).
+
+### Dry run on the live Major Far East data (nothing changed)
+- 32 employee records; **5 records** with wrapping quotes still in a value (field `first`, 5 of 5); 0 records whose stored id differs from the document id.
+- 6 sign-ins: 5 linked correctly, **1 to link** (sign-in `TX69uu…` to record `eyl0aj2s`, MUHAMMAD ALIF FITRI MOHD KHALEK, was empty), none without a matching IC, none with two.
+- Records to clean: FOUZER NGAH, ROHADI IBRAHIM, MUHAMMAD AN NUR TAQIM AD DEEN, ABDUL MUIN ROSALI, MUHAMMAD AB. RAZAK (first name only).
+
+### Who saw Nadia's record
+- The sign-in that was unlinked while the fallback existed: **MUHAMMAD ALIF FITRI MOHD KHALEK** (1 person). He could see her record (name, role, and what the employee view shows of it) in the app until v3.48 (an employee-level sign-in, not an admin one). Whether he is the same person as in the join-page incident above is not something the data shows.
+- This is the best the data can say: a sign-in that HR approved or linked later would also have fallen back before it was linked, and the database does not record who looked at what. If HR approved other join-page registrations before today, ask them who was waiting. Anyone who signed up on the open page and had not been approved yet is in the same position.
+- Together with the earlier join-page incident (a worker using Nadia's own signed-in phone), this can go to your adviser with the PDPA question. The data suggests an employee-level sign-in saw one HR administrator's own record, not other staff's IC, salary or bank details, but that is for HR to confirm in the app.
+
+### Owner steps
+1. Deploy v3.49: `firebase deploy --only hosting` (no rules change).
+2. Run the dry run again, then apply: `node scripts/repair-links.js "Major Far East" --names`, then the same with `--yes`. It links Alif's sign-in to his own record and cleans the 5 names.
+3. After that, HR should still approve his registration in Team access so the approval trail is complete.

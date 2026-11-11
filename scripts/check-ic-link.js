@@ -29,7 +29,8 @@ const nameOf = (p) => `${p.first || ''} ${p.last || ''}`.trim() || p.name || '(n
   const tid = t.id;
   console.log(`Company: ${t.data().name} (${tid})   IC checked: ${last4(ic)}\n`);
 
-  const people = (await db.collection('tenants').doc(tid).collection('people').get()).docs.map((d) => ({ id: d.id, ...d.data() }));
+  const dec = (v) => { if (typeof v !== 'string') return v; try { return JSON.parse(v); } catch (e) { return v; } };
+  const people = (await db.collection('tenants').doc(tid).collection('people').get()).docs.map((d) => { const o = {}; Object.entries(d.data()).forEach(([k, v]) => { o[k] = dec(v); }); return { ...o, id: d.id }; });   // fields are stored as JSON text; the id is always the real document id
   const byId = Object.fromEntries(people.map((p) => [p.id, p]));
   const show = (p) => p ? `${nameOf(p)}  [record ${p.id}]  IC ${last4(digits(p.ic))}  ${p.role || p.title || ''}${p.dept || p.department ? ' · ' + (p.dept || p.department) : ''}` : '(record not found)';
 
