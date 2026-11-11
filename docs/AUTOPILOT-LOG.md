@@ -524,3 +524,47 @@ A worker opened his `/join?c=…` link on a phone where an HR admin (Nadia, HR A
 
 ### Tests
 `npm test` 440/440 (new: approval refuses no pick, the incident case, IC mismatch with both endings named, a record that already has an IC or email sign-in, a turned-off sign-in does not block, the right person passes, and the wiring pins: no `claimed()` default, the picker starts empty, the server-side check runs before any write). `npm run test:rules` 137/137 (the new rule). Not tested in a browser: the picker's on-screen look; it uses the existing select and button styles.
+
+## 2026-11-12: Simple staff phone screen (branch `claude/simple-staff-home`, v3.53, NOT merged, NOT deployed)
+
+Spec: `docs/SIMPLE-STAFF-HOME-SPEC.md` (owner's decision of 12 Nov 2026). Major Far East only; off for every other company.
+
+### What it is
+On a phone, staff **without an admin role** at a company that has the add-on see only: **Check in** (after checking in the same card shows four meters: On time, Late, Absent, Short hours; tap for the month day by day, with last month), **Leave** (balances first, "Apply leave / Mohon cuti" into the existing leave form, the last three requests with status) and **Payslip** (latest month, Download payslip, older months). A small **Me** link opens a sign-out. The tab bar, menu, search and sidebar are hidden; the bell stays. Every label is shown in English and Bahasa Malaysia together. Admin roles on phones, computers, POS and the kiosk are unchanged.
+
+### Switches
+- **Availability: the add-on `simpleStaffHome` on the tenant** (`tenants/{t}.addons.simpleStaffHome`), set only by the owner's command (the same audited script as production commission; the rules already stop a company changing its own add-ons, and a new rules test pins that):
+  `node scripts/set-addon.js simpleStaffHome "Major Far East"` (check only), then the same with `--yes`; `--off --yes` switches it off.
+- **Settings → Staff app** (appears only when the add-on is on; Settings area): **Simple staff screen** and **Protect payslip PDFs with the IC number**, both default on, stored in the company settings (`settings.staffApp`): every member reads them, only HR with the Settings area writes them (rules test `tests-rules/staffapp.rules.test.js`). Each change goes in the activity log.
+
+### Payslip PDF and password
+- The app printed payslips through the browser, so there was no PDF file to lock. A real payslip PDF is now made in the browser with **PDFKit 0.17.2 (MIT; `js/vendor/pdfkit.standalone.js`, licence `js/vendor/PDFKIT-LICENSE`)** from the same figures as the printed payslip (`AllurusStatutory.payslipData`). No outside service: the PDF and the IC never leave the phone. The library is 2.5 MB and loads only when someone taps Download.
+- **Encryption: AES-128 (PDF 1.7, CFM AESV2), never RC4.** Decision: PDFKit's only AES-256 mode is the old "extension level 3", which not every phone viewer opens, so AES-128 was chosen so the file opens everywhere. User password = the IC without dashes (passport number in upper case for foreign workers); the owner password is random per file and not kept; printing and copying are allowed for the user.
+- File name `Payslip-2026-10-<first name>.pdf` (no IC, no company). On a phone the share sheet opens with the file (Print, Save to Files, WhatsApp); otherwise it downloads. The IC is never shown on screen.
+- **No IC on record: no file is made** ("Ask HR to add your IC to download your payslip"). When the password switch is off the file is plain.
+- HR on a computer: the payslip button becomes "Download protected PDF" and "Download all payslips (PDF)" (one file per person, each locked with that person's own IC; people with no IC are listed and skipped). The browser **print** route (which cannot be locked) is used only when the switch is off.
+- Settings help text says honestly that an IC-number password stops casual opening of a forwarded or lost PDF but is not strong protection, because IC numbers are widely known; inside the app, payslips are still protected by the person's sign-in.
+
+### The meters
+`js/simple-home-rules.js` only counts; the day figures come from `js/roster.js` / `js/attendance-rules.js` (grace, shift, break, leave, holidays, rest days). On time = checked in at or before start + grace; Late = after it (days and total minutes); Absent = a working day with no check-in and no approved leave or holiday (never today); Short hours = checked out before the shift end, or worked less than the shift length minus the break, not counting lateness already shown as Late. Today counts for late once checked in and for short hours only after check-out. Colours: teal, amber, slate (no red), and every meter also shows its numbers in words.
+
+### Tests
+- `npm test` includes `tests/simple-home.test.js` (16): which screen, the meters (grace, late minutes, absent without leave/holidays/rest days, short hours with the break, today, month ends), file name, password rule (IC, passport, none), and the PDF itself: AES and not RC4, unreadable text, **opens with the IC and not without it or with a wrong one** (checked with pdf.js, `pdfjs-dist` is a dev dependency), owner password differs per file, plain file when the switch is off, wiring.
+- `npm run test:rules`: `tests-rules/staffapp.rules.test.js` (staff read but cannot change the switches; payroll-only HR cannot; the add-on is not writable by the company).
+- Phone browser run (390×844, Major Far East demo, new plain-staff demo login **Amirul**): 26/26. Check in → Check out with "In since"; four meters; day-by-day list with last month; leave balances and the leave form; payslip download as `Payslip-2026-10-Amirul.pdf` that opens only with the IC; the share-sheet path; no IC → refused; password switch off → plain file; simple switch off → the normal Home and tab bar; HR admin on a phone keeps the admin tabs; staff on a computer and another demo company are unchanged; no page errors.
+
+### Decisions I made
+- The leave form is the existing one (type, dates, half day, reason, attachment, days and balance after); I did not build a second, simpler form.
+- The "Me" sheet has the name, role and Sign out. A language switch is not needed because both languages are always shown.
+- Real check-in (camera, location, face) was not run in the browser test: the test seeds attendance and checks the screen around it. The Check in button uses the existing check-in.
+- The only other demo login that is a plain employee did not exist; added `amirul.hassan@majorfareast.com.my` (Staff) to the Major Far East demo.
+
+### Owner steps
+1. Review the branch, then: back up the live rules only if rules changed (they did not change in this branch), deploy hosting: `firebase deploy --only hosting`.
+2. Switch it on for Major Far East: `node scripts/set-addon.js simpleStaffHome "Major Far East"` (check first), then add `--yes`. Staff need to reload the app once.
+3. Make sure staff records have their IC (or passport) filled in: people without one cannot download a payslip while the password switch is on.
+4. Preview first at `/app?demo=majorfe` on a phone-sized window, choose **Staff: Amirul**.
+
+### Not done / to know
+- Checking the real phone share sheet on iOS and Android is yours: the test only proves the file is handed to `navigator.share`.
+- Shared working tree: another session had uncommitted edits (per-trip pay, v3.52) in `app.js`, `app.html`, `sw.js`, `cloud-map.js` and `firestore.rules`. I kept my work in its own worktree and did not touch or commit those. Versions here are v3.53; expect a small merge on `sw.js`, `app.html` and the `APP_VERSION` line.

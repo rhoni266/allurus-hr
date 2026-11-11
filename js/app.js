@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.50';
+  const APP_VERSION = '3.53';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -10,6 +10,7 @@
   // Demo mode can show more than one sample company: ?demo or ?demo=serimaju opens Seri Maju, ?demo=suria opens
   // Suria Enterprise. Each has its own storage key (js/seed.js, AllurusSeed.companies).
   const DEMO = AllurusSeed.company((/[?&]demo=([a-z0-9-]+)/i.exec(location.search)?.[1] || 'serimaju').toLowerCase());
+  if (!CLOUD_ON && DEMO.id === 'majorfe') window.AllurusAddons = { simpleStaffHome: true };   // the demo has the add-on so the simple screen can be previewed
   const STORE_KEY = CLOUD_ON ? 'allurus-hr-cloud-v1' : DEMO.storeKey;
   // A fresh copy of the sample data: the chosen demo company, or Seri Maju as the base for the cloud workspace.
   const seedNew = () => {
@@ -453,6 +454,14 @@
   const unlinked = () => !!cloud.db && !emp(state.session.empId);
   const me = () => emp(state.session.empId) || (cloud.db ? { id: UNLINKED_ID, first: state.session?.name || 'Staff', last: '', role: '', dept: '', salary: 0, email: '', phone: '', status: 'Active', unlinked: true } : activeEmployees()[0]);
 
+  // ---------- Simple staff screen (docs/SIMPLE-STAFF-HOME-SPEC.md) ----------
+  // For staff without an admin role, on a phone, at a company that has the add-on and has not turned it off in Settings:
+  // the Home is only Check in, Apply leave and Payslip. Everyone else keeps the normal Home.
+  const addonOn = (k) => window.AllurusAddons?.[k] === true;
+  const staffApp = () => { const s = state.settings.staffApp || {}; return { avail: addonOn('simpleStaffHome'), simple: s.simple !== false, pdfPw: s.pdfPw !== false }; };
+  const onSimplePhone = () => (window.AllurusDevice?.here() === 'phone' || (!CLOUD && window.innerWidth <= 760));
+  const simpleOn = () => !!window.AllurusSimpleHome && role() === 'employee' && AllurusSimpleHome.useSimple({ addon: staffApp().avail, setting: state.settings.staffApp?.simple, roles: state.session.roles || [], phone: onSimplePhone() });
+
   // ---------- Access: what each person may do in the company console ----------
   // "Company Admin" is one view, but people get only the areas their role template gives them. An account with
   // no `perms` (the founder, older accounts, the platform owner) has every area, like an Owner.
@@ -541,7 +550,7 @@
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
     { id: 'billing', label: 'Billing', icon: 'doc', group: 'Workspace' },
   ];
-  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => (r.id !== 'approvals' || can('time') || can('claims')) && (r.id !== 'production' || prodApi?.canEntry()) && (r.id !== 'my-production' || prodApi?.showStaff()) && (r.id !== 'billing' || (CLOUD && (!myPerms() || myPerms().includes('settings')))) && (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)) && (posApi ? posApi.routeAllowed(r.id) : !/^pos(-|$)/.test(r.id)));
+  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => !(role() === 'employee' && simpleOn() && r.id !== 'home')).filter((r) => (r.id !== 'approvals' || can('time') || can('claims')) && (r.id !== 'production' || prodApi?.canEntry()) && (r.id !== 'my-production' || prodApi?.showStaff()) && (r.id !== 'billing' || (CLOUD && (!myPerms() || myPerms().includes('settings')))) && (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)) && (posApi ? posApi.routeAllowed(r.id) : !/^pos(-|$)/.test(r.id)));
   // A page may carry a query after "?" (#ops-stock?po=…); it is the page's to read.
   const route = () => { const h = location.hash.replace('#', '').split('?')[0].replace(/^settings\/.*/, 'settings'); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
@@ -785,6 +794,7 @@
       if (other) { state.session.role = other; if (routes().some((x) => x.id === want)) save(); else state.session.role = was; }
     }
     const r = route();
+    document.documentElement.classList.toggle('simple-staff', simpleOn());
     AllurusUX.beforeRender(r);
     renderNav();
     macShell.title(r);
@@ -795,7 +805,7 @@
     const setup = ['super', 'auditor'].includes(role()) && r === routes()[0].id ? AllurusUX.setupCard() : '';
     // Admins on a phone: heavy screens still open, with a small note (docs/DEVICE-RULES-SPEC.md).
     const heavy = role() === 'admin' && HEAVY.has(r) && window.AllurusDevice?.here() === 'phone' ? '<p class="lock-banner" role="note" style="margin-bottom:12px">Easier on a laptop or PC.</p>' : '';
-    view.innerHTML = billingUi.banner() + heavy + (r === routes()[0].id ? billingUi.checklist() : '') + setup + VIEWS[r]();
+    view.innerHTML = simpleOn() ? VIEWS[r]() : billingUi.banner() + heavy + (r === routes()[0].id ? billingUi.checklist() : '') + setup + VIEWS[r]();
     AFTER[r]?.();
     decorateHead(r);
     // Content rises in on navigation only (saves re-render too, and shouldn't animate).
@@ -1347,7 +1357,7 @@
           <button class="btn btn-icon" data-act="pay-shift" data-v="1" aria-label="Next month" ${mk >= U.addMonths(cur, 1) ? 'disabled' : ''}>${icon('right')}</button>
           ${!run ? `<button class="btn btn-primary" data-act="pay-run">${icon('wallet')}Run payroll</button>` : ''}
           ${run?.status === 'Draft' ? `<button class="btn" data-act="pay-discard">Discard draft</button><button class="btn btn-primary" data-act="pay-approve">${icon('check')}Approve and pay</button>` : ''}
-          ${run ? `<button class="btn" data-act="pay-export">${icon('download')}Export CSV</button><button class="btn" data-act="pd-slips-all" data-v="${mk}">${icon('doc')}Print all payslips</button>` : ''}
+          ${run ? `<button class="btn" data-act="pay-export">${icon('download')}Export CSV</button><button class="btn" data-act="pd-slips-all" data-v="${mk}">${icon('doc')}${AllurusSimpleHome.pdfPasswordOn({ addon: staffApp().avail, setting: state.settings.staffApp?.pdfPw }) ? 'Download all payslips (PDF)' : 'Print all payslips'}</button>` : ''}
         </div></div>
       ${role() === 'admin' ? docsApi.tabBar() : ''}
       ${run?.status === 'Paid' ? `<div class="lock-banner info">${icon('shield')}<span>Paid. The KWSP, PERKESO, LHDN and HRD Corp files and the bank file are ready. <button class="link-btn" data-act="pd-tab" data-v="files">Open statutory files</button></span></div>` : ''}
@@ -1405,7 +1415,7 @@
         <div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:10px">${LOGO_MARK}<div><div style="font-weight:600;letter-spacing:.24em">${esc(state.settings.company.toUpperCase())}</div><div class="faint" style="font-size:12px">${U.fmtMonth(month)}</div></div></div>${run.status === 'Paid' ? '<span class="pill ok">Paid</span>' : '<span class="pill warn">Draft</span>'}</div>
         ${person(e, `${e.role} · ${dept(e.dept)?.name || ''}`)}
         <div>${lines}</div>
-        <button type="button" class="btn" data-act="pd-slip" data-id="${empId}" data-v="${month}">${icon('download')}Print or save as PDF</button></div>`,
+        <button type="button" class="btn" data-act="pd-slip" data-id="${empId}" data-v="${month}">${icon('download')}${AllurusSimpleHome.pdfPasswordOn({ addon: staffApp().avail, setting: state.settings.staffApp?.pdfPw }) ? 'Download protected PDF' : 'Print or save as PDF'}</button></div>`,
     });
   }
 
@@ -1622,6 +1632,11 @@
              ['faceCheck', 'Face check', 'Compares each selfie with the person’s reference photo, on their phone. Asks for consent first.'],
              ['liveOnly', 'Live camera only', 'Blocks uploading a saved photo instead of taking a selfie.']].map(([k, label, desc]) => row(label, desc, `<div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="sec-toggle" data-id="${k}" data-v="${v}" class="${(s.checkin[k] !== false ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`)).join('')}
           </div>` : ''}${kioskApi.settingsCard()}${timeApi.settingsCards()}` },
+      ...(staffApp().avail ? [{ id: 'staffapp', label: 'Staff app', icon: 'sliders', summary: 'Simple staff screen, payslip PDF password', keys: 'staff app simple phone screen home check in leave payslip pdf password ic',
+        html: () => { const sa = staffApp(), seg = (k, on) => `<div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="sa-toggle" data-id="${k}" data-v="${v}" class="${(on ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+          return `<div class="card"><div class="card-head"><h3>Staff app</h3><span class="hint">Phones, staff without an admin role</span></div>
+            ${row('Simple staff screen', 'On a phone, staff see only Check in (with their attendance meters), Apply leave (with balances) and Payslip. Admin roles keep their own phone screens, and computers keep the normal app. Off = the normal phone Home.', seg('simple', sa.simple))}
+            ${row('Protect payslip PDFs with the IC number', 'Payslip PDFs are locked with a password: the person’s IC number without dashes (the passport number for foreign workers). Staff, and HR on a computer, download the PDF instead of printing it. A person with no IC on record cannot download until HR adds it. An IC-number password stops casual opening of a forwarded or lost PDF. It is not strong protection, because IC numbers are widely known. Inside the app, payslips are still protected by the person’s sign-in.', seg('pdfPw', sa.pdfPw))}</div>`; } }] : []),
       { id: 'leave', label: 'Leave & holidays', icon: 'calendar', summary: 'Leave types, public holidays, rest days', keys: 'leave type entitlement annual sick public holiday state weekend rest day work week approver approval carry forward year-end',
         html: () => leaveApi.settingsCards() },
       { id: 'payroll', label: 'Payroll', icon: 'wallet', summary: my ? 'Currency, EPF, SOCSO, EIS, PCB' : 'Currency, tax and benefits', keys: 'payroll currency salary epf kwsp socso perkeso eis pcb income tax lhdn hrdf hrd corp levy benefit contribution statutory deduction',
@@ -2097,7 +2112,63 @@
   const myRecord = (day) => state.attendance[day]?.[me().id];
   const myRuns = () => Object.keys(state.payroll).filter((k) => state.payroll[k].status === 'Paid' && state.payroll[k].items.some((i) => i.empId === me().id)).sort().reverse();
 
+  // ---------- The simple staff screen ----------
+  const ssMeter = (en, ms, text, pct, tone) => `<div class="ss-meter"><div class="ss-meter-top"><span class="ss-m-label">${en} <span lang="ms" class="ss-ms">/ ${ms}</span></span><b class="ss-m-val">${esc(text)}</b></div><span class="ss-bar" aria-hidden="true"><i class="${tone}" style="width:${pct}%"></i></span></div>`;
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const ssMonthMeters = (mk) => AllurusSimpleHome.meters(timeApi.monthFor(me(), mk).days, { today: U.today() });
+  const ssMeters = (mk) => {
+    const H = AllurusSimpleHome, m = ssMonthMeters(mk), of = m.counted;
+    return `<div class="ss-meters" role="group" aria-label="This month, so far">
+      ${ssMeter('On time', 'Tepat masa', `${m.onTime.days} of ${plural(of, 'day')}`, H.pct(m.onTime.days, of), 'teal')}
+      ${ssMeter('Late', 'Lewat', `${plural(m.late.days, 'day')} · ${H.fmtMin(m.late.min)}`, H.pct(m.late.days, of), 'amber')}
+      ${ssMeter('Absent', 'Tidak hadir', plural(m.absent.days, 'day'), H.pct(m.absent.days, of), 'slate')}
+      ${ssMeter('Short hours', 'Jam kurang', `${plural(m.short.days, 'day')} · ${H.fmtMin(m.short.min)}`, H.pct(m.short.days, of), 'amber')}</div>`;
+  };
+  function simpleHomeView() {
+    const e = me(), T = U.today(), rec = myRecord(T), H = AllurusSimpleHome, info = timeApi.dayInfo(e, T);
+    const shift = info.pattern ? AllurusTimeRules.shiftLabel(info.pattern) : '';
+    const onLeaveNow = rec?.s === 'leave' || info.leave;
+    let clock;
+    if (onLeaveNow) clock = `<p class="ss-done">On leave today <span lang="ms">/ Bercuti hari ini</span></p>`;
+    else if (!rec || !rec.in) clock = `<button type="button" class="btn btn-primary ss-big" data-act="check-in" data-v="present">${icon('camera')}<span>Check in <span lang="ms">/ Daftar masuk</span></span></button>
+      <p class="ss-sub">${[shift, zone().label ? `Check in at ${zone().label}` : ''].filter(Boolean).map(esc).join(' · ')}</p>`;
+    else if (!rec.out) clock = `<button type="button" class="btn btn-primary ss-big" data-act="check-out">${icon('clock')}<span>Check out <span lang="ms">/ Daftar keluar</span></span></button><p class="ss-sub">In since ${esc(rec.lastIn || rec.in)}</p>`;
+    else clock = `<p class="ss-done">Done for today · ${esc(rec.in)}–${esc(rec.out)}</p>`;
+    const meters = rec?.in ? `<button type="button" class="ss-meters-tap" data-act="ss-days" data-v="${U.monthKey(T)}" aria-label="Open this month, day by day">${ssMeters(U.monthKey(T))}<span class="ss-more">Day by day <span lang="ms">/ Hari demi hari</span> ›</span></button>` : '';
+    // Leave: the balances first, then what is waiting.
+    const bal = leaveApi.myBalances(e).map(({ t, b }) => `<li><span>${esc(t.name)}</span><b>${b.unlimited ? `${b.used} taken` : `${b.available} day${b.available === 1 ? '' : 's'} left`}</b></li>`).join('');
+    const mine = state.leaves.filter((l) => l.empId === e.id).sort((a, b) => b.from.localeCompare(a.from));
+    const waiting = mine.filter((l) => l.status === 'Pending').length;
+    const recent = mine.slice(0, 3).map((l) => `<li><span>${esc(leaveApi.typeName(l.type))} · ${U.fmtDate(l.from, { day: 'numeric', month: 'short' })}${l.to !== l.from ? '–' + U.fmtDate(l.to, { day: 'numeric', month: 'short' }) : ''}</span><b class="ss-st ${l.status === 'Approved' ? 'ok' : l.status === 'Pending' ? 'wait' : ''}">${l.status === 'Rejected' ? 'Declined' : esc(l.status)}</b></li>`).join('');
+    // Payslip: the latest month, then older ones.
+    const runs = myRuns(), last = runs[0], sa = staffApp();
+    const lastItem = last ? state.payroll[last].items.find((i) => i.empId === e.id) : null;
+    const pwOn = H.pdfPasswordOn({ addon: sa.avail, setting: state.settings.staffApp?.pdfPw });
+    const noIc = pwOn && !H.pdfPassword(e);
+    const slipBtn = (mk, big) => `<button type="button" class="btn ${big ? 'btn-primary ss-wide' : 'btn-sm'}" data-act="ss-payslip" data-v="${mk}" ${noIc ? 'disabled' : ''}>${icon('download')}${big ? 'Download payslip <span lang="ms">/ Muat turun slip gaji</span>' : esc(U.fmtMonth(mk))}</button>`;
+    const slip = last ? `<p class="ss-slip-month">${esc(U.fmtMonth(last))} · Net <b>${esc(money(lastItem.net, 2))}</b></p>${slipBtn(last, true)}
+      ${noIc ? `<p class="ss-warn">Ask HR to add your IC to download your payslip. <span lang="ms">Minta HR tambah No. IC anda.</span></p>` : pwOn ? `<p class="ss-help">The PDF password is your IC number, without dashes. <span lang="ms">Kata laluan PDF ialah No. IC anda tanpa sengkang.</span></p>` : ''}
+      ${runs.length > 1 ? `<details class="ss-older"><summary>Older payslips <span lang="ms">/ Slip lama</span></summary><div class="ss-older-list">${runs.slice(1, 13).map((mk) => slipBtn(mk, false)).join('')}</div></details>` : ''}` : `<p class="muted">No payslip yet. <span lang="ms">Belum ada slip gaji.</span></p>`;
+    return `<div class="ss">
+      <header class="ss-head"><div><div class="ss-co">${esc(state.settings.company)}</div><h1 class="ss-name">${esc(fullName(e))}</h1><div class="ss-date">${U.fmtDate(T, { weekday: 'long', day: 'numeric', month: 'long' })}</div></div><button type="button" class="btn btn-sm ss-me" data-act="ss-me">${icon('people')}Me</button></header>
+      <section class="card ss-card" aria-label="Check in">${clock}${meters}</section>
+      <section class="card ss-card" aria-label="Leave"><h2 class="ss-h">Leave <span lang="ms">/ Cuti</span></h2>
+        ${bal ? `<ul class="ss-list">${bal}</ul>` : ''}${waiting ? `<p class="ss-wait">${plural(waiting, 'request')} waiting <span lang="ms">/ menunggu kelulusan</span></p>` : ''}
+        <button type="button" class="btn btn-primary ss-wide" data-act="new-leave">${icon('calendar')}Apply leave <span lang="ms">/ Mohon cuti</span></button>
+        ${recent ? `<ul class="ss-list ss-recent">${recent}</ul>` : ''}</section>
+      <section class="card ss-card" aria-label="Payslip"><h2 class="ss-h">Payslip <span lang="ms">/ Slip gaji</span></h2>${slip}</section></div>`;
+  }
+  // This month (or last), day by day.
+  function ssDays(mk) {
+    const T = U.today(), cur = U.monthKey(T), prev = U.monthKey(U.addDays(`${cur}-01`, -1)), m = ssMonthMeters(mk), H = AllurusSimpleHome;
+    const label = { ontime: 'On time', late: 'Late', absent: 'Absent', leave: 'Leave', holiday: 'Holiday', extra: 'Worked', today: 'Today' };
+    const rows = m.list.map((x) => `<tr><td>${U.fmtDate(x.day, { weekday: 'short', day: 'numeric', month: 'short' })}</td><td>${esc(x.in || '—')}</td><td>${esc(x.out || '—')}</td><td>${esc(label[x.status] || '')}${x.min ? ` · ${H.fmtMin(x.min)}` : ''}${x.short ? ` · short ${H.fmtMin(x.short)}` : ''}</td></tr>`).join('');
+    openModal({ title: `${U.fmtMonth(mk)}`, size: 'sm', submit: null, body: `<div class="seg" style="margin-bottom:10px">${[[cur, 'This month'], [prev, 'Last month']].map(([k, l]) => `<button type="button" data-act="ss-days" data-v="${k}" class="${k === mk ? 'on' : ''}">${l}</button>`).join('')}</div>${ssMeters(mk)}
+      <div class="table-wrap" style="margin-top:12px"><table class="table"><thead><tr><th>Date</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="muted">Nothing yet.</td></tr>'}</tbody></table></div>` });
+  }
+
   VIEWS.home = () => {
+    if (simpleOn()) return simpleHomeView();
     const e = me(), T = U.today();
     const rec = myRecord(T);
     const lvA = leaveApi.balance(e.id, 'annual'), lvS = leaveApi.balance(e.id, 'sick');
@@ -3254,7 +3325,7 @@
   // ---------- Finance & Accounting and tax modules ----------
   const moduleCtx = {
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, can, log: (m) => log(m), fire, cloud: () => CLOUD && !!fire(), payMonth: () => ui.payMonth, money, compactMoney, openModal, closeOverlay, toast, commit, render,
-    downloadCSV, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
+    downloadCSV, staffApp, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
     save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
     get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, get einvoice() { return einvApi; }, get lms() { return lmsApi; }, get recruit() { return recruitApi; }, get ops() { return opsApi; }, get invoices() { return invStore; }, get leaveStore() { return lvStore; }, get claimStore() { return clStore; }, get timeRequestStore() { return trStore; }, get ui() { return ui; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
   };
@@ -3518,7 +3589,11 @@
   ACTIONS['ap-filter'] = (_, v) => { ui.apFilter = v; render(); };
   AFTER.approvals = () => { phoneWatch.load(true).catch(() => {}); };
   // An admin's "Me" tab on a phone: their own leave, payslips, claims and check-in (the employee view).
-  ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role() !== 'employee') switchRole('employee'); else location.hash = 'my-profile'; };
+  ACTIONS['ss-days'] = (_, mk) => { closeOverlay(); ssDays(mk || U.monthKey(U.today())); };
+ACTIONS['ss-me'] = () => { const e = me(); openModal({ title: 'Me', size: 'sm', submit: null, body: `<div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">${avatar(fullName(e), 'lg')}<div><b>${esc(fullName(e))}</b><div class="muted">${esc(e.role || '')}</div></div></div><p class="muted" style="font-size:13px">English and Bahasa Malaysia are shown together on this screen. <span lang="ms">Bahasa Inggeris dan Bahasa Malaysia dipaparkan bersama.</span></p><button class="btn btn-outline-danger" data-act="logout" style="width:100%">${icon('logout')}Sign out <span lang="ms">/ Log keluar</span></button>` }); };
+ACTIONS['ss-payslip'] = async (_, mk) => { const r = await docsApi.downloadSlip(me().id, mk); if (r && r.noIc) toast('Ask HR to add your IC to download your payslip.', 'error'); };
+ACTIONS['sa-toggle'] = (key, v) => { if (!['simple', 'pdfPw'].includes(key)) return; state.settings.staffApp = { ...(state.settings.staffApp || {}), [key]: v === 'on' }; commit(`${key === 'simple' ? 'Simple staff screen' : 'Payslip PDF password'} turned ${v}`); };
+ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role() !== 'employee') switchRole('employee'); else location.hash = 'my-profile'; };
 
   // ---------- Allurus support access (cloud mode): the client lets support edit, and sees every change ----------
   const supportAccess = {
@@ -4049,6 +4124,7 @@
   // ---------- Bridge for js/cloud.js ----------
   window.AllurusApp = {
     get state() { return state; },
+    me: () => me(), render: (...a) => render(...a),
     WS_KEYS, STORE_KEY,
     toast: (m, k) => toast(m, k),
     // A company with nothing in it, for the cloud copy to be laid onto.

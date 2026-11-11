@@ -13,6 +13,8 @@
     "@firebase/rules-unit-testing": "^3.0.4",
     "firebase": "^10.12.2",
     "firebase-admin": "^12.7.0",
+    "pdfjs-dist": "^4.10.38",
+    "pdfkit": "^0.17.2",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

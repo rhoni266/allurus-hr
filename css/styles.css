@@ -1955,3 +1955,44 @@ select.lg-in { padding-right: 2px; }
 .lg-check input { margin-top: 2px; }
 .lg-taxfields { padding: 8px 12px 0; }
 .lg-taxfields:empty, .lg-taxfields > [hidden] { display: none; }
+/* ---------- Simple staff screen (docs/SIMPLE-STAFF-HOME-SPEC.md): Check in, Apply leave, Payslip. Phones only. ---------- */
+html.simple-staff .tabbar, html.simple-staff .menu-btn, html.simple-staff .cmdk-trigger, html.simple-staff .pillnav, html.simple-staff #theme-btn, html.simple-staff [data-act="ux-help"],
+html.simple-staff .avatar-btn, html.simple-staff .top-signout, html.simple-staff .live-pill, html.simple-staff .rail, html.simple-staff .sidebar, html.simple-staff .logo-tile { display: none !important; }
+html.simple-staff .view { padding-bottom: 24px; }
+.ss { max-width: 520px; margin: 0 auto; display: grid; gap: 14px; }
+.ss-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.ss-co { font-size: 12.5px; color: var(--fg-2); font-weight: 600; letter-spacing: .02em; }
+.ss-name { font-size: 22px; line-height: 1.2; margin: 2px 0; }
+.ss-date { font-size: 13px; color: var(--fg-2); }
+.ss-card { padding: 16px; display: grid; gap: 12px; }
+.ss-h { font-size: 16px; margin: 0; }
+.ss-big { width: 100%; min-height: 72px; font-size: 20px; font-weight: 700; justify-content: center; gap: 10px; border-radius: 14px; }
+.ss-big svg.i { width: 26px; height: 26px; }
+.ss-wide { width: 100%; min-height: 52px; justify-content: center; font-size: 16px; font-weight: 600; border-radius: 12px; }
+.ss [lang="ms"], .ss-ms { font-weight: 500; opacity: .85; }
+.ss-big [lang="ms"], .ss-wide [lang="ms"] { font-weight: 500; font-size: .85em; }
+.ss-sub, .ss-help, .ss-slip-month { margin: 0; font-size: 13.5px; color: var(--fg-2); text-align: center; }
+.ss-slip-month { font-size: 15px; color: var(--fg); }
+.ss-help { text-align: left; font-size: 12.5px; }
+.ss-warn { margin: 0; font-size: 13px; color: var(--warn); }
+.ss-wait { margin: 0; font-size: 13.5px; color: var(--warn); font-weight: 600; }
+.ss-done { margin: 0; font-size: 17px; font-weight: 600; text-align: center; padding: 8px 0; }
+.ss-meters-tap { all: unset; display: grid; gap: 10px; cursor: pointer; border-top: 1px solid var(--line); padding-top: 12px; }
+.ss-meters-tap:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 8px; }
+.ss-meters { display: grid; gap: 11px; }
+.ss-meter-top { display: flex; justify-content: space-between; gap: 10px; font-size: 13.5px; align-items: baseline; }
+.ss-m-label { color: var(--fg); font-weight: 600; }
+.ss-m-val { font-variant-numeric: tabular-nums; text-align: right; }
+.ss-bar { display: block; height: 9px; border-radius: 6px; background: var(--line); overflow: hidden; margin-top: 5px; }
+.ss-bar i { display: block; height: 100%; border-radius: 6px; min-width: 0; }
+.ss-bar i.teal { background: var(--brand); }
+.ss-bar i.amber { background: var(--warn); }
+.ss-bar i.slate { background: var(--fg-3); }
+.ss-more { font-size: 12.5px; color: var(--brand); text-align: right; font-weight: 600; }
+.ss-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ss-list li { display: flex; justify-content: space-between; gap: 10px; font-size: 14.5px; padding: 8px 10px; background: var(--surface-2); border-radius: 10px; }
+.ss-recent li { font-size: 13px; }
+.ss-st.ok { color: var(--ok); } .ss-st.wait { color: var(--warn); }
+.ss-older summary { cursor: pointer; font-size: 13.5px; color: var(--brand); font-weight: 600; padding: 6px 0; }
+.ss-older-list { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 6px; }
+@media (min-width: 761px) { .ss { margin-top: 8px; } }

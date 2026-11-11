@@ -8,7 +8,7 @@
 // prodCommission = the daily production commission (docs/PRODUCTION-COMMISSION-SPEC.md). Nothing else is touched.
 const { admin } = require('./admin');
 
-const ADDONS = { prodCommission: 'Daily production commission' };
+const ADDONS = { prodCommission: 'Daily production commission', simpleStaffHome: 'Simple staff screen (Check in, Apply leave, Payslip) on phones' };
 
 (async () => {
   const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
