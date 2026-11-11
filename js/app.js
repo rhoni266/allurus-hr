@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.46';
+  const APP_VERSION = '3.47';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -2661,25 +2661,27 @@
     return c;
   }
   async function ciVerify() {
-    if (!faceOn()) { ci.face = null; ciReview(); return; }
+    const CR = window.AllurusCheckinRules, isAdmin = (account()?.roles || state.session.roles || []).includes('admin');
+    if (!faceOn()) { const r = CR.faceReview({ faceCheckOn: false, admin: isAdmin }); ci.face = { result: 'off', review: r.review, why: r.why }; ciReview(); return; }
     const first = !me().face;
     ciStep(`${ciWhere()}<div class="ci-status"><span class="spinner" aria-hidden="true"></span><div><strong>${first ? 'Reading your face' : 'Checking it’s you'}</strong><p class="muted">The first check on a phone takes a few seconds while the face check loads.</p></div></div>`);
     let faces;
     try { faces = await AllurusFace.describe(ci.canvas); } catch (e) {
-      ci.face = { result: 'unavailable' }; if ($('#ci-body')) ciReview(); return;
+      const r = CR.faceReview({ ran: false }); ci.face = { result: r.result, review: r.review, why: r.why }; if ($('#ci-body')) ciReview(); return;
     }
     if (!$('#ci-body')) return;
     const retake = '<button class="btn" data-act="close-overlay">Cancel</button><button class="btn btn-primary" data-act="ci-retake">Retake selfie</button>';
     if (!faces.length) { ciProblem('No face found', 'Face the camera in good light.', '', retake); return; }
     if (faces.length > 1) { ciProblem('More than one face found', 'Only you should be in your check-in selfie. Retake it on your own.', '', retake); return; }
     const desc = faces[0].descriptor, ref = me().face;
-    if (!ref) { ci.face = { result: 'enrolled', descriptor: desc }; ciReview(); return; }
+    if (!ref) { const r = CR.faceReview({ hasRef: false, admin: isAdmin }); ci.face = { result: 'enrolled', descriptor: desc, review: r.review, why: r.why }; ciReview(); return; }
     const d = AllurusFace.distance(desc, ref.descriptor), v = AllurusFace.verdict(d);
     if (v === 'mismatch' && ++ci.fails < 2) {
       ciProblem(`This doesn’t look like ${esc(me().first)}`, 'Make sure it’s you in the photo, facing the camera in good light without a mask or sunglasses, then retake it.', '', retake);
       return;
     }
-    ci.face = { result: v, d: +d.toFixed(3), sim: AllurusFace.similarity(d) };
+    const r = CR.faceReview({ hasRef: true, refConfirmed: ref.status !== 'pending', verdict: v, admin: isAdmin });
+    ci.face = { result: r.result, d: +d.toFixed(3), sim: AllurusFace.similarity(d), review: r.review, why: r.why, unconfirmed: !!r.unconfirmed };
     ciReview();
   }
   const FACE_NOTE = {
@@ -2687,6 +2689,7 @@
     weak: (f) => `<div class="ci-where">${icon('pin')}<span>Weak face match (${f.sim}%). HR may review this check-in.</span></div>`,
     mismatch: () => `<div class="ci-where bad">${icon('x')}<span>Your face didn’t match after two tries. You can still check in, and HR will review it.</span></div>`,
     enrolled: () => `<div class="ci-where">${icon('shield')}<span>This selfie becomes your reference photo. HR will confirm it’s you.</span></div>`,
+    off: (f) => (f.review ? `<div class="ci-where">${icon('pin')}<span>The face check is off. HR will review your selfie.</span></div>` : ''),
     unavailable: () => `<div class="ci-where">${icon('pin')}<span>The face check couldn’t run on this phone. HR will review your selfie.</span></div>`,
   };
   function ciReview() {
@@ -2723,7 +2726,7 @@
     const loc = L.field
       ? { lat: L.lat, lng: L.lng, accuracy: L.accuracy, source: L.lat != null ? 'gps' : 'none', field: true, m: L.m, zone: z.label }
       : { lat: L.lat, lng: L.lng, accuracy: L.accuracy, label: L.label, source: 'gps', m: L.m, inside: L.inside, zone: z.label, radius: z.radius, zoneAt: { lat: z.lat, lng: z.lng, source: z.source } };
-    const face = ci.face ? { result: ci.face.result, sim: ci.face.sim ?? null } : null;
+    const face = ci.face ? { result: ci.face.result, sim: ci.face.sim ?? null, review: !!ci.face.review, why: ci.face.why || '', unconfirmed: !!ci.face.unconfirmed } : null;
     const device = { id: deviceId(), name: deviceName() };
     if (ci.first && lockOn()) {
       e.devices = [...(e.devices || []), { id: device.id, name: device.name, status: 'approved', added: T, auto: true }];
@@ -2737,7 +2740,7 @@
     kioskApi.rememberFix(L);
     kioskApi.queue(e, T, rec, 'self');
     closeOverlay();
-    const flagged = face && ['mismatch', 'unavailable'].includes(face.result);
+    const flagged = face && (face.review || ['mismatch', 'unavailable'].includes(face.result));
     if (!flagged) setTimeout(() => AllurusUX.celebrate(), 150);
     commit(offline ? `Checked in at ${t}, captured offline. It syncs when you’re back online.` : flagged ? `Checked in at ${t}. HR will review your selfie.` : `Checked in at ${t}`,
       `${fullName(e)} checked in${ci.mode === 'remote' ? ' remotely' : ''} with a selfie, ${where}${face?.result === 'mismatch' ? '. The face did not match.' : ''}`);
@@ -2755,7 +2758,8 @@
       match: `<span class="tag ok" title="Face matches the reference photo">Face ${f.sim}%</span>`,
       weak: `<span class="tag warn" title="Weak face match">Weak ${f.sim}%</span>`,
       mismatch: '<span class="tag bad" title="Face did not match the reference photo">No match</span>',
-      enrolled: '<span class="tag" title="This selfie became the reference photo">Reference</span>',
+      enrolled: '<span class="tag warn" title="This selfie became the reference photo: confirm it is really them">Reference</span>',
+      off: '<span class="tag warn" title="The face check was off">Not checked</span>',
       unavailable: '<span class="tag warn" title="The face check could not run">Not checked</span>',
     })[f.result] || '';
   };
@@ -2815,7 +2819,7 @@
       <div style="display:flex;gap:14px;align-items:center">${e.face ? `<img class="ref-thumb lg" src="${e.face.photo}" alt="Reference photo of ${esc(fullName(e))}">` : `<span class="ref-thumb lg empty">${icon('camera')}</span>`}
         <div style="flex:1;min-width:0"><div class="person-name">${e.face ? (e.face.status === 'confirmed' ? 'Reference photo confirmed' : 'Reference photo waiting for HR') : 'No reference photo yet'}</div>
           <div class="person-sub" style="white-space:normal">${e.face ? `Set on ${U.fmtDate(e.face.enrolledOn)}, with consent.` : 'Taken at their first check-in, after they agree.'}</div>
-          <div class="actions" style="margin-top:8px">${e.face?.status === 'pending' ? `<button class="btn btn-sm btn-ok" data-act="face-confirm" data-id="${e.id}">Confirm</button>` : ''}${e.face ? `<button class="btn btn-sm" data-act="face-reset" data-id="${e.id}">Retake at next check-in</button>` : ''}</div></div></div>
+          <div class="actions" style="margin-top:8px">${e.face?.status === 'pending' ? (e.id === me()?.id ? '<span class="faint" style="font-size:12px">Another admin confirms this</span>' : `<button class="btn btn-sm btn-ok" data-act="face-confirm" data-id="${e.id}">Confirm</button>`) : ''}${e.face ? `<button class="btn btn-sm" data-act="face-reset" data-id="${e.id}">Retake at next check-in</button>` : ''}</div></div></div>
       ${CLOUD ? phonesPanel(e) : `<div class="list">${devs.length ? devs.map((d) => `<div class="list-item"><div class="grow"><div class="person-name">${esc(d.name)}</div><div class="person-sub">${d.status === 'approved' ? 'Approved' : 'Waiting for approval'} · added ${U.fmtDate(d.added)}${d.id === deviceId() ? ' · this device' : ''}</div></div>
         ${d.status === 'pending' ? `<button class="btn btn-sm btn-ok" data-act="dev-approve" data-id="${e.id}" data-v="${d.id}">Approve</button>` : ''}<button class="btn btn-sm btn-ghost" data-act="dev-remove" data-id="${e.id}" data-v="${d.id}">Remove</button></div>`).join('') : '<p class="faint" style="font-size:13px">No phone registered. Their first check-in registers it.</p>'}</div>`}</div>`;
   }
@@ -2899,8 +2903,8 @@
     'toggle-pw': () => { const i = $('#login-password'), b = $('[data-act="toggle-pw"]'); const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.textContent = show ? 'Hide' : 'Show'; b.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); },
     // From "Please use your phone": sign out straight away (nothing of the company was loaded here).
     'device-signout': () => {
-      deviceBlock = null;
-      try { localStorage.removeItem(STORE_KEY); } catch (e) { /* storage unavailable */ }
+      deviceBlock = null; phoneBlock = null;
+      try { window.AllurusSession?.clearLocal(); localStorage.removeItem(STORE_KEY); } catch (e) { /* storage unavailable */ }
       Promise.resolve(fire()?.signOut()).catch(() => {}).finally(() => { location.hash = ''; location.reload(); });
     },
     'logout': () => {
@@ -2911,10 +2915,7 @@
         submit: 'Ya, Log Keluar / Sign Out',
         size: 'sm',
         onSubmit: () => {
-          try {
-            localStorage.removeItem('allurus_staff_session');
-            document.cookie = 'allurus_staff_token=; max-age=0; path=/; SameSite=Lax';
-          } catch (e) {}
+          try { window.AllurusSession?.clearLocal(); } catch (e) {}
           if (CLOUD) {
             closeOverlay();
             fire()?.signOut().finally(() => {
@@ -2968,7 +2969,7 @@
       commit(`Phone removed from ${e.first}`, `A phone was removed from ${fullName(e)}’s check-in`);
       openProfile(empId);
     },
-    'face-confirm': (empId) => { const e = emp(empId); e.face.status = 'confirmed'; e.face.confirmedOn = U.today(); commit(`Reference photo confirmed for ${e.first}`, `${fullName(e)}’s reference photo was confirmed`); if ($('.drawer')) openProfile(empId); },
+    'face-confirm': (empId) => { if (!window.AllurusCheckinRules.mayConfirmFace({ actorId: me()?.id, ownerId: empId })) { toast('Another admin has to confirm your reference photo, not you.', 'error'); return; } const e = emp(empId); e.face.status = 'confirmed'; e.face.confirmedOn = U.today(); commit(`Reference photo confirmed for ${e.first}`, `${fullName(e)}’s reference photo was confirmed`); if ($('.drawer')) openProfile(empId); },
     'face-reset': (empId) => { const e = emp(empId); delete e.face; commit(`${e.first} will set a new reference photo at the next check-in`, `${fullName(e)}’s reference photo was reset`); if ($('.drawer')) openProfile(empId); },
     'field-toggle': (empId, v) => {
       if (role() !== 'admin') { toast('Only an admin can change this.', 'error'); return; }
@@ -3750,7 +3751,7 @@
       const shareUrl = code ? `${location.origin}/join?c=${encodeURIComponent(code)}` : `${location.origin}/join`;
       const phone = this.waOf(e);
       const comp = state.settings?.company || 'syarikat';
-      const text = `Salam ${e.first}, anda boleh terus daftar akaun Allurus untuk ${comp} di sini:\n${shareUrl}\n\nMasukkan No. IC anda (${e.ic || ''}) dan cipta 6 angka PIN untuk log masuk.`;
+      const text = `Salam ${e.first}, anda boleh terus daftar akaun Allurus untuk ${comp} di sini:\n${shareUrl}\n\nMasukkan No. IC anda dan cipta 6 angka PIN untuk log masuk.`;
       openModal({
         title: `Pautan Pendaftaran: ${esc(fullName(e))}`,
         size: 'sm',

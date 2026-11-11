@@ -435,3 +435,38 @@ The commission is **not** part of the HRD levy base (`hrd: false` in `js/prod.js
 - **The feature is still OFF for every real company.** Nothing was switched on. To switch it on for Major Far East after the owner has checked real numbers: `node scripts/set-addon.js prodCommission "Major Far East"` (check only), then again with `--yes`. `--off --yes` switches it off.
 - Rollback if needed: copy the backup over `firestore.rules`, `firebase deploy --only firestore:rules`, `git revert` the merge range on `main`, push, `firebase deploy --only hosting`.
 - Still to confirm by the owner / accountant before the first real payroll with commission: EPF, SOCSO, EIS and PCB treatment (set as wages by default; the HRD levy is excluded).
+
+## 2026-11-11: INCIDENT: a worker got into an HR admin's account through /join (branch `claude/incident-join-session`)
+
+### What happened
+A worker opened his `/join?c=…` link on a phone where an HR admin (Nadia, HR Administrator at Major Far East) was already signed in. `start()` in `js/join.js` redirected to `/app` whenever a remembered staff session existed for the same company code, so he landed **in her account** (full admin) and checked in as her with his own selfie.
+
+### Why it worked (confirmed against the live data, read-only; flags and times only, no photos, descriptors or IC numbers)
+1. **The redirect** in `js/join.js` `start()` (the bug): any stored staff session sent the next person straight into the app. The new browser test reproduces it on the old code (the page goes to `/app`).
+2. **Nothing compared the selfie.** Major Far East's check-in setting has the **face check switched OFF** (`faceCheck = false`), so the app skipped the comparison entirely (`ciVerify` returned with `face = null`) and recorded no face result.
+3. **Her reference face is empty** (no reference photo has ever been enrolled for her account). Because the face check is off, the enrolment path never ran either: **his selfie did NOT become her reference photo.** Her reference is still empty today.
+4. **No check-in from her account is on the server** (no attendance bucket for her since 1 Oct). It is probably still queued on that phone (check-ins are sent when the phone is online). When it arrives it will show as hers with no face result.
+5. Her account has no one-phone record (`phones/…`) and no older approved check-in phone: nothing tied the account to her own phone. (The old "1 Pekerja = 1 Telefon" sign-in lock only bound employee-only accounts, not admins.)
+
+### Fixed on this branch
+1. **Join never reuses a sign-in.** The redirect is gone. If anyone is signed in on the phone (Firebase's session, or the remembered staff session) the page says "This phone is signed in as {first name}. Sign out to register yourself" (and in Bahasa Malaysia) with a Sign out button, and shows nothing else. The registration step checks again right before it creates an account or signs in.
+2. **Sign-out clears everything** (`js/session-clear.js`, used by the join page, the app's two sign-out buttons and the `?signout` link): Firebase Auth, the **Firestore offline cache** (it held the last person's documents on the phone), the remembered staff session in browser storage **and the cookie**, any stored PIN, the local copy of the workspace, per-sign-in counters and session storage. It keeps the phone's own device id. **No silent re-sign-in exists:** there is no stored password, PIN or token anywhere; every `signInWithEmailAndPassword` runs from a person's own submit, and a test pins that. The remembered session no longer stores the **IC number** either (it sat in plain text in a ten-year cookie); an older one is migrated away.
+3. **Face check.** `AllurusCheckinRules.faceReview()` decides what a selfie means. Flagged for HR now: a mismatch or weak match, a first selfie that becomes a reference ("confirm it is really them"), a match against a reference **nobody has confirmed**, a check that could not run, and, for an admin account, a check-in made while the company face check is **off** ("not compared with anyone"). Only a clear match against a confirmed reference passes without a look. HR's "needs a look" list and the notice to HR carry the new reasons. **Nobody confirms their own reference photo.**
+4. **Invite text:** the WhatsApp registration message no longer carries the IC number ("Masukkan No. IC anda dan cipta 6 angka PIN…"). (The worker's own message to HR on the join page still includes the IC he typed: HR needs it to find him.)
+5. **An admin account's first phone is never automatic** (`AllurusDevice.firstPhoneStatus`, the app and `firestore.rules`): it waits for another admin; the only Owner approves their own with their password again.
+
+### Tests
+`npm test` 428/428 (new `tests/incident-2026-11-11.test.js`, 10 tests for items 1 to 5). `npm run test:rules` 136/136 (an admin cannot self-approve a first phone). The real `/join` page in a browser with fake Firebase and someone signed in: 15/15, and it **fails on the old code exactly as the incident happened**. It checks: no redirect, the "signed in as" screen, sign out clears Firebase, the offline cache, the session, PIN, workspace copy, cookie and session storage, the device id stays, the wizard then starts, a reload does not sign anyone back in. Emulator suites updated for the admin phone rule: one-phone 37/37, device rules 28/28.
+
+### Clean-up steps for the owner (none of this has been done for you)
+1. **Deploy this fix** (`firebase deploy --only firestore:rules`, then `firebase deploy --only hosting`; back up the live rules to `docs/rules-backup/` first). Join pages already open on phones keep the old code until reloaded; the cache is bumped to v3.47.
+2. **Sign the exposed account out everywhere:** `node scripts/revoke-sessions.js "Major Far East" "Nadia"` (check-only; it matches exactly one account), then add `--yes`. Have her **change her password**. Have **that worker's phone signed out** (it may still be signed in as her until Sign out is pressed there).
+3. **Switch the face check ON for Major Far East** (Settings → Attendance → Face check). I did not change it: it is the company's setting. Until then every selfie there is accepted without comparison. Then have each person's first selfie confirmed by someone else.
+4. **Her check-in:** when it syncs it will be under her name with no face result. HR should remove or correct it (the selfie is the worker's).
+5. **What could he see?** He had her full HR-admin session between opening the link and signing out. Look at her recent activity (Settings, the activity log) and think about whether staff personal data (IC, pay, bank) was viewed. If it was, check whether your PDPA obligations apply (including notifying affected people or the Commissioner under the 2024 amendments). That is a question for your adviser; this log can't decide it.
+6. **Her own phone:** her admin account now needs her first phone approved by another admin, or by the Owner with a password.
+
+### Found while doing this (not fixed here)
+- `js/join.js` still has its own older "1 Pekerja = 1 Telefon" check at the PIN step (an existing account bound to a different device is refused). It predates the one-phone rule and can refuse a person who first signed in on a laptop. It needs the same treatment as `cloud.js`.
+- The "never log out" policy (staff stay signed in for good) is what makes a shared or lent phone dangerous. Consider a shorter session, or asking for the PIN again after a while, for admin accounts.
+- The HR screen draws the join link's QR with an outside service (`api.qrserver.com`); it sees the join address, not personal data.

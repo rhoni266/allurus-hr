@@ -110,3 +110,17 @@ test('the phone records are private: the person and the people/time area only', 
   await assertFails(getDoc(P(ctx('pay'), 'e5')));
   await assertFails(getDocs(collection(ctx('b'), `tenants/${T}/phones`)));
 });
+
+// Incident 2026-11-11: an account with an admin role never gets an automatic first phone.
+test('an admin account can’t self-approve a first phone (even with auto-approve on); it can only ask, and another admin approves', async () => {
+  const hr = ctx('hr');                                                                  // e2: admin (people area)
+  await assertFails(setDoc(P(hr, 'e2'), { active: phone('p1', { auto: true }), pending: null, retired: [] }));   // not approved at once
+  await assertSucceeds(setDoc(P(hr, 'e2'), { active: null, pending: phone('p1', { requested: '2026-11-11' }), retired: [] }));   // it can ask
+  await assertFails(updateDoc(P(hr, 'e2'), { active: phone('p1', { auto: true }), pending: null }));              // and can't promote its own request
+  await assertSucceeds(updateDoc(P(ctx('tm'), 'e2'), { active: phone('p1'), pending: null }));                    // another admin approves it
+  // The same person after "Remove phone" is asked again, never auto-approved.
+  await seed('e3', { active: null, pending: null, retired: [phone('old')] });
+  await assertFails(updateDoc(P(ctx('tm'), 'e3'), { active: phone('n', { auto: true }), pending: null }));
+  // Plain staff are unchanged: their first phone is still approved at once.
+  await assertSucceeds(setDoc(P(ctx('a'), 'e5'), { active: phone('s1', { auto: true }), pending: null, retired: [] }));
+});

@@ -380,7 +380,7 @@ async function phoneGate(profile, company) {
   }
   if (res === 'first') {
     try {
-      if (pol.autoFirst) {
+      if (Dv.firstPhoneStatus({ policy: pol, roles: profile.roles }) === 'approved') {
         const a = { id: me, name, added: today, lastUsed: today, auto: true };
         if (data) await updateDoc(ref, { active: a, pending: null }); else await setDoc(ref, { active: a, pending: null, retired: [] });
         S.phone.registered = true; return null;
@@ -696,7 +696,14 @@ const api = {
       return { ok: true, profile: S.profile };
     } catch (e) { console.warn('[Allurus cloud] register', e); return { error: authMsg(e) }; }
   },
-  async signOut() { stop(); S.profile = null; clearStaffSession(); await Auth.signOut(auth); },
+  // Signs out of everything: Firebase Auth, the Firestore offline cache (it holds the last person's documents), the
+  // remembered staff session, any stored PIN and the local copy of the workspace. Reload the page afterwards.
+  async signOut() {
+    stop(); S.profile = null; clearStaffSession();
+    try { await Auth.signOut(auth); } catch (e) { /* already signed out */ }
+    window.AllurusSession?.clearLocal();
+    await window.AllurusSession?.clearFirestoreCache(FS, db);
+  },
   async changePassword(current, next) {
     try {
       const u = auth.currentUser;
@@ -904,7 +911,6 @@ const api = {
           email,
           tenantId: tid,
           code: lower(code),
-          ic,
           deviceId: devId
         });
       }
@@ -1163,9 +1169,9 @@ function getStaffSession() {
       if (m) sess = JSON.parse(decodeURIComponent(m[1]));
     } catch (e) {}
   }
-  if (sess && 'pin' in sess) {
-    // Migrate away a PIN saved before the 2026-11-07 security fix.
-    delete sess.pin;
+  if (sess && ('pin' in sess || 'ic' in sess)) {
+    // Migrate away a PIN saved before the 2026-11-07 security fix, and the IC number (it sat in a ten-year cookie).
+    delete sess.pin; delete sess.ic;
     saveStaffSession(sess);
   }
   return sess;
@@ -1177,10 +1183,7 @@ function saveStaffSession(sess) {
   } catch (e) {}
 }
 function clearStaffSession() {
-  try {
-    localStorage.removeItem('allurus_staff_session');
-    document.cookie = 'allurus_staff_token=; max-age=0; path=/; SameSite=Lax';
-  } catch (e) {}
+  try { window.AllurusSession ? window.AllurusSession.clearLocal() : (localStorage.removeItem('allurus_staff_session'), document.cookie = 'allurus_staff_token=; max-age=0; path=/; SameSite=Lax'); } catch (e) {}
 }
 
 // A returning visitor whose sign-in is still valid: reconnect to their workspace.
@@ -1190,7 +1193,8 @@ Auth.onAuthStateChanged(auth, async (user) => {
   if (/[?&]signout\b/.test(location.search)) {
     try { await Auth.signOut(auth); } catch (e) { /* already signed out */ }
     clearStaffSession();
-    try { localStorage.removeItem('allurus-hr-cloud-v1'); } catch (e) { /* storage unavailable */ }
+    window.AllurusSession?.clearLocal();
+    await window.AllurusSession?.clearFirestoreCache(FS, db);
     location.replace('/'); return;
   }
   const sess = app.state.session;

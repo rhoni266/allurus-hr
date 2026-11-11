@@ -46,7 +46,7 @@ function getStaffSession() {
       if (m) sess = JSON.parse(decodeURIComponent(m[1]));
     } catch (e) {}
   }
-  if (sess && 'pin' in sess) { delete sess.pin; saveStaffSession(sess); } // migrate away a pre-fix stored PIN
+  if (sess && ('pin' in sess || 'ic' in sess)) { delete sess.pin; delete sess.ic; saveStaffSession(sess); } // migrate away a stored PIN or IC number
   return sess;
 }
 
@@ -385,6 +385,8 @@ function step3_pin(ctx) {
     const deviceId = getDeviceId();
     const email = M.staffEmail(ctx.staff.ic, ctx.tenantId, ctx.staff.gen);
 
+    const already = await signedInHere();
+    if (already) { signedInScreen(already); return; }
     let cred;
     try {
       cred = await Auth.createUserWithEmailAndPassword(auth, email, pin);
@@ -456,7 +458,7 @@ function step3_pin(ctx) {
       }
       // Save persistent staff session for "Never Log Out" policy (10-year expiry). Firebase Auth's own
       // persistence is what actually keeps the sign-in alive; this never stores the PIN itself.
-      saveStaffSession({ email, tenantId: ctx.tenantId, code: ctx.code, ic: ctx.staff.ic, deviceId });
+      saveStaffSession({ email, tenantId: ctx.tenantId, code: ctx.code, deviceId });
     }
 
     if (!profileOk || !phoneOk) {
@@ -532,6 +534,37 @@ async function personalLink(k) {
 }
 
 // ============================================================================
+// Someone is already signed in on this phone
+// ============================================================================
+// Who, if anyone, is signed in here: Firebase's own session, or the remembered staff session. null = nobody.
+async function signedInHere() {
+  try { await (auth.authStateReady ? auth.authStateReady() : new Promise((r) => { const u = Auth.onAuthStateChanged(auth, () => { u(); r(); }); })); } catch (e) { /* carry on */ }
+  const u = auth.currentUser, sess = getStaffSession();
+  if (!u && !(sess && (sess.email || sess.tenantId))) return null;
+  let name = '';
+  if (u) { try { const s = await FS.getDoc(FS.doc(db, `users/${u.uid}`)); name = String(s.data()?.name || '').trim().split(/\s+/)[0] || ''; } catch (e) { /* no name */ } }
+  return { name: name.slice(0, 40), user: !!u };
+}
+function signedInScreen(who) {
+  const nm = who.name ? esc(who.name) : '', en = nm ? `<b>${nm}</b>` : 'someone else', ms = nm ? `<b>${nm}</b>` : 'orang lain';
+  renderScreen({
+    title: 'Telefon ini sudah log masuk',
+    sub: `This phone is signed in as ${en}.`,
+    card: `<p style="margin-bottom:6px">Telefon ini sudah log masuk sebagai ${ms}. Log keluar dahulu untuk mendaftar diri anda.</p>
+      <p class="muted" style="margin-bottom:16px">This phone is signed in as ${en}. Sign out to register yourself.</p>
+      <button type="button" class="btn btn-primary login-submit btn-lg" id="so">Log Keluar / Sign out</button>
+      <p class="faint" style="font-size:12.5px;margin-top:12px">Bukan anda? Not you? Sign out here, then open your join link again.</p>`,
+    foot: false,
+  });
+  const btn = document.getElementById('so');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.textContent = 'Sedang log keluar…';
+    await window.AllurusSession.signOutEverything({ Auth, auth, FS, db });
+    location.replace(location.pathname + location.search);   // start again with nobody signed in
+  });
+}
+
+// ============================================================================
 // Entry Point
 // ============================================================================
 async function start() {
@@ -540,14 +573,11 @@ async function start() {
     return;
   }
 
-  // If user already has an active session on this device for this company (or generally), redirect straight to app
-  const sess = getStaffSession();
-  if (sess?.email && sess?.tenantId) {
-    if (!codeParam || codeParam === sess.code) {
-      location.replace('/app');
-      return;
-    }
-  }
+  // Joining never reuses a sign-in. If anyone is signed in on this phone (Firebase's own session, or the remembered
+  // staff session), say so and offer Sign out; register only after that. There is no redirect to /app any more: that
+  // is how a worker opening his join link landed in an HR admin's account (incident 2026-11-11).
+  const who = await signedInHere();
+  if (who) { signedInScreen(who); return; }
 
   if (secret) {
     personalLink(secret);

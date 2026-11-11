@@ -100,5 +100,29 @@ window.AllurusCheckinRules = (function () {
     return { box: rest, sent, failed: null };
   }
 
-  return { LIMITS, distanceM, decimals, gpsFlags, bestMatch, kioskAction, enqueue, retryDelay, syncOutbox };
+  /**
+   * What a check-in selfie's face result means (incident 2026-11-11: a worker checked in as an HR admin and nothing was
+   * compared). verdict = the comparison with the account's reference photo ('match' | 'weak' | 'mismatch'), or null when
+   * nothing could be compared. Returns { result, review, why }: result is what is recorded on the check-in; review means
+   * HR must look (it appears in their list and they are told). The only result that needs no look is a clear match with
+   * a reference HR has confirmed.
+   *   faceCheckOn  the company's face check setting
+   *   hasRef       the account has a reference photo
+   *   refConfirmed that reference was confirmed by someone other than its owner
+   *   admin        the account has an admin role (a stricter rule: their selfie is always worth a second look)
+   *   ran          the comparison could run on this phone
+   */
+  function faceReview({ faceCheckOn = true, hasRef = false, refConfirmed = false, verdict = null, admin = false, ran = true } = {}) {
+    if (!faceCheckOn) return { result: 'off', review: !!admin, why: admin ? 'The face check is off, so this admin’s selfie was not compared with anyone.' : '' };
+    if (!ran) return { result: 'unavailable', review: true, why: 'The face check couldn’t run on that phone.' };
+    if (!hasRef) return { result: 'enrolled', review: true, why: 'First selfie: it became this account’s reference photo. Confirm it is really them.' };
+    if (verdict === 'mismatch') return { result: 'mismatch', review: true, why: 'The face didn’t match the reference photo.' };
+    if (verdict === 'weak') return { result: 'weak', review: true, why: 'Weak face match.' };
+    if (!refConfirmed) return { result: verdict || 'match', review: true, why: 'Matched a reference photo that nobody has confirmed yet.', unconfirmed: true };
+    return { result: 'match', review: false, why: '' };
+  }
+  // Someone's reference photo is confirmed by HR, never by the person themselves.
+  const mayConfirmFace = ({ actorId, ownerId }) => !!actorId && actorId !== ownerId;
+
+  return { LIMITS, distanceM, decimals, gpsFlags, bestMatch, kioskAction, enqueue, retryDelay, syncOutbox, faceReview, mayConfirmFace };
 })();
