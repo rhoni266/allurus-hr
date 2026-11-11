@@ -320,7 +320,7 @@
 
   // ---------- Allurus support: what a change looks like in the client's support log ----------
   // Pay and ID fields (firestore.rules payIdKeys) and anything secret are never written to the log as values.
-  const PAY_ID = ['ic', 'idType', 'passportNo', 'passport', 'accountNo', 'bank', 'salary', 'epfNo', 'socsoNo', 'eisNo', 'taxNo', 'zakat', 'allowances', 'face'];
+  const PAY_ID = ['ic', 'idType', 'passportNo', 'passport', 'accountNo', 'bank', 'salary', 'epfNo', 'socsoNo', 'eisNo', 'taxNo', 'zakat', 'allowances', 'face', 'pay', 'tripRate', 'trips'];
   const SECRET = /pass(word)?|pin\b|hash|secret|token|joinkey|keyproof|^link$|^url$|otp/i;
   const maskIc = (v) => String(v).replace(/\b(\d{8})(\d{4})\b/g, '••••••••$2').replace(/\b(\d{6})-(\d{2})-(\d{4})\b/g, '••••••-••-$3');
   const short = (s, n = 160) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);

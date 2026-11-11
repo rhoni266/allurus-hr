@@ -507,7 +507,7 @@ service cloud.firestore {
           && getAfter(logPath(id)).data.actorUid == request.auth.uid && getAfter(logPath(id)).data.path == path;
       }
       // Fields of an employee record that are pay or ID data.
-      function payIdKeys() { return ['ic', 'idType', 'passportNo', 'passport', 'accountNo', 'bank', 'salary', 'epfNo', 'socsoNo', 'eisNo', 'taxNo', 'zakat', 'allowances', 'face']; }
+      function payIdKeys() { return ['ic', 'idType', 'passportNo', 'passport', 'accountNo', 'bank', 'salary', 'epfNo', 'socsoNo', 'eisNo', 'taxNo', 'zakat', 'allowances', 'face', 'pay', 'tripRate', 'trips']; }
       // Viewing: everything except pay and ID data (full employee records, payslips, personal plans, payroll and
       // per-person document buckets), which needs the second switch.
       match /{coll}/{id} {

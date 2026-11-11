@@ -1078,7 +1078,7 @@
             ${acc ? `<td><input type="checkbox" data-sel="${e.id}" aria-label="Select ${esc(fullName(e))}" ${ui.empSel?.has(e.id) ? 'checked' : ''}></td>` : ''}
             <td>${person(e)}</td><td class="hide-sm">${deptTag(e.dept)}</td><td>${statusPill(empStatus(e))}</td>${acc ? `<td>${teamAccess.badge(e)}</td>` : ''}
             <td class="hide-sm muted">${esc(e.location)}</td><td class="hide-sm muted num">${U.fmtDate(e.start)}</td>
-            <td class="r num">${money(e.salary)}</td>
+            <td class="r num">${e.pay === 'trip' ? `${money(e.tripRate, 2)} / trip` : money(e.salary)}</td>
             <td><div class="row-actions"><button class="btn btn-sm btn-icon btn-ghost" data-act="edit-emp" data-id="${e.id}" aria-label="Edit ${esc(fullName(e))}">${icon('edit')}</button></div></td></tr>`).join('')}</tbody>
         </table>${list.length ? '' : '<div class="empty"><strong>No one matches those filters</strong>Try a different search or clear the filters.</div>'}</div>
       </div>`;
@@ -1108,7 +1108,9 @@
       <div class="field"><label for="f-pattern">Working pattern</label><select class="select" id="f-pattern" name="timePattern">${opt([['', 'Department’s pattern'], ...state.settings.time.patterns.map((p) => [p.id, `${p.name} (${AllurusTimeRules.shiftLabel(p)})`])], e.timePattern || '')}</select><span class="field-hint">The Schedule can change single days.</span></div>
       <div class="field"><label for="f-type">Employment type</label><select class="select" id="f-type" name="type">${opt(['Full-time', 'Part-time', 'Contract', 'Intern', 'Owner'], e.type || 'Full-time')}</select></div>
       <div class="field"><label for="f-location">Location</label><input class="input" id="f-location" name="location" value="${esc(e.location)}"></div>
-      <div class="field"><label for="f-salary">Annual salary (${esc(state.settings.currency)})</label><input class="input" id="f-salary" name="salary" type="number" min="0" step="500" required value="${esc(e.salary)}"></div>
+      <div class="field" id="fw-pay" style="${(dept(e.dept)?.tripPay === 'yes' || e.pay === 'trip') ? '' : 'display:none'}"><label for="f-pay">Pay basis</label><select class="select" id="f-pay" name="pay">${opt([['', 'Monthly salary'], ['trip', 'Per trip']], e.pay === 'trip' ? 'trip' : '')}</select></div>
+      <div class="field" id="fw-salary" style="${e.pay === 'trip' ? 'display:none' : ''}"><label for="f-salary">Monthly salary (${esc(state.settings.currency)})</label><input class="input" id="f-salary" name="salary" type="number" min="0" step="0.01" value="${esc(e.salary ? Math.round((e.salary / 12) * 100) / 100 : '')}"></div>
+      <div class="field" id="fw-trip" style="${e.pay === 'trip' ? '' : 'display:none'}"><label for="f-triprate">Rate per trip (${esc(state.settings.currency)})</label><input class="input" id="f-triprate" name="tripRate" type="number" min="0" step="0.01" value="${esc(e.tripRate || '')}"><span class="field-hint">Trips are entered each month in the payroll run.</span></div>
       <div class="field"><label for="f-start">Start date</label><input class="input" id="f-start" name="start" type="date" required value="${esc(e.start || U.today())}"></div>
       <div class="field"><label for="f-gender">Gender</label><select class="select" id="f-gender" name="gender">${opt([['', 'Not set'], ['female', 'Female'], ['male', 'Male']], e.gender || '')}</select><span class="field-hint">Used for maternity and paternity leave.</span></div>
       <div class="field"><label for="f-married">Marital status</label><select class="select" id="f-married" name="married">${opt([['no', 'Single'], ['yes', 'Married']], e.married ? 'yes' : 'no')}</select></div>
@@ -1124,7 +1126,17 @@
     openModal({
       title: id ? 'Edit employee' : 'Add employee', body: employeeForm(e), submit: id ? 'Save changes' : 'Add employee',
       onSubmit(d) {
-        d.salary = Number(d.salary) || 0;
+        d.pay = d.pay === 'trip' ? 'trip' : '';
+        const fieldProblem = (sel, msg) => { const el = $(sel); el.setAttribute('aria-invalid', 'true'); el.closest('.field').insertAdjacentHTML('beforeend', `<span class="field-error">${esc(msg)}</span>`); el.focus(); toast(msg, 'error'); return false; };
+        if (d.pay === 'trip') {
+          d.tripRate = Math.round((Number(d.tripRate) || 0) * 100) / 100;
+          if (!(d.tripRate > 0)) return fieldProblem('#f-triprate', 'Enter the rate per trip');
+          d.salary = 0;
+        } else {
+          if (String(d.salary).trim() === '') return fieldProblem('#f-salary', 'Enter the monthly salary');
+          d.salary = Math.round((Number(d.salary) || 0) * 12 * 100) / 100; // the form takes a monthly figure; salary is stored as annual
+          d.tripRate = 0;
+        }
         d.married = d.married === 'yes';
         if ('zakat' in d) d.zakat = Math.max(0, Number(d.zakat) || 0);
         d.email = String(d.email || '').trim().toLowerCase();
@@ -1186,7 +1198,7 @@
       <div class="drawer-section"><h4>Employment</h4><dl class="kv">
         <dt>Type</dt><dd>${esc(e.type)}</dd><dt>Manager</dt><dd>${mgr ? esc(fullName(mgr)) : '—'}</dd>
         <dt>Start date</dt><dd>${U.fmtDate(e.start)}</dd><dt>Date of birth</dt><dd>${U.fmtDate(e.birthday)}</dd>
-        <dt>Salary</dt><dd class="num">${money(e.salary)} / year</dd><dt>Monthly gross</dt><dd class="num">${money(e.salary / 12)}</dd></dl></div>
+        ${e.pay === 'trip' ? `<dt>Pay</dt><dd class="num">${money(e.tripRate, 2)} per trip</dd>` : `<dt>Salary</dt><dd class="num">${money(e.salary)} / year</dd><dt>Monthly gross</dt><dd class="num">${money(e.salary / 12)}</dd>`}</dl></div>
       <div class="drawer-section"><h4>Time off this year</h4>
         ${[['Annual', lvA, 'var(--brand)'], ['Sick', lvS, 'var(--gold)']].map(([n, b, c]) => { const total = b.entitled + b.carried - b.lapsed; return `<div class="hbar" style="grid-template-columns:70px minmax(0,1fr) 90px"><span>${n}</span><div class="hbar-track"><i style="width:${total ? Math.min(100, (b.used / total) * 100) : 0}%;background:${c}"></i></div><span class="num r muted">${b.used} of ${total}</span></div>`; }).join('')}
       </div>
@@ -1226,6 +1238,7 @@
         <div class="field"><label for="d-name">Name</label><input class="input" id="d-name" name="name" required value="${esc(d.name)}"></div>
         <div class="field"><label for="d-lead">Department lead</label><select class="select" id="d-lead" name="lead"><option value="">No lead</option>${state.employees.map((e) => `<option value="${e.id}" ${d.lead === e.id ? 'selected' : ''}>${esc(fullName(e))}</option>`).join('')}</select></div>
         <div class="field"><label for="d-color">Color</label><select class="select" id="d-color" name="color">${colors.map((c, i) => `<option value="${c}" ${d.color === c ? 'selected' : ''}>${['Teal', 'Blue', 'Champagne', 'Rose', 'Violet', 'Olive', 'Amber', 'Sky'][i]}</option>`).join('')}</select></div>
+        <div class="field"><label for="d-trippay">Pay options</label><select class="select" id="d-trippay" name="tripPay">${[['', 'Monthly salary only'], ['yes', 'Monthly salary or per trip']].map(([v, l]) => `<option value="${v}" ${(d.tripPay || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="field-hint">Per trip: staff are paid a rate for each trip, entered monthly in payroll. Use for Logistic.</span></div>
         <div class="field"><label for="d-about">Role</label><textarea class="textarea" id="d-about" name="about" style="min-height:64px" placeholder="What this department is responsible for">${esc(d.about || '')}</textarea></div>
         <div class="field"><label for="d-duties">Key responsibilities</label><input class="input" id="d-duties" name="duties" value="${esc(d.duties || '')}" placeholder="Separate with commas"></div>
         <div class="field"><label for="d-note">Note</label><textarea class="textarea" id="d-note" name="note" style="min-height:64px">${esc(d.note || '')}</textarea></div></div>`,
@@ -1234,6 +1247,17 @@
         else { state.departments.push({ id: U.uid('d-'), ...f }); commit('Department created', `${f.name} department was created`); }
       },
     });
+    // Per-trip pay: shown for departments that allow it; the monthly salary and rate per trip swap with the pay basis.
+    const form = $('#overlay-root form');
+    const syncPay = () => {
+      const ok = dept(form.elements.dept.value)?.tripPay === 'yes';
+      if (!ok && form.elements.pay.value === 'trip') form.elements.pay.value = '';
+      $('#fw-pay').style.display = ok || form.elements.pay.value === 'trip' ? '' : 'none';
+      const trip = form.elements.pay.value === 'trip';
+      $('#fw-salary').style.display = trip ? 'none' : '';
+      $('#fw-trip').style.display = trip ? '' : 'none';
+    };
+    form.addEventListener('change', (ev) => { if (ev.target.name === 'dept' || ev.target.name === 'pay') syncPay(); });
   }
 
   // ----- Attendance -----
@@ -1295,16 +1319,22 @@
   // One employee's line in a pay run: salary, overtime and allowances, statutory deductions and approved claims.
   function payItem(e0, bonus, mk) {
     // The salary in effect that month: an appraisal increment counts from its effective month.
-    const e = appraisalApi ? { ...e0, salary: appraisalApi.salaryFor(e0, mk) } : e0;
+    const trip = e0.pay === 'trip';
+    const e = trip ? { ...e0, salary: 0 } : appraisalApi ? { ...e0, salary: appraisalApi.salaryFor(e0, mk) } : e0;
+    // Per-trip staff: trips entered for the month × their rate, counted as wages (EPF, SOCSO/EIS, PCB and HRD levy).
+    const trips = trip ? Math.max(0, Number(e0.trips?.[mk]) || 0) : 0;
+    const tripRate = trip ? Number(e0.tripRate) || 0 : 0;
+    const tripPay = U.round2(trips * tripRate);
     // Approved unpaid leave in the month comes off basic pay before statutory deductions.
     const up = leaveApi ? leaveApi.unpaidFor(e.id, mk, U.round2(e.salary / 12)) : { days: 0, amount: 0, divisor: 0 };
     // Approved overtime and daily allowances from attendance, each flagged for EPF, SOCSO/EIS and PCB, and approved
     // claims: taxable categories go into gross pay (PCB), the rest are reimbursed on top of net pay.
     const cl = claimsApi?.enabled() ? claimsApi.forPayroll(e.id, mk) : null;
-    const extra = [...(timeApi ? timeApi.forPayroll(e, mk) : []), ...(prodApi ? prodApi.forPayroll(e, mk) : []), ...(cl?.taxable ? [{ key: 'claims-taxable', label: `Taxable claims (${cl.taxableCats.join(', ')})`, amount: cl.taxable, epf: false, socso: false, tax: true, detail: 'Benefit reimbursed through payroll' }] : [])];
+    const extra = [...(timeApi ? timeApi.forPayroll(e, mk) : []), ...(prodApi ? prodApi.forPayroll(e, mk) : []), ...(tripPay ? [{ key: 'trips', label: `Trips (${trips} × ${money(tripRate, 2)})`, amount: tripPay, epf: true, socso: true, tax: true, hrd: true, detail: 'Paid per trip' }] : []), ...(cl?.taxable ? [{ key: 'claims-taxable', label: `Taxable claims (${cl.taxableCats.join(', ')})`, amount: cl.taxable, epf: false, socso: false, tax: true, detail: 'Benefit reimbursed through payroll' }] : [])];
     const it = { empId: e.id, ...U.payCalc(e.salary, bonus, state.settings, e, U.monthEnd(mk), { unpaid: up.amount, unpaidDays: up.days, extra }) };
     if (it.unpaid) it.unpaidDivisor = up.divisor;
     it.extraLines = extra;
+    if (trip) { it.isTrip = true; it.trips = trips; it.tripRate = tripRate; }
     it.claimIds = cl ? cl.ids : [];
     it.claims = cl ? cl.nonTaxable : 0;
     it.claimGL = cl ? cl.byGL : {};
@@ -1366,7 +1396,7 @@
       <div class="card card-flush"><div class="table-wrap"><table>
         <thead><tr><th>Employee</th><th class="r">Bonus</th><th class="r">Gross</th>${my ? '<th class="r hide-sm">EPF</th><th class="r hide-sm">SOCSO + EIS</th><th class="r hide-sm">PCB</th>' : '<th class="r hide-sm">Tax</th><th class="r hide-sm">Benefits</th>'}${t.claims ? '<th class="r hide-sm">Claims</th>' : ''}<th class="r">Net</th></tr></thead>
         <tbody>${run.items.map((it) => { const e = emp(it.empId); if (!e) return ''; return `<tr>
-          <td><button class="cell-btn" data-act="payslip" data-id="${it.empId}" title="Open payslip">${person(e)}</button>${it.salaryNote ? `<div class="person-sub"><span class="tag ok">${esc(it.salaryNote)}</span></div>` : ''}</td>
+          <td><button class="cell-btn" data-act="payslip" data-id="${it.empId}" title="Open payslip">${person(e)}</button>${it.salaryNote ? `<div class="person-sub"><span class="tag ok">${esc(it.salaryNote)}</span></div>` : ''}${it.isTrip ? (run.status === 'Draft' ? `<div class="person-sub">Trips <input class="input num" style="width:64px;text-align:right" type="number" min="0" step="1" data-trips="${it.empId}" value="${it.trips || 0}" aria-label="Trips for ${esc(fullName(e))}"> × ${money(it.tripRate, 2)}</div>` : `<div class="person-sub">${it.trips || 0} trips × ${money(it.tripRate, 2)}</div>`) : ''}</td>
           <td class="r num">${run.status === 'Draft' ? `<input class="input num" style="width:84px;text-align:right" type="number" min="0" step="100" data-bonus="${it.empId}" value="${it.bonus}" aria-label="Bonus for ${esc(fullName(e))}">` : money(it.bonus)}${it.bonusNote ? `<div class="person-sub">${esc(it.bonusNote)}</div>` : ''}</td>
           <td class="r num">${money(it.gross, 2)}${it.unpaid ? `<div class="person-sub">−${money(it.unpaid, 2)} unpaid leave</div>` : ''}${it.extras ? `<div class="person-sub">+${money(it.extras, 2)} added earnings</div>` : ''}</td>
           ${my ? `<td class="r num muted hide-sm">${money(it.epf ?? it.benefits, 2)}</td><td class="r num muted hide-sm">${money((it.socso || 0) + (it.eis || 0), 2)}</td><td class="r num muted hide-sm">${money(it.tax + (it.zakat || 0), 2)}</td>` : `<td class="r num muted hide-sm">${money(it.tax, 2)}</td><td class="r num muted hide-sm">${money(it.benefits, 2)}</td>`}
@@ -1377,6 +1407,14 @@
   };
   AFTER.payroll = () => {
     docsApi.bindTabs();
+    $$('[data-trips]').forEach((inp) => inp.addEventListener('change', () => {
+      const run = state.payroll[ui.payMonth];
+      const it = run.items.find((i) => i.empId === inp.dataset.trips);
+      const e = emp(it.empId);
+      e.trips = { ...(e.trips || {}), [ui.payMonth]: Math.max(0, Math.floor(Number(inp.value) || 0)) };
+      Object.assign(it, payItem(e, it.bonus, ui.payMonth));
+      save(); render(); toast('Trips updated');
+    }));
     $$('[data-bonus]').forEach((inp) => inp.addEventListener('change', () => {
       const run = state.payroll[ui.payMonth];
       const it = run.items.find((i) => i.empId === inp.dataset.bonus);
@@ -1393,12 +1431,12 @@
     const flags = (l) => statutory ? [l.epf ? 'EPF' : '', l.socso ? 'SOCSO' : '', l.tax ? 'taxed' : 'not taxed'].filter(Boolean).join(' · ') : '';
     const extras = (it.extraLines || []).map((l) => row(`${esc(l.label)}<div class="person-sub">${esc(l.detail || '')}${flags(l) ? ` · ${flags(l)}` : ''}</div>`, money(l.amount, 2))).join('');
     const lines = statutory
-      ? `${head('Earnings')}${row('Basic salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'} (basic ÷ ${it.unpaidDivisor})`, neg(it.unpaid)) : ''}${extras}${it.bonus ? row(it.bonusNote ? `Bonus<div class="person-sub">${esc(it.bonusNote)}</div>` : 'Bonus', money(it.bonus, 2)) : ''}${row('Gross pay', money(it.gross, 2))}
+      ? `${head('Earnings')}${it.isTrip ? '' : row('Basic salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'} (basic ÷ ${it.unpaidDivisor})`, neg(it.unpaid)) : ''}${extras}${it.bonus ? row(it.bonusNote ? `Bonus<div class="person-sub">${esc(it.bonusNote)}</div>` : 'Bonus', money(it.bonus, 2)) : ''}${row('Gross pay', money(it.gross, 2))}
          ${head('Deductions')}${row('EPF (KWSP), employee', neg(it.epf))}${row('SOCSO (PERKESO), employee', neg(it.socso))}${row('EIS, employee', neg(it.eis))}${row('Income tax (PCB)', neg(it.tax))}${it.zakat ? row('Zakat', neg(it.zakat)) : ''}
          ${it.claims ? `${head('Reimbursements')}${row('Claims reimbursed (not taxed)', money(it.claims, 2))}` : ''}
          ${row('Net pay', money(it.net, 2), true)}
          ${head('Paid by the company on top of your pay')}${row('EPF, employer', money(it.erEpf, 2))}${row('SOCSO, employer', money(it.erSocso, 2))}${row('EIS, employer', money(it.erEis, 2))}`
-      : `${row('Base salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'}`, neg(it.unpaid)) : ''}${extras}${row('Bonus', money(it.bonus, 2))}${row('Gross pay', money(it.gross, 2))}${row(`Income tax (${state.settings.taxRate}%)`, neg(it.tax))}${row(`Benefits (${state.settings.benefitsRate}%)`, neg(it.benefits))}${it.claims ? row('Claims reimbursed', money(it.claims, 2)) : ''}${row('Net pay', money(it.net, 2), true)}`;
+      : `${it.isTrip ? '' : row('Base salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'}`, neg(it.unpaid)) : ''}${extras}${row('Bonus', money(it.bonus, 2))}${row('Gross pay', money(it.gross, 2))}${row(`Income tax (${state.settings.taxRate}%)`, neg(it.tax))}${row(`Benefits (${state.settings.benefitsRate}%)`, neg(it.benefits))}${it.claims ? row('Claims reimbursed', money(it.claims, 2)) : ''}${row('Net pay', money(it.net, 2), true)}`;
     openModal({
       title: 'Payslip', size: 'sm', submit: null,
       body: `<div style="display:flex;flex-direction:column;gap:18px">
