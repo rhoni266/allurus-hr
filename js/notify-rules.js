@@ -74,6 +74,7 @@ window.AllurusNotifyRules = (function () {
     'phone.registered': { cat: 'requests', icon: 'shield', inAppOnly: true, text: (d) => [`${d.who} registered a phone`, 'Their first phone was approved automatically. Check it in Approvals or their profile if that isn’t right.'] },
     'phone.asked': { cat: 'requests', icon: 'shield', inAppOnly: true, text: (d) => [`${d.who} asked to use a new phone`, 'Approve it in Approvals. The old phone stops working once you do.'] },
     'phone.changed': { cat: 'requests', icon: 'shield', text: () => ['Your Allurus phone was changed', 'You approved a new phone for your account. The old phone no longer works. If this wasn’t you, change your password and tell your admin.'] },
+    'staff.autolinked': { cat: 'requests', icon: 'people', inAppOnly: true, text: (d) => [`${d.who} registered and was linked automatically (IC ••••${d.ic4}, phone ${d.phone})`, 'Check it’s really them. If it isn’t, open Team access and press This isn’t them.'] },
     'staff.registered': { cat: 'requests', icon: 'people', inAppOnly: true, text: (d) => [`${d.who} registered on the join page`, 'Check it’s really them, then approve it in Team access. If it isn’t them, press This is not them.'] },
     'reminder.appraisals': { cat: 'reminders', icon: 'trend', text: (d) => [`${d.count} appraisal${d.count === 1 ? ' is' : 's are'} not submitted`, `${d.cycle} appraisals are due ${fmt(d.date)} (${inDays(d.left)}): ${d.names}.`] },
   };

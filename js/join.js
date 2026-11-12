@@ -301,8 +301,44 @@ async function savePhone(tenantId, empId, phone) {
 }
 
 // ----------------------------------------------------------------------------
-// Step 3: Create 6-Digit PIN (Strict "No Rules" Policy)
+// Step 3: Create a 6-digit PIN, typed twice (docs/JOIN-AUTOLINK-SPEC.md)
 // ----------------------------------------------------------------------------
+// After the account is made, a new sign-up on the open page links itself to its own employee record when HR's staffLinks document says
+// which one it is (firestore.rules checks everything again), then goes straight into the app. If that is not possible the person still
+// goes into the app and sees "waiting for HR approval". The same step is used by a personal join link and by "Reset sign-in".
+async function tryAutoLink(ctx, uid) {
+  // Personal links already carry the employee. Otherwise read the document HR keeps for this IC (readable only by this sign-in).
+  if (ctx.staff.empId) return { linked: true, empId: ctx.staff.empId };
+  try {
+    const lk = await FS.getDoc(FS.doc(db, `staffLinks/${ctx.tenantId}~${ctx.staff.ic}`));
+    if (!lk.exists()) return { linked: false, why: 'none' };
+    const L = lk.data();
+    if (L.hasSignIn) return { linked: false, why: 'has-sign-in' };
+    const bad = M.linkProblem(L.empId, [{ id: L.empId }]);            // the same shape check HR's approval makes
+    if (bad) return { linked: false, why: 'bad' };
+    await FS.updateDoc(FS.doc(db, `users/${uid}`), { empId: L.empId, autoLinkedAt: FS.serverTimestamp() });
+    return { linked: true, empId: L.empId, auto: true };
+  } catch (e) {
+    console.warn('[Allurus join] auto-link not done', e?.code);        // off, not allowed, or the phone check did not match: HR approves it
+    return { linked: false, why: 'refused' };
+  }
+}
+// The linked record's first name, for the welcome and the sign-in's display name (read with the person's own access).
+async function nameFromRecord(ctx, uid, empId) {
+  try {
+    const snap = await FS.getDoc(FS.doc(db, `tenants/${ctx.tenantId}/people/${empId}`));
+    if (!snap.exists()) return '';
+    const first = String(M.dec(snap.data().first) || '').trim(), last = String(M.dec(snap.data().last) || '').trim();
+    const full = `${first} ${last}`.trim();
+    if (full) await FS.updateDoc(FS.doc(db, `users/${uid}`), { name: full.slice(0, 100) }).catch(() => {});
+    return first;
+  } catch (e) { return ''; }
+}
+function goIntoApp(firstName) {
+  try { if (firstName) sessionStorage.setItem('allurus-welcome', firstName); } catch (e) { /* the welcome is a nicety */ }
+  setTimeout(() => location.replace('/app?activated'), 900);
+}
+
 function step3_pin(ctx) {
   renderScreen({
     badge: ctx.companyName,
@@ -311,58 +347,60 @@ function step3_pin(ctx) {
     sub: 'Create 6-digit PIN for login',
     card: `
       <form id="f-pin" novalidate style="display:flex;flex-direction:column;gap:14px" autocomplete="off">
-        <p class="faint" style="font-size:13px;margin:0;text-align:center">Pilih 6 nombor mudah diingati untuk log masuk seterusnya.</p>
+        <p class="faint" style="font-size:13px;margin:0;text-align:center">Pilih 6 nombor mudah diingati untuk log masuk seterusnya. Taip dua kali.</p>
         <div class="field">
-          <div style="position:relative">
-            <input class="input input-lg input-pin" id="pin-in" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="••••••" autocomplete="new-password" autofocus required>
-          </div>
+          <label for="pin-in" style="font-size:13px;font-weight:600">PIN</label>
+          <input class="input input-lg input-pin" id="pin-in" name="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="••••••" autocomplete="new-password" autofocus required>
+        </div>
+        <div class="field">
+          <label for="pin2-in" style="font-size:13px;font-weight:600">Masukkan semula PIN / Confirm PIN</label>
+          <input class="input input-lg input-pin" id="pin2-in" name="pin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="••••••" autocomplete="new-password" required>
           <div style="display:flex;justify-content:center;margin-top:10px">
-            <button type="button" class="btn btn-sm btn-ghost" id="toggle-pin" style="font-size:13px;border-radius:999px">👁️ Tunjuk Nombor / Show PIN</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="toggle-pin" style="font-size:13px;border-radius:999px">👁️ Tunjuk / Show</button>
           </div>
         </div>
         <p class="login-error" id="err-pin" role="alert" hidden></p>
-        <button class="btn btn-primary btn-lg login-submit" type="submit" id="go-pin">Selesai & Masuk Aplikasi 🎉</button>
+        <button class="btn btn-primary btn-lg login-submit" type="submit" id="go-pin" disabled>Selesai & Masuk Aplikasi 🎉</button>
         <button type="button" class="link-btn" id="back-step" style="font-size:13px;margin-top:2px">Kembali / Back</button>
       </form>`
   });
 
   const form = document.getElementById('f-pin');
   const pinIn = document.getElementById('pin-in');
+  const pin2In = document.getElementById('pin2-in');
   const toggleBtn = document.getElementById('toggle-pin');
   const errPin = document.getElementById('err-pin');
   const btn = document.getElementById('go-pin');
   const backBtn = document.getElementById('back-step');
+  const idle = 'Selesai & Masuk Aplikasi 🎉';
 
-  // Real-time auto-clean input: strictly digits only
-  pinIn.addEventListener('input', () => {
-    const raw = pinIn.value.replace(/\D/g, '').slice(0, 6);
-    if (pinIn.value !== raw) pinIn.value = raw;
-    errPin.hidden = true;
-  });
+  // Digits only, six at most; the button stays off until both boxes have six digits.
+  const clean = (el) => { const raw = el.value.replace(/\D/g, '').slice(0, 6); if (el.value !== raw) el.value = raw; };
+  const refresh = () => { btn.disabled = !(pinIn.value.length === 6 && pin2In.value.length === 6); errPin.hidden = true; };
+  pinIn.addEventListener('input', () => { clean(pinIn); refresh(); });
+  pin2In.addEventListener('input', () => { clean(pin2In); refresh(); });
 
-  // Show/Hide PIN toggle
+  // One "Show" for both boxes.
   toggleBtn.addEventListener('click', () => {
     const isPw = pinIn.type === 'password';
-    pinIn.type = isPw ? 'text' : 'password';
-    toggleBtn.textContent = isPw ? '🔒 Sembunyi / Hide PIN' : '👁️ Tunjuk Nombor / Show PIN';
+    pinIn.type = pin2In.type = isPw ? 'text' : 'password';
+    toggleBtn.textContent = isPw ? '🔒 Sembunyi / Hide' : '👁️ Tunjuk / Show';
   });
 
   backBtn.addEventListener('click', () => step2_phone(ctx));
 
   let busy = false;
+  const fail = (html) => { busy = false; btn.disabled = false; btn.textContent = idle; errPin.innerHTML = html; errPin.hidden = false; };
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     if (busy) return;
 
-    const pin = pinIn.value.trim().replace(/\D/g, '');
-
-    // Strict "No Rules" Policy: allow ANY 6 digits (000000 - 999999)
-    if (!/^[0-9]{6}$/.test(pin)) {
-      errPin.textContent = 'Sila masukkan 6 angka nombor sahaja / Please enter 6 digits.';
-      errPin.hidden = false;
-      pinIn.focus();
-      return;
+    const pp = M.pinPair(pinIn.value, pin2In.value);
+    if (!pp.ready) {
+      if (pp.mismatch) { pin2In.value = ''; btn.disabled = true; errPin.textContent = 'PIN tidak sama. Sila cuba lagi. / PINs don’t match.'; errPin.hidden = false; pin2In.focus(); return; }
+      errPin.textContent = 'Sila masukkan 6 angka nombor sahaja / Please enter 6 digits.'; errPin.hidden = false; return;
     }
+    const pin = pp.pin;
 
     busy = true;
     btn.disabled = true;
@@ -373,39 +411,32 @@ function step3_pin(ctx) {
 
     const already = await signedInHere();
     if (already) { signedInScreen(already); return; }
-    let cred;
+    let cred, existing = false;
     try {
       cred = await Auth.createUserWithEmailAndPassword(auth, email, pin);
     } catch (e) {
       if (e?.code === 'auth/email-already-in-use') {
-        // Try sign-in if account was already created
-        try {
-          cred = await Auth.signInWithEmailAndPassword(auth, email, pin);
-        } catch (signInErr) {
-          busy = false;
-          btn.disabled = false;
-          btn.textContent = 'Selesai & Masuk Aplikasi 🎉';
-          errPin.innerHTML = 'Akaun dengan No. IC ini sudah wujud. <a href="/app" style="color:var(--brand);font-weight:600">Klik di sini untuk log masuk</a>.';
-          errPin.hidden = false;
-          return;
+        // This IC already has a sign-in: the right PIN signs in and goes straight into the app.
+        try { cred = await Auth.signInWithEmailAndPassword(auth, email, pin); existing = true; }
+        catch (signInErr) {
+          if (signInErr?.code === 'auth/network-request-failed') { fail('Masalah sambungan internet. Sila cuba lagi.'); return; }
+          pin2In.value = ''; fail('PIN salah. Lupa PIN? Minta HR tekan Reset sign-in. / Wrong PIN. Forgot it? Ask HR to press Reset sign-in.'); return;
         }
       } else {
-        busy = false;
-        btn.disabled = false;
-        btn.textContent = 'Selesai & Masuk Aplikasi 🎉';
-        errPin.textContent = e?.code === 'auth/network-request-failed'
-          ? 'Masalah sambungan internet. Sila cuba lagi.'
-          : 'Gagal membuat akaun. Sila hubungi HR anda.';
-        errPin.hidden = false;
+        fail(e?.code === 'auth/network-request-failed' ? 'Masalah sambungan internet. Sila cuba lagi.' : 'Gagal membuat akaun. Sila hubungi HR anda.');
         return;
       }
     }
+    const uid = cred.user.uid;
 
     // Each save is its own step, tried twice. Errors are logged by code only: never the IC, phone or PIN.
     const twice = async (fn) => { try { await fn(); return true; } catch (e) { console.warn('[Allurus join] save failed, retrying', e?.code); } try { await fn(); return true; } catch (e) { console.warn('[Allurus join] save failed', e?.code); return false; } };
-    const profileOk = await twice(() => FS.setDoc(FS.doc(db, `users/${cred.user.uid}`), {
+    // A sign-in that already exists keeps its profile (the rules do not let it be rewritten here).
+    const mine = existing ? await FS.getDoc(FS.doc(db, `users/${uid}`)).catch(() => null) : null;
+    const hadProfile = !!(mine && mine.exists());
+    const profileOk = hadProfile ? true : await twice(() => FS.setDoc(FS.doc(db, `users/${uid}`), {
       email,
-      name: 'Staff', // the real name is on the linked employee record (empId); not read pre-sign-in (gap 3)
+      name: 'Staff', // replaced by the linked record's name once the link is made
       tenantId: ctx.tenantId,
       code: ctx.code,
       roles: ['employee'],
@@ -415,19 +446,31 @@ function step3_pin(ctx) {
       phone: ctx.staff.phone || '',
       authType: 'pin',
       deviceId,
+      deviceName: String((M.getDeviceName && M.getDeviceName()) || '').slice(0, 60),
       joinedAt: FS.serverTimestamp()
     }, { merge: true }));
-    const phoneOk = !profileOk ? false : !ctx.staff.phone || !ctx.staff.empId || await twice(() => savePhone(ctx.tenantId, ctx.staff.empId, ctx.staff.phone));
 
-    if (profileOk) {
+    // Link to their own record (open page, company switch on, HR's staffLinks document), then the name and the phone.
+    let link = { linked: !!(hadProfile ? mine.data().empId : ctx.staff.empId), empId: hadProfile ? mine.data().empId : ctx.staff.empId };
+    if (profileOk && !link.linked && !(hadProfile && mine.data().via !== 'open')) link = await tryAutoLink(ctx, uid);
+    let first = '';
+    if (profileOk && link.linked && link.empId) {
+      first = await nameFromRecord(ctx, uid, link.empId);
+      if (ctx.staff.phone && !hadProfile) await twice(() => savePhone(ctx.tenantId, link.empId, ctx.staff.phone));
+    }
+    const phoneOk = true;
+
+    if (profileOk && !hadProfile) {
       // Clean up legacy single-link invite if exists
       const key = `${ctx.tenantId}~${ctx.staff.ic}`;
       const invSnap = await FS.getDoc(FS.doc(db, `staffInvites/${key}`)).catch(() => null);
       if (invSnap?.exists()) {
-        const link = invSnap.data().link;
-        if (link) await FS.deleteDoc(FS.doc(db, `joinLinks/${link}`)).catch(() => {});
+        const lnk = invSnap.data().link;
+        if (lnk) await FS.deleteDoc(FS.doc(db, `joinLinks/${lnk}`)).catch(() => {});
         await FS.deleteDoc(FS.doc(db, `staffInvites/${key}`)).catch(() => {});
       }
+    }
+    if (profileOk) {
       // Save persistent staff session for "Never Log Out" policy (10-year expiry). Firebase Auth's own
       // persistence is what actually keeps the sign-in alive; this never stores the PIN itself.
       saveStaffSession({ email, tenantId: ctx.tenantId, code: ctx.code, deviceId });
@@ -435,7 +478,7 @@ function step3_pin(ctx) {
 
     if (!profileOk || !phoneOk) {
       // A note for HR (Team access shows it), without the IC or phone. Best effort: HR is also told by the person.
-      await FS.setDoc(FS.doc(db, `tenants/${ctx.tenantId}/joinIssues/${cred.user.uid}`), { kind: profileOk ? 'phone' : 'profile', empId: ctx.staff.empId || '', at: FS.serverTimestamp() }).catch((e) => console.warn('[Allurus join] note for HR failed', e?.code));
+      await FS.setDoc(FS.doc(db, `tenants/${ctx.tenantId}/joinIssues/${uid}`), { kind: profileOk ? 'phone' : 'profile', empId: ctx.staff.empId || '', at: FS.serverTimestamp() }).catch((e) => console.warn('[Allurus join] note for HR not saved', e?.code));
       busy = false;
       renderScreen({
         badge: ctx.companyName,
@@ -449,20 +492,20 @@ function step3_pin(ctx) {
 
     renderScreen({
       badge: ctx.companyName,
-      title: 'Pendaftaran Berjaya! 🎉',
-      sub: 'Registration Successful!',
+      title: link.linked ? 'Pendaftaran Berjaya! 🎉' : 'Pendaftaran Diterima',
+      sub: link.linked ? 'Registration Successful!' : 'Registration received',
       card: `
         <div class="welcome-box" style="margin-bottom:12px">
-          <p style="font-size:15px;margin:0 0 6px"><b>Selamat datang!</b></p>
-          <p style="font-size:13.5px;margin:0">Membuka aplikasi Allurus anda…</p>
+          <p style="font-size:15px;margin:0 0 6px"><b>${link.linked ? `Selamat datang${first ? ', ' + esc(first) : ''}!` : 'Akaun anda sedang menunggu kelulusan HR'}</b></p>
+          <p style="font-size:13.5px;margin:0">${link.linked ? 'Membuka aplikasi Allurus anda…' : 'Your account is waiting for HR approval. Membuka aplikasi…'}</p>
         </div>
-        <p class="ac-ok" role="status">Sila gunakan kod syarikat <b>${esc(ctx.code)}</b>, No. IC dan PIN 6 angka anda untuk log masuk seterusnya.</p>
+        <p class="ac-ok" role="status">Lain kali, gunakan kod syarikat <b>${esc(ctx.code)}</b>, No. IC dan PIN 6 angka anda untuk log masuk.</p>
         ${window.AllurusDevice && window.AllurusDevice.here() !== 'phone' ? `<p class="ac-note" style="margin-top:10px"><b>${esc(window.AllurusDevice.TEXT.ms.joined)}</b><br>${esc(window.AllurusDevice.TEXT.en.joined)}</p>` : ''}`,
       foot: false
     });
 
-    // Auto-login: user is already signed in via Firebase Auth, redirect straight to app dashboard
-    setTimeout(() => location.replace('/app?activated'), 1200);
+    // Already signed in: straight into the app (their staff screen, or the waiting screen). No second sign-in.
+    goIntoApp(link.linked ? first : '');
   });
 }
 

@@ -307,6 +307,7 @@ async function push() {
     S.pushing = false;
     if (S.again) { S.again = false; changed(); }
     pruneStaffKeys();
+    scheduleLinks();
   }
 }
 // When HR removes or changes an employee's IC (or removes the employee), the old IC's sign-up key, its pending personal join link and
@@ -327,12 +328,40 @@ async function pruneStaffKeys() {
         if (inv?.exists()) { if (inv.data().link) b.delete(doc(db, `joinLinks/${inv.data().link}`)); b.delete(doc(db, `staffInvites/${tid}~${ic}`)); }
         b.delete(doc(db, key));
         await b.commit();
+        S.keyKnown?.delete(ic);
       } catch (e) { failed.add(ic); console.warn('[Allurus cloud] IC key removal', e?.code); }
     }
     // What we remember is the current picture, except ICs we could not remove yet (tried again at the next change).
     S.icSeen = { ...now };
     failed.forEach((ic) => { S.icSeen["retry:" + ic] = ic; });   // a removal that failed is tried again at the next change
   } catch (e) { console.warn('[Allurus cloud] pruneStaffKeys', e?.code || e?.message); }
+}
+// Keeps staffLinks/<tenant>~<IC> in step with the employee records (docs/JOIN-AUTOLINK-SPEC.md): the one place a new join-page sign-up
+// may read which record is theirs. Only while the company has the automatic link switched on (settings.joinAutoLink); when it is off the
+// documents are removed. Same guards as the IC key clean-up: HR with Settings and People only; a mass drop is not mistaken for edits.
+function scheduleLinks() { clearTimeout(S.linkTimer); S.linkTimer = setTimeout(syncStaffLinks, 4000); }
+async function syncStaffLinks() {
+  try {
+    if (!S.live || !S.admin || S.profile?.viewOnly || !can('settings') || !can('people')) return;
+    const emps = app.state?.employees; if (!Array.isArray(emps) || !emps.length) return;
+    const tid = S.profile.tenantId, st = app.state.settings || {};
+    if (!S.linkSeen) {   // first time this session: what is stored now (HR may list them)
+      S.linkSeen = {};
+      (await getDocs(query(collection(db, 'staffLinks'), where('tenantId', '==', tid)))).docs.forEach((d) => { const v = d.data(); S.linkSeen[d.id] = [v.empId, v.hasSignIn ? 1 : 0, v.phone4 || ''].join('|'); });
+    }
+    const users = (await getDocs(query(collection(db, 'users'), where('tenantId', '==', tid)))).docs.map((d) => ({ uid: d.id, ...d.data() }));
+    const plan = M.staffLinksPlan(emps, users, { tenantId: tid, on: st.joinAutoLink === true, phone4On: st.joinPhone4 !== false });
+    const { write, del, sig } = M.staffLinksDiff(S.linkSeen, plan);
+    if (!write.length && !del.length) return;
+    if (del.length > 5 && del.length > Object.keys(S.linkSeen).length / 2 && st.joinAutoLink === true) { console.warn('[Allurus cloud] staffLinks: too many removed at once, left alone'); return; }
+    const ops = [...write.map((k) => ({ k, set: plan[k] })), ...del.map((k) => ({ k, del: true }))];
+    for (let i = 0; i < ops.length; i += 400) {
+      const b = writeBatch(db);
+      ops.slice(i, i + 400).forEach(({ k, set, del: d }) => { if (d) b.delete(doc(db, `staffLinks/${k}`)); else b.set(doc(db, `staffLinks/${k}`), { tenantId: tid, empId: set.empId, gen: 1, hasSignIn: set.hasSignIn, phone4: set.phone4, updatedAt: serverTimestamp() }); });
+      await b.commit();
+    }
+    write.forEach((k) => { S.linkSeen[k] = sig(plan[k]); }); del.forEach((k) => { delete S.linkSeen[k]; });
+  } catch (e) { console.warn('[Allurus cloud] staffLinks', e?.code || e?.message); }
 }
 function warnOnce(key, msg) { if (S.warned.has(key)) return; S.warned.add(key); app.toast(msg, 'error'); }
 
@@ -469,6 +498,7 @@ async function start(profile) {
   if (S.admin && (can('people') || can('settings'))) {
     api.syncAllStaffKeys(ws.employees);
     S.icSeen = M.icMap(ws.employees);   // what each person's IC was, to spot a removed or changed one later
+    scheduleLinks();
   }
   // Listen to own user profile: if disabled by admin or session terminated, sign out
   if (profile.uid) {
@@ -1053,28 +1083,29 @@ const api = {
       }, { merge: true });
     } catch (e) { console.warn('[Allurus cloud] syncStaffKey', e); }
   },
+  syncStaffLinks() { scheduleLinks(); },
+  // Makes sure every employee with a valid IC has a sign-up key. A key that already exists is left alone: it carries the sign-in
+  // generation, which "Reset sign-in" and "This isn't them" raise so the old account stops working. (This used to write gen: 1 every time,
+  // which undid those resets at the next load.)
   async syncAllStaffKeys(employees = app.state?.employees) {
     if (!S.profile?.tenantId || !Array.isArray(employees)) return;
     const tid = S.profile.tenantId;
+    S.keyKnown = S.keyKnown || new Set();
+    const todo = [...new Set(employees.map((e) => M.icKeyOf(e)).filter(Boolean))].filter((ic) => !S.keyKnown.has(ic));
+    if (!todo.length) return;
     const b = writeBatch(db);
     let count = 0;
-    employees.forEach((e) => {
-      if (e?.ic) {
-        const ic = M.icDigits(e.ic);
-        if (M.validIc(ic)) {
-          // No name or empId here: staffKeys is readable without signing in, for the IC check before auth (gap 3/5).
-          b.set(doc(db, `staffKeys/${tid}~${ic}`), {
-            tenantId: tid,
-            gen: 1,
-            empId: deleteField(),
-            name: deleteField()
-          }, { merge: true });
-          count++;
-        }
-      }
-    });
+    for (let i = 0; i < todo.length; i += 20) {
+      const got = await Promise.all(todo.slice(i, i + 20).map((ic) => getDoc(doc(db, `staffKeys/${tid}~${ic}`)).then((k) => [ic, k.exists()]).catch(() => [ic, null])));
+      got.forEach(([ic, there]) => {
+        if (there === null) return;                     // could not tell: try again next time
+        S.keyKnown.add(ic);
+        // No name or empId here: staffKeys is readable without signing in, for the IC check before auth (gap 3/5).
+        if (!there) { b.set(doc(db, `staffKeys/${tid}~${ic}`), { tenantId: tid, gen: 1 }); count++; }
+      });
+    }
     if (count > 0) {
-      try { await b.commit(); } catch (e) { console.warn('[Allurus cloud] syncAllStaffKeys', e); }
+      try { await b.commit(); } catch (e) { console.warn('[Allurus cloud] syncAllStaffKeys', e); count = 0; todo.forEach((ic) => S.keyKnown.delete(ic)); }
     }
   },
   async openStatus() {
@@ -1139,6 +1170,21 @@ const api = {
       await b.commit();
       return { ok: true };
     } catch (e) { console.warn('[Allurus cloud] reject', e?.code); return { error: 'Couldn’t turn that account off. Reload and try again.' }; }
+  },
+  // "This isn't them" on an automatically linked sign-up: the link is removed, the account is turned off, and the IC moves to the next
+  // generation so the real person can register (docs/JOIN-AUTOLINK-SPEC.md).
+  async rejectAuto(u, ic) {
+    const key = M.staffKey(S.profile.tenantId, ic), gen = Number((u.email.match(/\.g(\d+)@/) || [])[1]) || 1;
+    try {
+      const old = await getDoc(doc(db, `staffInvites/${key}`)).catch(() => null);
+      const b = writeBatch(db);
+      b.update(doc(db, `users/${u.uid}`), { empId: '', disabled: true });
+      b.set(doc(db, `staffKeys/${key}`), { tenantId: S.profile.tenantId, gen: gen + 1 });
+      if (old?.exists()) { if (old.data().link) b.delete(doc(db, `joinLinks/${old.data().link}`)); b.delete(doc(db, `staffInvites/${key}`)); }
+      await b.commit();
+      scheduleLinks();
+      return { ok: true };
+    } catch (e) { console.warn('[Allurus cloud] reject auto link', e?.code); return { error: 'Couldn’t remove the link. Reload and try again.' }; }
   },
   // Reset sign-in: a new generation and link; their old account stops working at once.
   async staffReset(emp, uid) {

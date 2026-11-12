@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.57';
+  const APP_VERSION = '3.58';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -781,8 +781,8 @@
     if (role() === 'employee' && unlinked()) {
       $('#login').hidden = false; $('.app').hidden = true;
       $('#login').innerHTML = `<div class="login-inner phone-only" role="main"><div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div>
-        <h1>Your sign-in isn’t linked to your staff record yet</h1><p class="sub" lang="ms">Akaun anda belum dipautkan kepada rekod pekerja anda.</p>
-        <div class="login-card" style="text-align:center"><p>Please ask HR to check your record. Nothing else is shown until it is fixed.</p><p class="muted" lang="ms" style="font-size:13px">Sila minta HR menyemak rekod anda.</p>
+        <h1>Akaun anda sedang menunggu kelulusan HR</h1><p class="sub">Your account is waiting for HR approval</p>
+        <div class="login-card" style="text-align:center"><p>HR will link you to your staff record. Nothing else is shown until then.</p><p class="muted" lang="ms" style="font-size:13px">HR akan memautkan anda kepada rekod pekerja anda. Tiada apa-apa dipaparkan sehingga itu.</p>
         <button type="button" class="btn login-submit" data-act="device-signout" style="margin-top:10px">Sign out · <span lang="ms">Log keluar</span></button></div></div>`;
       return;
     }
@@ -2982,6 +2982,8 @@
     'acc-key-remove': () => teamAccess.removeJoinKey(),
     'acc-open-ok': (uid, empId) => teamAccess.approve(uid, empId),
     'acc-open-no': (uid) => teamAccess.refuse(uid),
+    'acc-auto-no': (uid) => teamAccess.refuseAuto(uid),
+    'jl-toggle': (key, v) => { if (!['joinAutoLink', 'joinPhone4'].includes(key)) return; state.settings[key] = v === 'on'; commit(`${key === 'joinAutoLink' ? 'Automatic link of new sign-ups' : 'Ask the last 4 digits of the phone'} turned ${v}`); },
     'acc-ic-filter': (_, v) => { teamAccess.icFilter = v; teamAccess.draw(); },
     'acc-ic-fix': () => { ui.empOnly = new Set(teamAccess.fixIds || []); closeOverlay(); location.hash = 'employees'; render(); },
     'emp-only-clear': () => { ui.empOnly = null; render(); },
@@ -3665,6 +3667,7 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
       (this.data.issues || []).forEach((x) => { const k = `join-issue-${x.uid}`, keys = (state.notifyKeys = state.notifyKeys || []); if (keys.includes(k)) return; keys.push(k); const e = emp(x.empId); log(`Registration${e ? ` of ${fullName(e)}` : ''}: ${x.kind === 'phone' ? 'phone' : 'account details'} not saved. Check Team access.`); save(); });
       try { this.open = await fire().openStatus(); } catch (e) { this.open = { code: '', until: null }; }
       fire().syncAllStaffKeys?.(state.employees);
+      fire().syncStaffLinks?.();
       this.remindIc();
       this.noticeRegistered();
       return this.data;
@@ -3675,6 +3678,11 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
       this.pending().forEach((u) => {
         const e = this.claimed(u), who = e ? fullName(e) : 'Someone with no matching employee';
         if (notifyApi.event('staff.registered', { who, href: '#settings/users' }, 'hr', { key: `reg-${u.uid}`, self: true })) log(`Registered on the join page: ${who} (waiting for approval)`);
+      });
+      // Automatic links (docs/JOIN-AUTOLINK-SPEC.md): one notice and one log line each, never the full IC.
+      this.autoLinked().forEach((u) => {
+        const e = emp(u.empId), who = e ? fullName(e) : 'Someone', ic4 = this.icOf(u).slice(-4), model = u.deviceName || 'unknown phone';
+        if (notifyApi.event('staff.autolinked', { who, ic4, phone: model, href: '#settings/users' }, 'hr', { key: `auto-${u.uid}`, self: true })) log(`Linked automatically on the join page: ${who} (IC ••••${ic4})`);
       });
     },
     // Once a day, in the app only: HR hears about IC staff whose link went unused for 3 days, or expired.
@@ -3704,8 +3712,8 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
         if (!this.loading) { this.loading = true; this.load().finally(() => { this.loading = false; const p = $('#acc-prof'), x = p && emp(p.dataset.emp); if (x) p.innerHTML = `<span class="muted" style="font-size:13px">Sign-in:</span>${this.badge(x)}${this.actions(x)}`; }); }
         return '<span class="faint">…</span>';
       }
-      const s = this.status(e);
-      return `<span class="pill ${s.pill}">${s.label}</span>${s.key === 'invited' && s.sentAt ? `<div class="field-hint">Sent ${U.fmtDate(new Date(s.sentAt).toISOString().slice(0, 10))}</div>` : ''}`;
+      const s = this.status(e), au = (this.data.users || []).find((u) => u.empId === e.id && u.autoLinkedAt && !u.disabled), auAt = au && AllurusInvite.ms(au.autoLinkedAt);
+      return `<span class="pill ${s.pill}">${s.label}</span>${au ? `<div class="field-hint">Linked automatically${auAt ? ' · ' + U.fmtDate(new Date(auAt).toISOString().slice(0, 10)) : ''}</div>` : ''}${s.key === 'invited' && s.sentAt ? `<div class="field-hint">Sent ${U.fmtDate(new Date(s.sentAt).toISOString().slice(0, 10))}</div>` : ''}`;
     },
     // Staff with no work email but a 12-digit IC sign in with company code + IC + password (js/cloud.js signInIC).
     byIc: (e) => !e.email && AllurusCloudMap.validIc(e.ic),
@@ -3818,6 +3826,20 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
           const r = await fire().rejectOpen(u, this.icOf(u));
           if (r.ok) { log(`Join-page registration refused (not them): ${who}`); save(); }
           toast(r.ok ? 'Turned off.' : r.error, r.ok ? '' : 'error');
+          await this.refresh();
+        })(); } });
+    },
+    // Sign-ups that linked themselves to their record (not turned off), newest first.
+    autoLinked() { return (this.data?.users || []).filter((u) => u.autoLinkedAt && u.empId && !u.disabled).sort((a, b) => (AllurusInvite.ms(b.autoLinkedAt) || 0) - (AllurusInvite.ms(a.autoLinkedAt) || 0)); },
+    // "This isn't them" on one of them: the link is removed, the sign-in is turned off, the real person can register again.
+    refuseAuto(uid) {
+      const u = (this.data?.users || []).find((x) => x.uid === uid); if (!u) return;
+      const e = emp(u.empId), who = e ? fullName(e) : 'this person';
+      openModal({ title: 'This isn’t them?', size: 'sm', submit: 'Remove link and turn off', body: `<p>The sign-up linked to ${esc(who)} is unlinked and turned off at once. ${e ? `${esc(e.first)} can then register again, or you can send a personal link.` : ''}</p>`,
+        onSubmit: () => { (async () => {
+          const r = await fire().rejectAuto(u, this.icOf(u));
+          if (r.ok) { log(`Automatic link removed (this isn’t them): ${who}, IC ••••${this.icOf(u).slice(-4)}`); save(); }
+          toast(r.ok ? 'Link removed and the sign-in turned off.' : r.error, r.ok ? '' : 'error');
           await this.refresh();
         })(); } });
     },
@@ -4016,7 +4038,7 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
       // The company join page: permanent direct link & QR code for staff
       const o = this.open || {};
       const shareUrl = o.code ? `${location.origin}/join?c=${encodeURIComponent(o.code)}` : `${location.origin}/join`;
-      const joinCard = `<div class="card" style="margin-bottom:12px;padding:14px 16px"><div class="card-head" style="padding:0;margin-bottom:6px"><h3>Pautan &amp; QR Pendaftaran Staf</h3><span class="pill ok">Pendaftaran Auto Aktif</span></div>
+      const joinCard = `<div class="card" style="margin-bottom:12px;padding:14px 16px"><div class="card-head" style="padding:0;margin-bottom:6px"><h3>Pautan &amp; QR Pendaftaran Staf</h3><span class="pill ${state.settings.joinAutoLink === true ? 'ok' : ''}">${state.settings.joinAutoLink === true ? 'Pendaftaran Auto Aktif · Pautan automatik ON' : 'Pendaftaran Auto Aktif'}</span></div>
           <p class="muted" style="margin-bottom:8px">Pekerja yang didaftarkan dalam HRMS boleh terus daftar sendiri bila-bila masa melalui pautan atau kod QR ini. Pendaftaran adalah pantas dan automatik (auto-approved) mengikut No. IC.</p>
           <p style="margin-bottom:8px">Pautan Pendaftaran: <a href="${esc(shareUrl)}" target="_blank" style="font-weight:600;word-break:break-all">${esc(shareUrl)}</a>${o.code ? ` · Kod syarikat: <b>${esc(o.code)}</b>` : ''}</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -4024,7 +4046,12 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
             <button class="btn btn-sm" data-act="acc-open-copy">Salin Pautan &amp; Mesej</button>
             <button class="btn btn-sm" data-act="acc-open-qr">Papar Kod QR</button>
             <button class="btn btn-sm btn-ghost" data-act="acc-open-msg">Ubah Mesej</button>
-          </div></div>`;
+          </div>
+          <div class="settings-row" style="margin-top:12px"><div><div class="label">Link new sign-ups to their own record automatically</div><div class="desc">A worker who registers with the company code, their IC and a PIN is linked to their own employee record and goes straight into the app, with no approval step. You get a notice for each one, with <b>This isn’t them</b>. It needs their IC on exactly one record, and no other sign-in on that record; admin records are never linked automatically. Off: HR approves each one in Team access.</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="jl-toggle" data-id="joinAutoLink" data-v="${v}" class="${((state.settings.joinAutoLink === true) ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+          <div class="settings-row"><div><div class="label">Also ask the last 4 digits of the phone on file</div><div class="desc">When the record has a phone number, the number typed at sign-up must end with the same 4 digits, or the sign-up waits for HR. Default on.</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="jl-toggle" data-id="joinPhone4" data-v="${v}" class="${((state.settings.joinPhone4 !== false) ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+          <p class="field-hint" style="margin-top:8px"><b>Know the risk.</b> With the automatic link on, anyone who knows a worker’s <b>company code and IC number</b> can register as that worker before the worker does, and then see that worker’s own payslips and leave. They never get admin access. What limits it: the notice to HR with <b>This isn’t them</b>, the one-phone rule, the face check (turn it on in Check-in settings), and the phone check above. Keep the company code to your staff.</p></div>`;
+      const autoRows = this.autoLinked().slice(0, 8);
+      const autoCard = autoRows.length ? `<div class="card" style="margin-bottom:12px;padding:14px 16px"><h3 style="margin-bottom:6px">Linked automatically (${autoRows.length})</h3><div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>IC</th><th>Phone</th><th>When</th><th></th></tr></thead><tbody>${autoRows.map((u) => { const e = emp(u.empId), at = AllurusInvite.ms(u.autoLinkedAt); return `<tr><td>${e ? person(e) : 'Someone'}</td><td>••••${esc(this.icOf(u).slice(-4))}</td><td>${esc(u.deviceName || '—')}</td><td>${at ? U.fmtDate(new Date(at).toISOString().slice(0, 10)) : '—'}</td><td class="r"><button class="btn btn-sm btn-danger" data-act="acc-auto-no" data-id="${esc(u.uid)}">This isn’t them</button></td></tr>`; }).join('')}</tbody></table></div></div>` : '';
       const waitingList = this.pending();
       const pendingCard = waitingList.length ? `<div class="card" style="margin-bottom:12px;padding:14px 16px;border-color:var(--warn, #d97706)"><h3 style="margin-bottom:6px">Waiting for approval (${waitingList.length})</h3>
           <div class="table-wrap"><table class="table"><thead><tr><th>Who is this? (you choose)</th><th>Registered with IC</th><th>Phone</th><th>When</th><th></th></tr></thead><tbody>${waitingList.map((u) => { const at = AllurusInvite.ms(u.joinedAt);
@@ -4041,7 +4068,7 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
       el.innerHTML = `<div class="card-head"><h3>Team access</h3>${waiting ? `<button class="btn btn-sm" data-act="acc-invite-all">Invite all ${waiting}</button>` : ''}</div>
         <p class="muted" style="margin-bottom:12px">Send someone an invitation and they get an email with a sign-in link to <b>allurus.my/activate</b>, where they create their password. Invitations last ${AllurusInvite.DAYS} days. Everyone gets the employee app; a role adds parts of the company console. Managers need no role: being an approver in the leave settings is enough. Staff with no work email can be invited with their IC: you send them a join link on WhatsApp, and they sign in with the company code, their IC and a password.</p>
         <div class="chips" style="margin-bottom:12px;flex-wrap:wrap">${shownTemplates().map(([, t]) => `<span class="tag" title="${esc(t.desc)}"><b>${esc(t.label)}</b>: ${esc(t.desc)}</span>`).join('')}</div>
-        ${joinCard}${this.issuesCard()}${pendingCard}${tracker}
+        ${joinCard}${autoCard}${this.issuesCard()}${pendingCard}${tracker}
         <div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th>Email</th><th>Status</th><th>Access</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="5" class="muted">Nobody here.</td></tr>`}</tbody></table></div>`;
       $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value)));
       $$('[data-acc-pick]', el).forEach((sel) => sel.addEventListener('change', () => this.pickChanged(el, sel.dataset.accPick, sel.value)));
@@ -4188,6 +4215,7 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
         if (reason === 'signed-out' && hadAcct) toast('Please sign in again.');
       }
       render();
+      try { const w = sessionStorage.getItem('allurus-welcome'); if (w && reason !== 'signed-out') { sessionStorage.removeItem('allurus-welcome'); toast(`Selamat datang, ${w}!`); } } catch (e) { /* a nicety */ }
       if (reason !== 'signed-out') phoneWatch.load().catch(() => {});
       if (reason !== 'signed-out') supportAccess.notice().then(() => { notifyApi?.updateBell(); save(); }).catch(() => {});
     },
