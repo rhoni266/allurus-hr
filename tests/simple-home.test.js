@@ -173,7 +173,7 @@ test('wiring: the owner switches the screen on with set-addon; it is off for eve
   assert.match(app, /useSimple\(\{ addon: staffApp\(\)\.avail/);
   assert.match(app, /\.filter\(\(r\) => !\(role\(\) === 'employee' && simpleOn\(\) && r\.id !== 'home'\)\)/, 'only Home in simple mode');
   const cloud = fs.readFileSync(path.join(root, 'js/cloud.js'), 'utf8');
-  assert.match(cloud, /window\.AllurusAddons = \{ simpleStaffHome: company\?\.addons\?\.simpleStaffHome === true \}/);
+  assert.match(cloud, /window\.AllurusAddons = \{ simpleStaffHome: company\?\.addons\?\.simpleStaffHome === true, salaryMonthlyOnly: company\?\.addons\?\.salaryMonthlyOnly === true \}/);
   assert.match(fs.readFileSync(path.join(root, 'js/experience.js'), 'utf8'), /classList\.contains\('simple-staff'\)\) \{ bar\.innerHTML = ''/, 'no tab bar');
 });
 test('wiring: the Settings card is only for companies with the add-on, and says honestly how strong the password is', () => {

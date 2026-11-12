@@ -19,7 +19,7 @@ window.AllurusImport = (function () {
     high: 'High', medium: 'Medium', low: 'Low', none: 'Unmatched', missing: 'Required for new employees but no column is chosen: {list}.',
     mode: 'If someone is already there', upsert: 'Update existing and add new', add: 'Add new only (skip existing)',
     key: 'Match people by', keyAuto: 'IC, then staff number, then email', keyIc: 'IC only', keyStaff: 'Staff number only', keyEmail: 'Email only',
-    salaryNote: 'Salary columns are read as monthly (× 12 is stored as the annual salary) unless the header says annual.',
+    salaryNote: 'A plain Salary column is read in your company’s basis (monthly by default; the app stores the yearly figure). A header that says annual or monthly decides for itself.',
     save: 'Remember this mapping for files with the same columns', preview: 'Preview (first 20 rows)', ready: 'Ready', warning: 'Warning', error: 'Error',
     summary: '{add} to add, {update} to update, {same} unchanged, {skip} skipped, {error} with errors, {warning} with warnings',
     importBtn: 'Import {n} rows', nothing: 'Nothing to import', newDepts: 'Create {n} new department{s}: {list}?', createGo: 'Create and import', back: 'Back',
@@ -139,7 +139,7 @@ window.AllurusImport = (function () {
     s.header = Math.max(0, Math.min(s.grid.rows.length - 1, i));
     const h = headers(), cols = h.map((_, c) => s.grid.rows.slice(s.header + 1).map((r) => r.cells[c]));
     const saved = data().mappings.find((m) => m.signature === R.signature(h));
-    s.mapping = R.autoMap(h, cols, { saved, today: U.today() });
+    s.mapping = R.autoMap(h, cols, { saved, today: U.today(), basis: window.AllurusSalary ? AllurusSalary.basisOf(st().settings, window.AllurusAddons) : 'monthly' });
     replan();
   }
   function replan() {
@@ -319,11 +319,14 @@ window.AllurusImport = (function () {
   }
   async function template() {
     const X = await loadXlsx();
-    const head = R.EXPORT.map(([k, h]) => (k === 'salaryAnnual' ? 'Monthly salary' : h));
-    const ex = [
+    // The salary column of the template follows the company's basis: monthly by default (the examples are monthly figures), or yearly.
+    const yearly = window.AllurusSalary && AllurusSalary.basisOf(st().settings, window.AllurusAddons) === 'yearly', col = R.EXPORT.findIndex(([k]) => k === 'salaryAnnual');
+    const head = R.EXPORT.map(([k, h]) => (k === 'salaryAnnual' ? (yearly ? 'Annual salary' : 'Monthly salary') : h));
+    const ex0 = [
       ['S001', 'Nur Aisyah binti Abdul Rahman', 'aisyah@example.com', '012-345 6789', 'HR Executive', 'Human Resources', 'Active', 'Full-time', 'Kuantan', '01/03/2024', 'RM 4,200.00', '950312-06-5512', 'Female', '12/03/1995', '12345678', '950312065512', 'SG 1234567890', 'Maybank', '112233445566', 'Malaysian', 'No. 1, Jalan Contoh, 25000 Kuantan', 'Abdul Rahman bin Ali', '013-222 3344'],
       ['S002', 'Lim Wei Jie', 'weijie@example.com', '019-876 5432', 'Storekeeper', 'Operations', 'Active', 'Contract', 'Kemaman', '15/07/2025', '2800', '010505-11-1235', 'Male', '05/05/2001', '', '', '', 'CIMB Bank', '7001234567', 'Malaysian', '', 'Lim Ah Kow', '012-998 7766'],
     ];
+    const ex = yearly ? ex0.map((r) => r.map((v, i) => (i === col ? (v === 'RM 4,200.00' ? 'RM 50,400.00' : String(Math.round((Number(String(v).replace(/[^0-9.]/g, '')) || 0) * 12))) : v))) : ex0;
     const ws = X.utils.aoa_to_sheet([head, ...ex]);
     // Keep IDs, phones and account numbers as text so Excel doesn't turn them into numbers.
     for (let r = 1; r <= ex.length; r++) head.forEach((_, c) => { const cell = ws[X.utils.encode_cell({ r, c })]; if (cell) { cell.t = 's'; cell.z = '@'; } });

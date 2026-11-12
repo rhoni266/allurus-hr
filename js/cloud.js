@@ -474,7 +474,7 @@ async function start(profile) {
   await new Promise((ready) => listen(ready));
   if (can('finance')) await listenInvoices();
   await Promise.all(Object.keys(REQ).map(listenRequests));
-  window.AllurusAddons = { simpleStaffHome: company?.addons?.simpleStaffHome === true };   // read by the app (js/app.js staffApp)
+  window.AllurusAddons = { simpleStaffHome: company?.addons?.simpleStaffHome === true, salaryMonthlyOnly: company?.addons?.salaryMonthlyOnly === true };   // read by the app (js/app.js staffApp)
   if (company?.addons?.prodCommission === true && !profile.viewOnly) await listenProd();
   // Build the workspace from what the server has, on a blank company.
   const ws = app.blankWorkspace();
