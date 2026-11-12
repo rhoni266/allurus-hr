@@ -1996,3 +1996,20 @@ html.simple-staff .view { padding-bottom: 24px; }
 .ss-older summary { cursor: pointer; font-size: 13.5px; color: var(--brand); font-weight: 600; padding: 6px 0; }
 .ss-older-list { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 6px; }
 @media (min-width: 761px) { .ss { margin-top: 8px; } }
+
+/* ---------- Inventory (docs/INVENTORY-ON-SPEC.md): stock list filters, phone cards with big + / − buttons ---------- */
+.inv-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.inv-filters .input { flex: 1 1 200px; max-width: 320px; }
+.inv-filters .select { flex: 0 1 180px; }
+.inv-low { display: inline-flex; gap: 6px; align-items: center; font-size: 13.5px; }
+.inv-cards { display: none; }
+.inv-history { max-height: 260px; overflow: auto; }
+.inv-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: grid; gap: 10px; }
+.inv-card.ops-low { border-color: var(--warn); }
+.inv-card-top { display: flex; justify-content: space-between; gap: 10px; cursor: pointer; }
+.inv-qty { text-align: right; white-space: nowrap; font-size: 15px; }
+.inv-qty b { font-size: 24px; font-variant-numeric: tabular-nums; }
+.inv-pm { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.inv-pm .btn { min-height: 56px; font-size: 28px; font-weight: 700; justify-content: center; border-radius: 12px; }
+[hidden].inv-card, [data-inv-row][hidden] { display: none !important; }
+@media (max-width: 760px) { .inv-table { display: none; } .inv-cards { display: grid; gap: 10px; } .inv-filters .input { max-width: none; } }

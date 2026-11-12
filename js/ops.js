@@ -10,8 +10,11 @@ window.AllurusOps = (function () {
   const st = () => ctx.state;
   // A driver or operator in the cloud holds only the lists they may read (js/cloud-map.js); the rest are empty.
   const LISTS = ['items', 'moves', 'pos', 'products', 'batches', 'orders', 'dos', 'machines', 'maint', 'breakdowns', 'licences'];
-  const ops = () => { const o = st().ops; LISTS.forEach((k) => { if (!Array.isArray(o[k])) o[k] = []; }); return o; };
-  const has = () => !!st().ops;
+  // Inventory is on when HR switched it on (Settings → Modules), or the workspace already carries stock data and it was not switched off. Turning
+  // it off hides the pages and never deletes anything. A new company starts with an empty structure the first time it is used.
+  const modOn = () => st().settings?.modules?.inventory;
+  const has = () => modOn() === true || (!!st().ops && modOn() !== false);
+  const ops = () => { if (!st().ops) st().ops = O.emptyOps(); const o = st().ops; LISTS.forEach((k) => { if (!Array.isArray(o[k])) o[k] = []; }); return o; };
   const esc = (s) => ctx.esc(s);
   const icon = (n) => ctx.icon(n);
   const money = (n) => ctx.money(n);
@@ -100,20 +103,49 @@ window.AllurusOps = (function () {
       <ul class="hr-list">${list.map((p) => `<li class="clickable" data-act="ops-po-open" data-id="${p.id}"><div><strong>${esc(p.no)} · ${esc(contact(p.vendorId)?.name || '')}</strong><div class="person-sub">${poItems(p)}</div></div>
         <span>${p.status === 'Partial' ? pill('Partial', 'Rest due') : ''} ${pill(p.expected < T() ? 'Overdue' : p.expected === T() ? 'Due' : 'Open', p.expected < T() ? `Late, ${fmt(p.expected)}` : p.expected === T() ? 'Today' : fmt(p.expected, { weekday: 'short', day: 'numeric', month: 'short' }))}</span></li>`).join('')}</ul></div>`;
   }
+  // The stock list: search, category, location and low-stock filters (done in the page, so typing never redraws it), a table on a computer
+  // and cards with big + / − buttons on a phone. Every quantity change is a stock move (docs/INVENTORY-ON-SPEC.md).
+  const cats = () => [...new Set(ops().items.map((i) => i.category).filter(Boolean))].sort();
+  const locs = () => [...new Set(ops().items.map((i) => i.location).filter(Boolean))].sort();
   function stockView() {
     const lv = levels(), low = lv.filter((x) => x.low), open = ops().pos.filter((p) => ['Draft', 'Approved', 'Sent', 'Partial'].includes(p.status));
-    const value = lv.reduce((s, x) => s + x.onHand * (x.lastPrice || 0), 0);
-    return `${head('Stock &amp; purchasing', `${low.length} item${low.length === 1 ? '' : 's'} below reorder level · ${open.filter((p) => ['Sent', 'Partial'].includes(p.status)).length} orders waiting for delivery · stock worth ${money(value)}`, can() ? `<button class="btn btn-primary" data-act="ops-po-new">${icon('plus')}New purchase order</button>` : '')}
+    const val = O.stockValue(lv);
+    const acts = can() ? `<button class="btn" data-act="ops-reports">${icon('download')}Reports</button><button class="btn" data-act="ops-count">${icon('check')}Stock count</button><button class="btn" data-act="ops-import">${icon('doc')}Import items</button><button class="btn" data-act="ops-item-new">${icon('plus')}Add item</button><button class="btn btn-primary" data-act="ops-po-new">${icon('plus')}New purchase order</button>` : '';
+    return `${head('Stock &amp; purchasing', `${lv.length} item${lv.length === 1 ? '' : 's'} · ${low.length} below reorder level · ${open.filter((p) => ['Sent', 'Partial'].includes(p.status)).length} orders waiting for delivery · stock worth ${money(val.cost)} at cost`, acts)}
       ${tabs('stockTab', [['stock', 'Stock'], ['pos', `Purchase orders${open.length ? ` (${open.length})` : ''}`], ['moves', 'Stock movements']], 'ops-stock-tab')}
       ${ui.stockTab === 'pos' ? poTable() : ui.stockTab === 'moves' ? movesTable() : incomingCard() + stockTable(lv)}`;
   }
   function stockTable(lv) {
-    const row = (x) => `<tr class="clickable ${x.low ? 'ops-low' : ''}" data-act="ops-item" data-id="${x.id}"><td><strong>${esc(x.name)}</strong><div class="person-sub">${esc(x.code)} · ${KIND[x.kind] || ''}</div></td>
-      <td class="r num"><strong>${qty(x.onHand)}</strong> <span class="faint">${esc(x.unit)}</span>${x.low ? `<div>${pill('Overdue', 'Below reorder')}</div>${!can() || x.onOrder ? '' : drafted(x.id) ? `<div class="person-sub" style="margin-top:4px">${esc(drafted(x.id).no)} waiting for approval</div>` : `<button class="btn btn-sm btn-primary" style="margin-top:6px" data-act="ops-po-new" data-id="${x.id}">Make PO</button>`}` : ''}</td><td class="r num hide-sm">${qty(x.reorder)}</td>
-      <td class="r num hide-sm">${x.onOrder ? qty(x.onOrder) : '—'}</td><td class="hide-sm">${esc(contact(x.vendorId)?.name || '—')}</td><td class="r num hide-sm">${money(x.lastPrice)}</td>
-</tr>`;
-    return `<div class="card card-flush"><div class="table-wrap"><table><thead><tr><th>Item</th><th class="r">On hand</th><th class="r hide-sm">Reorder at</th><th class="r hide-sm">On order</th><th class="hide-sm">Usual vendor</th><th class="r hide-sm">Last price</th></tr></thead>
-      <tbody>${[...lv].sort((a, b) => b.low - a.low || a.code.localeCompare(b.code)).map(row).join('')}</tbody></table></div></div>`;
+    if (!lv.length) return `<div class="card">${empty('No items yet', can() ? 'Import your item list from Excel or CSV, or add the first item by hand.' : 'The store has not been set up yet.')}${can() ? `<div class="actions" style="justify-content:center;margin-top:12px"><button class="btn btn-primary" data-act="ops-import">${icon('doc')}Import items</button><button class="btn" data-act="ops-item-new">${icon('plus')}Add item</button></div>` : ''}</div>`;
+    const sorted = [...lv].sort((a, b) => b.low - a.low || a.code.localeCompare(b.code));
+    const reorderBtn = (x) => (!x.low || !can() || x.onOrder ? '' : drafted(x.id) ? `<div class="person-sub" style="margin-top:4px">${esc(drafted(x.id).no)} waiting for approval</div>` : `<button class="btn btn-sm btn-primary" style="margin-top:6px" data-act="ops-po-new" data-id="${x.id}">Make PO</button>`);
+    const attrs = (x) => `data-inv-row data-s="${esc([x.code, x.name, x.category, x.location].join(' ').toLowerCase())}" data-cat="${esc(x.category || '')}" data-loc="${esc(x.location || '')}" data-low="${x.low ? 1 : 0}"`;
+    const row = (x) => `<tr class="clickable ${x.low ? 'ops-low' : ''}" ${attrs(x)} data-act="ops-item" data-id="${x.id}"><td><strong>${esc(x.name)}</strong><div class="person-sub">${esc(x.code)}${x.kind && KIND[x.kind] && x.kind !== 'goods' ? ` · ${KIND[x.kind]}` : ''}</div></td>
+      <td class="hide-sm">${esc(x.category || '—')}<div class="person-sub">${esc(x.location || '')}</div></td>
+      <td class="r num"><strong>${qty(x.onHand)}</strong> <span class="faint">${esc(x.unit)}</span>${x.low ? `<div>${pill('Overdue', 'Below reorder')}</div>${reorderBtn(x)}` : ''}</td><td class="r num hide-sm">${qty(x.reorder)}</td>
+      <td class="r num hide-sm">${x.onOrder ? qty(x.onOrder) : '—'}</td><td class="r num hide-sm">${x.lastPrice ? money(x.lastPrice) : '<span class="faint">—</span>'}</td><td class="r num hide-sm">${x.lastPrice ? money(Math.max(0, x.onHand) * x.lastPrice) : '<span class="faint">—</span>'}</td></tr>`;
+    const card = (x) => `<div class="inv-card ${x.low ? 'ops-low' : ''}" ${attrs(x)}><div class="inv-card-top" data-act="ops-item" data-id="${x.id}"><div><strong>${esc(x.name)}</strong><div class="person-sub">${esc(x.code)}${x.category ? ` · ${esc(x.category)}` : ''}${x.location ? ` · ${esc(x.location)}` : ''}</div></div>
+        <div class="inv-qty"><b>${qty(x.onHand)}</b> <span class="faint">${esc(x.unit)}</span>${x.low ? `<div>${pill('Overdue', 'Below reorder')}</div>` : ''}</div></div>
+      ${can() ? `<div class="inv-pm"><button type="button" class="btn inv-minus" data-act="ops-quick" data-id="${x.id}" data-v="out" aria-label="Take ${esc(x.name)} out">−</button><button type="button" class="btn btn-primary inv-plus" data-act="ops-quick" data-id="${x.id}" data-v="in" aria-label="Put ${esc(x.name)} in">+</button></div>${reorderBtn(x)}` : ''}</div>`;
+    const sel = (id, label, list) => `<select class="select" id="${id}" aria-label="${label}"><option value="">${label}</option>${list.map((c) => `<option>${esc(c)}</option>`).join('')}</select>`;
+    return `<div class="inv-filters"><input class="input" id="inv-q" type="search" placeholder="Search code, name, shelf…" aria-label="Search the stock list" autocomplete="off">${cats().length ? sel('inv-cat', 'All categories', cats()) : ''}${locs().length ? sel('inv-loc', 'All locations', locs()) : ''}<label class="inv-low"><input type="checkbox" id="inv-lowonly"> Low stock only</label><span class="faint" id="inv-count"></span></div>
+      <div class="card card-flush inv-table"><div class="table-wrap"><table><thead><tr><th>Item</th><th class="hide-sm">Category · shelf</th><th class="r">On hand</th><th class="r hide-sm">Reorder at</th><th class="r hide-sm">On order</th><th class="r hide-sm">Cost price</th><th class="r hide-sm">Value at cost</th></tr></thead>
+      <tbody>${sorted.map(row).join('')}</tbody></table></div></div>
+      <div class="inv-cards">${sorted.map(card).join('')}</div>`;
+  }
+  // Filters run in the page: rows and cards carry what to match.
+  function bindStockFilters() {
+    const q = ctx.$('#inv-q'); if (!q) return;
+    const run = () => {
+      const s = q.value.trim().toLowerCase(), cat = ctx.$('#inv-cat')?.value || '', loc = ctx.$('#inv-loc')?.value || '', lowOnly = !!ctx.$('#inv-lowonly')?.checked;
+      let n = 0;
+      ctx.$$('[data-inv-row]').forEach((el) => {
+        const show = (!s || el.dataset.s.includes(s)) && (!cat || el.dataset.cat === cat) && (!loc || el.dataset.loc === loc) && (!lowOnly || el.dataset.low === '1');
+        el.hidden = !show; if (show && el.tagName === 'TR') n++;
+      });
+      const c = ctx.$('#inv-count'); if (c) c.textContent = n === ops().items.length ? '' : `${n} shown`;
+    };
+    ['input', 'change'].forEach((ev) => { q.addEventListener(ev, run); ctx.$('#inv-cat')?.addEventListener(ev, run); ctx.$('#inv-loc')?.addEventListener(ev, run); ctx.$('#inv-lowonly')?.addEventListener(ev, run); });
   }
   function poTable() {
     const list = [...ops().pos].sort((a, b) => (b.date + b.no).localeCompare(a.date + a.no));
@@ -131,24 +163,181 @@ window.AllurusOps = (function () {
       ${list.length ? '' : empty('No purchase orders', 'Make one from an item below its reorder level.')}</div></div>`;
   }
   function movesTable() {
-    const list = [...ops().moves].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 80);
-    return `<div class="card card-flush"><div class="card-head" style="padding-bottom:10px"><h3>Latest stock movements</h3><span class="hint">In from deliveries, out to production</span></div><div class="table-wrap"><table><thead><tr><th>Date</th><th>Item</th><th class="r">Qty</th><th class="hide-sm">Reference</th></tr></thead><tbody>
-      ${list.map((m) => { const it = item(m.itemId); return `<tr><td class="num">${fmt(m.date)}</td><td>${esc(it?.name || '')}<div class="person-sub">${esc(m.note || '')}</div></td><td class="r num" style="color:${m.qty < 0 ? 'var(--bad)' : 'var(--ok)'}">${m.qty > 0 ? '+' : ''}${qty(m.qty)} ${esc(it?.unit || '')}</td><td class="hide-sm faint">${esc(m.ref || '')}</td></tr>`; }).join('')}</tbody></table></div></div>`;
+    const list = [...ops().moves].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 120);
+    const who = (id) => (id ? first(id) : '');
+    return `<div class="card card-flush"><div class="card-head" style="padding-bottom:10px"><h3>Latest stock movements</h3><span class="hint">Every change is a movement: who, when and why</span></div><div class="table-wrap"><table><thead><tr><th>Date</th><th>Item</th><th>Reason</th><th class="r">Quantity</th><th class="hide-sm">By</th></tr></thead><tbody>
+      ${list.map((m) => { const it = item(m.itemId); return `<tr><td class="num">${fmt(m.date)}</td><td>${esc(it?.name || '')}<div class="person-sub">${esc(it?.code || '')}${m.note ? ` · ${esc(m.note)}` : ''} ${esc(m.ref || '')}</div></td><td>${esc(m.kind || (m.qty > 0 ? 'In' : 'Out'))}</td><td class="r num" style="color:${m.qty < 0 ? 'var(--bad)' : 'var(--ok)'}">${m.qty > 0 ? '+' : ''}${qty(m.qty)} ${esc(it?.unit || '')}</td><td class="hide-sm">${esc(who(m.by))}</td></tr>`; }).join('')}</tbody></table>
+      ${list.length ? '' : empty('No movements yet', 'Stock in, out and counts will be listed here.')}</div></div>`;
   }
+  // One item: where it stands, the buttons to move it, and every movement with the balance after it.
   function itemModal(id) {
-    const x = levels().find((l) => l.id === id), moves = ops().moves.filter((m) => m.itemId === id).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 12);
+    const x = levels().find((l) => l.id === id), h = O.history(item(id), ops().moves), rows = [...h.rows].reverse();
     ctx.openModal({
-      title: x.name, submit: can() ? 'Save count' : null,
-      body: `<div class="grid g-3 keep-2"><div class="card kpi"><div class="kpi-label">On hand</div><div class="kpi-value">${qty(x.onHand)}</div><div class="kpi-foot">${esc(x.unit)}</div></div><div class="card kpi"><div class="kpi-label">Reorder at</div><div class="kpi-value">${qty(x.reorder)}</div></div><div class="card kpi"><div class="kpi-label">On order</div><div class="kpi-value">${qty(x.onOrder)}</div></div></div>
-        <h4 class="lv-h">Recent movements</h4><ul class="hr-list">${moves.map((m) => `<li><div><strong>${m.qty > 0 ? '+' : ''}${qty(m.qty)} ${esc(x.unit)}</strong><div class="person-sub">${fmt(m.date)} · ${esc(m.note || '')} ${esc(m.ref || '')}</div></div></li>`).join('') || '<li class="faint">None yet</li>'}</ul>
-        ${can() ? `<div class="form-grid" style="margin-top:12px"><div class="field"><label for="it-count">Stock count (${esc(x.unit)})</label><input class="input num" id="it-count" name="count" type="number" min="0" step="0.1" value="${x.onHand}"></div><div class="field"><label for="it-reorder">Reorder level</label><input class="input num" id="it-reorder" name="reorder" type="number" min="0" step="1" value="${x.reorder}"></div></div><p class="faint">A different count records a stock adjustment with your name.</p>` : ''}`,
+      title: x.name, submit: null,
+      body: `<div class="person-sub" style="margin-bottom:8px">${esc(x.code)}${x.category ? ` · ${esc(x.category)}` : ''}${x.location ? ` · shelf ${esc(x.location)}` : ''}${x.vendorId || x.supplier ? ` · ${esc(contact(x.vendorId)?.name || x.supplier)}` : ''}</div>
+        <div class="grid g-3 keep-2"><div class="card kpi"><div class="kpi-label">On hand</div><div class="kpi-value">${qty(x.onHand)}</div><div class="kpi-foot">${esc(x.unit)}${x.lastPrice ? ` · ${money(x.onHand * x.lastPrice)} at cost` : ''}</div></div><div class="card kpi"><div class="kpi-label">Reorder at</div><div class="kpi-value">${qty(x.reorder)}</div></div><div class="card kpi"><div class="kpi-label">On order</div><div class="kpi-value">${qty(x.onOrder)}</div></div></div>
+        ${can() ? `<div class="actions" style="margin:12px 0;flex-wrap:wrap"><button type="button" class="btn btn-primary" data-act="ops-move" data-id="${id}" data-v="in">Stock in</button><button type="button" class="btn" data-act="ops-move" data-id="${id}" data-v="out">Stock out</button><button type="button" class="btn" data-act="ops-move" data-id="${id}" data-v="adjust">Adjust</button><button type="button" class="btn btn-ghost" data-act="ops-item-edit" data-id="${id}">Edit item</button></div>` : ''}
+        <h4 class="lv-h">History</h4><div class="inv-history"><table class="table"><thead><tr><th>Date</th><th>Reason</th><th class="r">Qty</th><th class="r">Balance</th><th>By</th></tr></thead><tbody>${rows.map((m) => `<tr><td class="num">${fmt(m.date)}</td><td>${esc(m.kind || (m.qty > 0 ? 'In' : 'Out'))}${m.note ? `<div class="person-sub">${esc(m.note)}</div>` : ''}</td><td class="r num" style="color:${m.qty < 0 ? 'var(--bad)' : 'var(--ok)'}">${m.qty > 0 ? '+' : ''}${qty(m.qty)}</td><td class="r num">${qty(m.balance)}</td><td>${esc(m.by ? first(m.by) : '')}</td></tr>`).join('')}<tr><td colspan="3" class="faint">Opening stock</td><td class="r num">${qty(h.opening)}</td><td></td></tr></tbody></table></div>`,
+    });
+  }
+  // Stock in / out / adjust for one item: quantity, reason, date, note. The quantity is never edited directly: this adds a movement.
+  function moveModal(id, direction) {
+    const x = item(id), kinds = O.MOVE_KINDS.filter((k) => (direction === 'in' ? k.sign > 0 : direction === 'out' ? k.sign < 0 : k.sign === 0) && k.key !== 'Opening stock');
+    const title = { in: 'Stock in', out: 'Stock out', adjust: 'Adjust stock' }[direction];
+    ctx.openModal({
+      title: `${title} · ${x.name}`, submit: 'Save',
+      body: `<div class="form-grid"><div class="field"><label for="mv-q">${direction === 'adjust' ? `Change (${esc(x.unit)}, − to take off)` : `Quantity (${esc(x.unit)})`}</label><input class="input input-lg num" id="mv-q" name="qty" type="number" step="0.001" inputmode="decimal" ${direction === 'adjust' ? '' : 'min="0"'} required autofocus></div>
+        <div class="field"><label for="mv-k">Reason</label><select class="select" id="mv-k" name="kind">${kinds.map((k) => `<option>${esc(k.key)}</option>`).join('')}</select></div>
+        <div class="field"><label for="mv-d">Date</label><input class="input" id="mv-d" name="date" type="date" value="${T()}"></div>
+        <div class="field full"><label for="mv-n">Note</label><input class="input" id="mv-n" name="note" maxlength="200" placeholder="Optional"></div></div>`,
       onSubmit(d) {
-        const it = item(id), diff = O.r2((Number(d.count) || 0) - x.onHand);
-        if (diff) ops().moves.push({ id: U.uid('mv'), itemId: id, date: T(), qty: diff, ref: 'COUNT', note: `Stock count by ${first(actor())}` });
-        it.reorder = Math.max(0, Number(d.reorder) || 0);
-        ctx.commit(diff ? `Stock of ${it.name} adjusted by ${diff > 0 ? '+' : ''}${qty(diff)} ${it.unit}` : 'Saved', diff ? `Stock count: ${it.name} ${diff > 0 ? '+' : ''}${qty(diff)} ${it.unit}` : '');
+        const r = O.makeMove({ itemId: id, direction, qty: Number(d.qty), kind: d.kind, note: d.note, date: d.date || T(), by: actor(), at: new Date().toISOString(), id: U.uid('mv') });
+        if (!r.ok) { ctx.toast(r.error, 'error'); return false; }
+        ops().moves.push(r.move);
+        const now = O.onHand(item(id), ops().moves);
+        ctx.commit(`${x.name}: ${r.move.qty > 0 ? '+' : ''}${qty(r.move.qty)} ${x.unit} (${d.kind}). On hand: ${qty(now)}`, `Stock ${r.move.qty > 0 ? 'in' : 'out'}: ${x.name} ${r.move.qty > 0 ? '+' : ''}${qty(r.move.qty)} ${x.unit} (${d.kind})`);
       },
     });
+  }
+  // Add or edit an item. New items start with an opening quantity, which is recorded as an "Opening stock" movement.
+  function itemEditModal(id) {
+    const x = id ? item(id) : { code: '', name: '', unit: 'pcs', category: '', location: '', reorder: 0, lastPrice: 0, price: 0, vendorId: '' };
+    const sup = fin().contacts.filter((c) => c.kind === 'supplier');
+    ctx.openModal({
+      title: id ? 'Edit item' : 'Add item', submit: 'Save',
+      body: `<div class="form-grid"><div class="field"><label for="ie-c">Code</label><input class="input" id="ie-c" name="code" required maxlength="30" value="${esc(x.code)}"></div><div class="field"><label for="ie-n">Name</label><input class="input" id="ie-n" name="name" required maxlength="120" value="${esc(x.name)}"></div>
+        <div class="field"><label for="ie-u">Unit</label><input class="input" id="ie-u" name="unit" maxlength="20" value="${esc(x.unit)}" placeholder="pcs, kg, bag"></div>
+        <div class="field"><label for="ie-cat">Category</label><input class="input" id="ie-cat" name="category" list="ie-cats" maxlength="60" value="${esc(x.category || '')}"><datalist id="ie-cats">${cats().map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
+        <div class="field"><label for="ie-l">Location / shelf</label><input class="input" id="ie-l" name="location" list="ie-locs" maxlength="40" value="${esc(x.location || '')}"><datalist id="ie-locs">${locs().map((c) => `<option value="${esc(c)}">`).join('')}</datalist></div>
+        ${id ? '' : '<div class="field"><label for="ie-o">Opening quantity</label><input class="input num" id="ie-o" name="opening" type="number" min="0" step="0.001" value="0"></div>'}
+        <div class="field"><label for="ie-r">Reorder level</label><input class="input num" id="ie-r" name="reorder" type="number" min="0" step="0.001" value="${x.reorder || 0}"></div>
+        <div class="field"><label for="ie-cost">Cost price (${esc(ctx.state.settings.currency)})</label><input class="input num" id="ie-cost" name="cost" type="number" min="0" step="0.01" value="${x.lastPrice || 0}"></div>
+        <div class="field"><label for="ie-p">Selling price</label><input class="input num" id="ie-p" name="price" type="number" min="0" step="0.01" value="${x.price || 0}"></div>
+        <div class="field full"><label for="ie-s">Supplier</label><select class="select" id="ie-s" name="vendorId"><option value="">—</option>${sup.map((c) => `<option value="${c.id}" ${x.vendorId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div></div>`,
+      onSubmit(d) {
+        const code = String(d.code || '').trim(), name = String(d.name || '').trim();
+        if (!code || !name) { ctx.toast('A code and a name are needed', 'error'); return false; }
+        if (ops().items.some((i) => i.id !== id && String(i.code).trim().toUpperCase() === code.toUpperCase())) { ctx.toast(`The code ${code} is already used`, 'error'); return false; }
+        const patch = { code, name, unit: String(d.unit || '').trim() || 'pcs', category: String(d.category || '').trim(), location: String(d.location || '').trim(), reorder: Math.max(0, Number(d.reorder) || 0), lastPrice: Math.max(0, Number(d.cost) || 0), price: Math.max(0, Number(d.price) || 0), vendorId: d.vendorId || '' };
+        if (id) { Object.assign(item(id), patch); ctx.commit(`${name} saved`, `Item ${code} changed`); return; }
+        const it = { id: U.uid('it'), kind: 'goods', opening: 0, ...patch };
+        ops().items.push(it);
+        const op = Math.max(0, Number(d.opening) || 0);
+        if (op > 0) ops().moves.push({ id: U.uid('mv'), itemId: it.id, date: T(), qty: op, kind: 'Opening stock', ref: 'OPENING', note: '', by: actor(), at: new Date().toISOString() });
+        ctx.commit(`${name} added`, `Item ${code} added${op ? ` with ${qty(op)} ${it.unit} in stock` : ''}`);
+      },
+    });
+  }
+
+  // ---------- Import the item list (Excel / CSV) ----------
+  let xlsxReady = null;
+  function loadXlsx() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    return (xlsxReady = xlsxReady || new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'js/vendor/xlsx.full.min.js?v=0.20.3'; s.onload = () => ok(window.XLSX); s.onerror = () => { xlsxReady = null; no(new Error('The spreadsheet reader could not load.')); }; document.head.appendChild(s); }));
+  }
+  const importState = { plan: null, file: '' };
+  function importModal() {
+    importState.plan = null; importState.file = '';
+    ctx.openModal({
+      title: 'Import items', size: 'lg', submit: null,
+      body: `<p class="muted">Excel (.xlsx) or CSV with the columns <b>${O.TEMPLATE_HEAD.join(', ')}</b>. Only Code and Name are required. A code that is already in the list is skipped, never changed. Opening quantities go in as one “Opening stock” movement dated today.</p>
+        <div class="actions" style="margin:8px 0"><button type="button" class="btn" data-act="ops-import-template">${icon('download')}Download the template</button><label class="btn btn-primary" for="inv-file" style="cursor:pointer">${icon('doc')}Choose a file</label><input type="file" id="inv-file" accept=".xlsx,.xls,.csv,text/csv" hidden></div>
+        <div id="inv-preview" aria-live="polite"></div>`,
+    });
+    ctx.$('#inv-file').addEventListener('change', async (ev) => {
+      const f = ev.target.files[0]; if (!f) return;
+      const box = ctx.$('#inv-preview'); box.innerHTML = '<p class="faint">Reading…</p>';
+      try {
+        if (f.size > 5e6) throw new Error('That file is too big (5 MB at most).');
+        const X = await loadXlsx(), wb = X.read(await f.arrayBuffer(), { type: 'array', cellDates: false });
+        const rows = X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
+        const plan = O.parseItems(rows, ops().items.map((i) => i.code));
+        importState.plan = plan; importState.file = f.name;
+        if (plan.missing.length) { box.innerHTML = `<p class="login-error" role="alert" style="display:block">The file needs columns called ${plan.missing.map((m) => `<b>${m}</b>`).join(' and ')}. Download the template to see the layout.</p>`; return; }
+        box.innerHTML = `<p><b>${plan.items.length}</b> item${plan.items.length === 1 ? '' : 's'} ready to import · <b>${plan.skipped.length}</b> skipped (already there) · <b>${plan.errors.length}</b> with a problem</p>
+          ${plan.errors.length ? `<ul class="hr-list" style="max-height:140px;overflow:auto">${plan.errors.slice(0, 50).map((e) => `<li><div><strong>Row ${e.row}</strong><div class="person-sub" style="color:var(--bad)">${esc(e.message)}</div></div></li>`).join('')}</ul>` : ''}
+          ${plan.skipped.length ? `<details><summary>${plan.skipped.length} skipped</summary><ul class="hr-list" style="max-height:120px;overflow:auto">${plan.skipped.slice(0, 50).map((e) => `<li><div><strong>Row ${e.row} · ${esc(e.code)}</strong><div class="person-sub">${esc(e.why)}</div></div></li>`).join('')}</ul></details>` : ''}
+          ${plan.items.length ? `<div class="table-wrap" style="max-height:220px;overflow:auto"><table class="table"><thead><tr><th>Code</th><th>Name</th><th>Unit</th><th>Category</th><th>Shelf</th><th class="r">Opening</th><th class="r">Reorder</th><th class="r">Cost</th><th class="r">Price</th></tr></thead><tbody>${plan.items.slice(0, 40).map((i) => `<tr><td>${esc(i.code)}</td><td>${esc(i.name)}</td><td>${esc(i.unit)}</td><td>${esc(i.category)}</td><td>${esc(i.location)}</td><td class="r num">${qty(i.opening)}</td><td class="r num">${qty(i.reorder)}</td><td class="r num">${i.cost ? money(i.cost) : '—'}</td><td class="r num">${i.price ? money(i.price) : '—'}</td></tr>`).join('')}</tbody></table></div>${plan.items.length > 40 ? `<p class="faint">…and ${plan.items.length - 40} more</p>` : ''}
+          <div class="actions" style="justify-content:flex-end;margin-top:10px"><button type="button" class="btn btn-primary" data-act="ops-import-go">Import ${plan.items.length} item${plan.items.length === 1 ? '' : 's'}</button></div>` : '<p class="faint">Nothing to import.</p>'}`;
+      } catch (e) { box.innerHTML = `<p class="login-error" role="alert" style="display:block">${esc(e?.message || 'That file could not be read.')}</p>`; }
+    });
+  }
+  function importGo() {
+    const plan = importState.plan; if (!plan || !plan.items.length) return;
+    const now = new Date().toISOString(), sup = {};
+    fin().contacts.filter((c) => c.kind === 'supplier').forEach((c) => { sup[c.name.trim().toLowerCase()] = c.id; });
+    let newSup = 0;
+    plan.items.forEach((i) => {
+      let vendorId = '';
+      if (i.supplier) {
+        const k = i.supplier.trim().toLowerCase();
+        if (!sup[k]) { const c = { id: U.uid('c'), kind: 'supplier', name: i.supplier.trim(), category: 'Stock purchases', tin: '', idType: 'BRN', idNo: '', sst: 'NA', email: '', phone: '', terms: '30' }; fin().contacts.push(c); sup[k] = c.id; newSup++; }
+        vendorId = sup[k];
+      }
+      const it = { id: U.uid('it'), code: i.code, name: i.name, kind: 'goods', unit: i.unit, category: i.category, location: i.location, opening: 0, reorder: i.reorder, lastPrice: i.cost, price: i.price, vendorId };
+      ops().items.push(it);
+      if (i.opening > 0) ops().moves.push({ id: U.uid('mv'), itemId: it.id, date: T(), qty: i.opening, kind: 'Opening stock', ref: 'IMPORT', note: `Imported from ${importState.file}`.slice(0, 200), by: actor(), at: now });
+    });
+    const n = plan.items.length;
+    ctx.closeOverlay();
+    ctx.commit(`${n} item${n === 1 ? '' : 's'} imported${newSup ? `; ${newSup} new supplier${newSup === 1 ? '' : 's'} added to Finance` : ''}`, `Item list imported (${n} items) from ${importState.file}`);
+  }
+  function downloadTemplate() { ctx.downloadCSV('inventory-items-template.csv', [O.TEMPLATE_HEAD, ...O.TEMPLATE_ROWS]); }
+
+  // ---------- Stock count ----------
+  const countState = { counts: {}, cat: '', loc: '' };
+  function countModal(stage = 'sheet') {
+    const lv = levels(), pick = lv.filter((x) => (!countState.cat || x.category === countState.cat) && (!countState.loc || x.location === countState.loc)).sort((a, b) => (a.location || '').localeCompare(b.location || '') || a.code.localeCompare(b.code));
+    if (stage === 'sheet') {
+      ctx.openModal({
+        title: 'Stock count', size: 'lg', submit: 'Review the differences',
+        body: `<p class="muted">Type what you counted. Leave a line empty if you did not count it. Nothing changes until you post the count.</p>
+          <div class="inv-filters" style="margin-bottom:8px">${cats().length ? `<select class="select" id="ct-cat" aria-label="Category"><option value="">All categories</option>${cats().map((c) => `<option ${countState.cat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>` : ''}${locs().length ? `<select class="select" id="ct-loc" aria-label="Location"><option value="">All locations</option>${locs().map((c) => `<option ${countState.loc === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>` : ''}</div>
+          <div class="table-wrap" style="max-height:340px;overflow:auto"><table class="table"><thead><tr><th>Item</th><th>Shelf</th><th class="r">In the system</th><th class="r">Counted</th></tr></thead><tbody>${pick.map((x) => `<tr><td><strong>${esc(x.name)}</strong><div class="person-sub">${esc(x.code)}</div></td><td>${esc(x.location || '')}</td><td class="r num">${qty(x.onHand)} <span class="faint">${esc(x.unit)}</span></td><td class="r"><input class="input num" style="width:96px;text-align:right" type="number" min="0" step="0.001" inputmode="decimal" data-count="${x.id}" value="${countState.counts[x.id] ?? ''}" aria-label="Counted quantity of ${esc(x.name)}"></td></tr>`).join('')}</tbody></table>${pick.length ? '' : empty('Nothing here', 'No items match.')}</div>`,
+        onSubmit() {
+          ctx.$$('[data-count]').forEach((i) => { countState.counts[i.dataset.count] = i.value; });
+          setTimeout(() => countModal('review'), 0); return true;
+        },
+      });
+      const keep = () => ctx.$$('[data-count]').forEach((i) => { countState.counts[i.dataset.count] = i.value; });
+      ['ct-cat', 'ct-loc'].forEach((id) => ctx.$(`#${id}`)?.addEventListener('change', (ev) => { keep(); countState[id === 'ct-cat' ? 'cat' : 'loc'] = ev.target.value; countModal('sheet'); }));
+      return;
+    }
+    const plan = O.countPlan(lv, countState.counts);
+    ctx.openModal({
+      title: 'Review the count', size: 'lg', submit: plan.differences.length ? `Post ${plan.differences.length} correction${plan.differences.length === 1 ? '' : 's'}` : null,
+      body: `<p>${plan.lines.length} item${plan.lines.length === 1 ? '' : 's'} counted · <b>${plan.differences.length}</b> with a difference.</p>
+        ${plan.differences.length ? `<div class="table-wrap" style="max-height:300px;overflow:auto"><table class="table"><thead><tr><th>Item</th><th class="r">System</th><th class="r">Counted</th><th class="r">Difference</th></tr></thead><tbody>${plan.differences.map((l) => `<tr><td><strong>${esc(l.name)}</strong><div class="person-sub">${esc(l.code)}</div></td><td class="r num">${qty(l.system)}</td><td class="r num">${qty(l.counted)}</td><td class="r num" style="color:${l.diff < 0 ? 'var(--bad)' : 'var(--ok)'}"><b>${l.diff > 0 ? '+' : ''}${qty(l.diff)}</b> ${esc(l.unit)}</td></tr>`).join('')}</tbody></table></div>
+          <div class="field" style="margin-top:10px"><label for="ct-note">Note for all of them</label><input class="input" id="ct-note" name="note" maxlength="200" value="Stock count ${T()}"></div>` : '<p class="faint">The count agrees with the system. Nothing to post.</p>'}
+        <div class="actions" style="margin-top:8px"><button type="button" class="btn" data-act="ops-count-back">Back to the sheet</button></div>`,
+      onSubmit(d) {
+        const moves = O.countMoves(plan, { date: T(), note: d.note, by: actor(), at: new Date().toISOString(), ids: () => U.uid('mv') });
+        if (!moves.length) return;
+        ops().moves.push(...moves); countState.counts = {};
+        ctx.commit(`Stock count posted: ${moves.length} correction${moves.length === 1 ? '' : 's'}`, `Stock count posted (${moves.length} corrections)`);
+      },
+    });
+  }
+
+  // ---------- Reports ----------
+  function reportsModal() {
+    ctx.openModal({
+      title: 'Stock reports', size: 'sm', submit: null,
+      body: `<div style="display:grid;gap:10px"><button type="button" class="btn" data-act="ops-report" data-v="stock">${icon('download')}Stock on hand and value (CSV)</button><button type="button" class="btn" data-act="ops-report" data-v="low">${icon('download')}Low stock list (CSV)</button>
+        <div class="field" style="border-top:1px solid var(--line);padding-top:10px"><label>Stock movements (CSV), from and to</label><div style="display:flex;gap:8px"><input class="input" id="rp-from" type="date" value="${T().slice(0, 7)}-01"><input class="input" id="rp-to" type="date" value="${T()}"></div></div><button type="button" class="btn" data-act="ops-report" data-v="moves">${icon('download')}Movements for these dates (CSV)</button></div>`,
+    });
+  }
+  function report(kind) {
+    const lv = levels(), sup = (x) => contact(x.vendorId)?.name || '';
+    if (kind === 'stock') ctx.downloadCSV(`stock-on-hand-${T()}.csv`, O.stockCsvRows(lv, sup));
+    else if (kind === 'low') ctx.downloadCSV(`low-stock-${T()}.csv`, O.lowCsvRows(lv));
+    else { const from = ctx.$('#rp-from')?.value || '', to = ctx.$('#rp-to')?.value || ''; ctx.downloadCSV(`stock-movements-${from || 'start'}-to-${to || T()}.csv`, O.movesCsvRows(ops().items, ops().moves, from, to, (id) => (id ? ctx.fullName(emp(id)) : ''))); }
+  }
+  // Settings → Modules: the Inventory switch. Off hides the pages and never deletes the data.
+  function setInventory(on) {
+    st().settings.modules = { ...(st().settings.modules || {}), inventory: !!on };
+    if (on) ops();
+    ctx.commit(on ? 'Inventory turned on' : 'Inventory turned off. The stock data is kept.', on ? 'Inventory (Stock & purchasing) turned on' : 'Inventory (Stock & purchasing) turned off; the stock data is kept');
   }
   const lineRow = (l = {}) => `<div class="ops-line"><select class="select" data-f="itemId" aria-label="Item">${ops().items.map((i) => `<option value="${i.id}" ${l.itemId === i.id ? 'selected' : ''}>${esc(i.name)} (${esc(i.unit)})</option>`).join('')}</select><input class="input num" data-f="qty" type="number" min="0" step="1" value="${l.qty || ''}" aria-label="Quantity" placeholder="Qty"><input class="input num" data-f="price" type="number" min="0" step="0.01" value="${l.price ?? ''}" aria-label="Unit price (RM)" placeholder="RM"><button type="button" class="btn btn-sm btn-icon btn-ghost" data-ops-del aria-label="Remove line">${icon('trash')}</button></div>`;
   function poModal(itemId) {
@@ -157,7 +346,7 @@ window.AllurusOps = (function () {
     const start = lv ? [{ itemId, qty: Math.max(O.suggestQty(lv), Math.ceil(3 * lv.reorder - lv.onHand - lv.onOrder)), price: lv.lastPrice }] : [{}];
     ctx.openModal({
       title: 'New purchase order', size: 'lg', submit: 'Save for approval',
-      body: `<div class="form-grid"><div class="field"><label for="po-v">Vendor</label><select class="select" id="po-v" name="vendorId">${fin().contacts.filter((c) => c.kind === 'supplier' && ['Raw materials', 'Packaging'].includes(c.category)).map((c) => `<option value="${c.id}" ${c.id === vendorId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+      body: `<div class="form-grid"><div class="field"><label for="po-v">Vendor</label><select class="select" id="po-v" name="vendorId">${fin().contacts.filter((c) => c.kind === 'supplier').map((c) => `<option value="${c.id}" ${c.id === vendorId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
         <div class="field"><label for="po-exp">Expected delivery</label><input class="input" id="po-exp" name="expected" type="date" value="${U.addDays(T(), 4)}"></div>
         <div class="field full"><span class="label-like">Items</span><div id="po-lines" class="ops-lines">${start.map(lineRow).join('')}</div><button type="button" class="btn btn-sm" id="po-add" style="margin-top:6px">${icon('plus')}Add line</button></div></div>
         <p class="faint" id="po-total"></p><p class="faint">Someone other than you approves it before it is sent.</p>`,
@@ -711,6 +900,7 @@ window.AllurusOps = (function () {
     Object.assign(ctx.VIEWS, { 'ops-today': todayView, 'ops-stock': stockView, 'ops-production': prodView, 'ops-sales': salesView, 'ops-machines': machView, 'my-deliveries': myDeliveries, 'my-machines': myMachines });
     // A link to one purchase order (#ops-stock?po=<id>, from the store's notification) opens it.
     ctx.AFTER['ops-stock'] = () => {
+      bindStockFilters();
       const id = /[?&]po=([^&]+)/.exec(location.hash)?.[1];
       if (!id) return;
       history.replaceState(null, '', `${location.pathname}${location.search}#ops-stock`);
@@ -722,6 +912,17 @@ window.AllurusOps = (function () {
     Object.assign(ctx.ACTIONS, {
       'ops-stock-tab': tab('stockTab'), 'ops-prod-tab': tab('prodTab'), 'ops-sales-tab': tab('salesTab'), 'ops-mach-tab': tab('machTab'),
       'ops-item': (id) => itemModal(id),
+      'ops-item-new': () => itemEditModal(null),
+      'ops-item-edit': (id) => itemEditModal(id),
+      'ops-move': (id, v) => moveModal(id, v),
+      'ops-quick': (id, v) => moveModal(id, v),
+      'ops-import': () => importModal(),
+      'ops-import-go': () => importGo(),
+      'ops-import-template': () => downloadTemplate(),
+      'ops-count': () => { countState.counts = {}; countState.cat = ''; countState.loc = ''; countModal('sheet'); },
+      'ops-count-back': () => countModal('sheet'),
+      'ops-reports': () => reportsModal(),
+      'ops-report': (_, v) => report(v),
       'ops-po-new': (id) => poModal(id),
       'ops-po-open': (id) => poOpen(id),
       'ops-po-approve': (id) => {
@@ -772,7 +973,7 @@ window.AllurusOps = (function () {
         ctx.commit('Expiry date updated');
       },
     });
-    return { has, insights, expiringItems, badge, routeAllowed, landing, homeCard, heroAction, levels, openInvoices, sold30, myDOs, technicians, ui };
+    return { has, setInventory, insights, expiringItems, badge, routeAllowed, landing, homeCard, heroAction, levels, openInvoices, sold30, myDOs, technicians, ui };
   }
   return { install };
 })();
