@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.60';
+  const APP_VERSION = '3.61';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -200,7 +200,7 @@
   // "Please use your phone" is showing (js/device-rules.js); pages an admin on a phone is told are easier on a computer.
   let deviceBlock = null;
   let phoneBlock = null;   // { mode: 'pending' | 'other', info, asked } while this phone isn't the person's registered one
-  const HEAVY = new Set(['payroll', 'reports', 'settings', 'books', 'invoices', 'bills', 'finance', 'tax', 'ops-stock', 'costing']);
+  const HEAVY = new Set(['payroll', 'reports', 'settings', 'books', 'invoices', 'bills', 'finance', 'tax', 'costing']);
   // A signed-in cloud user reopening the app waits for the workspace to load before seeing it.
   const hasStaffSess = () => {
     try {
@@ -486,11 +486,12 @@
     payroll: { label: 'Payroll', desc: 'Staff records, attendance, payroll and claims', perms: ['people', 'time', 'payroll', 'claims'] },
     finance: { label: 'Finance', desc: 'The books and claims. No staff records or payroll detail.', perms: ['finance', 'claims'] },
     // For a company that makes and delivers (a workspace with operations data); hidden elsewhere.
-    operations: { label: 'Operations', desc: 'Stock, purchasing, production, deliveries and machines', perms: ['operations'], ops: true },
+    // The storekeeper's role: stock and purchasing (and production, deliveries and machines where the company uses them), nothing of payroll, HR or the books.
+    operations: { label: 'Store / warehouse', desc: 'Stock and purchasing, and the rest of Operations where your company uses it. No payroll, HR or books.', perms: ['operations'], ops: true },
     outlet: { label: 'Outlet manager', desc: 'Runs the outlet: the till, menu, voids, shifts and sales reports, plus stock', perms: ['pos', 'operations', 'time'], pos: true },
     manager: { label: 'Admin manager', desc: 'Runs the office and the floor: everything but hiring and appraisals', perms: ['people', 'time', 'payroll', 'claims', 'finance', 'operations', 'settings'], ops: true },
   };
-  const shownTemplates = () => Object.entries(TEMPLATES).filter(([, t]) => (!t.ops || state.ops) && (!t.pos || state.pos));
+  const shownTemplates = () => Object.entries(TEMPLATES).filter(([, t]) => (!t.ops || opsApi?.has() || state.ops) && (!t.pos || state.pos));
   const templateOf = (perms) => (!perms ? 'owner' : Object.keys(TEMPLATES).find((k) => TEMPLATES[k].perms.length === perms.length && TEMPLATES[k].perms.every((x) => perms.includes(x))) || 'custom');
   const ROUTE_AREA = {
     employees: 'people', departments: 'people', onboarding: 'people', assets: 'people', 'org-chart': 'people', rooms: 'people', announcements: 'people', 'hr-reports': 'people',
@@ -1656,6 +1657,14 @@
           ${row('Salaries are entered as', AllurusSalary.lockedMonthly(window.AllurusAddons) ? 'Monthly (fixed for this company). Salaries are typed and shown as a monthly figure.' : 'How salaries are typed and shown in the employee form, the import and the lists. It changes only the screens: the amounts stored for payroll stay exactly the same, so nothing already paid or calculated is affected.', AllurusSalary.lockedMonthly(window.AllurusAddons) ? '<span class="pill">Monthly (fixed for this company)</span>' : `<div class="seg">${[['monthly', 'Monthly'], ['yearly', 'Yearly']].map(([v, l]) => `<button data-act="sal-basis" data-v="${v}" class="${salaryBasis() === v ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
           ${row('Minimum monthly wage for the pay-run check', 'Before Approve and pay, the pay run warns about full-time staff below this. RM1,700 is the current national minimum wage; it is under government review, so change it here when it changes.', `<input class="input num" id="s-minwage" type="number" min="0" step="10" value="${esc(s.minWage ?? AllurusSalary.MIN_WAGE_DEFAULT)}" style="width:110px" aria-label="Minimum monthly wage">`)}
           ${my ? statutoryCard(s) : ''}${prodApi?.settingsCard() || ''}` },
+      { id: 'modules', label: 'Modules', icon: 'layers', summary: 'Inventory (Stock & purchasing)', keys: 'modules inventory stock purchasing items warehouse store production sales delivery machines switch on off',
+        html: () => { const on = !!opsApi?.has(), allowed = can('operations') && can('settings'); const seg = `<div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="mod-inventory" data-v="${v}" ${allowed ? '' : 'disabled'} class="${(on ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+          return `<div class="card"><div class="card-head"><h3>Modules</h3><span class="hint">Switch on the parts your company uses</span></div>
+            ${row('Inventory (Stock &amp; purchasing)', 'Your items, how many you have and where, stock in and out with a reason, stock counts, low-stock warnings, purchase orders and receiving, and CSV reports. Turning it off hides the pages: your stock data is never deleted, and it is all back when you turn it on again.' + (allowed ? '' : ' Turning it on or off needs both the Settings and Operations areas.'), seg)}
+            ${row('Production orders', 'Recipes and production batches for a company that makes a product.', '<span class="pill">Coming later</span>')}
+            ${row('Sales &amp; delivery', 'Sales orders and delivery runs with the driver’s phone.', '<span class="pill">Coming later</span>')}
+            ${row('Machines', 'Preventive maintenance and breakdowns.', '<span class="pill">Coming later</span>')}
+            <p class="field-hint" style="margin-top:8px">The daily production total for commission is separate from stock for now: it does not change stock levels.</p></div>`; } },
       { id: 'claims', label: 'Claims', icon: 'receipt', summary: 'Claim categories, limits, mileage, medical', keys: 'claim category limit mileage medical expense reimbursement',
         html: () => claimsApi.settingsCards() },
       { id: 'people', label: 'People & talent', icon: 'userplus', summary: 'Onboarding, letters, hiring, appraisals', keys: 'employee department position import onboarding offboarding checklist letter template recruitment job offer appraisal grade band grievance',
@@ -2994,6 +3003,7 @@
     'acc-key-remove': () => teamAccess.removeJoinKey(),
     'acc-open-ok': (uid, empId) => teamAccess.approve(uid, empId),
     'acc-open-no': (uid) => teamAccess.refuse(uid),
+    'mod-inventory': (_, v) => { if (!(can('operations') && can('settings')) || !opsApi) return; opsApi.setInventory(v === 'on'); },
     'sal-basis': (_, v) => { if (AllurusSalary.lockedMonthly(window.AllurusAddons) || !['monthly', 'yearly'].includes(v)) return; state.settings.salaryBasis = v; commit(`Salaries are now entered as ${v}`); },
     // Output column (pay run): one person's production days for the month.
     'out-days': (empId, mk) => {

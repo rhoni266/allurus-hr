@@ -142,5 +142,127 @@ window.AllurusOpsRules = (function () {
     return { overdue: open.filter((b) => b.due < today), week: open.filter((b) => b.due >= today && days(today, b.due) <= n) };
   }
 
-  return { onHand, stockLevels, suggestQty, poTotal, poReceivedValue, PO_FLOW, receive, recipeUsage, shortfalls, yieldPct, lots, pickFEFO, daysCover, pmStatus, downtime, aging, topDebtors, billsDue, addDays, days, r2 };
+
+  // ---------- Inventory for a real company (docs/INVENTORY-ON-SPEC.md) ----------
+  // Item (stock list): { id, code, name, kind, unit, category, location, opening, reorder, lastPrice (cost), price (selling), vendorId, supplier }.
+  // Every change of quantity is a move, never an edit: { id, itemId, date, qty (+in / −out), kind, ref, note, by, at }.
+  const emptyOps = () => ({ items: [], moves: [], pos: [], products: [], batches: [], orders: [], dos: [], machines: [], maint: [], breakdowns: [], licences: [], seq: {} });
+  // Reasons, and which way each one moves stock. 'Count correction' and 'Adjustment' may go either way.
+  const MOVE_KINDS = [
+    { key: 'Received', sign: 1 }, { key: 'Returned', sign: 1 }, { key: 'Opening stock', sign: 1 },
+    { key: 'Used', sign: -1 }, { key: 'Sold', sign: -1 }, { key: 'Damaged', sign: -1 },
+    { key: 'Count correction', sign: 0 }, { key: 'Adjustment', sign: 0 },
+  ];
+  const kindOf = (k) => MOVE_KINDS.find((x) => x.key === k) || null;
+  /**
+   * One stock move from what a person typed. direction: 'in' | 'out' | 'adjust'. For in/out the quantity is positive and the sign comes
+   * from the direction; for adjust it is the signed difference. Returns { ok, move } or { ok: false, error }.
+   */
+  function makeMove({ itemId, direction, qty, kind, note = '', date, by = '', at = '', id = '' }) {
+    const q = r3(qty);
+    if (!itemId) return { ok: false, error: 'Choose an item.' };
+    if (!kindOf(kind)) return { ok: false, error: 'Choose a reason.' };
+    if (!Number.isFinite(q) || q === 0) return { ok: false, error: 'Enter a quantity.' };
+    if ((direction === 'in' || direction === 'out') && q < 0) return { ok: false, error: 'Enter the quantity as a positive number.' };
+    const k = kindOf(kind);
+    if (direction === 'in' && k.sign < 0) return { ok: false, error: `“${kind}” takes stock out, not in.` };
+    if (direction === 'out' && k.sign > 0) return { ok: false, error: `“${kind}” puts stock in, not out.` };
+    if (direction === 'adjust' && k.sign !== 0) return { ok: false, error: 'An adjustment uses the reason “Count correction” or “Adjustment”.' };
+    const signed = direction === 'out' ? -q : q;
+    return { ok: true, move: { id, itemId, date, qty: signed, kind, ref: '', note: String(note || '').trim().slice(0, 200), by, at } };
+  }
+  /** Every move of one item, oldest first, with the balance after each (opening stock first). Moves on the same date keep their order. */
+  function history(item, moves) {
+    let bal = r3(Number(item.opening) || 0);
+    const rows = moves.map((m, i) => ({ m, i })).filter((x) => x.m.itemId === item.id).sort((a, b) => (a.m.date || '').localeCompare(b.m.date || '') || a.i - b.i)
+      .map(({ m }) => { bal = r3(bal + (Number(m.qty) || 0)); return { ...m, balance: bal }; });
+    return { opening: r3(Number(item.opening) || 0), rows, onHand: bal };
+  }
+  /** Value at cost of what is on hand, and at selling price. Items without a cost count as 0 (and are listed as unpriced). */
+  function stockValue(levels) {
+    return { cost: r2(sum(levels, (x) => Math.max(0, x.onHand) * (Number(x.lastPrice) || 0))), selling: r2(sum(levels, (x) => Math.max(0, x.onHand) * (Number(x.price) || 0))), unpriced: levels.filter((x) => !Number(x.lastPrice) && x.onHand > 0).length };
+  }
+  /** Low-stock list with what to reorder. */
+  const lowList = (levels) => levels.filter((x) => x.low).map((x) => ({ id: x.id, code: x.code, name: x.name, unit: x.unit, onHand: x.onHand, reorder: Number(x.reorder) || 0, onOrder: x.onOrder || 0, suggest: suggestQty(x) }));
+
+  // A stock count: counts = { itemId: typed quantity or '' }. Items left blank are not counted. Returns the differences, and the moves to post.
+  function countPlan(levels, counts) {
+    const lines = [];
+    levels.forEach((x) => {
+      const raw = counts[x.id]; if (raw === '' || raw == null || !Number.isFinite(Number(raw))) return;
+      const counted = r3(raw), diff = r3(counted - x.onHand);
+      lines.push({ itemId: x.id, code: x.code, name: x.name, unit: x.unit, system: x.onHand, counted, diff });
+    });
+    return { lines, differences: lines.filter((l) => l.diff !== 0) };
+  }
+  const countMoves = (plan, { date, note, by, at, ids = () => '' }) => plan.differences.map((l) => ({ id: ids(), itemId: l.itemId, date, qty: l.diff, kind: 'Count correction', ref: 'COUNT', note: String(note || 'Stock count').slice(0, 200), by, at }));
+
+  // ---------- Import of the item list ----------
+  const IMPORT_COLUMNS = [
+    ['code', 'Code', ['code', 'item code', 'sku', 'kod', 'kod item']], ['name', 'Name', ['name', 'item', 'item name', 'description', 'nama', 'nama item', 'barang']],
+    ['unit', 'Unit', ['unit', 'uom', 'unit of measure', 'unit ukuran']], ['category', 'Category', ['category', 'kategori', 'group', 'jenis']],
+    ['location', 'Location', ['location', 'shelf', 'location shelf', 'shelf location', 'lokasi', 'rak', 'bin']],
+    ['opening', 'Opening quantity', ['opening quantity', 'opening qty', 'opening stock', 'quantity', 'qty', 'on hand', 'stock', 'kuantiti', 'baki']],
+    ['reorder', 'Reorder level', ['reorder level', 'reorder', 'reorder at', 'min', 'minimum', 'min stock', 'paras semula']],
+    ['cost', 'Cost price', ['cost price', 'cost', 'purchase price', 'buy price', 'harga kos', 'harga beli']],
+    ['price', 'Selling price', ['selling price', 'sell price', 'price', 'sale price', 'harga jual', 'harga']],
+    ['supplier', 'Supplier', ['supplier', 'vendor', 'pembekal']],
+  ];
+  const normH = (s) => String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const WRAPS = { '"': '"', '“': '”', '”': '”', "'": "'", '‘': '’' };
+  const stripQ = (v) => { if (typeof v !== 'string') return v; let t = v.trim(); while (t.length >= 2 && WRAPS[t[0]] === t[t.length - 1]) t = t.slice(1, -1).trim(); return t; };
+  const cell = (v) => (v == null ? '' : typeof v === 'string' ? stripQ(v.replace(/^﻿/, '')).replace(/\s+/g, ' ').trim() : v);
+  const num = (v) => { if (typeof v === 'number') return Number.isFinite(v) ? v : NaN; const s = String(v).replace(/rm|myr|,|\s/gi, ''); return /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : NaN; };
+  /**
+   * Rows of a sheet (first row = headers; any title rows above are skipped by looking for the row that names Code and Name) → a plan:
+   * { items: [{ row, code, name, unit, category, location, opening, reorder, cost, price, supplier }], errors: [{ row, message }],
+   *   skipped: [{ row, code, why }], missing: [column names not found] }. existingCodes: codes already in the stock list (skipped, never changed).
+   */
+  function parseItems(rows, existingCodes = []) {
+    const out = { items: [], errors: [], skipped: [], missing: [], headerRow: -1 };
+    const grid = (rows || []).map((r) => (r || []).map(cell));
+    let h = grid.findIndex((r) => { const names = r.map(normH); return IMPORT_COLUMNS.some(([, , syn]) => names.some((n) => syn.includes(n))) && names.some((n) => ['code', 'item code', 'sku', 'kod', 'kod item'].includes(n)) && names.some((n) => ['name', 'item', 'item name', 'description', 'nama', 'nama item', 'barang'].includes(n)); });
+    if (h < 0) { out.missing = ['Code', 'Name']; return out; }
+    out.headerRow = h;
+    const heads = grid[h].map(normH), col = {};
+    IMPORT_COLUMNS.forEach(([key, , syn]) => { const i = heads.findIndex((n) => syn.includes(n)); if (i >= 0) col[key] = i; });
+    out.missing = IMPORT_COLUMNS.filter(([key]) => ['code', 'name'].includes(key) && col[key] == null).map(([, label]) => label);
+    if (out.missing.length) return out;
+    const seen = new Set(existingCodes.map((c) => String(c).trim().toUpperCase()));
+    grid.slice(h + 1).forEach((r, k) => {
+      const n = h + 2 + k;                                                       // the row number as a spreadsheet shows it (1-based)
+      if (r.every((v) => v === '' || v == null)) return;
+      const get = (key) => (col[key] == null ? '' : r[col[key]]);
+      const code = String(get('code')).trim(), name = String(get('name')).trim();
+      if (!code && !name) return;
+      if (!code) { out.errors.push({ row: n, message: 'No code' }); return; }
+      if (!name) { out.errors.push({ row: n, message: `${code}: no name` }); return; }
+      const key = code.toUpperCase();
+      if (seen.has(key)) { out.skipped.push({ row: n, code, why: 'That code is already in the list (or earlier in this file): skipped, nothing changed' }); return; }
+      const bad = [];
+      const numeric = (k2, label, min = 0) => { const raw = get(k2); if (raw === '' || raw == null) return 0; const v = num(raw); if (!Number.isFinite(v)) { bad.push(`${label} “${raw}” isn’t a number`); return 0; } if (v < min) { bad.push(`${label} can’t be negative`); return 0; } return Math.round(v * 1000) / 1000; };
+      const opening = numeric('opening', 'Opening quantity'), reorder = numeric('reorder', 'Reorder level'), cost = numeric('cost', 'Cost price'), price = numeric('price', 'Selling price');
+      if (bad.length) { out.errors.push({ row: n, message: `${code}: ${bad.join('; ')}` }); return; }
+      seen.add(key);
+      out.items.push({ row: n, code, name, unit: String(get('unit')).trim() || 'pcs', category: String(get('category')).trim(), location: String(get('location')).trim(), opening, reorder, cost, price, supplier: String(get('supplier')).trim() });
+    });
+    return out;
+  }
+  const TEMPLATE_HEAD = IMPORT_COLUMNS.map(([, label]) => label);
+  const TEMPLATE_ROWS = [['HW-001', 'Cement 50kg bag', 'bag', 'Building materials', 'Rack A1', 120, 40, 18.5, 24, 'Ah Seng Hardware'], ['HW-002', 'Steel nails 3 inch (1kg)', 'pack', 'Fasteners', 'Rack B2', 60, 20, 6.2, 9.5, '']];
+
+  // ---------- Reports (CSV rows) ----------
+  const q2 = (n) => r2(n).toFixed(2);
+  function stockCsvRows(levels, supplierName = () => '') {
+    const head = ['Code', 'Name', 'Category', 'Location', 'Unit', 'On hand', 'Reorder level', 'Low stock', 'On order', 'Cost price', 'Value at cost', 'Selling price', 'Supplier'];
+    return [head, ...[...levels].sort((a, b) => a.code.localeCompare(b.code)).map((x) => [x.code, x.name, x.category || '', x.location || '', x.unit, x.onHand, Number(x.reorder) || 0, x.low ? 'LOW' : '', x.onOrder || 0, q2(x.lastPrice), q2(Math.max(0, x.onHand) * (Number(x.lastPrice) || 0)), q2(x.price), supplierName(x) || x.supplier || ''])];
+  }
+  function movesCsvRows(items, moves, from, to, who = (x) => x) {
+    const by = Object.fromEntries(items.map((i) => [i.id, i]));
+    const list = moves.filter((m) => (!from || m.date >= from) && (!to || m.date <= to)).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    return [['Date', 'Code', 'Item', 'Reason', 'Quantity', 'Unit', 'Reference', 'Note', 'By'], ...list.map((m) => [m.date, by[m.itemId]?.code || '', by[m.itemId]?.name || '', m.kind || (m.qty > 0 ? 'In' : 'Out'), m.qty, by[m.itemId]?.unit || '', m.ref || '', m.note || '', who(m.by) || ''])];
+  }
+  const lowCsvRows = (levels) => [['Code', 'Name', 'Unit', 'On hand', 'Reorder level', 'On order', 'Suggested order'], ...lowList(levels).map((x) => [x.code, x.name, x.unit, x.onHand, x.reorder, x.onOrder, x.suggest])];
+
+  return { emptyOps, MOVE_KINDS, kindOf, makeMove, history, stockValue, lowList, countPlan, countMoves, IMPORT_COLUMNS, parseItems, TEMPLATE_HEAD, TEMPLATE_ROWS, stockCsvRows, movesCsvRows, lowCsvRows, onHand, stockLevels, suggestQty, poTotal, poReceivedValue, PO_FLOW, receive, recipeUsage, shortfalls, yieldPct, lots, pickFEFO, daysCover, pmStatus, downtime, aging, topDebtors, billsDue, addDays, days, r2 };
 })();

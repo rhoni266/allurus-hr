@@ -11,7 +11,9 @@
     "test:e2e-cloud": "firebase emulators:exec --config firebase.e2e.json --only firestore,auth --project demo-allurus-e2e \"node tests-e2e/unlinked-cloud.e2e.js\"",
     "test:e2e-join": "firebase emulators:exec --config firebase.e2e.json --only firestore,auth --project demo-allurus-e2e \"node tests-e2e/join-autolink.e2e.js\"",
     "test:e2e-demo": "node tests-e2e/output-column.e2e.js",
-    "test:e2e-salary": "node tests-e2e/salary-basis.e2e.js"
+    "test:e2e-salary": "node tests-e2e/salary-basis.e2e.js",
+    "test:e2e-inventory": "firebase emulators:exec --config firebase.e2e.json --only firestore,auth --project demo-allurus-e2e \"node tests-e2e/inventory.e2e.js\"",
+    "test:e2e-inventory-phone": "node tests-e2e/inventory-phone.e2e.js"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^3.0.4",
