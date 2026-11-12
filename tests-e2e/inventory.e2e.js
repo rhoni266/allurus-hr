@@ -158,11 +158,17 @@ const PW = 'Pass-Word-2026!';
   const po = await p.evaluate((id) => { const s = window.AllurusApp.state.ops; const it = s.items.find((i) => i.id === id); const onHand = it.opening + s.moves.filter((m) => m.itemId === id).reduce((a, m) => a + m.qty, 0); return { status: s.pos[0].status, onHand, recv: s.moves.some((m) => m.itemId === id && m.ref === s.pos[0].no && m.qty === 50) }; }, nails);
   ok('A purchase order raised, approved, sent and received: stock goes up by 50 (60 − 2 counted + 50 = 108) and the PO is Billed', po.onHand === 108 && po.recv && po.status === 'Billed', JSON.stringify(po));
 
+  const uc = await p.evaluate(() => { const s = window.AllurusApp.state.ops, by = Object.fromEntries(s.items.map((i) => [i.id, i])); const add = s.moves.filter((m) => m.qty > 0); return { missing: add.filter((m) => m.unitCost == null && m.kind !== 'Count correction').length, opening: s.moves.filter((m) => m.kind === 'Opening stock').every((m) => m.unitCost > 0) && s.moves.find((m) => m.kind === 'Opening stock' && by[m.itemId].code === 'HW-001').unitCost === 18.5, returned: s.moves.find((m) => m.kind === 'Returned')?.unitCost, received: s.moves.find((m) => m.kind === 'Received')?.unitCost, out: s.moves.filter((m) => m.qty < 0).every((m) => !('unitCost' in m)) }; });
+  ok('Unit cost is saved on stock added: opening stock from the item cost, a manual stock-in from the default (18.50), the PO line price (6.00); none on stock out', uc.missing === 0 && uc.opening && uc.returned === 18.5 && uc.received === 6 && uc.out, JSON.stringify(uc));
+
   // ---- 6. CSV export ----
   await p.click('[data-act=ops-reports]'); await p.waitForTimeout(400);
   const [dl] = await Promise.all([p.waitForEvent('download', { timeout: 15000 }), p.click('[data-act=ops-report][data-v=stock]')]);
   const csvOut = fs.readFileSync(await dl.path(), 'utf8').replace(/^﻿/, '').trim().split(/\r?\n/);
   ok('CSV: stock on hand and value: a header and 10 items, with the new quantities', csvOut.length === 11 && /^"?Code"?,"?Name"?/.test(csvOut[0]) && csvOut.some((l) => /HW-001/.test(l) && /105/.test(l)) && csvOut.some((l) => /HW-002/.test(l) && /108/.test(l)), `${csvOut.length} lines · ${dl.suggestedFilename()}`);
+  const [dl2] = await Promise.all([p.waitForEvent('download', { timeout: 15000 }), p.click('[data-act=ops-report][data-v=moves]')]);
+  const mcsv = fs.readFileSync(await dl2.path(), 'utf8').split(String.fromCharCode(10)).map((l) => l.replace(String.fromCharCode(13), '')).filter(Boolean);
+  ok('CSV: stock movements have a "Unit cost" column, filled for stock added (18.50 for the cement opening stock) and blank for stock out', /Unit cost/.test(mcsv[0]) && mcsv.some((l) => /HW-001/.test(l) && /Opening stock/.test(l) && /18\.50/.test(l)) && mcsv.some((l) => /"Sold"/.test(l) && !/18\.50/.test(l)), mcsv[0]);
   await p.keyboard.press('Escape'); await p.waitForTimeout(300);
 
   await go(p, 'ops-today');

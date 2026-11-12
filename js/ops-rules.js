@@ -51,7 +51,7 @@ window.AllurusOpsRules = (function () {
     const moves = [];
     const lines = po.lines.map((l) => {
       const due = Math.max(0, l.qty - (l.received || 0)), now = Math.min(due, Math.max(0, Number(got[l.itemId]) || 0));
-      if (now > 0) moves.push({ id: ids(), itemId: l.itemId, date, qty: now, ref: po.no, note: 'Received' });
+      if (now > 0) moves.push({ id: ids(), itemId: l.itemId, date, qty: now, ref: po.no, note: 'Received', kind: 'Received', unitCost: r2(l.price) });
       return { ...l, received: r3((l.received || 0) + now) };
     });
     const full = lines.every((l) => l.received >= l.qty);
@@ -158,7 +158,7 @@ window.AllurusOpsRules = (function () {
    * One stock move from what a person typed. direction: 'in' | 'out' | 'adjust'. For in/out the quantity is positive and the sign comes
    * from the direction; for adjust it is the signed difference. Returns { ok, move } or { ok: false, error }.
    */
-  function makeMove({ itemId, direction, qty, kind, note = '', date, by = '', at = '', id = '' }) {
+  function makeMove({ itemId, direction, qty, kind, note = '', date, by = '', at = '', id = '', unitCost = null }) {
     const q = r3(qty);
     if (!itemId) return { ok: false, error: 'Choose an item.' };
     if (!kindOf(kind)) return { ok: false, error: 'Choose a reason.' };
@@ -169,7 +169,10 @@ window.AllurusOpsRules = (function () {
     if (direction === 'out' && k.sign > 0) return { ok: false, error: `“${kind}” puts stock in, not out.` };
     if (direction === 'adjust' && k.sign !== 0) return { ok: false, error: 'An adjustment uses the reason “Count correction” or “Adjustment”.' };
     const signed = direction === 'out' ? -q : q;
-    return { ok: true, move: { id, itemId, date, qty: signed, kind, ref: '', note: String(note || '').trim().slice(0, 200), by, at } };
+    // Stock added carries what one unit cost (RM), so the history can be costed later. Nothing is averaged or valued from it here.
+    const move = { id, itemId, date, qty: signed, kind, ref: '', note: String(note || '').trim().slice(0, 200), by, at };
+    if (signed > 0 && unitCost != null && unitCost !== '' && Number.isFinite(Number(unitCost)) && Number(unitCost) >= 0) move.unitCost = r2(unitCost);
+    return { ok: true, move };
   }
   /** Every move of one item, oldest first, with the balance after each (opening stock first). Moves on the same date keep their order. */
   function history(item, moves) {
@@ -191,11 +194,11 @@ window.AllurusOpsRules = (function () {
     levels.forEach((x) => {
       const raw = counts[x.id]; if (raw === '' || raw == null || !Number.isFinite(Number(raw))) return;
       const counted = r3(raw), diff = r3(counted - x.onHand);
-      lines.push({ itemId: x.id, code: x.code, name: x.name, unit: x.unit, system: x.onHand, counted, diff });
+      lines.push({ itemId: x.id, code: x.code, name: x.name, unit: x.unit, system: x.onHand, counted, diff, cost: r2(x.lastPrice) });
     });
     return { lines, differences: lines.filter((l) => l.diff !== 0) };
   }
-  const countMoves = (plan, { date, note, by, at, ids = () => '' }) => plan.differences.map((l) => ({ id: ids(), itemId: l.itemId, date, qty: l.diff, kind: 'Count correction', ref: 'COUNT', note: String(note || 'Stock count').slice(0, 200), by, at }));
+  const countMoves = (plan, { date, note, by, at, ids = () => '' }) => plan.differences.map((l) => ({ id: ids(), itemId: l.itemId, date, qty: l.diff, kind: 'Count correction', ref: 'COUNT', note: String(note || 'Stock count').slice(0, 200), by, at, ...(l.diff > 0 ? { unitCost: l.cost } : {}) }));
 
   // ---------- Import of the item list ----------
   const IMPORT_COLUMNS = [
@@ -260,7 +263,7 @@ window.AllurusOpsRules = (function () {
   function movesCsvRows(items, moves, from, to, who = (x) => x) {
     const by = Object.fromEntries(items.map((i) => [i.id, i]));
     const list = moves.filter((m) => (!from || m.date >= from) && (!to || m.date <= to)).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-    return [['Date', 'Code', 'Item', 'Reason', 'Quantity', 'Unit', 'Reference', 'Note', 'By'], ...list.map((m) => [m.date, by[m.itemId]?.code || '', by[m.itemId]?.name || '', m.kind || (m.qty > 0 ? 'In' : 'Out'), m.qty, by[m.itemId]?.unit || '', m.ref || '', m.note || '', who(m.by) || ''])];
+    return [['Date', 'Code', 'Item', 'Reason', 'Quantity', 'Unit', 'Unit cost', 'Reference', 'Note', 'By'], ...list.map((m) => [m.date, by[m.itemId]?.code || '', by[m.itemId]?.name || '', m.kind || (m.qty > 0 ? 'In' : 'Out'), m.qty, by[m.itemId]?.unit || '', m.unitCost != null && m.qty > 0 ? q2(m.unitCost) : '', m.ref || '', m.note || '', who(m.by) || ''])];
   }
   const lowCsvRows = (levels) => [['Code', 'Name', 'Unit', 'On hand', 'Reorder level', 'On order', 'Suggested order'], ...lowList(levels).map((x) => [x.code, x.name, x.unit, x.onHand, x.reorder, x.onOrder, x.suggest])];
 

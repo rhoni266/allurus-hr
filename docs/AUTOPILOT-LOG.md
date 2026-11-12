@@ -731,3 +731,9 @@ Branch `claude/inventory-on`. **No rules change** (checked: the `ops.*` buckets 
 
 ### Left for later
 Production orders, sales and delivery, machines for real companies; linking production to stock; a printable count sheet; "Create bill from PO" exists already (when everything is received).
+
+## 2026-11-12 (night): unit cost on stock added (v3.62), the 13:41 update of docs/INVENTORY-ON-SPEC.md
+- **Every stock move that adds stock now saves `unitCost` (RM per unit):** "Opening stock" from the item's cost price (import and by hand); "Received" from the PO line price; a manual stock-in from a new optional **Cost per unit** field, which defaults to the item's cost price (leave it blank and the default is used); "Returned" the same way as a manual stock-in; and a stock count that finds **more** than the system records the item's cost on its correction. Stock out, and a count that finds less, carry no cost.
+- **The movements CSV has a "Unit cost" column** (blank for stock out and for older movements that have no cost). It is only stored: **no costing method** (average, FIFO) and no link to production. Movements made before this change have no `unitCost`.
+- Note: an opening-stock movement keeps the cost it was made with; later purchase prices change the item's *last* cost price, not old movements.
+- Tests: `npm test` 507/507 (4 new in `tests/inventory.test.js`; the existing PO receipt test now expects `kind` and `unitCost`), cloud e2e `npm run test:e2e-inventory` **31/31** (adds: unit cost saved on opening, manual stock-in default and PO line price, none on stock out; the CSV column). No rules change. Deploy: `firebase deploy --only hosting`.
