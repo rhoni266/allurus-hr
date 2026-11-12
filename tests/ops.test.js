@@ -35,7 +35,7 @@ test('purchase order: partial then full receipt adds stock once', () => {
   assert.equal(O.poTotal(po), 1440);
   const a = O.receive(po, { chilli: 60 }, { date: '2026-10-10', ids });
   assert.equal(a.po.status, 'Partial');
-  deq(a.moves, [{ id: 'm1', itemId: 'chilli', date: '2026-10-10', qty: 60, ref: 'PO-1', note: 'Received' }]);
+  deq(a.moves, [{ id: 'm1', itemId: 'chilli', date: '2026-10-10', qty: 60, ref: 'PO-1', note: 'Received', kind: 'Received', unitCost: 12 }]);
   const b = O.receive(a.po, { chilli: 999, garlic: 40 }, { date: '2026-10-12', ids });
   assert.equal(b.po.status, 'Received');
   deq(b.moves.map((m) => [m.itemId, m.qty]), [['chilli', 40], ['garlic', 40]], 'over-receipt is capped at what is still due');

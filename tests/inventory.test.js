@@ -164,3 +164,42 @@ test('every change of quantity goes through a movement: no screen edits a quanti
   assert.match(ops, /O\.makeMove\(\{ itemId: id, direction/);
   assert.match(ops, /O\.countMoves\(plan,/);
 });
+
+// ---- unit cost on stock added (docs/INVENTORY-ON-SPEC.md, update of 12 Nov 13:41): stored, not used for any costing method ----
+test('unit cost: stock-in moves keep it (typed or the default), stock-out moves do not, a bad or negative figure is left off', () => {
+  const m = (o) => O.makeMove({ itemId: 'i1', date: '2026-11-12', ...o });
+  assert.equal(m({ direction: 'in', qty: 5, kind: 'Received', unitCost: 18.5 }).move.unitCost, 18.5);
+  assert.equal(m({ direction: 'in', qty: 5, kind: 'Returned', unitCost: '7.256' }).move.unitCost, 7.26, 'to the sen');
+  assert.equal(m({ direction: 'in', qty: 5, kind: 'Received', unitCost: 0 }).move.unitCost, 0, 'a free item is a real cost of 0');
+  assert.ok(!('unitCost' in m({ direction: 'in', qty: 5, kind: 'Received' }).move), 'none given: none stored');
+  assert.ok(!('unitCost' in m({ direction: 'in', qty: 5, kind: 'Received', unitCost: -1 }).move));
+  assert.ok(!('unitCost' in m({ direction: 'in', qty: 5, kind: 'Received', unitCost: 'x' }).move));
+  assert.ok(!('unitCost' in m({ direction: 'out', qty: 5, kind: 'Used', unitCost: 9 }).move), 'stock out needs no cost');
+  assert.ok(!('unitCost' in m({ direction: 'adjust', qty: -2, kind: 'Count correction', unitCost: 9 }).move), 'a loss carries no cost');
+  assert.equal(m({ direction: 'adjust', qty: 2, kind: 'Count correction', unitCost: 9 }).move.unitCost, 9, 'a gain does');
+});
+test('unit cost: a received PO line records the line price; a count that finds more records the item’s cost', () => {
+  const po = { no: 'PO-9', status: 'Sent', lines: [{ itemId: 'i1', qty: 10, price: 17.8 }, { itemId: 'i2', qty: 5, price: 6 }] };
+  const r = plain(O.receive(po, { i1: 10, i2: 5 }, { date: '2026-11-12', ids }));
+  assert.deepEqual(r.moves.map((x) => [x.itemId, x.qty, x.kind, x.unitCost]), [['i1', 10, 'Received', 17.8], ['i2', 5, 'Received', 6]]);
+  const lv = plain(O.stockLevels(items, [], []));
+  const plan = plain(O.countPlan(lv, { i1: 103, i2: 0 }));      // cement +3 (cost 18.5); nails 0 = 0
+  const mv2 = plain(O.countMoves(plan, { date: 'd', ids }));
+  assert.equal(mv2.length, 1); assert.equal(mv2[0].unitCost, 18.5);
+  const less = plain(O.countMoves(plain(O.countPlan(lv, { i1: 95 })), { date: 'd', ids }));
+  assert.ok(!('unitCost' in less[0]), 'a count that finds less costs nothing to record');
+});
+test('unit cost: the movements CSV has a "Unit cost" column, filled for stock added only', () => {
+  const moves = [{ id: 'a', itemId: 'i1', qty: 120, date: '2026-11-01', kind: 'Opening stock', unitCost: 18.5 }, { id: 'b', itemId: 'i1', qty: -5, date: '2026-11-02', kind: 'Sold' }, { id: 'c', itemId: 'i2', qty: 3, date: '2026-11-03', kind: 'Received' }];
+  const rows = plain(O.movesCsvRows(items, moves, '', '', (x) => x));
+  assert.deepEqual(rows[0], ['Date', 'Code', 'Item', 'Reason', 'Quantity', 'Unit', 'Unit cost', 'Reference', 'Note', 'By']);
+  assert.deepEqual(rows.slice(1).map((r) => r[6]), ['18.50', '', ''], 'stock out and a move with no cost are blank');
+});
+test('unit cost wiring: opening stock (import and by hand), manual stock-in with an optional "Cost per unit", no costing method', () => {
+  const ops = fs.readFileSync(path.join(__dirname, '..', 'js', 'ops.js'), 'utf8');
+  assert.match(ops, /kind: 'Opening stock', ref: 'IMPORT'[^\n]*unitCost: i\.cost/);
+  assert.match(ops, /kind: 'Opening stock', ref: 'OPENING'[^\n]*unitCost: it\.lastPrice/);
+  assert.match(ops, /Cost per unit \(\$\{esc\(ctx\.state\.settings\.currency\)\}, optional\)/);
+  assert.match(ops, /unitCost: direction === 'in' \? \(d\.cost === '' \|\| d\.cost == null \? x\.lastPrice : d\.cost\) : null/);
+  assert.ok(!/average cost|FIFO|fifo|weighted/i.test(fs.readFileSync(path.join(__dirname, '..', 'js', 'ops-rules.js'), 'utf8').split('Inventory for a real company')[1] || ''), 'only stores the figure');
+});

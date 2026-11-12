@@ -188,10 +188,11 @@ window.AllurusOps = (function () {
       title: `${title} · ${x.name}`, submit: 'Save',
       body: `<div class="form-grid"><div class="field"><label for="mv-q">${direction === 'adjust' ? `Change (${esc(x.unit)}, − to take off)` : `Quantity (${esc(x.unit)})`}</label><input class="input input-lg num" id="mv-q" name="qty" type="number" step="0.001" inputmode="decimal" ${direction === 'adjust' ? '' : 'min="0"'} required autofocus></div>
         <div class="field"><label for="mv-k">Reason</label><select class="select" id="mv-k" name="kind">${kinds.map((k) => `<option>${esc(k.key)}</option>`).join('')}</select></div>
+        ${direction === 'in' ? `<div class="field"><label for="mv-c">Cost per unit (${esc(ctx.state.settings.currency)}, optional)</label><input class="input num" id="mv-c" name="cost" type="number" min="0" step="0.01" inputmode="decimal" value="${x.lastPrice || ''}"></div>` : ''}
         <div class="field"><label for="mv-d">Date</label><input class="input" id="mv-d" name="date" type="date" value="${T()}"></div>
         <div class="field full"><label for="mv-n">Note</label><input class="input" id="mv-n" name="note" maxlength="200" placeholder="Optional"></div></div>`,
       onSubmit(d) {
-        const r = O.makeMove({ itemId: id, direction, qty: Number(d.qty), kind: d.kind, note: d.note, date: d.date || T(), by: actor(), at: new Date().toISOString(), id: U.uid('mv') });
+        const r = O.makeMove({ itemId: id, direction, qty: Number(d.qty), kind: d.kind, note: d.note, date: d.date || T(), by: actor(), at: new Date().toISOString(), id: U.uid('mv'), unitCost: direction === 'in' ? (d.cost === '' || d.cost == null ? x.lastPrice : d.cost) : null });
         if (!r.ok) { ctx.toast(r.error, 'error'); return false; }
         ops().moves.push(r.move);
         const now = O.onHand(item(id), ops().moves);
@@ -223,7 +224,7 @@ window.AllurusOps = (function () {
         const it = { id: U.uid('it'), kind: 'goods', opening: 0, ...patch };
         ops().items.push(it);
         const op = Math.max(0, Number(d.opening) || 0);
-        if (op > 0) ops().moves.push({ id: U.uid('mv'), itemId: it.id, date: T(), qty: op, kind: 'Opening stock', ref: 'OPENING', note: '', by: actor(), at: new Date().toISOString() });
+        if (op > 0) ops().moves.push({ id: U.uid('mv'), itemId: it.id, date: T(), qty: op, kind: 'Opening stock', ref: 'OPENING', note: '', by: actor(), at: new Date().toISOString(), unitCost: it.lastPrice });
         ctx.commit(`${name} added`, `Item ${code} added${op ? ` with ${qty(op)} ${it.unit} in stock` : ''}`);
       },
     });
@@ -276,7 +277,7 @@ window.AllurusOps = (function () {
       }
       const it = { id: U.uid('it'), code: i.code, name: i.name, kind: 'goods', unit: i.unit, category: i.category, location: i.location, opening: 0, reorder: i.reorder, lastPrice: i.cost, price: i.price, vendorId };
       ops().items.push(it);
-      if (i.opening > 0) ops().moves.push({ id: U.uid('mv'), itemId: it.id, date: T(), qty: i.opening, kind: 'Opening stock', ref: 'IMPORT', note: `Imported from ${importState.file}`.slice(0, 200), by: actor(), at: now });
+      if (i.opening > 0) ops().moves.push({ id: U.uid('mv'), itemId: it.id, date: T(), qty: i.opening, kind: 'Opening stock', ref: 'IMPORT', note: `Imported from ${importState.file}`.slice(0, 200), by: actor(), at: now, unitCost: i.cost });
     });
     const n = plan.items.length;
     ctx.closeOverlay();
