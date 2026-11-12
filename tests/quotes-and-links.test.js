@@ -97,7 +97,7 @@ test('wiring: approving a registration runs the guard first; the app never shows
   const w = cloud.indexOf('writeBatch(db)', i);
   assert.ok(i > 0 && w > i && cloud.slice(i, w).includes('M.approvalProblem('), 'the check runs before any write');
   const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
-  assert.match(app, /const me = \(\) => emp\(state\.session\.empId\) \|\| \(cloud\.db \?/);
+  assert.match(app, /const me = \(\) => emp\(state\.session\.empId\) \|\| \(CLOUD \?/);
 });
 
 // ---- Approving a join-page registration (incident 2026-11-11): HR picks the person; checks the IC; one sign-in per record ----
@@ -156,4 +156,14 @@ test('approval wiring: no automatic pick; the picker starts empty; the server-si
   const cloud = fs.readFileSync(path.join(__dirname, '..', 'js', 'cloud.js'), 'utf8');
   const j = cloud.indexOf('async approveOpen(u, emp) {'), k = cloud.indexOf('writeBatch(db)', j);
   assert.ok(j > 0 && cloud.slice(j, k).includes('M.approvalProblem('));
+});
+
+test('the unlinked-sign-in guard keys off CLOUD (the real workspace), not cloud.db (the old shared-link object, always null there)', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+  assert.match(app, /const unlinked = \(\) => CLOUD && !emp\(state\.session\.empId\);/);
+  assert.match(app, /const me = \(\) => emp\(state\.session\.empId\) \|\| \(CLOUD \? \{ id: UNLINKED_ID/);
+  const code = app.split('\n').map((l) => l.split('//')[0]).join('\n');   // code only, not comments
+  assert.ok(!/const (unlinked|me) = .*cloud\.db/.test(code), 'no cloud.db in me() or unlinked()');
+  assert.match(app, /const cloud = \{ on: false, db: null,/, 'cloud.db is the legacy object that stays null in the real workspace');
+  assert.match(app, /if \(role\(\) === 'employee' && unlinked\(\)\)/, 'the not-linked screen is shown before any view');
 });

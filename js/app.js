@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.56';
+  const APP_VERSION = '3.57';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -451,8 +451,8 @@
   // placeholder, not the first employee: on 11 Nov 2026 crew whose link was broken by quote marks in imported ids saw
   // the HR admin's record (employees[0]). The demo (no cloud) keeps its old fallback.
   const UNLINKED_ID = '__unlinked__';
-  const unlinked = () => !!cloud.db && !emp(state.session.empId);
-  const me = () => emp(state.session.empId) || (cloud.db ? { id: UNLINKED_ID, first: state.session?.name || 'Staff', last: '', role: '', dept: '', salary: 0, email: '', phone: '', status: 'Active', unlinked: true } : activeEmployees()[0]);
+  const unlinked = () => CLOUD && !emp(state.session.empId);   // CLOUD = the real company workspace; the old shared-link object (cloud.db) is null there
+  const me = () => emp(state.session.empId) || (CLOUD ? { id: UNLINKED_ID, first: state.session?.name || 'Staff', last: '', role: '', dept: '', salary: 0, email: '', phone: '', status: 'Active', unlinked: true } : activeEmployees()[0]);
 
   // ---------- Simple staff screen (docs/SIMPLE-STAFF-HOME-SPEC.md) ----------
   // For staff without an admin role, on a phone, at a company that has the add-on and has not turned it off in Settings:
