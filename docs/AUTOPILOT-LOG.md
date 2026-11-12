@@ -664,3 +664,18 @@ Branch `claude/join-autolink`. **Needs a rules change.** Live rules backed up fi
 1. Merge, then `firebase deploy --only firestore:rules`, then `firebase deploy --only hosting`.
 2. **Switch it on for Major Far East** (it is off by default): Team access → the join card → "Link new sign-ups to their own record automatically" → On. Keep "Also ask the last 4 digits of the phone" on. HR's app writes the links within a few seconds of the switch (someone from HR needs the app open once).
 3. Staff whose record has no IC, no phone, a shared IC or an existing sign-in will still wait for HR. Check the three records with no IC first.
+
+## 2026-11-12 (night): Output column in the pay run (v3.59), and a check on Major Far East's salaries
+### Output column (branch `claude/output-column`)
+- Pay run table at a company with production commission on (Major Far East): the **Bonus** column is replaced by **Output**: each person's commission for the month and its days ("RM16.66 · 1 day"), or a dash. Clicking it opens that person's day list (day, production, share, Paid or why not). A chip at the top says "Output: RM X to N staff". The bonus input boxes are gone from the table there.
+- A bonus, if ever needed at such a company, is added in the **payslip editor** (click a name, draft runs only): "Bonus for this payslip (RM)". Every other company is unchanged: Bonus column with its inputs, no chip.
+- Not changed: the CSV export still has its Bonus column (it is empty at Major Far East unless a bonus is added in the editor).
+- Tests: `tests/output-column.test.js` (3 wiring pins) in `npm test` (478 with the others); browser test `npm run test:e2e-demo` 10/10 (Major Far East demo: header, per-person output, no bonus inputs, the chip, the day list, a bonus saved from the payslip editor with the commission line kept; the standard demo company still shows Bonus). Version v3.59.
+### Why nobody gets the production commission yet (explained by the owner, not re-checked here)
+The pool of a production day is shared only by staff who checked in that day. Until the crew register and check in (or the kiosk is used, or HR adds attendance for days already worked and recalculates the day), the commission is RM0.
+### Salaries at Major Far East (read-only check, counts only; no per-person figures here)
+- 32 employee records. The **annual salary field** holds: 21 records with **0**, 9 records between RM1,000 and RM4,999 per year, 1 between RM20,000 and RM39,999, 1 above RM40,000.
+- The 9 low ones look like **monthly salaries typed into the yearly field**: the pay run divides the yearly figure by 12, so RM2,000 shows as RM166.67 gross, exactly as seen. (RM1,700 a month, the minimum wage, would be RM20,400 a year, so any yearly figure under about RM20,400 is not a real yearly salary.)
+- 25 of the 32 records came from one import batch: 18 of them have 0 and 6 have the low figures. So the import did not carry a usable salary for most crew, and where it did, the value went into the yearly field. The 7 typed in the app: 3 have 0, 3 low, 1 high.
+- The October and November payroll runs are both still **Draft** (26 and 33 items): gross is 0 for 18 and 20 of them. **Do not press Approve and pay.**
+- Not changed: nothing was edited. Next step is for the owner to look at one record (Employees, Nadia): if the field says per year and shows 2,000, that is the cause; then decide the fix. The safe fix would be a script with a dry run that lists names, the current figure and the proposed one in a local file (not in chat), changes only records under RM20,400 a year (×12), and asks for the real salary of the 21 with none from HR (a spreadsheet import in update mode), with an audit line for each change.

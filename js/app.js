@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.58';
+  const APP_VERSION = '3.59';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -1332,6 +1332,11 @@
     const projected = eligible.reduce((s, e) => s + U.payCalc(e.salary, 0, state.settings, e).net, 0);
     const pill = run ? (run.status === 'Paid' ? '<span class="pill ok">Paid</span>' : '<span class="pill warn">Draft</span>') : '<span class="pill">Not run</span>';
     const my = isMY(), due = U.fmtDate(U.addMonths(mk, 1) + '-15', { month: 'short', day: 'numeric', year: 'numeric' });
+    // Production commission (Major Far East): the Bonus column gives way to Output = each person's commission for the month and its days.
+    const outputOn = !!prodApi?.on();
+    const prodOf = (it) => { const l = (it.extraLines || []).find((x) => x.key === 'prod'); return l && l.amount > 0 ? { amount: l.amount, days: Number(String(l.detail || '').replace(/\D/g, '')) || 0 } : null; };
+    const outputCell = (it, e) => { const p = prodOf(it); return `<td class="r num">${p ? `<button class="link-btn num" data-act="out-days" data-id="${it.empId}" data-v="${mk}" aria-label="Production days for ${esc(fullName(e))}">${money(p.amount, 2)} · ${p.days} day${p.days === 1 ? '' : 's'}</button>` : '<span class="faint">—</span>'}</td>`; };
+    const outputSum = outputOn && run ? run.items.reduce((a, it) => { const p = prodOf(it); return p ? { sen: a.sen + Math.round(p.amount * 100), n: a.n + 1 } : a; }, { sen: 0, n: 0 }) : null;
     const remit = t && my ? [
       ['KWSP (EPF)', 'Employee and employer EPF', t.epf + t.erEpf, 'i-Akaun (Majikan)'],
       ['PERKESO (SOCSO and EIS)', 'Employee and employer SOCSO and EIS', t.socso + t.erSocso + t.eis + t.erEis, 'PERKESO ASSIST'],
@@ -1355,6 +1360,7 @@
           <button class="btn btn-icon" data-act="pay-shift" data-v="-1" aria-label="Previous month">${icon('left')}</button>
           ${pill}
           <button class="btn btn-icon" data-act="pay-shift" data-v="1" aria-label="Next month" ${mk >= U.addMonths(cur, 1) ? 'disabled' : ''}>${icon('right')}</button>
+          ${outputSum ? `<span class="pill brand" id="output-chip" title="Production commission in this run">Output: ${money(outputSum.sen / 100, 2)} to ${outputSum.n} staff</span>` : ''}
           ${!run ? `<button class="btn btn-primary" data-act="pay-run">${icon('wallet')}Run payroll</button>` : ''}
           ${run?.status === 'Draft' ? `<button class="btn" data-act="pay-discard">Discard draft</button><button class="btn btn-primary" data-act="pay-approve">${icon('check')}Approve and pay</button>` : ''}
           ${run ? `<button class="btn" data-act="pay-export">${icon('download')}Export CSV</button><button class="btn" data-act="pd-slips-all" data-v="${mk}">${icon('doc')}${AllurusSimpleHome.pdfPasswordOn({ addon: staffApp().avail, setting: state.settings.staffApp?.pdfPw }) ? 'Download all payslips (PDF)' : 'Print all payslips'}</button>` : ''}
@@ -1374,10 +1380,10 @@
         <tr><td><strong>Total</strong></td><td class="hide-sm"></td><td class="hide-sm"></td><td class="r num" style="font-weight:600">${money(remit.reduce((s, x) => s + x[2], 0), 2)}</td></tr></tbody></table></div>
         <p class="disclaimer">${icon('pin')}<span>EPF ${U.statutory(state.settings).epfEe}% employee, ${U.statutory(state.settings).epfEr}% employer (${U.statutory(state.settings).epfErHigh}% above RM5,000). SOCSO and EIS by PERKESO wage bands up to RM6,000. PCB is estimated from LHDN tax bands with the individual relief only; staff can update their TP1 reliefs with you. Check against the official calculators before paying.</span></p></div>` : ''}
       <div class="card card-flush"><div class="table-wrap"><table>
-        <thead><tr><th>Employee</th><th class="r">Bonus</th><th class="r">Gross</th>${my ? '<th class="r hide-sm">EPF</th><th class="r hide-sm">SOCSO + EIS</th><th class="r hide-sm">PCB</th>' : '<th class="r hide-sm">Tax</th><th class="r hide-sm">Benefits</th>'}${t.claims ? '<th class="r hide-sm">Claims</th>' : ''}<th class="r">Net</th></tr></thead>
+        <thead><tr><th>Employee</th><th class="r">${outputOn ? 'Output' : 'Bonus'}</th><th class="r">Gross</th>${my ? '<th class="r hide-sm">EPF</th><th class="r hide-sm">SOCSO + EIS</th><th class="r hide-sm">PCB</th>' : '<th class="r hide-sm">Tax</th><th class="r hide-sm">Benefits</th>'}${t.claims ? '<th class="r hide-sm">Claims</th>' : ''}<th class="r">Net</th></tr></thead>
         <tbody>${run.items.map((it) => { const e = emp(it.empId); if (!e) return ''; return `<tr>
           <td><button class="cell-btn" data-act="payslip" data-id="${it.empId}" title="Open payslip">${person(e)}</button>${it.salaryNote ? `<div class="person-sub"><span class="tag ok">${esc(it.salaryNote)}</span></div>` : ''}</td>
-          <td class="r num">${run.status === 'Draft' ? `<input class="input num" style="width:84px;text-align:right" type="number" min="0" step="100" data-bonus="${it.empId}" value="${it.bonus}" aria-label="Bonus for ${esc(fullName(e))}">` : money(it.bonus)}${it.bonusNote ? `<div class="person-sub">${esc(it.bonusNote)}</div>` : ''}</td>
+          ${outputOn ? outputCell(it, e) : `<td class="r num">${run.status === 'Draft' ? `<input class="input num" style="width:84px;text-align:right" type="number" min="0" step="100" data-bonus="${it.empId}" value="${it.bonus}" aria-label="Bonus for ${esc(fullName(e))}">` : money(it.bonus)}${it.bonusNote ? `<div class="person-sub">${esc(it.bonusNote)}</div>` : ''}</td>`}
           <td class="r num">${money(it.gross, 2)}${it.unpaid ? `<div class="person-sub">−${money(it.unpaid, 2)} unpaid leave</div>` : ''}${it.extras ? `<div class="person-sub">+${money(it.extras, 2)} added earnings</div>` : ''}</td>
           ${my ? `<td class="r num muted hide-sm">${money(it.epf ?? it.benefits, 2)}</td><td class="r num muted hide-sm">${money((it.socso || 0) + (it.eis || 0), 2)}</td><td class="r num muted hide-sm">${money(it.tax + (it.zakat || 0), 2)}</td>` : `<td class="r num muted hide-sm">${money(it.tax, 2)}</td><td class="r num muted hide-sm">${money(it.benefits, 2)}</td>`}
           ${t.claims ? `<td class="r num hide-sm">${it.claims ? money(it.claims, 2) : '<span class="faint">—</span>'}</td>` : ''}
@@ -1414,6 +1420,7 @@
       body: `<div style="display:flex;flex-direction:column;gap:18px">
         <div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:10px">${LOGO_MARK}<div><div style="font-weight:600;letter-spacing:.24em">${esc(state.settings.company.toUpperCase())}</div><div class="faint" style="font-size:12px">${U.fmtMonth(month)}</div></div></div>${run.status === 'Paid' ? '<span class="pill ok">Paid</span>' : '<span class="pill warn">Draft</span>'}</div>
         ${person(e, `${e.role} · ${dept(e.dept)?.name || ''}`)}
+        ${run.status === 'Draft' && prodApi?.on() ? `<div class="field" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px"><label for="slip-bonus">Bonus for this payslip (RM)</label><div style="display:flex;gap:8px"><input class="input num" id="slip-bonus" type="number" min="0" step="50" value="${it.bonus || 0}" style="max-width:140px"><button type="button" class="btn btn-sm" data-act="slip-bonus" data-id="${empId}" data-v="${month}">Save bonus</button></div><span class="field-hint">Production commission is shown as Output in the pay run. A bonus, when needed, is added here.</span></div>` : ''}
         <div>${lines}</div>
         <button type="button" class="btn" data-act="pd-slip" data-id="${empId}" data-v="${month}">${icon('download')}${AllurusSimpleHome.pdfPasswordOn({ addon: staffApp().avail, setting: state.settings.staffApp?.pdfPw }) ? 'Download protected PDF' : 'Print or save as PDF'}</button></div>`,
     });
@@ -2982,6 +2989,17 @@
     'acc-key-remove': () => teamAccess.removeJoinKey(),
     'acc-open-ok': (uid, empId) => teamAccess.approve(uid, empId),
     'acc-open-no': (uid) => teamAccess.refuse(uid),
+    // Output column (pay run): one person's production days for the month.
+    'out-days': (empId, mk) => {
+      const e = emp(empId); if (!e || !prodApi?.mine) return;
+      const rows = prodApi.mine(empId, mk).map((d) => `<tr><td>${U.fmtDate(d.date, { weekday: 'short', day: 'numeric', month: 'short' })}</td><td class="r num">${d.units != null ? esc(AllurusProd.fmtUnits(d.units, d.unit || '')) : '—'}</td><td class="r num">${d.status === 'paid' ? money(d.shareSen / 100, 2) : '<span class="faint">—</span>'}</td><td>${d.status === 'paid' ? 'Paid' : esc(d.reason || 'Not paid')}</td></tr>`).join('');
+      openModal({ title: `Output · ${esc(fullName(e))} · ${U.fmtMonth(mk)}`, size: 'sm', submit: null, body: `<div class="table-wrap"><table class="table"><thead><tr><th>Day</th><th class="r">Production</th><th class="r">Share</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="muted">No production days for this person this month.</td></tr>'}</tbody></table></div>` });
+    },
+    'slip-bonus': (empId, mk) => {
+      const run = state.payroll[mk], it = run?.items.find((i) => i.empId === empId); if (!it || run.status !== 'Draft') return;
+      Object.assign(it, payItem(emp(empId), Math.max(0, Number($('#slip-bonus')?.value) || 0), mk));
+      save(); closeOverlay(); render(); toast('Bonus updated');
+    },
     'acc-auto-no': (uid) => teamAccess.refuseAuto(uid),
     'jl-toggle': (key, v) => { if (!['joinAutoLink', 'joinPhone4'].includes(key)) return; state.settings[key] = v === 'on'; commit(`${key === 'joinAutoLink' ? 'Automatic link of new sign-ups' : 'Ask the last 4 digits of the phone'} turned ${v}`); },
     'acc-ic-filter': (_, v) => { teamAccess.icFilter = v; teamAccess.draw(); },
