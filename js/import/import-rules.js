@@ -157,6 +157,14 @@ window.AllurusImportRules = (function () {
   const signature = (headers) => headers.map(squash).join('|');
   // For each column: the best field (never two columns on one field), a score and a confidence label.
   // `saved` is a remembered mapping { signature, map: { squashedHeader: fieldKey | '' } } for files with these headers.
+  // A plain salary header ("Salary", "Gaji pokok") is read in the company's basis: monthly by default (stored ×12) or yearly. A header that says
+  // which basis (monthly / bulanan, annual / yearly / tahunan) always wins. A saved mapping is left as it was saved. (docs/SALARY-BASIS-SPEC.md)
+  const SAYS_BASIS = /(month|bulan|annual|year|tahun)/i;
+  function applyBasis(mapping, basis) {
+    return mapping.map((m) => ((m.field === 'salaryMonthly' || m.field === 'salaryAnnual') && m.source !== 'saved' && !SAYS_BASIS.test(String(m.header))
+      ? { ...m, field: basis === 'yearly' ? 'salaryAnnual' : 'salaryMonthly' } : m));
+  }
+  const autoMapBasis = (headers, columns, o = {}) => applyBasis(autoMap(headers, columns, o), o.basis);
   function autoMap(headers, columns, { saved = null, today } = {}) {
     if (saved && saved.signature === signature(headers)) {
       return headers.map((h, i) => ({ col: i, header: h, field: saved.map[squash(h)] || '', score: 1, confidence: saved.map[squash(h)] ? 'high' : 'none', source: 'saved' }));
@@ -497,6 +505,6 @@ window.AllurusImportRules = (function () {
     return [head, ...bad.map((r) => [r.n, [...r.errors, ...r.warnings].join('; '), ...headers.map((h) => safeCell(r.original[h] ?? ''))])];
   }
 
-  return { unwrapQuotes, norm, squash, tidyGrid, headerScore, detectHeaderRow, parseDate, dateOrder, contentGuess, autoMap, missingRequired, signature, cleanValue, titleName, splitName,
+  return { unwrapQuotes, norm, squash, tidyGrid, headerScore, detectHeaderRow, parseDate, dateOrder, contentGuess, autoMap: autoMapBasis, missingRequired, signature, cleanValue, titleName, splitName,
     icInfo, matchBank, maskIC, maskAcct, buildPlan, toEmployee, applyPlan, undoImport, exportRows, errorReport, safeCell, EXPORT, confidence };
 })();

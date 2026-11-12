@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.59';
+  const APP_VERSION = '3.60';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -10,7 +10,7 @@
   // Demo mode can show more than one sample company: ?demo or ?demo=serimaju opens Seri Maju, ?demo=suria opens
   // Suria Enterprise. Each has its own storage key (js/seed.js, AllurusSeed.companies).
   const DEMO = AllurusSeed.company((/[?&]demo=([a-z0-9-]+)/i.exec(location.search)?.[1] || 'serimaju').toLowerCase());
-  if (!CLOUD_ON && DEMO.id === 'majorfe') window.AllurusAddons = { simpleStaffHome: true };   // the demo has the add-on so the simple screen can be previewed
+  if (!CLOUD_ON && DEMO.id === 'majorfe') window.AllurusAddons = { simpleStaffHome: true, salaryMonthlyOnly: true };   // the demo has the add-ons so the simple screen can be previewed
   const STORE_KEY = CLOUD_ON ? 'allurus-hr-cloud-v1' : DEMO.storeKey;
   // A fresh copy of the sample data: the chosen demo company, or Seri Maju as the base for the cloud workspace.
   const seedNew = () => {
@@ -457,6 +457,9 @@
   // ---------- Simple staff screen (docs/SIMPLE-STAFF-HOME-SPEC.md) ----------
   // For staff without an admin role, on a phone, at a company that has the add-on and has not turned it off in Settings:
   // the Home is only Check in, Apply leave and Payslip. Everyone else keeps the normal Home.
+  // Salary basis (docs/SALARY-BASIS-SPEC.md): the stored salary is yearly; people type and read it as monthly (default) or yearly.
+  const salaryBasis = () => AllurusSalary.basisOf(state.settings, window.AllurusAddons);
+  const salShown = (yearly) => AllurusSalary.shown(yearly, salaryBasis());
   const addonOn = (k) => window.AllurusAddons?.[k] === true;
   const staffApp = () => { const s = state.settings.staffApp || {}; return { avail: addonOn('simpleStaffHome'), simple: s.simple !== false, pdfPw: s.pdfPw !== false }; };
   const onSimplePhone = () => (window.AllurusDevice?.here() === 'phone' || (!CLOUD && window.innerWidth <= 760));
@@ -1083,12 +1086,12 @@
         ${ui.empOnly ? `<div class="toolbar" style="background:var(--warn-soft, var(--brand-soft))"><span style="flex:1">Showing the <b>${ui.empOnly.size}</b> people a bulk IC invite skipped. Add a valid IC (and no email) to invite them by IC.</span><button class="btn btn-sm" data-act="emp-only-clear">Show everyone</button></div>` : ''}
         ${acc && (ui.empSel || new Set()).size ? `<div class="toolbar" style="background:var(--brand-soft)"><span style="flex:1"><b>${ui.empSel.size}</b> selected</span><button class="btn btn-sm" data-act="emp-sel-none">Clear</button><button class="btn btn-sm" data-act="acc-ic-bulk-sel">Invite selected by IC</button><button class="btn btn-sm btn-primary" data-act="acc-bulk">Send invitations</button></div>` : ''}
         <div class="table-wrap"><table>
-          <thead><tr>${acc ? `<th style="width:34px"><input type="checkbox" id="emp-sel-all" aria-label="Select everyone shown" ${list.length && list.every((e) => ui.empSel?.has(e.id)) ? 'checked' : ''}></th>` : ''}<th>Name</th><th class="hide-sm">Department</th><th>Status</th>${acc ? '<th>Sign-in</th>' : ''}<th class="hide-sm">Location</th><th class="hide-sm">Start date</th><th class="r">Salary</th><th></th></tr></thead>
+          <thead><tr>${acc ? `<th style="width:34px"><input type="checkbox" id="emp-sel-all" aria-label="Select everyone shown" ${list.length && list.every((e) => ui.empSel?.has(e.id)) ? 'checked' : ''}></th>` : ''}<th>Name</th><th class="hide-sm">Department</th><th>Status</th>${acc ? '<th>Sign-in</th>' : ''}<th class="hide-sm">Location</th><th class="hide-sm">Start date</th><th class="r">${salaryBasis() === 'yearly' ? 'Salary / yr' : 'Salary / mo'}</th><th></th></tr></thead>
           <tbody>${list.map((e) => `<tr class="clickable" data-act="view-emp" data-id="${e.id}">
             ${acc ? `<td><input type="checkbox" data-sel="${e.id}" aria-label="Select ${esc(fullName(e))}" ${ui.empSel?.has(e.id) ? 'checked' : ''}></td>` : ''}
             <td>${person(e)}</td><td class="hide-sm">${deptTag(e.dept)}</td><td>${statusPill(empStatus(e))}</td>${acc ? `<td>${teamAccess.badge(e)}</td>` : ''}
             <td class="hide-sm muted">${esc(e.location)}</td><td class="hide-sm muted num">${U.fmtDate(e.start)}</td>
-            <td class="r num">${money(e.salary)}</td>
+            <td class="r num">${e.salary > 0 ? money(salShown(e.salary), salaryBasis() === 'yearly' ? 0 : 2) : '<span class="pill warn">No salary</span>'}</td>
             <td><div class="row-actions"><button class="btn btn-sm btn-icon btn-ghost" data-act="edit-emp" data-id="${e.id}" aria-label="Edit ${esc(fullName(e))}">${icon('edit')}</button></div></td></tr>`).join('')}</tbody>
         </table>${list.length ? '' : '<div class="empty"><strong>No one matches those filters</strong>Try a different search or clear the filters.</div>'}</div>
       </div>`;
@@ -1118,7 +1121,7 @@
       <div class="field"><label for="f-pattern">Working pattern</label><select class="select" id="f-pattern" name="timePattern">${opt([['', 'Department’s pattern'], ...state.settings.time.patterns.map((p) => [p.id, `${p.name} (${AllurusTimeRules.shiftLabel(p)})`])], e.timePattern || '')}</select><span class="field-hint">The Schedule can change single days.</span></div>
       <div class="field"><label for="f-type">Employment type</label><select class="select" id="f-type" name="type">${opt(['Full-time', 'Part-time', 'Contract', 'Intern', 'Owner'], e.type || 'Full-time')}</select></div>
       <div class="field"><label for="f-location">Location</label><input class="input" id="f-location" name="location" value="${esc(e.location)}"></div>
-      <div class="field"><label for="f-salary">Annual salary (${esc(state.settings.currency)})</label><input class="input" id="f-salary" name="salary" type="number" min="0" step="500" required value="${esc(e.salary)}"></div>
+      <div class="field"><label for="f-salary">${esc(AllurusSalary.label(salaryBasis()).en)} / <span lang="ms">${esc(AllurusSalary.label(salaryBasis()).ms)}</span> (${esc(state.settings.currency)})</label><input class="input" id="f-salary" name="salary" type="number" min="0" step="0.01" inputmode="decimal" required value="${e.salary ? esc(salShown(e.salary)) : ''}"><span class="field-hint" id="f-salary-other" style="color:var(--fg-3)">${e.salary ? esc(AllurusSalary.otherLine(e.salary, salaryBasis(), (n) => money(n, 2))) : ''}</span></div>
       <div class="field"><label for="f-start">Start date</label><input class="input" id="f-start" name="start" type="date" required value="${esc(e.start || U.today())}"></div>
       <div class="field"><label for="f-gender">Gender</label><select class="select" id="f-gender" name="gender">${opt([['', 'Not set'], ['female', 'Female'], ['male', 'Male']], e.gender || '')}</select><span class="field-hint">Used for maternity and paternity leave.</span></div>
       <div class="field"><label for="f-married">Marital status</label><select class="select" id="f-married" name="married">${opt([['no', 'Single'], ['yes', 'Married']], e.married ? 'yes' : 'no')}</select></div>
@@ -1134,7 +1137,7 @@
     openModal({
       title: id ? 'Edit employee' : 'Add employee', body: employeeForm(e), submit: id ? 'Save changes' : 'Add employee',
       onSubmit(d) {
-        d.salary = Number(d.salary) || 0;
+        d.salary = AllurusSalary.stored(d.salary, salaryBasis());   // typed in the company's basis, stored yearly
         d.married = d.married === 'yes';
         if ('zakat' in d) d.zakat = Math.max(0, Number(d.zakat) || 0);
         d.email = String(d.email || '').trim().toLowerCase();
@@ -1196,7 +1199,7 @@
       <div class="drawer-section"><h4>Employment</h4><dl class="kv">
         <dt>Type</dt><dd>${esc(e.type)}</dd><dt>Manager</dt><dd>${mgr ? esc(fullName(mgr)) : '—'}</dd>
         <dt>Start date</dt><dd>${U.fmtDate(e.start)}</dd><dt>Date of birth</dt><dd>${U.fmtDate(e.birthday)}</dd>
-        <dt>Salary</dt><dd class="num">${money(e.salary)} / year</dd><dt>Monthly gross</dt><dd class="num">${money(e.salary / 12)}</dd></dl></div>
+        <dt>${esc(AllurusSalary.label(salaryBasis()).en)}</dt><dd class="num">${e.salary > 0 ? `${money(salShown(e.salary), 2)}<div class="faint" style="font-size:12px">${esc(AllurusSalary.otherLine(e.salary, salaryBasis(), (n) => money(n, 2)))}</div>` : '<span class="pill warn">No salary</span>'}</dd></dl></div>
       <div class="drawer-section"><h4>Time off this year</h4>
         ${[['Annual', lvA, 'var(--brand)'], ['Sick', lvS, 'var(--gold)']].map(([n, b, c]) => { const total = b.entitled + b.carried - b.lapsed; return `<div class="hbar" style="grid-template-columns:70px minmax(0,1fr) 90px"><span>${n}</span><div class="hbar-track"><i style="width:${total ? Math.min(100, (b.used / total) * 100) : 0}%;background:${c}"></i></div><span class="num r muted">${b.used} of ${total}</span></div>`; }).join('')}
       </div>
@@ -1650,6 +1653,8 @@
         html: () => `<div class="card"><div class="card-head"><h3>Pay</h3></div>
           ${row('Currency', 'Used for salaries and payroll.', `<select class="select" id="s-currency" aria-label="Currency">${currencies.map((c) => `<option ${s.currency === c ? 'selected' : ''}>${c}</option>`).join('')}</select>`)}
           ${my ? '<p class="field-hint">Registration numbers (SSM, EPF, SOCSO, LHDN) are under <a href="#settings/company">Company</a>.</p>' : row('Income tax withholding', 'Percent of gross pay.', `<input class="input num" id="s-tax" type="number" min="0" max="60" step="0.5" value="${s.taxRate}" style="width:100px" aria-label="Income tax withholding percent">`) + row('Benefit contributions', 'Deducted from pay, as percent of gross.', `<input class="input num" id="s-benefits" type="number" min="0" max="30" step="0.5" value="${s.benefitsRate}" style="width:100px" aria-label="Benefit contributions percent">`)}</div>
+          ${row('Salaries are entered as', AllurusSalary.lockedMonthly(window.AllurusAddons) ? 'Monthly (fixed for this company). Salaries are typed and shown as a monthly figure.' : 'How salaries are typed and shown in the employee form, the import and the lists. It changes only the screens: the amounts stored for payroll stay exactly the same, so nothing already paid or calculated is affected.', AllurusSalary.lockedMonthly(window.AllurusAddons) ? '<span class="pill">Monthly (fixed for this company)</span>' : `<div class="seg">${[['monthly', 'Monthly'], ['yearly', 'Yearly']].map(([v, l]) => `<button data-act="sal-basis" data-v="${v}" class="${salaryBasis() === v ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
+          ${row('Minimum monthly wage for the pay-run check', 'Before Approve and pay, the pay run warns about full-time staff below this. RM1,700 is the current national minimum wage; it is under government review, so change it here when it changes.', `<input class="input num" id="s-minwage" type="number" min="0" step="10" value="${esc(s.minWage ?? AllurusSalary.MIN_WAGE_DEFAULT)}" style="width:110px" aria-label="Minimum monthly wage">`)}
           ${my ? statutoryCard(s) : ''}${prodApi?.settingsCard() || ''}` },
       { id: 'claims', label: 'Claims', icon: 'receipt', summary: 'Claim categories, limits, mileage, medical', keys: 'claim category limit mileage medical expense reimbursement',
         html: () => claimsApi.settingsCards() },
@@ -1805,7 +1810,7 @@
     prodApi?.bindSettings();
     claimsApi.bindSettings();
     kioskApi.bindSettings();
-    bind('#s-company', 'company'); bind('#s-currency', 'currency'); bindHeadOffice(); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
+    bind('#s-company', 'company'); bind('#s-currency', 'currency'); bindHeadOffice(); $('#s-minwage')?.addEventListener('change', (ev) => { state.settings.minWage = Math.max(0, Number(ev.target.value) || AllurusSalary.MIN_WAGE_DEFAULT); commit('Minimum monthly wage for the pay-run check saved'); }); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
     $$('[data-stat]').forEach((el) => el.addEventListener('change', () => { state.settings.statutory = { ...U.statutory(state.settings), [el.dataset.stat]: Math.min(20, Math.max(0, Number(el.value) || 0)) }; commit('Statutory rates saved'); }));
   };
 
@@ -2274,7 +2279,7 @@
     const items = runs.map((m) => ({ m, it: state.payroll[m].items.find((i) => i.empId === e.id), run: state.payroll[m] }));
     const ytd = items.filter((x) => x.m.startsWith(U.today().slice(0, 4))).reduce((a, x) => ({ gross: a.gross + x.it.gross, net: a.net + x.it.net, tax: a.tax + x.it.tax, epf: a.epf + (x.it.epf || 0) + (x.it.erEpf || 0) }), { gross: 0, net: 0, tax: 0, epf: 0 });
     return `
-      <div class="page-head"><div><div class="eyebrow">Finance</div><h1>Payslips</h1><p class="sub">Annual salary ${money(e.salary)}. Payslips appear here once payroll is paid.</p></div>
+      <div class="page-head"><div><div class="eyebrow">Finance</div><h1>Payslips</h1><p class="sub">${esc(AllurusSalary.label(salaryBasis()).en)} ${money(salShown(e.salary), 2)}. Payslips appear here once payroll is paid.</p></div>
         <div class="actions"><a class="btn" href="#my-plan">${icon('target')}Plan my month</a></div></div>
       <div class="grid g-4 keep-2">
         <div class="card kpi"><div class="kpi-label">Gross this year</div><div class="kpi-value">${compactMoney(ytd.gross)}</div><div class="kpi-foot num">${money(ytd.gross)}</div></div>
@@ -2989,6 +2994,7 @@
     'acc-key-remove': () => teamAccess.removeJoinKey(),
     'acc-open-ok': (uid, empId) => teamAccess.approve(uid, empId),
     'acc-open-no': (uid) => teamAccess.refuse(uid),
+    'sal-basis': (_, v) => { if (AllurusSalary.lockedMonthly(window.AllurusAddons) || !['monthly', 'yearly'].includes(v)) return; state.settings.salaryBasis = v; commit(`Salaries are now entered as ${v}`); },
     // Output column (pay run): one person's production days for the month.
     'out-days': (empId, mk) => {
       const e = emp(empId); if (!e || !prodApi?.mine) return;
@@ -3375,6 +3381,31 @@
   grievApi = AllurusGrievance.install(moduleCtx);
   roomsApi = AllurusRooms.install(moduleCtx);
   prodApi = AllurusProduction.install(moduleCtx);   // daily production commission (only where the company has the addon)
+  // The grey line under the salary field follows what is typed: "= RM24,000.00 a year" or "= RM2,000.00 a month".
+  document.addEventListener('input', (ev) => {
+    if (ev.target?.id !== 'f-salary') return;
+    const o = document.getElementById('f-salary-other'), v = Number(ev.target.value);
+    if (o) o.textContent = v > 0 ? AllurusSalary.otherLine(AllurusSalary.stored(v, salaryBasis()), salaryBasis(), (n) => money(n, 2)) : '';
+  });
+  // Pay run safety checks, all companies (docs/SALARY-BASIS-SPEC.md): before Approve and pay, warn about anyone with no salary, below the minimum
+  // wage, or whose basic pay changed by more than 50% since last month, and ask for a tick before paying.
+  const salaryChecks = (run) => {
+    const prevKey = U.addMonths(ui.payMonth, -1), prevItems = state.payroll[prevKey]?.items || null;
+    return AllurusSalary.payrollChecks({ items: run.items, employees: state.employees, prevItems, minWage: Number(state.settings.minWage) || AllurusSalary.MIN_WAGE_DEFAULT });
+  };
+  { const baseApprove = ACTIONS['pay-approve'];
+    ACTIONS['pay-approve'] = (...a) => {
+      const run = state.payroll[ui.payMonth], flags = run ? salaryChecks(run) : [];
+      if (flags.length && !ui.salaryTicked) {
+        const mw = Number(state.settings.minWage) || AllurusSalary.MIN_WAGE_DEFAULT;
+        const rows = flags.map((f) => `<tr><td>${esc(fullName(emp(f.empId)))}</td><td class="r num">${money(f.base, 2)}</td><td>${f.kinds.map((k) => esc(k === 'minwage' ? `Below the minimum wage (${money(mw, 2)})` : k === 'jump' ? `Changed from ${money(f.prevBase, 2)} last month` : AllurusSalary.CHECK_TEXT[k])).join('<br>')}</td></tr>`).join('');
+        openModal({ title: 'Check these before paying', size: 'md', submit: 'Approve and pay anyway', body: `<p>${flags.length} ${flags.length === 1 ? 'person has' : 'people have'} a salary that looks wrong. Basic pay is the monthly figure in this run.</p><div class="table-wrap"><table class="table"><thead><tr><th>Person</th><th class="r">Basic pay</th><th>Why</th></tr></thead><tbody>${rows}</tbody></table></div><label style="display:flex;gap:8px;align-items:center;margin-top:12px"><input type="checkbox" name="checked" required id="sal-tick"> I have checked these and want to pay anyway</label>`,
+          onSubmit: () => { if (!document.getElementById('sal-tick')?.checked) { toast('Tick the box to confirm you have checked these.', 'error'); return false; } closeOverlay(); ui.salaryTicked = true; try { ACTIONS['pay-approve'](...a); } finally { ui.salaryTicked = false; } return false; } });
+        return;
+      }
+      baseApprove(...a);
+    };
+  }
   { const basePay = VIEWS.payroll; VIEWS.payroll = () => (prodApi.payrollBanner(ui.payMonth) || '') + basePay(); }
   { const baseMyPay = VIEWS['my-pay']; VIEWS['my-pay'] = () => baseMyPay() + (prodApi.inScheme(me()) ? `<div style="margin-top:14px">${prodApi.homeCard(me())}</div>` : ''); }
   opsApi = AllurusOps.install(moduleCtx);

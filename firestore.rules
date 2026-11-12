@@ -71,6 +71,12 @@ service cloud.firestore {
         'fakeinbox.com', 'mintemail.com', 'emailondeck.com', 'mohmal.com', 'tempail.com', 'moakt.com'];
     }
     function tenantPath(t) { return /databases/$(database)/documents/tenants/$(t); }
+    // A company with the add-on salaryMonthlyOnly (set by the owner's command, never by the company) cannot switch salaries to yearly
+    // (docs/SALARY-BASIS-SPEC.md). settings.salaryBasis is stored as JSON text, so yearly is '"yearly"'.
+    function salaryYearlyRefused(t, b) {
+      return b == 'settings' && get(tenantPath(t)).data.get('addons', {}).get('salaryMonthlyOnly', false) == true
+        && request.resource.data.f.get('salaryBasis', '') == '"yearly"';
+    }
 
     // Areas of the company console (see AREAS in js/app.js and js/cloud-map.js).
     function owner() { return !('perms' in me()); }
@@ -604,7 +610,7 @@ service cloud.firestore {
       // or by its admins once expired or cancelled (export). Suspended: nobody.
       match /buckets/{b} {
         allow read: if member(t) && readsClass(t, resource.data.r) && canRead(t);
-        allow create, update: if writesBucket(t, b) && request.resource.data.r == bucketClass(b) && working(t);
+        allow create, update: if writesBucket(t, b) && request.resource.data.r == bucketClass(b) && working(t) && !salaryYearlyRefused(t, b);
         allow delete: if writesBucket(t, b) && admin(t) && working(t);
         // Support: reads all but payroll and per-person documents (those need the second switch); writes with
         // the grant on and a log entry.

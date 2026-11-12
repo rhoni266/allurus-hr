@@ -679,3 +679,29 @@ The pool of a production day is shared only by staff who checked in that day. Un
 - 25 of the 32 records came from one import batch: 18 of them have 0 and 6 have the low figures. So the import did not carry a usable salary for most crew, and where it did, the value went into the yearly field. The 7 typed in the app: 3 have 0, 3 low, 1 high.
 - The October and November payroll runs are both still **Draft** (26 and 33 items): gross is 0 for 18 and 20 of them. **Do not press Approve and pay.**
 - Not changed: nothing was edited. Next step is for the owner to look at one record (Employees, Nadia): if the field says per year and shows 2,000, that is the cause; then decide the fix. The safe fix would be a script with a dry run that lists names, the current figure and the proposed one in a local file (not in chat), changes only records under RM20,400 a year (×12), and asks for the real salary of the 21 with none from HR (a spreadsheet import in update mode), with an audit line for each change.
+
+## 2026-11-12 (night): salary entered as monthly by default, monthly-only at Major Far East (docs/SALARY-BASIS-SPEC.md, v3.60)
+Branch `claude/salary-basis`. **Rules change** (one small guard). Live rules backed up first: `docs/rules-backup/firestore.rules.2026-11-12b` (identical to `main`). Deploy order: rules, then hosting.
+
+### What changed
+- **The stored salary is unchanged (yearly).** Only the screens convert, in whole sen (`js/salary-rules.js`): typed monthly × 12 is exact; shown monthly = yearly ÷ 12 to the nearest sen. Round trips are tested (RM2,345.55 ⇄ RM28,146.60; RM1,700.00 ⇄ RM20,400.00; many others). Payroll, EPF, SOCSO, PCB, reports and payslips are untouched.
+- **Employee form:** "Basic salary (monthly) / Gaji pokok (bulanan)" (or yearly / tahunan), the figure in that basis, and a grey line under it that follows what is typed ("= RM28,146.60 a year" / "= RM2,000.00 a month"). The employee list column is "Salary / mo" (or "/ yr") and shows "No salary" where there is none; the profile shows the labelled figure and the other one in grey; My payslips says which basis.
+- **Import:** a plain "Salary" / "Gaji pokok" column is read in the company's basis (monthly by default: stored × 12; yearly: as typed); a header that says monthly/bulanan or annual/yearly/tahunan decides for itself; the template's salary column follows the basis. (The import already read plain salary headers as monthly before; the wrong figures at Major Far East came from typing monthly numbers into the yearly field of the employee form.)
+- **Settings → Payroll:** "Salaries are entered as: Monthly / Yearly" (changes only the screens; the help text says stored values stay the same) and "Minimum monthly wage for the pay-run check" (`settings.minWage`, default RM1,700; the one place the figure lives).
+- **Major Far East locked to monthly:** add-on `salaryMonthlyOnly` (`node scripts/set-addon.js salaryMonthlyOnly "Major Far East"`, check first, then `--yes`). With it on, the switch shows "Monthly (fixed for this company)", the screens ignore a yearly setting, and **the rules refuse `salaryBasis: 'yearly'`** in the settings bucket (only that field of that bucket; tested).
+- **Pay run safety checks (all companies):** before "Approve and pay", a "Check these before paying" list appears for anyone with no salary (not paid by trip/day/hour), a full-time person below the minimum wage, or basic pay changed by more than 50% since last month (up or down), with a tick that must be ticked ("Approve and pay anyway"). At Major Far East it comes before the production-commission prompt.
+- **`scripts/fix-salary-basis.js "<company>"`:** dry run lists every active employee with the stored yearly figure, the monthly it means now and a suggestion (LOOKS MONTHLY under RM20,400 a year → proposed ×12; NO SALARY; OK); `--yes --only id,id,…` multiplies by 12 **only** the people named, re-checks they still look monthly, writes an activity-log line for each ("Salary corrected from RM… /yr to RM… /yr, monthly basis fix"); `--yes` alone is refused. Not run with `--yes`.
+- The per-trip pay WIP branch is not merged and should be rebuilt on this approach.
+
+### The check for Major Far East (dry run, 12 Nov 2026; nothing changed)
+Limit RM20,400 a year (RM1,700 × 12). 32 records: **LOOKS MONTHLY 9, NO SALARY 21, OK 2.** **Names and figures are deliberately not written here** (this file is committed to the repository): run `node scripts/fix-salary-basis.js "Major Far East"` to see the list whenever needed (it is read-only without `--yes`).
+- **To fix:** HR confirms who is wrong among the 9. Then `node scripts/fix-salary-basis.js "Major Far East" --yes --only <ids>`, then Discard draft and rebuild November. The 21 with NO SALARY need real salaries from HR (typed in the form as monthly figures, or an import in update mode): the script never invents one.
+- **Do not approve November payroll** until this is done.
+
+### Tests
+`npm test` 488/488 (`tests/salary-basis.test.js`: conversions and round trips, basis, labels, import in each basis, the checks, the fix script's rules). `npm run test:rules` 157/157 (`tests-rules/salarybasis.rules.test.js`: yearly refused only with the add-on, monthly and other settings fine, the company cannot remove the lock). Browser (demo): `npm run test:e2e-salary` 15/15 and `npm run test:e2e-demo` 10/10.
+
+### Owner steps
+1. Merge, then `firebase deploy --only firestore:rules`, then `firebase deploy --only hosting`.
+2. `node scripts/set-addon.js salaryMonthlyOnly "Major Far East"`, then again with `--yes`.
+3. HR checks the 9, you run the fix with `--only`, HR enters the 21 missing salaries, discard the November draft and run payroll again; the checks before paying will show anyone still wrong.
