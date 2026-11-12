@@ -376,6 +376,42 @@
   // The ICs whose sign-up key must be removed: ones an employee had before and no longer has (changed, cleared or the employee was
   // removed), unless another employee still has that IC. A removed IC then cannot register any more.
   const staleIcs = (prev, employees) => { const now = icMap(employees), live = new Set(Object.values(now)); return [...new Set(Object.entries(prev || {}).filter(([id, ic]) => now[id] !== ic && !live.has(ic)).map(([, ic]) => ic))]; };
+  // ---------- Join page: PIN typed twice (docs/JOIN-AUTOLINK-SPEC.md) ----------
+  // ready = both boxes have 6 digits; mismatch = both full but different (the screen then clears only the confirm box).
+  function pinPair(pin, confirm) {
+    const p = String(pin == null ? '' : pin).replace(/\D/g, ''), c = String(confirm == null ? '' : confirm).replace(/\D/g, '');
+    const full = p.length === 6 && c.length === 6;
+    return { ready: full && p === c, mismatch: full && p !== c, pin: p };
+  }
+  // The staff sign-in email carries its IC and company: <ic>.<company, lower case>.g<n>@staff.allurus.invalid. This is the check
+  // firestore.rules makes before the account may read its own staffLinks document; kept here so a test can pin the same rule.
+  const staffEmailMatches = (email, tenantId, ic) => new RegExp('^' + String(ic) + '[.]' + String(tenantId).toLowerCase() + '[.]g[0-9]{1,4}@staff[.]allurus[.]invalid$').test(String(email || ''));
+  // ---------- Automatic link of a new sign-up to its own employee record ----------
+  // The plan for staffLinks/<tenant>~<IC> documents (what the join page may read after sign-up). A record gets one only when: the IC is
+  // valid and on exactly one record; the person is Active; no admin sign-in is linked to the record. hasSignIn = another sign-in is
+  // already linked to it (then the new sign-up waits for HR). phone4 = last 4 digits of the phone on file ('' = none, or not asked).
+  // Returns { '<tenant>~<ic>': { empId, hasSignIn, phone4 } }.
+  function staffLinksPlan(employees, users, { tenantId, on = true, phone4On = true } = {}) {
+    if (!on) return {};
+    const byIc = {}; (employees || []).forEach((e) => { const ic = icKeyOf(e); if (e && e.id && ic) (byIc[ic] = byIc[ic] || []).push(e); });
+    const out = {};
+    Object.entries(byIc).forEach(([ic, list]) => {
+      if (list.length !== 1) return;                                      // two records share this IC: HR decides
+      const e = list[0];
+      if ((e.status || 'Active') !== 'Active') return;
+      const mine = (users || []).filter((u) => u && !u.disabled && u.empId === e.id);
+      if (mine.some((u) => (u.roles || []).includes('admin'))) return;     // an admin's record is never linked automatically
+      const digits = String(e.phone || '').replace(/\D/g, '');
+      out[tenantId + '~' + ic] = { empId: e.id, hasSignIn: mine.length > 0, phone4: phone4On && digits.length >= 8 ? digits.slice(-4) : '' };
+    });
+    return out;
+  }
+  // Changes to send: documents to write (new or different) and keys to delete (were there, are not in the plan any more).
+  function staffLinksDiff(seen, plan) {
+    const sig = (v) => [v.empId, v.hasSignIn ? 1 : 0, v.phone4].join('|');
+    const write = Object.keys(plan).filter((k) => !seen || seen[k] !== sig(plan[k])), del = Object.keys(seen || {}).filter((k) => !(k in plan));
+    return { write, del, sig };
+  }
   const staffKey = (tenantId, ic) => `${tenantId}~${icDigits(ic)}`;
   // A short company code typed at IC sign-in: letters of the name, then digits (3 to 12 characters, a-z and 0-9).
   const companyCode = (name, rand = Math.random) => `${String(name || '').toLowerCase().replace(/[^a-z]/g, '').slice(0, 6) || 'co'}${String(Math.floor(rand() * 900) + 100)}`;
@@ -458,7 +494,7 @@
     PAYROLL, WRITE_AREA, TALENT, OWNED, ownerOf, ownedAreas, isAdminRead, isAdminWrite, readClass, canWrite, writeArea, readable, driverOf, isOps, SPLIT, seesPeople, seesPayroll, has, DIRECTORY_FIELDS, SELF_FIELDS, MARK, BLOB_MAX,
     stable, blobId, extract, restore, enc, dec, bucketsOf, applyBucket, arrayFrom, personFields, personFrom, directoryEntry, directoryFields, directoryFrom,
     employeesFor, payslipFields, payrollFrom, personal, personalFields, applyPersonal, merge3, diff, sameFields, docBytes,
-    PAY_ID, logValue, supportChanges, STAFF_HOST, icDigits, validIc, staffEmail, isStaffEmail, staffKey, icKeyOf, icMap, staleIcs, linkProblem, approvalProblem, companyCode, joinSecret, joinKeyHash, joinKeyNorm, newSalt,
+    PAY_ID, logValue, supportChanges, STAFF_HOST, icDigits, validIc, staffEmail, isStaffEmail, staffKey, pinPair, staffEmailMatches, staffLinksPlan, staffLinksDiff, icKeyOf, icMap, staleIcs, linkProblem, approvalProblem, companyCode, joinSecret, joinKeyHash, joinKeyNorm, newSalt,
     normPhone, validPhone, fmtPhone, getDeviceId, getDeviceName, DEVICE_KEY_A, DEVICE_KEY_B, COOKIE_DEV_KEY
   };
 })(typeof window !== 'undefined' ? window : globalThis);

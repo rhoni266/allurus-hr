@@ -171,6 +171,9 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deviceId'])
           && request.resource.data.diff(resource.data).affectedKeys().size() == 1
           && (!('deviceId' in request.resource.data) || (request.resource.data.deviceId is string && request.resource.data.deviceId.size() < 128)))
+        // A new join-page sign-up links itself to its own employee record, once, only to what HR's staffLinks document says, and only
+        // while the company has the automatic link on (docs/JOIN-AUTOLINK-SPEC.md); then it may set its display name once.
+        || (request.auth.uid == uid && (autoLinkOk() || autoNameOk()))
         || (request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings')
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole', 'pending', 'empId', 'keyProof', 'deviceId', 'confirmedAt', 'allowComputer'])
           && request.resource.data.get('allowComputer', false) is bool
@@ -180,7 +183,9 @@ service cloud.firestore {
           // The employee link is set once: while the registration is pending, or for a join-page sign-in that was
           // auto-approved with no employee yet (empId ''). A sign-in that already has an employee is never relinked here.
           && (request.resource.data.empId == resource.data.empId || resource.data.get('pending', false) == true
-            || (resource.data.get('empId', '') == '' && resource.data.get('via', '') == 'open'))
+            || (resource.data.get('empId', '') == '' && resource.data.get('via', '') == 'open')
+            // "This isn't them": HR takes back an automatic link (the sign-in is turned off in the same write).
+            || (resource.data.get('autoLinkedAt', null) != null && request.resource.data.empId == '' && request.resource.data.get('disabled', false) == true))
           && request.resource.data.get('posRole', '') in ['', 'manager', 'cashier', 'waiter', 'kitchen']
           // Until open-join gap 1 (code + IC only) is fixed: no POS role for an account that joined through the
           // open join page unless HR has separately confirmed it first - confirmedAt, set once, by HR, never
@@ -250,6 +255,48 @@ service cloud.firestore {
         && (!exists(jk) || d.get('keyProof', '') == get(jk).data.hash)
         && (d.get('pending', false) == false || d.pending == true)
         && d.roles == ['employee'] && !('perms' in d) && d.via == 'open';
+    }
+    // ---- Automatic link of a join-page sign-up to its own employee record (docs/JOIN-AUTOLINK-SPEC.md) ----
+    // The company switch: settings.joinAutoLink is stored as JSON text 'true' in the settings bucket (HR with the Settings area writes it).
+    function autoLinkOn(t) {
+      let b = /databases/$(database)/documents/tenants/$(t)/buckets/settings;
+      return exists(b) && get(b).data.f.get('joinAutoLink', '') == 'true';
+    }
+    // The staff sign-in's own IC (the first part of its email): the only key it may read in staffLinks.
+    function icOfMyEmail() { return myEmail().split('@')[0].split('[.]')[0]; }
+    function autoLinkOk() {
+      let r = resource.data;
+      let d = request.resource.data;
+      let lk = /databases/$(database)/documents/staffLinks/$(r.tenantId + '~' + icOfMyEmail());
+      return r.get('via', '') == 'open' && r.get('empId', '') == '' && r.get('disabled', false) != true && r.roles == ['employee']
+        && d.diff(r).affectedKeys().hasOnly(['empId', 'autoLinkedAt'])
+        && d.empId is string && d.empId != '' && d.autoLinkedAt == request.time
+        && exists(lk) && get(lk).data.tenantId == r.tenantId && d.empId == get(lk).data.empId
+        && get(lk).data.hasSignIn == false
+        && autoLinkOn(r.tenantId)
+        // When HR has the phone on file and asks for it: the last 4 digits of the phone typed at sign-up must match.
+        && (get(lk).data.phone4 == '' || (r.get('phone', '').size() >= 4 && r.phone[r.phone.size() - 4:r.phone.size()] == get(lk).data.phone4));
+    }
+    // The display name (read from the linked record by the person) is set once, from the placeholder, after the link.
+    function autoNameOk() {
+      let r = resource.data;
+      let d = request.resource.data;
+      return d.diff(r).affectedKeys().hasOnly(['name']) && r.get('name', '') == 'Staff' && r.get('autoLinkedAt', null) != null
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 100;
+    }
+    // staffLinks/{tenantId}~{IC} = { tenantId, empId, gen, hasSignIn, phone4, updatedAt }: which employee record an IC sign-up may link to.
+    // Written by HR with the People area, kept in step with the employee records (js/cloud.js). Read (get only, never listed) by the one
+    // staff sign-in made from that IC, found from the pattern of its email; HR may list them to keep them in step.
+    match /staffLinks/{id} {
+      allow get: if signedIn() && id.matches('[A-Za-z0-9]+~[0-9]{12}')
+        && myEmail().matches(id.split('~')[1] + '[.]' + id.split('~')[0].lower() + '[.]g[0-9]{1,4}@staff[.]allurus[.]invalid');
+      allow list: if hasProfile() && resource.data.tenantId == me().tenantId && hasArea(me().tenantId, 'people');
+      allow create, update: if hasArea(request.resource.data.tenantId, 'people')
+        && id.matches(request.resource.data.tenantId + '~[0-9]{12}')
+        && request.resource.data.keys().hasOnly(['tenantId', 'empId', 'gen', 'hasSignIn', 'phone4', 'updatedAt'])
+        && request.resource.data.empId is string && request.resource.data.empId != '' && request.resource.data.gen is int
+        && request.resource.data.hasSignIn is bool && request.resource.data.phone4 is string && request.resource.data.phone4.size() <= 4;
+      allow delete: if hasArea(resource.data.tenantId, 'people');
     }
     function staffDoc(t) {
       return request.resource.data.tenantId == t && hasArea(t, 'settings');

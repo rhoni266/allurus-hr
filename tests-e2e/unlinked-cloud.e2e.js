@@ -1,5 +1,5 @@
 // End to end, in REAL cloud mode, against the Firebase emulators (Auth + Firestore, project demo-allurus-e2e; nothing leaves this machine):
-// a staff sign-in that is not linked to an employee record must see only the "not linked" screen and never another person's record.
+// a staff sign-in that is not linked to an employee record must see only the "waiting for HR approval" screen and never another person's record.
 // Incident 2026-11-11/12: me() fell back to the first employee (HR admin Nadia) because the guard tested cloud.db, which is always null
 // in the real workspace; the demo never showed it.
 //
@@ -88,7 +88,7 @@ const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch:
   for (const [email, label] of [['empty@co1.test', 'a sign-in with no employee link'], ['gone@co1.test', 'a sign-in linked to a record that does not exist']]) {
     const s = await signIn(email);
     const othersSeen = ws.allNames.filter((n) => n && s.text.toLowerCase().includes(n.toLowerCase()));
-    ok(`${label}: the "not linked" screen (EN + BM) with Sign out`, /isn.t linked to your staff record/.test(s.text) && /belum dipautkan/i.test(s.text) && /Sign out/.test(s.text), s.text.replace(/\s+/g, ' ').slice(0, 90));
+    ok(`${label}: the "waiting for HR approval" screen (EN + BM) with Sign out`, /Akaun anda sedang menunggu kelulusan HR/.test(s.text) && /Your account is waiting for HR approval/.test(s.text) && /Sign out/.test(s.text), s.text.replace(/\s+/g, ' ').slice(0, 90));
     ok('…the workspace is hidden (no menus, no pages)', s.appHidden);
     ok('…me() is an empty placeholder, not the first employee or anyone else', s.me.id === '__unlinked__' && s.me.unlinked === true && s.me.id !== ws.firstId, JSON.stringify(s.me));
     ok('…no employee name from the company appears on the screen', othersSeen.length === 0, othersSeen.slice(0, 3).join(', '));
@@ -97,7 +97,7 @@ const PHONE = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch:
   }
   // Control: a properly linked sign-in is unaffected.
   const ok1 = await signIn('linked@co1.test');
-  ok('control: a linked staff sign-in gets its own record (me() is that person) and the app', ok1.me.id === ws.staffId && !ok1.me.unlinked && !ok1.appHidden && !/isn.t linked/.test(ok1.text), JSON.stringify(ok1.me));
+  ok('control: a linked staff sign-in gets its own record (me() is that person) and the app', ok1.me.id === ws.staffId && !ok1.me.unlinked && !ok1.appHidden && !/menunggu kelulusan HR/.test(ok1.text), JSON.stringify(ok1.me));
   await ok1.ctx.close();
   console.log(`\n${results.filter(Boolean).length}/${results.length} passed${OLD ? ' (OLD guard served: failures here are the point)' : ''}`);
   await b.close().catch(() => {}); srv.close(); await env.cleanup().catch(() => {});
