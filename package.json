@@ -1,8 +1,10 @@
 {
   "name": "allurus-hr",
   "private": true,
+  "version": "3.65.0",
   "description": "Allurus HR and the allurus.my site. No build step; open index.html (landing) or app.html (the app).",
   "scripts": {
+    "release": "node scripts/release.js",
     "test": "node --test tests/*.test.js functions/test/*.test.js pos/tests/*.test.js",
     "sync-pos-core": "node scripts/sync-pos-core.js",
     "test:rules": "firebase emulators:exec --only firestore --project demo-allurus \"node --test tests-rules/*.test.js\"",
