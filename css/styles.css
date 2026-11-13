@@ -2035,3 +2035,14 @@ html.simple-staff .view { padding-bottom: 24px; }
 .pa-counts b { color: var(--fg); font-variant-numeric: tabular-nums; } .pa-counts small { font-size: 12px; }
 .ss .nb, .nb { white-space: nowrap; }
 .ss-list li { align-items: baseline; flex-wrap: wrap; }
+
+/* Production: several products (Settings list, Production page inputs, dashboard card). Nothing under 11px. */
+.pc-list { display: grid; gap: 10px; }
+.pc-prod { display: grid; grid-template-columns: 1.4fr 0.8fr 0.8fr; gap: 8px 10px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; }
+.pc-prod.off { opacity: .72; }
+.pc-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pc-used { font-size: 12px; }
+.pd-inputs { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.pd-pool tfoot th { font-weight: 800; }
+.pf-row { text-decoration: none; color: inherit; }
+@media (max-width: 520px) { .pc-prod { grid-template-columns: 1fr 1fr; } .pc-prod .field:first-child { grid-column: 1 / -1; } }

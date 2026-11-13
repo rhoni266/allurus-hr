@@ -34,6 +34,58 @@
   const rm = (sen) => `RM${(Math.round(sen) / 100).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
   const fmtUnits = (units, unit = '') => `${String(units).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${unit ? ' ' + unit : ''}`;
 
+  // ---------- Products (several products instead of one total) ----------
+  // settings.prod.products: [{ id, name, unit, rate, on }] in the order the client set. A company that only ever had the single
+  // "Total production" gets one product called "Production" with its current rate, so nothing changes for it.
+  function productsOf(cfg) {
+    if (Array.isArray(cfg?.products)) return cfg.products;
+    return [{ id: 'p-prod', name: 'Production', unit: String(cfg?.unit || 'pcs'), rate: String(cfg?.rate ?? ''), on: true }];
+  }
+  // One day's lines. A day saved before products existed has just units, unit and rate: it reads as one "Production" line.
+  function dayItems(day) {
+    if (!day) return [];
+    if (Array.isArray(day.items)) return day.items;
+    return [{ pid: 'p-prod', name: 'Production', unit: day.unit || '', rate: day.rate, units: day.units, poolSen: day.poolSen }];
+  }
+  // A product that appears on any saved day can be switched off but never deleted, so history stays correct.
+  const productUsed = (pid, days) => Object.values(days || {}).some((d) => dayItems(d).some((i) => i.pid === pid));
+  // Each filled line: units × its own rate (half-up to the sen). The pool is their sum, shared equally.
+  // items: [{ pid, name, unit, rate, units }]; lines with no units typed are left out.
+  function commissionItems({ items = [], attendees }) {
+    const lines = [];
+    for (const it of items) {
+      if (it.units == null || String(it.units).trim() === '') continue;
+      const d = commissionDay({ units: it.units, rate: it.rate, attendees: 1 });
+      if (!d.ok) return { ok: false, lines: [], poolSen: 0, shareSen: 0, remainderSen: 0, attendees: Math.max(0, Math.floor(Number(attendees) || 0)), bad: it.pid };
+      lines.push({ pid: it.pid, name: it.name, unit: it.unit, rate: String(it.rate), units: String(it.units).replace(/,/g, ''), poolSen: d.poolSen });
+    }
+    const poolSen = lines.reduce((s, l) => s + l.poolSen, 0), n = Math.max(0, Math.floor(Number(attendees) || 0));
+    const shareSen = n ? Math.floor(poolSen / n) : 0;
+    return { ok: true, lines, poolSen, shareSen, remainderSen: poolSen - shareSen * n, attendees: n, ...(n ? {} : { noAttendees: true }) };
+  }
+  // Products still to fill. For each of today and yesterday (yesterday only if anybody in the scheme was in): the active
+  // products with no line on that day's saved record. days: { date: savedDay }; hadWork(date) → true if people shared that day.
+  function toFill({ products = [], days = {}, today, hadWork = () => true }) {
+    const y = new Date(`${today}T00:00:00Z`); y.setUTCDate(y.getUTCDate() - 1);
+    const yest = y.toISOString().slice(0, 10), out = [];
+    [yest, today].forEach((date) => {
+      if (date !== today && !hadWork(date)) return;
+      const have = new Set(dayItems(days[date]).map((i) => i.pid));
+      const missing = products.filter((p) => p.on !== false && !have.has(p.id));
+      if (missing.length) out.push({ date, products: missing });
+    });
+    return out.reverse();   // today first
+  }
+  // One person's month by product: their equal share of each saved line, in sen (before the whole-sen rounding of the day).
+  function monthByProduct(days, month, empId) {
+    const out = {};
+    Object.keys(days || {}).filter((d) => MONTH(d) === month).forEach((d) => {
+      const x = days[d]; if (!x || !x.shareSen || !(x.attendees || []).includes(empId) || !x.count) return;
+      dayItems(x).forEach((i) => { const e = (out[i.pid] = out[i.pid] || { name: i.name, unit: i.unit, sen: 0 }); e.sen += Math.floor((i.poolSen || 0) / x.count); });
+    });
+    return out;
+  }
+
   // ---------- Who counts ----------
   // employee: { id, start, endDate, dept, status }; date: 'YYYY-MM-DD'; checkin: that day's attendance record for the
   // person ({ s, in }) or null; leaves: approved leaves { empId, from, to, half }; settings: { depts: [ids] }.
@@ -55,7 +107,7 @@
 
   // The whole day: who gets a share and who doesn't (with the reason). employees: everyone; att: { empId: record };
   // → { poolSen, shareSen, remainderSen, count, attendees: [{id, firstIn}], excluded: [{id, reason}], flags: [{id, flag}], sig }
-  function planDay({ date, units, rate, employees = [], att = {}, leaves = [], settings = {} }) {
+  function planDay({ date, units, rate, items = null, employees = [], att = {}, leaves = [], settings = {} }) {
     const yes = [], no = [], flags = [];
     employees.forEach((e) => {
       const r = attendedForCommission({ employee: e, date, checkin: att[e.id] || null, leaves, settings });
@@ -64,7 +116,7 @@
       // People in another department are not listed as missing out; people with no department are, so HR can fix them.
       else if (r.reason !== 'Not in a commission department') no.push({ id: e.id, reason: r.reason });
     });
-    const d = commissionDay({ units, rate, attendees: yes.length });
+    const d = items ? commissionItems({ items, attendees: yes.length }) : commissionDay({ units, rate, attendees: yes.length });
     return { ...d, count: yes.length, attendees: yes, excluded: no, flags, sig: yes.map((x) => x.id).sort().join(',') };
   }
 
@@ -85,14 +137,14 @@
     const dates = new Set([...Object.keys(attByDay).filter((d) => MONTH(d) === month), ...Object.keys(days).filter((d) => MONTH(d) === month)]);
     [...dates].sort().forEach((d) => {
       const saved = days[d];
-      const plan = planDay({ date: d, units: saved ? saved.units : 0, rate: saved ? saved.rate : settings.rate, employees, att: attByDay[d] || {}, leaves, settings });
+      const plan = planDay({ date: d, units: saved ? saved.units : 0, rate: saved ? saved.rate : settings.rate, items: saved && saved.items ? saved.items : null, employees, att: attByDay[d] || {}, leaves, settings });
       if (!saved) { if (plan.count > 0 && isWorkday(d)) missing.push(d); }
       else if (saved.sig !== plan.sig) changed.push(d);
     });
     return { missing, changed };
   }
 
-  const api = { rateUnits, unitsCenti, commissionDay, attendedForCommission, planDay, monthTotals, monthWarnings, rm, fmtUnits, MONTH };
+  const api = { productsOf, dayItems, productUsed, commissionItems, toFill, monthByProduct, rateUnits, unitsCenti, commissionDay, attendedForCommission, planDay, monthTotals, monthWarnings, rm, fmtUnits, MONTH };
   root.AllurusProd = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

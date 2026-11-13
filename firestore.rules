@@ -822,7 +822,7 @@ service cloud.firestore {
         function pdMonth() { return d.split('-')[0] + '-' + d.split('-')[1]; }
         allow read: if prodOn() && prodEntry() && canRead(t);
         allow create, update: if prodOn() && prodEntry() && working(t) && d.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}') && !exists(prodLock(pdMonth()))
-          && request.resource.data.keys().hasOnly(['date', 'units', 'unit', 'rate', 'poolSen', 'shareSen', 'remainderSen', 'count', 'attendees', 'excluded', 'flags', 'sig', 'note', 'savedBy', 'savedAt', 'v', 'prev', 'id'])
+          && request.resource.data.keys().hasOnly(['date', 'units', 'unit', 'rate', 'poolSen', 'shareSen', 'remainderSen', 'count', 'attendees', 'excluded', 'flags', 'sig', 'note', 'savedBy', 'savedAt', 'v', 'prev', 'id', 'items'])
           && request.resource.data.date == d && request.resource.data.v is int && request.resource.data.poolSen is int && request.resource.data.shareSen is int
           && request.resource.data.attendees is list && request.resource.data.attendees.size() <= 500 && request.resource.data.savedBy == me().empId;
         allow delete: if false;

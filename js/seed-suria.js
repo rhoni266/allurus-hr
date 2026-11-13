@@ -36,6 +36,8 @@
     // (js/leave-rules.js): TODO add them as company holidays from the official state gazette.
     const L = AllurusLeaveRules;
     settings.leave = L.defaultSettings({ state: 'Johor', departments, hr: 'e2', hrBackup: 'e3' });
+    // Daily production commission with several products (docs: Production, multiple products): each has its own rate per unit.
+    settings.prod = { depts: ['d-prod'], products: [{ id: 'pp-cili', name: 'Cili boh', unit: 'jar', rate: '0.05', on: true }, { id: 'pp-sambal', name: 'Sambal tumis', unit: 'kg', rate: '0.4', on: true }, { id: 'pp-sos', name: 'Sos cili', unit: 'box', rate: '1.2', on: true }] };
     settings.leave.weekend = 'sun';
     Object.assign(settings.leave.chains, {
       'd-mgmt': { l1: 'e1', l1b: '', l2: '', l2b: '' }, 'd-admin': { l1: 'e2', l1b: 'e1', l2: '', l2b: '' },

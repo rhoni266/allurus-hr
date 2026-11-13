@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.63';
+  const APP_VERSION = '3.64';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -979,6 +979,7 @@
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>On leave today</div><div class="kpi-value">${out.length}</div><div class="kpi-foot">${out.length ? esc(out.map((e) => e.first).join(', ')) : 'Everyone is in'}</div></div>
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Open roles</div><div class="kpi-value">${state.jobs.length}</div><div class="kpi-foot">${state.candidates.filter((c) => c.stage !== 'Hired').length} candidates in the pipeline</div></div></div>` },
       { id: 'attendance', area: 'time', title: 'Attendance trend', span: 8, render: () => `<div class="card"><div class="card-head"><h3>Attendance, last 7 workdays</h3><div class="legend"><span><i style="background:var(--brand)"></i>In office</span><span><i style="background:var(--gold)"></i>Remote</span></div></div>${attendanceChart(wd)}</div>` },
+      ...(prodApi?.fillCard() ? [{ id: 'prodfill', title: 'Production to fill', span: 4, render: () => prodApi.fillCard() }] : []),
       { id: 'live', area: 'time', title: 'Who’s in now', span: 4, render: liveWidget },
       { id: 'off', area: 'time', title: 'Who’s off today', span: 4, render: () => leaveApi.whoOffCard() },
       { id: 'approvals', title: 'Waiting for approval', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Waiting for you</h3><span class="hint">${pend.length + pendC.length} open</span></div>
@@ -1338,7 +1339,7 @@
     const my = isMY(), due = U.fmtDate(U.addMonths(mk, 1) + '-15', { month: 'short', day: 'numeric', year: 'numeric' });
     // Production commission (Major Far East): the Bonus column gives way to Output = each person's commission for the month and its days.
     const outputOn = !!prodApi?.on();
-    const prodOf = (it) => { const l = (it.extraLines || []).find((x) => x.key === 'prod'); return l && l.amount > 0 ? { amount: l.amount, days: Number(String(l.detail || '').replace(/\D/g, '')) || 0 } : null; };
+    const prodOf = (it) => { const l = (it.extraLines || []).find((x) => x.key === 'prod'); return l && l.amount > 0 ? { amount: l.amount, days: Number(/^(\d+)/.exec(String(l.detail || ''))?.[1]) || 0 } : null; };
     const outputCell = (it, e) => { const p = prodOf(it); return `<td class="r num">${p ? `<button class="link-btn num" data-act="out-days" data-id="${it.empId}" data-v="${mk}" aria-label="Production days for ${esc(fullName(e))}">${money(p.amount, 2)} · ${p.days} day${p.days === 1 ? '' : 's'}</button>` : '<span class="faint">—</span>'}</td>`; };
     const outputSum = outputOn && run ? run.items.reduce((a, it) => { const p = prodOf(it); return p ? { sen: a.sen + Math.round(p.amount * 100), n: a.n + 1 } : a; }, { sen: 0, n: 0 }) : null;
     const remit = t && my ? [
