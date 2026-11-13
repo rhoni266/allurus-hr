@@ -221,6 +221,23 @@ window.AllurusTimeRules = (function () {
     return { days: out, buckets: sum, total, trimmed, belowMin, warn: raw > (Number(rules.warnMonthH) || EA_MONTH_LIMIT_H) * 60, rawTotal: raw };
   }
 
+  // ---------- Which day a punch counts for ----------
+  // A shift that runs past midnight counts for the day it started. prevPattern = yesterday's shift for this person. A punch
+  // after midnight and before that shift's end belongs to yesterday; anything else belongs to its own day.
+  const isOvernight = (p) => !!p && !p.flexible && toMin(p.end) != null && toMin(p.end) <= toMin(p.start);
+  function shiftDayFor({ day, hm, prevPattern = null }) {
+    const t = toMin(hm);
+    return isOvernight(prevPattern) && t != null && t <= toMin(prevPattern.end) ? addDays(day, -1) : day;
+  }
+  // True once a shift that started on `day` has finished at nowDay/nowHM. No shift: the day is over at midnight.
+  function shiftEnded({ day, pattern = null, nowDay, nowHM }) {
+    const now = Math.round((parse(nowDay) - parse(day)) / 86400000) * 1440 + (toMin(nowHM) || 0);
+    if (!pattern) return now >= 1440;
+    let S = toMin(pattern.flexible ? pattern.coreStart || pattern.start : pattern.start), E = toMin(pattern.flexible ? pattern.coreEnd || pattern.end : pattern.end);
+    if (E <= S) E += 1440;
+    return now >= E;
+  }
+
   // ---------- Pay ----------
   // FORMAT: verify against the Employment Act 1955 s60I before production: hourly rate = monthly basic ÷ 26 ÷ normal hours.
   const hourlyRaw = (monthlyBasic, rules = defaultOT()) => (Number(monthlyBasic) || 0) / (Number(rules.divisor) || 26) / (Number(rules.normalHours) || 8);
@@ -332,7 +349,7 @@ window.AllurusTimeRules = (function () {
   return {
     toMin, fmtMin, fmtDur, dow, addDays, mondayOf, weekDays, workDays, EA_MONTH_LIMIT_H,
     defaultPatterns, defaultOT, defaultAllowances, defaultSettings,
-    patternFor, autoShift, resolveDay, roundOT, evaluate, capMonth, otMinutes, paidMinutes,
+    patternFor, autoShift, resolveDay, shiftDayFor, shiftEnded, isOvernight, roundOT, evaluate, capMonth, otMinutes, paidMinutes,
     hourlyRate, otPay, allowanceFor, copyWeek, applyTemplate, overlaps, shiftLabel, shiftMinutes, diff, batchPlan,
   };
 })();

@@ -77,7 +77,43 @@
   // The share of the counted days for a bar, 0–100.
   const pct = (n, of) => (of > 0 ? Math.min(100, Math.round((n / of) * 100)) : 0);
 
-  const api = { useSimple, pdfPasswordOn, pdfPassword, payslipFileName, meters, shortMinutes, shiftLen, fmtMin, pct };
+  // ---------- Today and the week (docs/PHONE-HOME-ATTENDANCE-SPEC.md) ----------
+  // One word per day, from the same day figures as the meters (which come from js/attendance-rules.js, with each shift's own
+  // grace). Absent only on a scheduled working day, after the shift has ended, with no check-in and no approved leave.
+  // x = a dayInfo; now = { day, hm } in Asia/Kuala_Lumpur; ended(x) says whether that day's shift is over (AllurusTimeRules.shiftEnded).
+  // Returns { status, min }: ontime | late | absent | leave | rest | holiday | notyet | none (a day still to come).
+  function dayStatus(x, now, ended) {
+    if (x.day > now.day) return { status: 'none', min: 0 };
+    if (x.leave) return { status: 'leave', min: 0 };
+    if (x.type === 'holiday') return { status: 'holiday', min: 0 };
+    const worked = !!(x.rec && x.rec.in && WORKED.includes(x.rec.s));
+    if (worked) { const late = x.ev?.late || 0; return late > 0 ? { status: 'late', min: late } : { status: 'ontime', min: 0 }; }
+    if (x.type !== 'normal') return { status: 'rest', min: 0 };
+    return ended(x) ? { status: 'absent', min: 0 } : { status: 'notyet', min: 0 };
+  }
+  // The Monday to Sunday week that holds `day`.
+  function weekOf(day) {
+    const d = new Date(`${day}T00:00:00Z`), back = (d.getUTCDay() + 6) % 7;
+    return Array.from({ length: 7 }, (_, i) => new Date(d.getTime() + (i - back) * 86400000).toISOString().slice(0, 10));
+  }
+  // "8:42 am" from "08:42"
+  function time12(hm) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(hm || '')); if (!m) return '';
+    const h = +m[1]; return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'am' : 'pm'}`;
+  }
+  // The date and clock in Asia/Kuala_Lumpur, whatever the phone's own zone says.
+  function nowKL(date = new Date()) {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(date).map((x) => [x.type, x.value]));
+    return { day: `${p.year}-${p.month}-${p.day}`, hm: `${p.hour}:${p.minute}` };
+  }
+
+  // ---------- Language ----------
+  // The company's default (settings.staffApp.lang), then the person's own choice, which wins. Anything else is English.
+  const pickLang = (company, own) => (own === 'bm' || own === 'en' ? own : company === 'bm' ? 'bm' : 'en');
+  // Leave days in BM are "2 hari", never "2 h".
+  const daysWord = (n, lang) => `${n} ${lang === 'bm' ? 'hari' : n === 1 ? 'day' : 'days'}`;
+
+  const api = { useSimple, pdfPasswordOn, pdfPassword, payslipFileName, meters, shortMinutes, shiftLen, fmtMin, pct, dayStatus, weekOf, time12, nowKL, pickLang, daysWord };
   root.AllurusSimpleHome = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

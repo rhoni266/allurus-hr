@@ -24,6 +24,7 @@
     // ---------- Company ----------
     const checkin = { label: published.label, lat: published.lat, lng: published.lng, radius: published.radius, remote: false, field: [...published.field], setAt: published.at, kiosks: [], supervisor: true, projects: 'off' };
     const settings = { company: COMPANY, domain: DOMAIN, currency: 'MYR', office: 'Kuala Lumpur', checkin, taxRate: 0, benefitsRate: 11.7, theme: 'system', statutory: { ...U.STATUTORY }, claims: AllurusClaims.policyDefaults() };
+    settings.staffApp = { lang: 'bm' };   // Major Far East: the employee app opens in Bahasa Malaysia (staff can switch to English)
     settings.employer = { ssm: '000000000000 (DEMO ONLY)', epfNo: '00000000 (DEMO)', socsoNo: 'B0000000000X (DEMO)', lhdnNo: 'C 0000000000 (DEMO)', hrdNo: 'HRDC-DEMO-0000', address: 'Lot 7, Jalan Industri Kepong 2, Kawasan Perindustrian Kepong, 52100 Kuala Lumpur', phone: '+60 3-0000 0000', signatory: 'Farah Nadia binti Rahman', signatoryTitle: 'HR & Admin Manager' };
     const departments = [
       { id: 'd-mgmt', name: 'Management', lead: 'e1', color: '#14302E', about: 'Runs the business.', duties: 'Strategy, Key accounts, Approvals' },

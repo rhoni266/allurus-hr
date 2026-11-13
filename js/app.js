@@ -461,7 +461,7 @@
   const salaryBasis = () => AllurusSalary.basisOf(state.settings, window.AllurusAddons);
   const salShown = (yearly) => AllurusSalary.shown(yearly, salaryBasis());
   const addonOn = (k) => window.AllurusAddons?.[k] === true;
-  const staffApp = () => { const s = state.settings.staffApp || {}; return { avail: addonOn('simpleStaffHome'), simple: s.simple !== false, pdfPw: s.pdfPw !== false }; };
+  const staffApp = () => { const s = state.settings.staffApp || {}; return { avail: addonOn('simpleStaffHome'), simple: s.simple !== false, pdfPw: s.pdfPw !== false, lang: s.lang === 'bm' ? 'bm' : 'en' }; };
   const onSimplePhone = () => (window.AllurusDevice?.here() === 'phone' || (!CLOUD && window.innerWidth <= 760));
   const simpleOn = () => !!window.AllurusSimpleHome && role() === 'employee' && AllurusSimpleHome.useSimple({ addon: staffApp().avail, setting: state.settings.staffApp?.simple, roles: state.session.roles || [], phone: onSimplePhone() });
 
@@ -1647,6 +1647,7 @@
         html: () => { const sa = staffApp(), seg = (k, on) => `<div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="sa-toggle" data-id="${k}" data-v="${v}" class="${(on ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
           return `<div class="card"><div class="card-head"><h3>Staff app</h3><span class="hint">Phones, staff without an admin role</span></div>
             ${row('Simple staff screen', 'On a phone, staff see only Check in (with their attendance meters), Apply leave (with balances) and Payslip. Admin roles keep their own phone screens, and computers keep the normal app. Off = the normal phone Home.', seg('simple', sa.simple))}
+            ${row('Default language', 'The language the staff screen opens in. Staff can switch it themselves in Me, and their choice is remembered on their phone.', `<div class="seg">${[['en', 'English'], ['bm', 'Bahasa Malaysia']].map(([v, l]) => `<button data-act="sa-lang" data-v="${v}" class="${(sa.lang === 'bm' ? 'bm' : 'en') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
             ${row('Protect payslip PDFs with the IC number', 'Payslip PDFs are locked with a password: the person’s IC number without dashes (the passport number for foreign workers). Staff, and HR on a computer, download the PDF instead of printing it. A person with no IC on record cannot download until HR adds it. An IC-number password stops casual opening of a forwarded or lost PDF. It is not strong protection, because IC numbers are widely known. Inside the app, payslips are still protected by the person’s sign-in.', seg('pdfPw', sa.pdfPw))}</div>`; } }] : []),
       { id: 'leave', label: 'Leave & holidays', icon: 'calendar', summary: 'Leave types, public holidays, rest days', keys: 'leave type entitlement annual sick public holiday state weekend rest day work week approver approval carry forward year-end',
         html: () => leaveApi.settingsCards() },
@@ -2134,58 +2135,111 @@
   const myRuns = () => Object.keys(state.payroll).filter((k) => state.payroll[k].status === 'Paid' && state.payroll[k].items.some((i) => i.empId === me().id)).sort().reverse();
 
   // ---------- The simple staff screen ----------
-  const ssMeter = (en, ms, text, pct, tone) => `<div class="ss-meter"><div class="ss-meter-top"><span class="ss-m-label">${en} <span lang="ms" class="ss-ms">/ ${ms}</span></span><b class="ss-m-val">${esc(text)}</b></div><span class="ss-bar" aria-hidden="true"><i class="${tone}" style="width:${pct}%"></i></span></div>`;
-  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  // One language at a time: the company default (Settings, Staff app), then the person's own choice, kept on their phone.
+  const SS = {
+    en: { checkIn: 'Check in', checkOut: 'Check out', onLeave: 'On leave today', done: 'Done for today', since: 'In since', at: 'Check in at',
+      ontime: 'On time', late: 'Late', absent: 'Absent', leave: 'Leave', rest: 'Rest day', holiday: 'Holiday', notyet: 'Not clocked in yet', today: 'Today',
+      lateBy: (n) => `Late by ${n} min`, clockedIn: (t) => `Clocked in ${t}`, hours: 'Hours worked today', last7: 'This week', thisMonth: 'This month',
+      history: 'Day by day', meters: 'This month, so far', onTimeM: 'On time', lateM: 'Late', absentM: 'Absent', shortM: 'Short hours',
+      of: (n, of, L) => `${n} of ${L(of)}`, leaveH: 'Leave', left: (n, L) => `${L(n)} left`, taken: (n) => `${n} taken`, apply: 'Apply leave',
+      payslip: 'Payslip', download: 'Download payslip', older: 'Older payslips', none: 'No payslip yet.', net: 'Net',
+      help: 'The PDF password is your IC number, without dashes.', noIc: 'Ask HR to add your IC to download your payslip.',
+      me: 'Me', signOut: 'Sign out', language: 'Language', date: 'Date', in: 'In', out: 'Out', status: 'Status', lastMonth: 'Last month', nothing: 'Nothing yet.', short: 'short', worked: 'Worked',
+      Approved: 'Approved', Pending: 'Pending', Rejected: 'Declined', Cancelled: 'Cancelled', waiting: (n) => `${n} request${n === 1 ? '' : 's'} waiting` },
+    bm: { checkIn: 'Daftar masuk', checkOut: 'Daftar keluar', onLeave: 'Bercuti hari ini', done: 'Selesai hari ini', since: 'Masuk sejak', at: 'Daftar masuk di',
+      ontime: 'Tepat masa', late: 'Lewat', absent: 'Tidak hadir', leave: 'Cuti', rest: 'Hari rehat', holiday: 'Cuti umum', notyet: 'Belum daftar masuk', today: 'Hari ini',
+      lateBy: (n) => `Lewat ${n} min`, clockedIn: (t) => `Daftar masuk ${t}`, hours: 'Jam bekerja hari ini', last7: 'Minggu ini', thisMonth: 'Bulan ini',
+      history: 'Hari demi hari', meters: 'Bulan ini, setakat ini', onTimeM: 'Tepat masa', lateM: 'Lewat', absentM: 'Tidak hadir', shortM: 'Jam kurang',
+      of: (n, of, L) => `${n} daripada ${L(of)}`, leaveH: 'Cuti', left: (n, L) => `baki ${L(n)}`, taken: (n) => `${n} diambil`, apply: 'Mohon cuti',
+      payslip: 'Slip gaji', download: 'Muat turun slip gaji', older: 'Slip lama', none: 'Belum ada slip gaji.', net: 'Bersih',
+      help: 'Kata laluan PDF ialah No. IC anda tanpa sengkang.', noIc: 'Minta HR tambah No. IC anda untuk memuat turun slip gaji.',
+      me: 'Saya', signOut: 'Log keluar', language: 'Bahasa', date: 'Tarikh', in: 'Masuk', out: 'Keluar', status: 'Status', lastMonth: 'Bulan lepas', nothing: 'Belum ada apa-apa.', short: 'kurang', worked: 'Bekerja',
+      Approved: 'Diluluskan', Pending: 'Menunggu', Rejected: 'Ditolak', Cancelled: 'Dibatalkan', waiting: (n) => `${n} permohonan menunggu` },
+  };
+  const ssLangKey = () => `allurus-lang-${me()?.id || ''}`;
+  const ssLang = () => { let own = ''; try { own = localStorage.getItem(ssLangKey()) || ''; } catch (err) { /* private window */ } return AllurusSimpleHome.pickLang(state.settings.staffApp?.lang, own); };
+  const ssT = () => SS[ssLang()];
+  const ssDays_ = (n) => AllurusSimpleHome.daysWord(n, ssLang());
+  const ssMeter = (label, text, pct, tone) => `<div class="ss-meter"><div class="ss-meter-top"><span class="ss-m-label">${esc(label)}</span><b class="ss-m-val">${esc(text)}</b></div><span class="ss-bar" aria-hidden="true"><i class="${tone}" style="width:${pct}%"></i></span></div>`;
   const ssMonthMeters = (mk) => AllurusSimpleHome.meters(timeApi.monthFor(me(), mk).days, { today: U.today() });
   const ssMeters = (mk) => {
-    const H = AllurusSimpleHome, m = ssMonthMeters(mk), of = m.counted;
-    return `<div class="ss-meters" role="group" aria-label="This month, so far">
-      ${ssMeter('On time', 'Tepat masa', `${m.onTime.days} of ${plural(of, 'day')}`, H.pct(m.onTime.days, of), 'teal')}
-      ${ssMeter('Late', 'Lewat', `${plural(m.late.days, 'day')} · ${H.fmtMin(m.late.min)}`, H.pct(m.late.days, of), 'amber')}
-      ${ssMeter('Absent', 'Tidak hadir', plural(m.absent.days, 'day'), H.pct(m.absent.days, of), 'slate')}
-      ${ssMeter('Short hours', 'Jam kurang', `${plural(m.short.days, 'day')} · ${H.fmtMin(m.short.min)}`, H.pct(m.short.days, of), 'amber')}</div>`;
+    const H = AllurusSimpleHome, t = ssT(), m = ssMonthMeters(mk), of = m.counted, L = ssDays_;
+    return `<div class="ss-meters" role="group" aria-label="${esc(t.meters)}">
+      ${ssMeter(t.onTimeM, t.of(m.onTime.days, of, L), H.pct(m.onTime.days, of), 'teal')}
+      ${ssMeter(t.lateM, `${L(m.late.days)} · ${H.fmtMin(m.late.min)}`, H.pct(m.late.days, of), 'amber')}
+      ${ssMeter(t.absentM, L(m.absent.days), H.pct(m.absent.days, of), 'slate')}
+      ${ssMeter(t.shortM, `${L(m.short.days)} · ${H.fmtMin(m.short.min)}`, H.pct(m.short.days, of), 'amber')}</div>`;
   };
+  // The day a person's shift is counted for right now: an overnight shift that began yesterday is still "today" until it ends.
+  const workDay = (e) => {
+    const n = AllurusSimpleHome.nowKL(), p = timeApi.dayInfo(e, U.addDays(n.day, -1)).pattern;
+    return AllurusTimeRules.shiftDayFor({ day: n.day, hm: n.hm, prevPattern: p });
+  };
+  const ssEnded = (now) => (x) => AllurusTimeRules.shiftEnded({ day: x.day, pattern: x.pattern, nowDay: now.day, nowHM: now.hm });
+  // Today's status pill, with the check-in time beside it.
+  function ssToday(e, rec, info, now) {
+    const H = AllurusSimpleHome, t = ssT(), s = H.dayStatus(info, now, ssEnded(now));
+    const tone = { ontime: 'ok', late: 'warn', absent: 'slate', leave: 'info' }[s.status] || '';
+    const word = s.status === 'late' ? t.lateBy(s.min) : t[s.status] || t.today;
+    const inTime = rec?.in ? `<span class="pa-time">${esc(t.clockedIn(H.time12(rec.in)))}</span>` : '';
+    const hrs = rec?.in ? `<p class="pa-hours">${esc(t.hours)}: <b>${H.fmtMin(Math.round(hoursBetween(rec.in, rec.out || nowHM()) * 60))}</b></p>` : '';
+    return `<div class="pa-today"><span class="pill pa-pill ${tone}">${esc(word)}</span>${inTime}</div>${hrs}`;
+  }
+  // Monday to Sunday: a dot, the day letter and a word. Rest days and holidays are hollow rings.
+  function ssWeek(e, now) {
+    const H = AllurusSimpleHome, t = ssT(), bm = ssLang() === 'bm', ended = ssEnded(now);
+    const letters = bm ? ['I', 'S', 'R', 'K', 'J', 'S', 'A'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    const cells = H.weekOf(now.day).map((d, i) => {
+      const s = H.dayStatus(timeApi.dayInfo(e, d), now, ended).status, word = s === 'none' ? '' : t[s] || t.today;
+      const cls = { ontime: 'ok', late: 'warn', absent: 'slate', leave: 'info', rest: 'ring', holiday: 'ring', notyet: 'wait', none: 'fut' }[s];
+      const full = U.fmtDate(d, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      return `<li class="pa-day${d === now.day ? ' now' : ''}"><span class="pa-dot ${cls}" role="img" aria-label="${esc(`${full}: ${word || '—'}`)}"></span><span class="pa-l" aria-hidden="true">${letters[i]}</span><span class="pa-w" aria-hidden="true">${esc(word)}</span></li>`;
+    }).join('');
+    const m = ssMonthMeters(U.monthKey(now.day));
+    return `<button type="button" class="ss-meters-tap pa-week" data-act="ss-days" data-v="${U.monthKey(now.day)}" aria-label="${esc(t.last7 + ' · ' + t.history)}"><span class="pa-h">${esc(t.last7)}</span><ul class="pa-days">${cells}</ul>
+      <span class="pa-counts"><b>${m.onTime.days}</b> ${esc(t.ontime)} · <b>${m.late.days}</b> ${esc(t.late)} · <b>${m.absent.days}</b> ${esc(t.absent)} <small>(${esc(t.thisMonth)})</small></span><span class="ss-more">${esc(t.history)} ›</span></button>`;
+  }
   function simpleHomeView() {
-    const e = me(), T = U.today(), rec = myRecord(T), H = AllurusSimpleHome, info = timeApi.dayInfo(e, T);
+    const e = me(), now = AllurusSimpleHome.nowKL(), wd = workDay(e), rec = myRecord(wd), H = AllurusSimpleHome, info = timeApi.dayInfo(e, wd), t = ssT(), L = ssDays_;
     const shift = info.pattern ? AllurusTimeRules.shiftLabel(info.pattern) : '';
     const onLeaveNow = rec?.s === 'leave' || info.leave;
     let clock;
-    if (onLeaveNow) clock = `<p class="ss-done">On leave today <span lang="ms">/ Bercuti hari ini</span></p>`;
-    else if (!rec || !rec.in) clock = `<button type="button" class="btn btn-primary ss-big" data-act="check-in" data-v="present">${icon('camera')}<span>Check in <span lang="ms">/ Daftar masuk</span></span></button>
-      <p class="ss-sub">${[shift, zone().label ? `Check in at ${zone().label}` : ''].filter(Boolean).map(esc).join(' · ')}</p>`;
-    else if (!rec.out) clock = `<button type="button" class="btn btn-primary ss-big" data-act="check-out">${icon('clock')}<span>Check out <span lang="ms">/ Daftar keluar</span></span></button><p class="ss-sub">In since ${esc(rec.lastIn || rec.in)}</p>`;
-    else clock = `<p class="ss-done">Done for today · ${esc(rec.in)}–${esc(rec.out)}</p>`;
-    const meters = rec?.in ? `<button type="button" class="ss-meters-tap" data-act="ss-days" data-v="${U.monthKey(T)}" aria-label="Open this month, day by day">${ssMeters(U.monthKey(T))}<span class="ss-more">Day by day <span lang="ms">/ Hari demi hari</span> ›</span></button>` : '';
+    if (onLeaveNow) clock = `<p class="ss-done">${esc(t.onLeave)}</p>`;
+    else if (!rec || !rec.in) clock = `<button type="button" class="btn btn-primary ss-big" data-act="check-in" data-v="present">${icon('camera')}<span>${esc(t.checkIn)}</span></button>
+      <p class="ss-sub">${[shift, zone().label ? `${t.at} ${zone().label}` : ''].filter(Boolean).map(esc).join(' · ')}</p>`;
+    else if (!rec.out) clock = `<button type="button" class="btn btn-primary ss-big" data-act="check-out">${icon('clock')}<span>${esc(t.checkOut)}</span></button><p class="ss-sub">${esc(t.since)} ${esc(H.time12(rec.lastIn || rec.in))}</p>`;
+    else clock = `<p class="ss-done">${esc(t.done)} · ${esc(H.time12(rec.in))}–${esc(H.time12(rec.out))}</p>`;
+    const meters = rec?.in ? `<button type="button" class="ss-meters-tap" data-act="ss-days" data-v="${U.monthKey(now.day)}" aria-label="${esc(t.thisMonth + ' · ' + t.history)}">${ssMeters(U.monthKey(now.day))}</button>` : '';
     // Leave: the balances first, then what is waiting.
-    const bal = leaveApi.myBalances(e).map(({ t, b }) => `<li><span>${esc(t.name)}</span><b>${b.unlimited ? `${b.used} taken` : `${b.available} day${b.available === 1 ? '' : 's'} left`}</b></li>`).join('');
+    const bal = leaveApi.myBalances(e).map(({ t: lt, b }) => `<li><span>${esc(lt.name)}</span><b class="nb">${b.unlimited ? esc(t.taken(L(b.used))) : esc(t.left(b.available, L))}</b></li>`).join('');
     const mine = state.leaves.filter((l) => l.empId === e.id).sort((a, b) => b.from.localeCompare(a.from));
     const waiting = mine.filter((l) => l.status === 'Pending').length;
-    const recent = mine.slice(0, 3).map((l) => `<li><span>${esc(leaveApi.typeName(l.type))} · ${U.fmtDate(l.from, { day: 'numeric', month: 'short' })}${l.to !== l.from ? '–' + U.fmtDate(l.to, { day: 'numeric', month: 'short' }) : ''}</span><b class="ss-st ${l.status === 'Approved' ? 'ok' : l.status === 'Pending' ? 'wait' : ''}">${l.status === 'Rejected' ? 'Declined' : esc(l.status)}</b></li>`).join('');
+    const recent = mine.slice(0, 3).map((l) => `<li><span>${esc(leaveApi.typeName(l.type))} · ${U.fmtDate(l.from, { day: 'numeric', month: 'short' })}${l.to !== l.from ? '–' + U.fmtDate(l.to, { day: 'numeric', month: 'short' }) : ''}</span><b class="ss-st nb ${l.status === 'Approved' ? 'ok' : l.status === 'Pending' ? 'wait' : ''}">${esc(t[l.status] || l.status)} · ${esc(L(l.days))}</b></li>`).join('');
     // Payslip: the latest month, then older ones.
     const runs = myRuns(), last = runs[0], sa = staffApp();
     const lastItem = last ? state.payroll[last].items.find((i) => i.empId === e.id) : null;
     const pwOn = H.pdfPasswordOn({ addon: sa.avail, setting: state.settings.staffApp?.pdfPw });
     const noIc = pwOn && !H.pdfPassword(e);
-    const slipBtn = (mk, big) => `<button type="button" class="btn ${big ? 'btn-primary ss-wide' : 'btn-sm'}" data-act="ss-payslip" data-v="${mk}" ${noIc ? 'disabled' : ''}>${icon('download')}${big ? 'Download payslip <span lang="ms">/ Muat turun slip gaji</span>' : esc(U.fmtMonth(mk))}</button>`;
-    const slip = last ? `<p class="ss-slip-month">${esc(U.fmtMonth(last))} · Net <b>${esc(money(lastItem.net, 2))}</b></p>${slipBtn(last, true)}
-      ${noIc ? `<p class="ss-warn">Ask HR to add your IC to download your payslip. <span lang="ms">Minta HR tambah No. IC anda.</span></p>` : pwOn ? `<p class="ss-help">The PDF password is your IC number, without dashes. <span lang="ms">Kata laluan PDF ialah No. IC anda tanpa sengkang.</span></p>` : ''}
-      ${runs.length > 1 ? `<details class="ss-older"><summary>Older payslips <span lang="ms">/ Slip lama</span></summary><div class="ss-older-list">${runs.slice(1, 13).map((mk) => slipBtn(mk, false)).join('')}</div></details>` : ''}` : `<p class="muted">No payslip yet. <span lang="ms">Belum ada slip gaji.</span></p>`;
-    return `<div class="ss">
-      <header class="ss-head"><div><div class="ss-co">${esc(state.settings.company)}</div><h1 class="ss-name">${esc(fullName(e))}</h1><div class="ss-date">${U.fmtDate(T, { weekday: 'long', day: 'numeric', month: 'long' })}</div></div><button type="button" class="btn btn-sm ss-me" data-act="ss-me">${icon('people')}Me</button></header>
-      <section class="card ss-card" aria-label="Check in">${clock}${meters}</section>
-      <section class="card ss-card" aria-label="Leave"><h2 class="ss-h">Leave <span lang="ms">/ Cuti</span></h2>
-        ${bal ? `<ul class="ss-list">${bal}</ul>` : ''}${waiting ? `<p class="ss-wait">${plural(waiting, 'request')} waiting <span lang="ms">/ menunggu kelulusan</span></p>` : ''}
-        <button type="button" class="btn btn-primary ss-wide" data-act="new-leave">${icon('calendar')}Apply leave <span lang="ms">/ Mohon cuti</span></button>
+    const slipBtn = (mk, big) => `<button type="button" class="btn ${big ? 'btn-primary ss-wide' : 'btn-sm'}" data-act="ss-payslip" data-v="${mk}" ${noIc ? 'disabled' : ''}>${icon('download')}${big ? esc(t.download) : esc(U.fmtMonth(mk))}</button>`;
+    const slip = last ? `<p class="ss-slip-month">${esc(U.fmtMonth(last))} · ${esc(t.net)} <b>${esc(money(lastItem.net, 2))}</b></p>${slipBtn(last, true)}
+      ${noIc ? `<p class="ss-warn">${esc(t.noIc)}</p>` : pwOn ? `<p class="ss-help">${esc(t.help)}</p>` : ''}
+      ${runs.length > 1 ? `<details class="ss-older"><summary>${esc(t.older)}</summary><div class="ss-older-list">${runs.slice(1, 13).map((mk) => slipBtn(mk, false)).join('')}</div></details>` : ''}` : `<p class="muted">${esc(t.none)}</p>`;
+    return `<div class="ss" lang="${ssLang() === 'bm' ? 'ms' : 'en'}">
+      <header class="ss-head"><div><div class="ss-co">${esc(state.settings.company)}</div><h1 class="ss-name">${esc(fullName(e))}</h1><div class="ss-date">${U.fmtDate(now.day, { weekday: 'long', day: 'numeric', month: 'long' })}</div></div><button type="button" class="btn btn-sm ss-me" data-act="ss-me">${icon('people')}${esc(t.me)}</button></header>
+      <section class="card ss-card" aria-label="${esc(t.checkIn)}">${clock}${ssToday(e, rec, info, now)}${ssWeek(e, now)}${meters}</section>
+      <section class="card ss-card" aria-label="${esc(t.leaveH)}"><h2 class="ss-h">${esc(t.leaveH)}</h2>
+        ${bal ? `<ul class="ss-list">${bal}</ul>` : ''}${waiting ? `<p class="ss-wait">${esc(t.waiting(waiting))}</p>` : ''}
+        <button type="button" class="btn btn-primary ss-wide" data-act="new-leave">${icon('calendar')}${esc(t.apply)}</button>
         ${recent ? `<ul class="ss-list ss-recent">${recent}</ul>` : ''}</section>
-      <section class="card ss-card" aria-label="Payslip"><h2 class="ss-h">Payslip <span lang="ms">/ Slip gaji</span></h2>${slip}</section></div>`;
+      <section class="card ss-card" aria-label="${esc(t.payslip)}"><h2 class="ss-h">${esc(t.payslip)}</h2>${slip}</section></div>`;
   }
   // This month (or last), day by day.
   function ssDays(mk) {
-    const T = U.today(), cur = U.monthKey(T), prev = U.monthKey(U.addDays(`${cur}-01`, -1)), m = ssMonthMeters(mk), H = AllurusSimpleHome;
-    const label = { ontime: 'On time', late: 'Late', absent: 'Absent', leave: 'Leave', holiday: 'Holiday', extra: 'Worked', today: 'Today' };
-    const rows = m.list.map((x) => `<tr><td>${U.fmtDate(x.day, { weekday: 'short', day: 'numeric', month: 'short' })}</td><td>${esc(x.in || '—')}</td><td>${esc(x.out || '—')}</td><td>${esc(label[x.status] || '')}${x.min ? ` · ${H.fmtMin(x.min)}` : ''}${x.short ? ` · short ${H.fmtMin(x.short)}` : ''}</td></tr>`).join('');
-    openModal({ title: `${U.fmtMonth(mk)}`, size: 'sm', submit: null, body: `<div class="seg" style="margin-bottom:10px">${[[cur, 'This month'], [prev, 'Last month']].map(([k, l]) => `<button type="button" data-act="ss-days" data-v="${k}" class="${k === mk ? 'on' : ''}">${l}</button>`).join('')}</div>${ssMeters(mk)}
-      <div class="table-wrap" style="margin-top:12px"><table class="table"><thead><tr><th>Date</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="muted">Nothing yet.</td></tr>'}</tbody></table></div>` });
+    const T = U.today(), cur = U.monthKey(T), prev = U.monthKey(U.addDays(`${cur}-01`, -1)), m = ssMonthMeters(mk), H = AllurusSimpleHome, t = ssT();
+    const label = { ontime: t.ontime, late: t.late, absent: t.absent, leave: t.leave, holiday: t.holiday, extra: t.worked, today: t.today };
+    const rows = m.list.map((x) => `<tr><td>${U.fmtDate(x.day, { weekday: 'short', day: 'numeric', month: 'short' })}</td><td>${esc(x.in ? H.time12(x.in) : '—')}</td><td>${esc(x.out ? H.time12(x.out) : '—')}</td><td>${esc(label[x.status] || '')}${x.min ? ` · ${H.fmtMin(x.min)}` : ''}${x.short ? ` · ${esc(t.short)} ${H.fmtMin(x.short)}` : ''}</td></tr>`).join('');
+    openModal({ title: `${U.fmtMonth(mk)}`, size: 'sm', submit: null, body: `<div class="seg" style="margin-bottom:10px">${[[cur, t.thisMonth], [prev, t.lastMonth]].map(([k, l]) => `<button type="button" data-act="ss-days" data-v="${k}" class="${k === mk ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>${ssMeters(mk)}
+      <div class="table-wrap" style="margin-top:12px"><table class="table"><thead><tr><th>${esc(t.date)}</th><th>${esc(t.in)}</th><th>${esc(t.out)}</th><th>${esc(t.status)}</th></tr></thead><tbody>${rows || `<tr><td colspan="4" class="muted">${esc(t.nothing)}</td></tr>`}</tbody></table></div>` });
   }
 
   VIEWS.home = () => {
@@ -2808,7 +2862,7 @@
   // kept so hours still count from it, and the earlier session goes into the day's history). Used by the
   // employee's own check-in, the kiosk and supervisor check-in.
   function writeCheckin(e, { mode = 'present', time, photo, loc, face = null, device, upload = false, via = 'self', by = '', project = '', flags = [], offline = false }) {
-    const T = U.today();
+    const T = workDay(e);   // an overnight shift counts for the day it started
     state.attendance[T] = state.attendance[T] || {};
     // The picker sends "project|job" when a job is chosen; costing reads both.
     const [pj = '', job = ''] = String(project || '').split('|');
@@ -3128,7 +3182,7 @@
       (navigator.clipboard?.writeText(url) || Promise.reject()).then(done, () => openModal({ title: 'Setup link for staff phones', size: 'sm', submit: null, body: `<p class="muted" style="margin-bottom:10px">Copy this link and send it to staff. Opening it once makes their phone use this check-in point.</p><textarea class="textarea" readonly style="width:100%;min-height:110px" onfocus="this.select()">${esc(url)}</textarea>` }));
     },
     'zone-remote': (_, v) => { state.settings.checkin.remote = v === 'on'; commit(v === 'on' ? 'Remote check-in allowed' : 'Remote check-in turned off'); },
-    'check-out': () => { const r = myRecord(U.today()); r.out = nowHM(); commit(`Checked out at ${r.out}`); },
+    'check-out': () => { const r = myRecord(workDay(me())); r.out = nowHM(); commit(`Checked out at ${r.out}`); },
     'my-payslip': (m) => openPayslip(me().id, m),
     'tenant-view': (id) => openTenant(id),
     'tenant-filter': (_, v) => { ui.tenantStatus = v; render(); },
@@ -3651,8 +3705,10 @@
   AFTER.approvals = () => { phoneWatch.load(true).catch(() => {}); };
   // An admin's "Me" tab on a phone: their own leave, payslips, claims and check-in (the employee view).
   ACTIONS['ss-days'] = (_, mk) => { closeOverlay(); ssDays(mk || U.monthKey(U.today())); };
-ACTIONS['ss-me'] = () => { const e = me(); openModal({ title: 'Me', size: 'sm', submit: null, body: `<div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">${avatar(fullName(e), 'lg')}<div><b>${esc(fullName(e))}</b><div class="muted">${esc(e.role || '')}</div></div></div><p class="muted" style="font-size:13px">English and Bahasa Malaysia are shown together on this screen. <span lang="ms">Bahasa Inggeris dan Bahasa Malaysia dipaparkan bersama.</span></p><button class="btn btn-outline-danger" data-act="logout" style="width:100%">${icon('logout')}Sign out <span lang="ms">/ Log keluar</span></button>` }); };
-ACTIONS['ss-payslip'] = async (_, mk) => { const r = await docsApi.downloadSlip(me().id, mk); if (r && r.noIc) toast('Ask HR to add your IC to download your payslip.', 'error'); };
+ACTIONS['ss-me'] = () => { const e = me(), t = ssT(), cur = ssLang(); openModal({ title: t.me, size: 'sm', submit: null, body: `<div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">${avatar(fullName(e), 'lg')}<div><b>${esc(fullName(e))}</b><div class="muted">${esc(e.role || '')}</div></div></div><div class="label" style="margin-bottom:6px">${esc(t.language)}</div><div class="seg" role="group" aria-label="${esc(t.language)}" style="margin-bottom:14px">${[['en', 'English'], ['bm', 'Bahasa Malaysia']].map(([k, l]) => `<button type="button" data-act="ss-lang" data-v="${k}" class="${k === cur ? 'on' : ''}" aria-pressed="${k === cur}">${l}</button>`).join('')}</div><button class="btn btn-outline-danger" data-act="logout" style="width:100%">${icon('logout')}${esc(t.signOut)}</button>` }); };
+ACTIONS['ss-lang'] = (_, v) => { if (!['en', 'bm'].includes(v)) return; try { localStorage.setItem(ssLangKey(), v); } catch (err) { /* private window: this visit only */ } closeOverlay(); render(); };
+ACTIONS['ss-payslip'] = async (_, mk) => { const r = await docsApi.downloadSlip(me().id, mk); if (r && r.noIc) toast(ssT().noIc, 'error'); };
+ACTIONS['sa-lang'] = (_, v) => { if (!['en', 'bm'].includes(v)) return; state.settings.staffApp = { ...(state.settings.staffApp || {}), lang: v }; commit(`Staff app default language set to ${v === 'bm' ? 'Bahasa Malaysia' : 'English'}`); };
 ACTIONS['sa-toggle'] = (key, v) => { if (!['simple', 'pdfPw'].includes(key)) return; state.settings.staffApp = { ...(state.settings.staffApp || {}), [key]: v === 'on' }; commit(`${key === 'simple' ? 'Simple staff screen' : 'Payslip PDF password'} turned ${v}`); };
 ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role() !== 'employee') switchRole('employee'); else location.hash = 'my-profile'; };
 
