@@ -820,10 +820,20 @@ service cloud.firestore {
       function prodLock(m) { return /databases/$(database)/documents/tenants/$(t)/prodLocks/$(m); }
       match /prodDays/{d} {
         function pdMonth() { return d.split('-')[0] + '-' + d.split('-')[1]; }
+        // Several products on one day: items is a list of up to 8 lines, each a map of known fields with text quantity and rate (no
+        // minus sign) and a non-negative whole-number pool. Rules can't loop and have an evaluation budget, so each index is
+        // checked in turn by one cheap function.
+        function pdLine(x) { return x is map && x.keys().hasOnly(['pid', 'name', 'unit', 'rate', 'units', 'poolSen'])
+          && x.name is string && x.units is string && x.rate is string
+          && !x.units.matches('.*-.*') && !x.rate.matches('.*-.*') && x.poolSen is int && x.poolSen >= 0; }
+        function pdItemsOk(it) { return it is list && it.size() <= 8
+          && (it.size() < 1 || pdLine(it[0])) && (it.size() < 2 || pdLine(it[1])) && (it.size() < 3 || pdLine(it[2])) && (it.size() < 4 || pdLine(it[3])) && (it.size() < 5 || pdLine(it[4]))
+          && (it.size() < 6 || pdLine(it[5])) && (it.size() < 7 || pdLine(it[6])) && (it.size() < 8 || pdLine(it[7])); }
         allow read: if prodOn() && prodEntry() && canRead(t);
         allow create, update: if prodOn() && prodEntry() && working(t) && d.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}') && !exists(prodLock(pdMonth()))
           && request.resource.data.keys().hasOnly(['date', 'units', 'unit', 'rate', 'poolSen', 'shareSen', 'remainderSen', 'count', 'attendees', 'excluded', 'flags', 'sig', 'note', 'savedBy', 'savedAt', 'v', 'prev', 'id', 'items'])
           && request.resource.data.date == d && request.resource.data.v is int && request.resource.data.poolSen is int && request.resource.data.shareSen is int
+          && request.resource.data.poolSen >= 0 && request.resource.data.shareSen >= 0 && (!('items' in request.resource.data) || pdItemsOk(request.resource.data.items))
           && request.resource.data.attendees is list && request.resource.data.attendees.size() <= 500 && request.resource.data.savedBy == me().empId;
         allow delete: if false;
       }

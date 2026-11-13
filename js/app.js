@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.64';
+  const APP_VERSION = '3.65';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -3064,7 +3064,7 @@
     'out-days': (empId, mk) => {
       const e = emp(empId); if (!e || !prodApi?.mine) return;
       const rows = prodApi.mine(empId, mk).map((d) => `<tr><td>${U.fmtDate(d.date, { weekday: 'short', day: 'numeric', month: 'short' })}</td><td class="r num">${d.units != null ? esc(AllurusProd.fmtUnits(d.units, d.unit || '')) : '—'}</td><td class="r num">${d.status === 'paid' ? money(d.shareSen / 100, 2) : '<span class="faint">—</span>'}</td><td>${d.status === 'paid' ? 'Paid' : esc(d.reason || 'Not paid')}</td></tr>`).join('');
-      openModal({ title: `Output · ${esc(fullName(e))} · ${U.fmtMonth(mk)}`, size: 'sm', submit: null, body: `<div class="table-wrap"><table class="table"><thead><tr><th>Day</th><th class="r">Production</th><th class="r">Share</th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="muted">No production days for this person this month.</td></tr>'}</tbody></table></div>` });
+      openModal({ title: `Output · ${esc(fullName(e))} · ${U.fmtMonth(mk)}`, size: 'sm', submit: null, body: `<div class="table-wrap"><table class="table"><thead><tr><th>Day<span lang="ms" class="th-ms">Hari</span></th><th class="r">Production<span lang="ms" class="th-ms">Pengeluaran</span></th><th class="r">Share<span lang="ms" class="th-ms">Bahagian</span></th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="muted">No production days for this person this month.</td></tr>'}</tbody></table></div>` });
     },
     'slip-bonus': (empId, mk) => {
       const run = state.payroll[mk], it = run?.items.find((i) => i.empId === empId); if (!it || run.status !== 'Draft') return;

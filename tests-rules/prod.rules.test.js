@@ -113,3 +113,47 @@ test('only the superadmin switches the addon, with an audit entry, and only that
   await assertFails(on(sa(), 'a2', { name: 'Hijack' }));                                                        // only the addon key
   await assertFails(updateDoc(doc(as('own'), `tenants/${T}`), { addons: { prodCommission: false } }));          // not even Major Far East's Owner
 });
+
+// ---- several products on one day: the new items field ----
+const line = (o = {}) => ({ pid: 'pp-1', name: 'Cili boh', unit: 'jar', rate: '0.05', units: '2000', poolSen: 10000, ...o });
+const multi = (date, items, o = {}) => day(date, { savedBy: 'e3', items, units: '2000 jar', unit: '', rate: '', ...o });
+
+test('items: a valid list written by someone with production access is accepted (one product, several, and at the 8-line limit)', async () => {
+  await assertSucceeds(saveDay(as('ops'), '2026-11-10', multi('2026-11-10', [line()])));
+  await assertSucceeds(saveDay(as('pay'), '2026-11-11', multi('2026-11-11', [line(), line({ pid: 'pp-2', name: 'Sambal', unit: 'kg', rate: '0.4', units: '12.5', poolSen: 500 })], { savedBy: 'e4', poolSen: 10500, shareSen: 420 })));
+  await assertSucceeds(saveDay(as('ops'), '2026-11-12', multi('2026-11-12', Array.from({ length: 8 }, (_, i) => line({ pid: `p${i}` })))));
+  await assertSucceeds(saveDay(as('ops'), '2026-11-13', multi('2026-11-13', [])));                                  // an empty list is a list
+});
+
+test('items: wrong types, negatives, unknown fields and more than 8 lines are rejected', async () => {
+  const bad = (items, o) => assertFails(saveDay(as('ops'), '2026-11-10', multi('2026-11-10', items, o)));
+  await bad('not a list');
+  await bad([line({ units: 2000 })]);                      // a number where text is expected
+  await bad([line({ poolSen: '10000' })]);                  // text where a whole number is expected
+  await bad([line({ poolSen: 100.5 })]);
+  await bad([line({ name: 7 })]);
+  await bad(['x']);                                         // not a map
+  await bad([line({ units: '-5' })]);                       // negative quantity
+  await bad([line({ rate: '-0.05' })]);                     // negative rate
+  await bad([line({ poolSen: -1 })]);                       // negative amount
+  await bad([line({ secret: 'x' })]);                       // unknown field on a line
+  await bad([line(), line(), line({ units: '-1' })]);       // the bad one is not first
+  await bad(Array.from({ length: 9 }, (_, i) => line({ pid: `p${i}` })));
+  await bad([line()], { poolSen: -100 });                   // a negative day pool
+  await bad([line()], { shareSen: -1 });
+});
+
+test('items: an employee without access, the people area, and a company without the add-on are still refused', async () => {
+  await assertFails(saveDay(as('a'), '2026-11-10', multi('2026-11-10', [line()], { savedBy: 'e5' })));
+  await assertFails(saveDay(as('hr'), '2026-11-10', multi('2026-11-10', [line()], { savedBy: 'e2' })));
+  await assertFails(saveDay(as('off'), '2026-11-10', multi('2026-11-10', [line()], { savedBy: 'e1' })));
+  await assertFails(getDoc(D(as('a'), '2026-11-10')));
+});
+
+test('items: existing single-total days (no items) still pass, and can be re-saved; a finalised month still locks items', async () => {
+  await assertSucceeds(saveDay(as('ops'), '2026-11-10', day('2026-11-10', { savedBy: 'e3' })));                   // the old shape
+  await assertSucceeds(setDoc(D(as('ops'), '2026-11-09'), day('2026-11-09', { savedBy: 'e3', v: 2 })));           // re-save an old day
+  await assertSucceeds(setDoc(D(as('ops'), '2026-11-09'), multi('2026-11-09', [line()], { v: 3 })));             // and move it to items
+  await env.withSecurityRulesDisabled((c) => setDoc(doc(c.firestore(), `tenants/${T}/prodLocks/2026-11`), { month: '2026-11' }));
+  await assertFails(saveDay(as('ops'), '2026-11-11', multi('2026-11-11', [line()])));
+});
