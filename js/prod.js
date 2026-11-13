@@ -84,6 +84,61 @@ window.AllurusProduction = (function () {
   }
   const changedSince = (d) => { const x = days()[d]; return !!x && x.sig !== plan(d, P.dayItems(x)).sig; };
 
+  // ---------- The production supervisor (an employee with the permission; quantities only) ----------
+  // They key in each product's quantity on the phone. They never see rates, the pool or any RM: the money is worked out by an
+  // admin from the company's rates and the day's attendance, which a supervisor can't read (firestore.rules: prodQty).
+  const isSup = () => on() && ctx.role() === 'employee' && ctx.account()?.prodEntry === true;
+  const qtys = () => st().prodQty || {};
+  const qtyOf = (date) => { const o = {}; Object.values(qtys()).filter((q) => q.date === date).forEach((q) => { o[q.pid] = q; }); return o; };
+  // Which products have a figure for a day: on a saved day, or typed by a supervisor.
+  const filledPids = (date) => new Set([...P.dayItems(days()[date]).map((i) => i.pid), ...Object.keys(qtyOf(date))]);
+  const SUPT = {
+    en: { title: 'Fill production', btn: 'Fill production', edit: 'Change quantities', today: 'Today', yesterday: 'Yesterday', done: 'All filled. Thank you.', qty: 'Quantity', save: 'Save', saved: 'Saved', bad: 'Type each quantity as a number (up to 2 decimals).', none: 'Type at least one quantity.', note: 'Quantities only. The office works out the commission.', fill: 'Fill' },
+    bm: { title: 'Isi pengeluaran', btn: 'Isi pengeluaran', edit: 'Ubah kuantiti', today: 'Hari ini', yesterday: 'Semalam', done: 'Semua telah diisi. Terima kasih.', qty: 'Kuantiti', save: 'Simpan', saved: 'Disimpan', bad: 'Taip setiap kuantiti sebagai nombor (sehingga 2 perpuluhan).', none: 'Taip sekurang-kurangnya satu kuantiti.', note: 'Kuantiti sahaja. Pejabat mengira komisen.', fill: 'Isi' },
+  };
+  const supT = () => SUPT[ctx.lang ? ctx.lang() : 'en'] || SUPT.en;
+  // What is still to fill for a supervisor: today, and yesterday if it was a working day.
+  const supTodo = () => P.toFill({ products: prods(), days: Object.fromEntries([T(), U.addDays(T(), -1)].map((d) => [d, { items: [...filledPids(d)].map((pid) => ({ pid })) }])), today: T(), hadWork: (d) => !U.isWeekend(d) });
+  function supCard() {
+    if (!isSup() || !prods().some((p) => p.on !== false)) return '';
+    const t = supT(), todo = supTodo(), label = (d) => (d === T() ? t.today : t.yesterday);
+    const rows = todo.map((x) => `<li class="pa-sup-row"><span><b>${esc(label(x.date))}</b>: ${esc(x.products.map((p) => p.name).join(', '))}</span><button type="button" class="btn btn-sm" data-act="prod-sup" data-v="${x.date}">${esc(t.fill)}</button></li>`).join('');
+    return `<section class="card ss-card pa-sup" id="prod-fill" aria-label="${esc(t.title)}"><h2 class="ss-h">${esc(t.title)}</h2>
+      ${rows ? `<ul class="ss-list pa-sup-list">${rows}</ul>` : `<p class="ss-help">${esc(t.done)}</p>`}
+      <button type="button" class="btn btn-primary ss-wide" data-act="prod-sup" data-v="${T()}">${icon('layers')}${esc(rows ? t.btn : t.edit)}</button></section>`;
+  }
+  // The phone form: one input per active product, quantities only. No rate, pool or RM anywhere in it.
+  function supForm(date) {
+    if (!isSup()) return;
+    const t = supT(), have = qtyOf(date), active = prods().filter((p) => p.on !== false);
+    const input = (p) => `<div class="field"><label for="sq-${esc(p.id)}">${esc(p.name || '')} (${esc(p.unit || '')})</label><input class="input" id="sq-${esc(p.id)}" name="q-${esc(p.id)}" inputmode="decimal" autocomplete="off" value="${esc(String(have[p.id]?.units ?? ''))}" placeholder="${esc(t.qty)}"></div>`;
+    ctx.openModal({ title: `${t.title} · ${date === T() ? t.today : t.yesterday}`, size: 'sm', submit: t.save,
+      body: `<div class="form-grid" style="grid-template-columns:1fr">${active.map(input).join('')}</div><p class="faint" style="font-size:12px;margin-top:8px">${esc(t.note)}</p>`,
+      onSubmit: (d) => saveQty(date, active, d) });
+  }
+  // Validates at once (returning false keeps the form open), then saves in the background.
+  function saveQty(date, active, d) {
+    const t = supT(), rows = [];
+    for (const p of active) {
+      const v = String(d[`q-${p.id}`] ?? '').trim().replace(/,/g, '');
+      if (v === '') continue;
+      if (!/^\d{1,9}(\.\d{1,2})?$/.test(v)) { ctx.toast(t.bad, 'error'); return false; }
+      rows.push({ date, pid: p.id, units: v, by: ctx.me()?.id || '', at: new Date().toISOString() });
+    }
+    if (!rows.length) { ctx.toast(t.none, 'error'); return false; }
+    persistQty(date, rows, t);
+  }
+  async function persistQty(date, rows, t) {
+    if (ctx.cloud() && ctx.fire()?.prodQtySave) {
+      const r = await ctx.fire().prodQtySave(rows);
+      if (!r.ok) { ctx.toast(r.error, 'error'); return; }
+    }
+    st().prodQty = st().prodQty || {};
+    rows.forEach((r) => { st().prodQty[`${r.date}~${r.pid}`] = r; });
+    ctx.log(`Production quantities for ${fmtD(date)}: ${rows.map((r) => `${(prods().find((p) => p.id === r.pid) || {}).name || r.pid} ${r.units}`).join(', ')}`);
+    ctx.commit(t.saved);
+  }
+
   // ---------- The Production page ----------
   const unlockedFrom = () => { const mk = U.monthKey(T()); let m = mk, k = 0; while (k++ < 36 && isLocked(m + '-01')) m = U.addMonths(m, 1); return m + '-01'; };
   const monthOfDay = () => P.MONTH(ui.day || T());
@@ -136,7 +191,9 @@ window.AllurusProduction = (function () {
   }
   // The values on the form: what was typed, else what the saved day holds.
   const savedValues = (saved) => Object.fromEntries(P.dayItems(saved).map((i) => [i.pid, i.units]));
-  const formValues = (day) => (ui.vals != null ? ui.vals : savedValues(days()[day]));
+  // A supervisor's quantity newer than the saved day shows here, so the admin only has to check it and press Save the day.
+  const supNewer = (day) => { const saved = days()[day]; return Object.values(qtyOf(day)).filter((q) => !saved || String(q.at) > String(saved.savedAt)); };
+  const formValues = (day) => { if (ui.vals != null) return ui.vals; const v = savedValues(days()[day]); supNewer(day).forEach((q) => { v[q.pid] = q.units; }); return v; };
   function view() {
     if (!canEntry()) return '<div class="empty"><strong>Not available</strong>Production commission isn’t switched on for your account.</div>';
     const day = ui.day || (ui.day = T()), saved = days()[day], locked = isLocked(day);
@@ -150,6 +207,7 @@ window.AllurusProduction = (function () {
           <input class="input" type="date" id="pd-date" value="${day}" min="${min}" max="${T()}" aria-label="Day">
           <button class="btn btn-icon" data-act="prod-shift" data-v="1" aria-label="Next day" ${day >= T() ? 'disabled' : ''}>${icon('right')}</button><button class="btn" data-act="prod-shift" data-v="0">Today</button></div></div>
       ${locked ? '<p class="lock-banner" role="note" style="margin-bottom:12px">This month is finalised in payroll, so this day is locked. A correction goes in the next open month.</p>' : ''}
+      ${!locked && supNewer(day).length ? `<p class="lock-banner" role="note" style="margin-bottom:12px">Entered by ${esc([...new Set(supNewer(day).map((q) => ctx.fullName(ctx.emp(q.by)) || 'a supervisor'))].join(', '))}: ${esc(supNewer(day).map((q) => ((prods().find((p) => p.id === q.pid) || {}).name || q.pid) + ' ' + q.units).join(', '))}. Check them, then press Save the day to work out the pool.</p>` : ''}
       ${saved && changedSince(day) && !locked ? `<p class="lock-banner" role="note" style="margin-bottom:12px">Attendance changed since this was saved (for example a check-in correction). <button class="btn btn-sm btn-primary" data-act="prod-recalc" data-v="${day}">Recalculate</button></p>` : ''}
       <div class="card" style="margin-bottom:12px"><form id="pd-form" novalidate>
         ${active.length ? `<div class="form-grid pd-inputs">${active.map(input).join('')}</div>` : '<div class="empty"><strong>No products yet / Belum ada produk</strong>Add one in Settings → Payroll → Production commission.</div>'}
@@ -217,7 +275,7 @@ window.AllurusProduction = (function () {
   function fillCard() {
     if (!canEntry() || !configured()) return '';
     const hadWork = (d) => !!days()[d] || Object.values(st().attendance?.[d] || {}).some((r) => r && (r.s === 'present' || r.s === 'remote') && r.in);
-    const todo = P.toFill({ products: prods(), days: days(), today: T(), hadWork });
+    const todo = P.toFill({ products: prods(), days: Object.fromEntries([T(), U.addDays(T(), -1)].map((d) => [d, { items: [...filledPids(d)].map((pid) => ({ pid })) }])), today: T(), hadWork });
     if (!todo.length) return '';
     const label = (d) => (d === T() ? 'Today / Hari ini' : 'Yesterday / Semalam');
     return `<div class="card" id="prod-fill"><div class="card-head"><h3>Production to fill <span lang="ms" class="faint">/ Pengeluaran perlu diisi</span></h3><span class="hint">${todo.reduce((n, x) => n + x.products.length, 0)} open</span></div>
@@ -235,7 +293,10 @@ window.AllurusProduction = (function () {
   }
   function warnings(mk) {
     const attByDay = {}; Object.keys(st().attendance || {}).forEach((d) => { if (P.MONTH(d) === mk) attByDay[d] = st().attendance[d]; });
-    return P.monthWarnings({ month: mk, days: days(), employees: allEmps(), attByDay, leaves: approvedLeaves(), settings: cfg(), isWorkday: (d) => !U.isWeekend(d) });
+    const w = P.monthWarnings({ month: mk, days: days(), employees: allEmps(), attByDay, leaves: approvedLeaves(), settings: cfg(), isWorkday: (d) => !U.isWeekend(d) });
+    // Days where a supervisor typed quantities that no admin has saved yet need a look before payroll is finalised.
+    const pend = [...new Set(Object.values(qtys()).filter((q) => P.MONTH(q.date) === mk && (!days()[q.date] || String(q.at) > String(days()[q.date].savedAt))).map((q) => q.date))];
+    return { missing: w.missing.filter((d) => !pend.includes(d)), changed: [...new Set([...w.changed, ...pend])].sort() };
   }
   const lockMonth = (mk) => { store().locks[mk] = true; if (ctx.cloud() && ctx.fire()?.prodLock) ctx.fire().prodLock(mk).catch(() => {}); };
   function payrollBanner(mk) {
@@ -296,6 +357,7 @@ window.AllurusProduction = (function () {
       'prod-month': (_, v) => { ui.day = U.addMonths(monthOfDay(), +v) + '-01'; if (ui.day > T()) ui.day = T(); ui.vals = null; ui.note = ''; ctx.render(); },
       'prod-recalc': (_, v) => saveDay(v, null, days()[v]?.note),
       'prod-csv': (_, v) => csv(v),
+      'prod-sup': (_, v) => supForm(v),
       'myprod-month': (_, v) => { ui.month = U.addMonths(ui.month || U.monthKey(T()), +v); ctx.render(); },
     });
     // Finalising payroll: warn about days that need a look, then lock the month's production days.
@@ -310,7 +372,7 @@ window.AllurusProduction = (function () {
       }
       approve(...a);
     };
-    return { on, canEntry, canSettings, settingsCard, bindSettings, fillCard, products: prods, forPayroll, payrollBanner, homeCard, inScheme, mine, totalOf, plan, warnings, days, isLocked, lockMonth, showStaff: () => on() && (inScheme(ctx.me()) || Object.keys(st().prodShares || {}).length > 0) };
+    return { on, canEntry, canSettings, settingsCard, bindSettings, fillCard, supCard, isSup, products: prods, forPayroll, payrollBanner, homeCard, inScheme, mine, totalOf, plan, warnings, days, isLocked, lockMonth, showStaff: () => on() && (inScheme(ctx.me()) || Object.keys(st().prodShares || {}).length > 0) };
   }
   return { install };
 })();

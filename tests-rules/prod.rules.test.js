@@ -32,6 +32,10 @@ test.beforeEach(async () => {
     await user('hr', T, { roles: ['admin', 'employee'], perms: ['people'], empId: 'e2' });
     await user('a', T, { roles: ['employee'], empId: 'e5' });
     await user('b', T, { roles: ['employee'], empId: 'e6' });
+    await user('sup', T, { roles: ['employee'], empId: 'e8', prodEntry: true });
+    await user('sup2', T, { roles: ['employee'], empId: 'e10', prodEntry: true });
+    await user('setadm', T, { roles: ['admin', 'employee'], perms: ['settings'], empId: 'e9' });
+    await setDoc(doc(db, `tenants/${T}/buckets/settings`), { t: 's', r: 'm', f: { prod: '{"products":[{"id":"pp-1","name":"A","unit":"jar","rate":"0.05","on":true}],"depts":["d1"]}' } });
     await user('off', OFF, { roles: ['admin', 'employee'], empId: 'e1' });
     await setDoc(doc(db, `tenants/${T}/prodDays/2026-11-09`), day('2026-11-09'));
     await setDoc(doc(db, `tenants/${T}/prodShares/2026-11-09~e5`), share('2026-11-09', 'e5'));
@@ -156,4 +160,62 @@ test('items: existing single-total days (no items) still pass, and can be re-sav
   await assertSucceeds(setDoc(D(as('ops'), '2026-11-09'), multi('2026-11-09', [line()], { v: 3 })));             // and move it to items
   await env.withSecurityRulesDisabled((c) => setDoc(doc(c.firestore(), `tenants/${T}/prodLocks/2026-11`), { month: '2026-11' }));
   await assertFails(saveDay(as('ops'), '2026-11-11', multi('2026-11-11', [line()])));
+});
+
+// ---- the production supervisor: an employee (no admin role) who keys in quantities only ----
+const Q = (db, id, t = T) => doc(db, `tenants/${t}/prodQty/${id}`);
+const qty = (date, pid, o = {}) => ({ date, pid, units: '2000', by: 'e8', at: '2026-11-13T09:00:00Z', ...o });
+
+test('supervisor: may key in a quantity (and change it); a normal employee may not; nobody may delete', async () => {
+  await assertSucceeds(setDoc(Q(as('sup'), '2026-11-13~pp-1'), qty('2026-11-13', 'pp-1')));
+  await assertSucceeds(setDoc(Q(as('sup'), '2026-11-13~pp-1'), qty('2026-11-13', 'pp-1', { units: '2100.5' })));
+  await assertSucceeds(getDoc(Q(as('sup'), '2026-11-13~pp-1')));
+  await assertFails(setDoc(Q(as('a'), '2026-11-13~pp-1'), qty('2026-11-13', 'pp-1', { by: 'e5' })));            // a normal employee
+  await assertFails(setDoc(Q(as('hr'), '2026-11-13~pp-1'), qty('2026-11-13', 'pp-1', { by: 'e2' })));          // people area only
+  await assertFails(getDoc(Q(as('a'), '2026-11-13~pp-1')));
+  await assertSucceeds(setDoc(Q(as('ops'), '2026-11-13~pp-2'), qty('2026-11-13', 'pp-2', { by: 'e3' })));       // an admin with the area still can
+  await assertFails(deleteDoc(Q(as('sup'), '2026-11-13~pp-1')));
+});
+
+test('supervisor: same validation as production days (type, negative, id, own name, locked month, add-on off)', async () => {
+  const bad = (id, d) => assertFails(setDoc(Q(as('sup'), id), d));
+  await bad('2026-11-13~pp-1', qty('2026-11-13', 'pp-1', { units: '-5' }));
+  await bad('2026-11-13~pp-1', qty('2026-11-13', 'pp-1', { units: 'abc' }));
+  await bad('2026-11-13~pp-1', qty('2026-11-13', 'pp-1', { units: 2000 }));                                      // a number, not text
+  await bad('2026-11-13~pp-1', qty('2026-11-13', 'pp-1', { units: '1.234' }));                                   // more than 2 decimals
+  await bad('2026-11-13~pp-1', qty('2026-11-13', 'pp-1', { by: 'e5' }));                                         // in someone else's name
+  await bad('2026-11-13~pp-2', qty('2026-11-13', 'pp-1'));                                                       // id must match date~product
+  await bad('2026-11-13~pp-1', { ...qty('2026-11-13', 'pp-1'), poolSen: 10000 });                                // no money fields
+  await bad('2026-11-13~pp-1', { ...qty('2026-11-13', 'pp-1'), rate: '9' });                                     // no rate
+  await env.withSecurityRulesDisabled((c) => setDoc(doc(c.firestore(), `tenants/${T}/prodLocks/2026-11`), { month: '2026-11' }));
+  await bad('2026-11-13~pp-1', qty('2026-11-13', 'pp-1'));                                                       // a finalised month
+});
+
+test('supervisor: cannot change rates, write days or shares, read days or shares of others, or grant themselves the permission', async () => {
+  const sup = as('sup');
+  await assertFails(updateDoc(doc(sup, `tenants/${T}/buckets/settings`), { 'f.prod': '{"products":[{"id":"pp-1","name":"A","unit":"jar","rate":"9","on":true}],"depts":["d1"]}' }));   // the rates
+  await assertSucceeds(getDoc(doc(sup, `tenants/${T}/buckets/settings`)));                                       // may read what the app needs
+  await assertFails(saveDay(sup, '2026-11-13', day('2026-11-13', { savedBy: 'e8' })));                           // a day with money
+  await assertFails(setDoc(S(sup, '2026-11-13~e5'), share('2026-11-13', 'e5')));
+  await assertFails(getDoc(D(sup, '2026-11-09')));
+  await assertFails(getDoc(S(sup, '2026-11-09~e5')));
+  await assertFails(updateDoc(doc(sup, 'users/sup'), { prodEntry: false }));                                     // not their own access
+  await assertFails(updateDoc(doc(sup, 'users/a'), { prodEntry: true }));
+});
+
+test('supervisor permission: set by an Owner or an admin with the Settings area, nobody else; true or false only', async () => {
+  await assertSucceeds(updateDoc(doc(as('own'), 'users/a'), { prodEntry: true }));
+  await assertSucceeds(updateDoc(doc(as('setadm'), 'users/b'), { prodEntry: true }));
+  await assertSucceeds(updateDoc(doc(as('setadm'), 'users/sup'), { prodEntry: false }));
+  await assertFails(updateDoc(doc(as('setadm'), 'users/b'), { prodEntry: 'yes' }));
+  await assertFails(updateDoc(doc(as('hr'), 'users/b'), { prodEntry: true }));                                   // people area is not enough
+  await assertFails(updateDoc(doc(as('a'), 'users/b'), { prodEntry: true }));
+  await assertFails(updateDoc(doc(as('own'), 'users/off'), { prodEntry: true }));                                // another company
+});
+
+test('supervisor: a company without the add-on, or a switched-off supervisor, has no access', async () => {
+  await env.withSecurityRulesDisabled((c) => updateDoc(doc(c.firestore(), 'users/sup'), { disabled: true }));
+  await assertFails(setDoc(Q(as('sup'), '2026-11-13~pp-1'), qty('2026-11-13', 'pp-1')));
+  await env.withSecurityRulesDisabled((c) => updateDoc(doc(c.firestore(), `tenants/${T}`), { addons: { prodCommission: false } }));
+  await assertFails(setDoc(Q(as('sup2'), '2026-11-13~pp-1'), qty('2026-11-13', 'pp-1', { by: 'e10' })));
 });

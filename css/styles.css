@@ -2047,3 +2047,8 @@ html.simple-staff .view { padding-bottom: 24px; }
 .pf-row { text-decoration: none; color: inherit; }
 @media (max-width: 520px) { .pc-prod { grid-template-columns: 1fr 1fr; } .pc-prod .field:first-child { grid-column: 1 / -1; } }
 .th-ms { display: block; font-size: 11px; font-weight: 500; opacity: .85; text-transform: none; letter-spacing: 0; }
+
+/* Production supervisor card on the simple staff home. */
+.pa-sup-list li { align-items: center; }
+.pa-sup-row { gap: 10px; }
+.pa-sup-row .btn { flex: none; }

@@ -155,6 +155,7 @@ service cloud.firestore {
         && !('disabled' in request.resource.data)
         // The point-of-sale role is given by an admin after joining, never chosen by the person joining.
         && !('posRole' in request.resource.data)
+        && !('prodEntry' in request.resource.data)
         && (staffJoin() || openJoin() || verified() && (
           (exists(/databases/$(database)/documents/invites/$(myEmail()))
             && inviteFor(myEmail()).expiresAt is timestamp && inviteFor(myEmail()).expiresAt > request.time
@@ -181,8 +182,9 @@ service cloud.firestore {
         // while the company has the automatic link on (docs/JOIN-AUTOLINK-SPEC.md); then it may set its display name once.
         || (request.auth.uid == uid && (autoLinkOk() || autoNameOk()))
         || (request.auth.uid != uid && hasArea(resource.data.tenantId, 'settings')
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole', 'pending', 'empId', 'keyProof', 'deviceId', 'confirmedAt', 'allowComputer'])
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['roles', 'perms', 'disabled', 'posRole', 'pending', 'empId', 'keyProof', 'deviceId', 'confirmedAt', 'allowComputer', 'prodEntry'])
           && request.resource.data.get('allowComputer', false) is bool
+          && request.resource.data.get('prodEntry', false) is bool
           && !('keyProof' in request.resource.data && !('keyProof' in resource.data))
           && request.resource.data.get('pending', false) is bool
           && (request.resource.data.get('pending', false) == false || resource.data.get('pending', false) == true)
@@ -817,6 +819,9 @@ service cloud.firestore {
       // prodLocks/{yyyy-mm}: written when payroll is finalised; a locked month's days can't be changed. Nothing is deleted.
       function prodOn() { return co(t).get('addons', {}).get('prodCommission', false) == true; }
       function prodEntry() { return hasArea(t, 'operations') || hasArea(t, 'payroll'); }
+      // A production supervisor: an employee (no admin role) whom an Owner or HR admin switched on in Team access (users/{uid}.prodEntry).
+      // They key in quantities only (prodQty). They can't read days, shares, rates or pay, and can't write them.
+      function prodSup() { return member(t) && me().get('prodEntry', false) == true; }
       function prodLock(m) { return /databases/$(database)/documents/tenants/$(t)/prodLocks/$(m); }
       match /prodDays/{d} {
         function pdMonth() { return d.split('-')[0] + '-' + d.split('-')[1]; }
@@ -835,6 +840,20 @@ service cloud.firestore {
           && request.resource.data.date == d && request.resource.data.v is int && request.resource.data.poolSen is int && request.resource.data.shareSen is int
           && request.resource.data.poolSen >= 0 && request.resource.data.shareSen >= 0 && (!('items' in request.resource.data) || pdItemsOk(request.resource.data.items))
           && request.resource.data.attendees is list && request.resource.data.attendees.size() <= 500 && request.resource.data.savedBy == me().empId;
+        allow delete: if false;
+      }
+      // prodQty/{date~productId}: one product's quantity for one day, typed by a production supervisor (or an admin with the area).
+      // Only the quantity: the pool money is worked out later by an admin from the company's rates and the day's attendance.
+      match /prodQty/{q} {
+        function pqMonth() { return q.split('-')[0] + '-' + q.split('-')[1]; }
+        allow read: if prodOn() && canRead(t) && (prodEntry() || prodSup());
+        allow create, update: if prodOn() && (prodEntry() || prodSup()) && working(t) && !exists(prodLock(pqMonth()))
+          && request.resource.data.keys().hasOnly(['date', 'pid', 'units', 'by', 'at'])
+          && request.resource.data.date is string && request.resource.data.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+          && request.resource.data.pid is string && request.resource.data.pid.size() > 0 && request.resource.data.pid.size() <= 40
+          && q == request.resource.data.date + '~' + request.resource.data.pid
+          && request.resource.data.units is string && request.resource.data.units.matches('[0-9]{1,9}([.][0-9]{1,2})?')
+          && request.resource.data.by == me().empId && request.resource.data.at is string;
         allow delete: if false;
       }
       match /prodShares/{s} {

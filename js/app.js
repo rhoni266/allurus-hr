@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.65';
+  const APP_VERSION = '3.66';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -2228,6 +2228,7 @@
     return `<div class="ss" lang="${ssLang() === 'bm' ? 'ms' : 'en'}">
       <header class="ss-head"><div><div class="ss-co">${esc(state.settings.company)}</div><h1 class="ss-name">${esc(fullName(e))}</h1><div class="ss-date">${U.fmtDate(now.day, { weekday: 'long', day: 'numeric', month: 'long' })}</div></div><button type="button" class="btn btn-sm ss-me" data-act="ss-me">${icon('people')}${esc(t.me)}</button></header>
       <section class="card ss-card" aria-label="${esc(t.checkIn)}">${clock}${ssToday(e, rec, info, now)}${ssWeek(e, now)}${meters}</section>
+      ${prodApi?.supCard() || ''}
       <section class="card ss-card" aria-label="${esc(t.leaveH)}"><h2 class="ss-h">${esc(t.leaveH)}</h2>
         ${bal ? `<ul class="ss-list">${bal}</ul>` : ''}${waiting ? `<p class="ss-wait">${esc(t.waiting(waiting))}</p>` : ''}
         <button type="button" class="btn btn-primary ss-wide" data-act="new-leave">${icon('calendar')}${esc(t.apply)}</button>
@@ -3416,7 +3417,7 @@
   // ---------- Finance & Accounting and tax modules ----------
   const moduleCtx = {
     get state() { return state; }, VIEWS, AFTER, ACTIONS, $, $$, esc, icon, can, log: (m) => log(m), fire, cloud: () => CLOUD && !!fire(), payMonth: () => ui.payMonth, money, compactMoney, openModal, closeOverlay, toast, commit, render,
-    downloadCSV, staffApp, role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
+    downloadCSV, staffApp, lang: () => ssLang(), role, account, me, LOGO_MARK, emp, fullName, person, avatar, activeEmployees, payTotal, myRuns,
     save, routes, route, ROLES, switchRole, openProfile, openDrawer, claimsOn: () => claimsApi?.enabled(), dept, deptTag,
     get leave() { return leaveApi; }, get time() { return timeApi; }, get notify() { return notifyApi; }, get appraisal() { return appraisalApi; }, get hr() { return hrApi; }, get docs() { return docsApi; }, get einvoice() { return einvApi; }, get lms() { return lmsApi; }, get recruit() { return recruitApi; }, get ops() { return opsApi; }, get invoices() { return invStore; }, get leaveStore() { return lvStore; }, get claimStore() { return clStore; }, get timeRequestStore() { return trStore; }, get ui() { return ui; }, kioskSupervisor: () => kioskApi?.isSupervisor(me()), setPayMonth: (mk) => { ui.payMonth = mk; },
   };
@@ -4117,6 +4118,19 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
     // "Allow this person on a computer" (docs/DEVICE-RULES-SPEC.md): for staff who have signed in and aren't
     // admins (admins can always use a computer), shown while the company rule "phones only" is on.
     userOf(e) { const d = this.data || { users: [] }; return d.users.find((u) => u.empId === e.id && !u.disabled && !u.pending) || null; },
+    // "Production supervisor" (rules: users.prodEntry): an employee with no admin role who may key in daily production quantities.
+    prodToggle(e) {
+      const u = this.userOf(e);
+      if (!u || (u.roles || []).includes('admin') || !prodApi?.on()) return '';
+      return `<label class="faint" style="display:flex;gap:6px;align-items:center;justify-content:flex-end;font-size:12px;margin-top:4px"><input type="checkbox" data-prod-sup="${esc(u.uid)}" ${u.prodEntry ? 'checked' : ''}> Production supervisor <span lang="ms">/ Penyelia pengeluaran</span></label>`;
+    },
+    async setProdSup(uid, on) {
+      const u = (this.data?.users || []).find((x) => x.uid === uid), e = u && emp(u.empId);
+      const r = await fire().setProdEntry(uid, on);
+      if (r.ok) { if (u) u.prodEntry = !!on; log(`${on ? 'Made' : 'Took away the production role from'} ${e ? fullName(e) : 'a person'}${on ? ' a production supervisor' : ''}`); save(); }
+      toast(r.ok ? (on ? `${e?.first || 'They'} can now key in daily production on their phone (next time they sign in).` : `${e?.first || 'They'} can no longer key in production.`) : r.error, r.ok ? '' : 'error');
+      if (!r.ok) this.draw();
+    },
     computerToggle(e) {
       const u = this.userOf(e);
       if (!u || (u.roles || []).includes('admin') || !AllurusDevice.policy(window.AllurusCompany || {}).phonesOnly) return '';
@@ -4178,7 +4192,7 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
         return `<tr><td>${person(e)}</td><td class="muted">${e.email ? esc(e.email) : '<span class="faint">No email</span>'}${this.regPhone(e, st)}</td>
           <td>${this.badge(e)}</td>
           <td>${isMe ? `<span class="muted">You · ${esc(roleLabel('admin'))}</span>` : `<select class="select" data-acc-role="${e.id}" aria-label="Access for ${esc(fullName(e))}">${this.options(st.template)}</select>`}</td>
-          <td class="r"><div class="row-actions" style="opacity:1">${isMe ? '' : e.email || this.byIc(e) ? this.actions(e) : `<span class="faint">${NO_EMAIL}</span>`}</div>${isMe ? '' : this.computerToggle(e)}</td></tr>`;
+          <td class="r"><div class="row-actions" style="opacity:1">${isMe ? '' : e.email || this.byIc(e) ? this.actions(e) : `<span class="faint">${NO_EMAIL}</span>`}</div>${isMe ? '' : this.computerToggle(e)}${isMe ? '' : this.prodToggle(e)}</td></tr>`;
       }).join('');
       const waiting = all.filter((e) => e.email && this.status(e).key === 'none').length;
       el.innerHTML = `<div class="card-head"><h3>Team access</h3>${waiting ? `<button class="btn btn-sm" data-act="acc-invite-all">Invite all ${waiting}</button>` : ''}</div>
@@ -4189,6 +4203,7 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
       $$('[data-acc-role]', el).forEach((sel) => sel.addEventListener('change', () => this.setRole(sel.dataset.accRole, sel.value)));
       $$('[data-acc-pick]', el).forEach((sel) => sel.addEventListener('change', () => this.pickChanged(el, sel.dataset.accPick, sel.value)));
       $$('[data-allow-pc]', el).forEach((cb) => cb.addEventListener('change', () => this.allowComputer(cb.dataset.allowPc, cb.checked)));
+      $$('[data-prod-sup]', el).forEach((cb) => cb.addEventListener('change', () => this.setProdSup(cb.dataset.prodSup, cb.checked)));
     },
     // The templates this person may give: only ones within their own areas; Owner only by an Owner.
     options(current) {
@@ -4283,7 +4298,7 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
       s.plans = ws.plans || {}; s.reliefs = ws.reliefs || {}; s.taxProfiles = ws.taxProfiles || {};
       s.workspaces = {};
       if (theme) s.settings.theme = theme;
-      s.accounts = [{ email: p.email, name: p.name, hash: '', roles: p.roles.slice(), perms: Array.isArray(p.perms) ? p.perms.slice() : null, tenantId: p.tenantId, empId: p.empId, cloud: true }];
+      s.accounts = [{ email: p.email, name: p.name, hash: '', roles: p.roles.slice(), perms: Array.isArray(p.perms) ? p.perms.slice() : null, tenantId: p.tenantId, empId: p.empId, prodEntry: p.prodEntry === true, cloud: true }];
       const keep = (state.session.account === p.email && p.roles.includes(state.session.role)) ? state.session.role : preferredRole(p.roles);
       s.session = { account: p.email, roles: p.roles.slice(), role: keep, empId: p.empId, tenantId: p.tenantId, cloud: { uid: p.uid } };
       try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) { /* storage full or unavailable */ }

@@ -603,12 +603,13 @@ const forWrite = (v) => (v && v.__now ? serverTimestamp() : Array.isArray(v) ? v
 // one person's own share (they read only theirs); prodLocks/{yyyy-mm}: a finalised payroll month. Only where the company
 // has the addon (tenants/{t}.addons.prodCommission).
 function listenProd() {
-  const t = T(), emp = S.profile.empId, entry = can('operations') || can('payroll');
-  Object.assign(S, { prodOn: true, prodDays: {}, prodLocks: {}, prodShares: {} });
+  const t = T(), emp = S.profile.empId, entry = can('operations') || can('payroll'), sup = !entry && S.profile.prodEntry === true;
+  Object.assign(S, { prodOn: true, prodDays: {}, prodLocks: {}, prodShares: {}, prodQty: {} });
+  // Admins read days, locks and the supervisors' quantities; a production supervisor reads only the quantities (and their own share).
   const src = entry
-    ? [['prodDays', collection(db, `${t}/prodDays`)], ['prodLocks', collection(db, `${t}/prodLocks`)]]
-    : [['prodShares', query(collection(db, `${t}/prodShares`), where('empId', '==', emp))]];
-  const push = () => { if (S.live) { app.state.prod = { days: { ...S.prodDays }, locks: { ...S.prodLocks } }; app.state.prodShares = { ...S.prodShares }; app.refresh(); } };
+    ? [['prodDays', collection(db, `${t}/prodDays`)], ['prodLocks', collection(db, `${t}/prodLocks`)], ['prodQty', collection(db, `${t}/prodQty`)]]
+    : [...(sup ? [['prodQty', collection(db, `${t}/prodQty`)]] : []), ['prodShares', query(collection(db, `${t}/prodShares`), where('empId', '==', emp))]];
+  const push = () => { if (S.live) { app.state.prod = { days: { ...S.prodDays }, locks: { ...S.prodLocks } }; app.state.prodShares = { ...S.prodShares }; app.state.prodQty = { ...S.prodQty }; app.refresh(); } };
   return new Promise((ready) => {
     let pending = src.length; const done = new Set();
     src.forEach(([key, q]) => {
@@ -817,6 +818,23 @@ const api = {
       console.warn('[Allurus cloud] production save', e.code || e);
       return { ok: false, error: e.code === 'permission-denied' ? 'That day can’t be saved: its month may be finalised, or you don’t have the Operations or Payroll area.' : 'Couldn’t save. Check your connection and try again.' };
     }
+  },
+  // A production supervisor's quantities: one doc per product per day, quantity only (firestore.rules: prodQty).
+  async prodQtySave(rows) {
+    if (!S.live || S.profile?.viewOnly || S.profile?.support) return { ok: false, error: 'This account can’t save production.' };
+    try {
+      const b = writeBatch(db);
+      rows.forEach((r) => b.set(doc(db, `${T()}/prodQty/${r.date}~${r.pid}`), forWrite(r)));
+      await b.commit();
+      return { ok: true };
+    } catch (e) {
+      console.warn('[Allurus cloud] production quantity', e.code || e);
+      return { ok: false, error: e.code === 'permission-denied' ? 'That day can’t be saved: the month may be finalised, or you don’t have the production permission.' : 'Couldn’t save. Check your connection and try again.' };
+    }
+  },
+  async setProdEntry(uid, on) {
+    try { await setDoc(doc(db, `users/${uid}`), { prodEntry: !!on }, { merge: true }); return { ok: true }; }
+    catch (e) { return { error: 'Couldn’t change that. You need the Owner or Settings area, and can’t change your own.' }; }
   },
   async prodLock(month) { return setDoc(doc(db, `${T()}/prodLocks/${month}`), { month, by: S.profile.uid, at: serverTimestamp() }); },
   async phoneRequest() {
