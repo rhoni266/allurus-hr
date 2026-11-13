@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.62';
+  const APP_VERSION = '3.63';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -87,7 +87,7 @@
     const st = ws.settings, L = AllurusLeaveRules;
     if (!st) return;
     if (!st.leave) {
-      const stateName = st.company === AllurusSeed.published.company ? 'Terengganu' : st.currency === 'MYR' ? (st.headOffice?.countryCode === 'MY' && st.headOffice.state) || L.CITY_STATE[st.office] || '' : '';
+      const stateName = st.company === AllurusSeed.published.company ? 'Kuala Lumpur' : st.currency === 'MYR' ? (st.headOffice?.countryCode === 'MY' && st.headOffice.state) || L.CITY_STATE[st.office] || '' : '';
       st.leave = L.defaultSettings({ state: stateName, departments: ws.departments || [], hr: (ws.employees || [])[0]?.id || '' });
       // Keep a flat annual allowance the company had set, if it meets the statutory minimum.
       if (st.annualDays >= 8) Object.assign(st.leave.types.find((t) => t.id === 'annual'), { byService: false, days: st.annualDays });
@@ -2190,7 +2190,7 @@
     const H = AllurusSimpleHome, t = ssT(), bm = ssLang() === 'bm', ended = ssEnded(now);
     const letters = bm ? ['I', 'S', 'R', 'K', 'J', 'S', 'A'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
     const cells = H.weekOf(now.day).map((d, i) => {
-      const s = H.dayStatus(timeApi.dayInfo(e, d), now, ended).status, word = s === 'none' ? '' : t[s] || t.today;
+      const s = H.dayStatus(timeApi.dayInfo(e, d), now, ended).status, word = s === 'none' || (d === now.day && (s === 'rest' || s === 'holiday')) ? '' : t[s] || t.today;   // today's rest/holiday word is already in the pill above
       const cls = { ontime: 'ok', late: 'warn', absent: 'slate', leave: 'info', rest: 'ring', holiday: 'ring', notyet: 'wait', none: 'fut' }[s];
       const full = U.fmtDate(d, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
       return `<li class="pa-day${d === now.day ? ' now' : ''}"><span class="pa-dot ${cls}" role="img" aria-label="${esc(`${full}: ${word || '—'}`)}"></span><span class="pa-l" aria-hidden="true">${letters[i]}</span><span class="pa-w" aria-hidden="true">${esc(word)}</span></li>`;

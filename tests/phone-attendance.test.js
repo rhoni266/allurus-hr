@@ -72,3 +72,9 @@ test('no text under 11px in the phone screen styles', () => {
   const bad = [...css.matchAll(/(\.(?:ss|pa)-[\w-]*)[^{}]*\{[^}]*font-size:\s*(\d+(?:\.\d+)?)px/g)].filter((m) => +m[2] < 11);
   assert.equal(bad.length, 0, bad.map((m) => m[1]).join(', '));
 });
+test('no scheduled shift is never absent (status and meters)', () => {
+  const now = { day: '2026-11-12', hm: '18:00' };
+  assert.equal(st(info('2026-11-11', null, null), now).status, 'rest');
+  const m = H.meters([info('2026-11-10', null, null), info('2026-11-11', null, OFFICE)], { today: '2026-11-12' });
+  assert.equal(m.absent.days, 1, 'only the day with a shift counts');
+});

@@ -59,6 +59,7 @@
       if (x.type !== 'normal') { if (worked) { item.status = 'extra'; out.list.push(item); } return; }
       const isToday = x.day === today;
       if (!worked) {
+        if (!x.pattern) return;   // no scheduled shift: not a working day, never absent
         if (isToday) { item.status = 'today'; out.list.push(item); return; }
         out.absent.days++; out.counted++; item.status = 'absent'; out.list.push(item); return;
       }
@@ -88,7 +89,7 @@
     if (x.type === 'holiday') return { status: 'holiday', min: 0 };
     const worked = !!(x.rec && x.rec.in && WORKED.includes(x.rec.s));
     if (worked) { const late = x.ev?.late || 0; return late > 0 ? { status: 'late', min: late } : { status: 'ontime', min: 0 }; }
-    if (x.type !== 'normal') return { status: 'rest', min: 0 };
+    if (x.type !== 'normal' || !x.pattern) return { status: 'rest', min: 0 };   // no scheduled shift: never absent
     return ended(x) ? { status: 'absent', min: 0 } : { status: 'notyet', min: 0 };
   }
   // The Monday to Sunday week that holds `day`.
