@@ -76,7 +76,7 @@ window.AllurusInvoiceStore = (function () {
       const errs = R.draftErrors(d); if (errs.length) return Promise.resolve(fail('invalid', errs.join('. ')));
       const id = newId('i'), no = R.nextNo(list(), 'INV', U.monthKey(d.issue));
       const doc = { type: 'invoice', no, status: 'Draft', customer: d.customer, contactId: d.contactId || '', email: d.email || '', issue: d.issue, due: d.due,
-        items: d.items, taxRate: d.taxRate, notes: d.notes || '', conditions: String(d.conditions || '').slice(0, 1000), reference: String(d.reference || '').slice(0, 300), currency: d.currency || 'MYR', paidOn: '', payments: [], einvoice: { status: 'Draft' },
+        items: d.items, taxRate: d.taxRate, notes: d.notes || '', conditions: String(d.conditions || '').slice(0, 1000), reference: String(d.reference || '').slice(0, 300), ...(R.hasSchedule(d) ? { schedule: R.cleanSchedule(d.schedule) } : {}), currency: d.currency || 'MYR', paidOn: '', payments: [], einvoice: { status: 'Draft' },
         ...(d.duplicatedFrom ? { duplicatedFrom: d.duplicatedFrom } : {}), ...(d.category ? { category: d.category } : {}),
         createdBy: uid(), createdAt: NOW, ...stamp(1) };
       const ops = [{ op: 'set', path: `invoices/${id}`, data: doc }, { op: 'set', path: `invoiceNos/${no}`, data: { invoiceId: id } }];
@@ -89,11 +89,12 @@ window.AllurusInvoiceStore = (function () {
       const inv = byId(id); if (!inv) return Promise.resolve(fail('changed'));
       if (!R.canEdit(inv)) return Promise.resolve(fail('locked', `${inv.no} is ${inv.status.toLowerCase()} and can’t be edited. Duplicate it or issue a credit note.`));
       const next = { ...inv, ...patch }, errs = R.draftErrors(next); if (errs.length) return Promise.resolve(fail('invalid', errs.join('. ')));
-      const allowed = ['customer', 'contactId', 'email', 'issue', 'due', 'items', 'taxRate', 'notes', 'conditions', 'reference', 'currency', 'einvoice', 'category'];
+      const allowed = ['customer', 'contactId', 'email', 'issue', 'due', 'items', 'taxRate', 'notes', 'conditions', 'reference', 'schedule', 'currency', 'einvoice', 'category'];
       const data = Object.fromEntries(Object.entries(patch).filter(([k]) => allowed.includes(k)));
       rememberUnits(data.items);
       if (data.conditions != null) data.conditions = String(data.conditions).slice(0, 1000);
       if (data.reference != null) data.reference = String(data.reference).slice(0, 300);
+      if (data.schedule != null) data.schedule = R.cleanSchedule(data.schedule);
       return run(`inv:${id}`, [{ op: 'update', path: `invoices/${id}`, data: { ...data, ...stamp(ver(inv) + 1) } }], `${inv.no} saved`);
     }
     function remove(id) {

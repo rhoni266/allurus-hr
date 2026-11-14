@@ -44,6 +44,63 @@ window.AllurusInvoiceRules = (function () {
     return { sub: rm(subS), tax: rm(taxS), total: rm(totalS), balance: rm(balanceS), paid: rm(paidS), due: rm(Math.max(0, balanceS - paidS)) };
   }
 
+  // ---------- Payment schedule (instalments) ----------
+  // An optional list on an invoice: [{ label, amount (RM), due: 'YYYY-MM-DD' or '', dueText: 'At go-live' }]. The rows must add up to the
+  // invoice total. Payments are applied to the instalments in order. The invoice's due date is the first unpaid instalment's date.
+  // "Due now" is the unpaid part of the instalments that are due: the first unpaid instalment (the invoice is asking for it) and any
+  // later one whose date has come. An invoice is Overdue only when an unpaid instalment's date is past. Receivables and sales reports
+  // keep using the full invoice total; the aging uses each instalment's own date (agingRows).
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const cleanSchedule = (rows) => (rows || []).map((r) => ({ label: String(r.label || '').trim().slice(0, 60), amount: r.amount === '' || r.amount == null ? 0 : Number(r.amount), due: DATE_RE.test(String(r.due || '')) ? r.due : '', dueText: String(r.dueText || '').trim().slice(0, 40) }))
+    .filter((r) => r.label || r.amount || r.due || r.dueText);
+  function scheduleErrors(d) {
+    const rows = cleanSchedule(d.schedule), e = [];
+    if (!rows.length) return e;
+    rows.forEach((r, k) => {
+      const n = `Instalment ${k + 1}`;
+      if (!r.label) e.push(`${n}: add a name, such as Deposit`);
+      if (!(r.amount > 0) || Math.abs(r.amount * 100 - Math.round(r.amount * 100)) > 1e-6) e.push(`${n}: the amount must be above 0, in ringgit with at most 2 decimals`);
+      if (!r.due && !r.dueText) e.push(`${n}: add a due date, or a note such as At go-live`);
+    });
+    const sum = rows.reduce((s, r) => s + sen(r.amount), 0), total = sen(totals(d).total);
+    if (sum !== total) e.push(`The payment schedule adds up to ${rm(sum).toFixed(2)}, but the invoice total is ${rm(total).toFixed(2)}. They must match.`);
+    return e;
+  }
+  // The instalments with what has been paid into each (in order) and their status: Paid, Due or Upcoming.
+  function instalments(inv, today) {
+    const rows = cleanSchedule(inv.schedule);
+    if (!rows.length) return [];
+    const amt = rows.map((r) => sen(r.amount));
+    // A credit note takes from the last instalments first; a debit note adds to the last one.
+    const adj = sen(inv.adjust || 0);
+    if (adj < 0) { let cut = -adj; for (let k = amt.length - 1; k >= 0 && cut > 0; k--) { const t = Math.min(cut, amt[k]); amt[k] -= t; cut -= t; } } else if (adj > 0) amt[amt.length - 1] += adj;
+    let left = inv.payments ? paidSen(inv) : inv.status === 'Paid' ? amt.reduce((s, a) => s + a, 0) : 0, seen = false;
+    return rows.map((r, k) => {
+      const paid = Math.min(amt[k], left); left -= paid;
+      const unpaid = amt[k] - paid;
+      let status = 'Paid', overdue = false;
+      if (unpaid > 0) { status = !seen || (r.due && r.due <= today) ? 'Due' : 'Upcoming'; seen = true; overdue = !!r.due && r.due < today; }
+      return { label: r.label, due: r.due, dueText: r.dueText, amountSen: amt[k], paidSen: paid, unpaidSen: unpaid, status, overdue };
+    });
+  }
+  const hasSchedule = (inv) => cleanSchedule(inv.schedule).length > 0;
+  // Amount due now (RM): the unpaid part of the instalments that are due; with no schedule, all that is unpaid.
+  function dueNow(inv, today) {
+    if (!hasSchedule(inv)) return totals(inv).due;
+    return rm(instalments(inv, today).filter((x) => x.status === 'Due').reduce((s, x) => s + x.unpaidSen, 0));
+  }
+  // The invoice's due date: the first unpaid instalment's date (or the invoice's own date when that instalment has only a note).
+  function dueDate(inv, today) {
+    if (!hasSchedule(inv)) return inv.due;
+    const rows = instalments(inv, today), first = rows.find((x) => x.unpaidSen > 0) || rows[rows.length - 1];
+    return first.due || inv.due || '';
+  }
+  // What the aging reads: one row per unpaid instalment (balance and its own due date); a note-only instalment counts as not yet due.
+  function agingRows(inv, today) {
+    if (!hasSchedule(inv)) return [{ due: inv.due, balance: totals(inv).due }];
+    return instalments(inv, today).filter((x) => x.unpaidSen > 0).map((x) => ({ due: x.due || '9999-12-31', balance: rm(x.unpaidSen) }));
+  }
+
   // ---------- Statuses ----------
   const STATUSES = ['Draft', 'Sent', 'Partially paid', 'Paid', 'Void'];
   const isInvoice = (i) => (i.type || 'invoice') === 'invoice';
@@ -53,7 +110,7 @@ window.AllurusInvoiceRules = (function () {
   const canPay = (i) => isInvoice(i) && ['Sent', 'Partially paid'].includes(i.status);
   const canVoid = (i) => isInvoice(i) && ['Sent', 'Partially paid'].includes(i.status) && !(i.payments || []).length;
   const counts = (i) => isInvoice(i) && i.status !== 'Draft' && i.status !== 'Void';  // in reports and receivables
-  const shown = (i, today) => (['Sent', 'Partially paid'].includes(i.status) && i.due < today ? 'Overdue' : i.status);
+  const shown = (i, today) => (['Sent', 'Partially paid'].includes(i.status) && (hasSchedule(i) ? instalments(i, today).some((x) => x.overdue) : i.due < today) ? 'Overdue' : i.status);
 
   // A draft's problems before saving or sending ([] when fine).
   function draftErrors(d) {
@@ -61,6 +118,7 @@ window.AllurusInvoiceRules = (function () {
     if (!String(d.customer || '').trim()) e.push('Add the customer');
     if (!d.issue) e.push('Add the issue date');
     if (d.due && d.issue && d.due < d.issue) e.push('The due date must be on or after the issue date');
+    e.push(...scheduleErrors(d));
     const lines = (d.items || []).filter((it) => String(it.desc || '').trim() || it.qty || it.price);
     if (!lines.length) e.push('Add at least one item');
     lines.forEach((it, n) => {
@@ -113,7 +171,7 @@ window.AllurusInvoiceRules = (function () {
     const items = (inv.items || []).map((it) => ({ desc: it.desc, qty: it.qty, unit: it.unit || DEFAULT_UNIT, price: it.price, classification: it.classification || '022' }));
     return {
       id, type: 'invoice', no, status: 'Draft', customer: inv.customer, contactId: inv.contactId || '', email: inv.email || '',
-      issue: today, due: addDays(today, dueDays), items, taxRate: inv.taxRate, notes: inv.notes || '', conditions: inv.conditions || '', reference: inv.reference || '', currency: inv.currency || 'MYR',
+      issue: today, due: addDays(today, dueDays), items, taxRate: inv.taxRate, notes: inv.notes || '', conditions: inv.conditions || '', reference: inv.reference || '', ...(hasSchedule(inv) ? { schedule: cleanSchedule(inv.schedule) } : {}), currency: inv.currency || 'MYR',
       paidOn: '', payments: [], duplicatedFrom: { id: inv.id, no: inv.no }, einvoice: { status: 'Draft' },
     };
   }
@@ -148,5 +206,5 @@ window.AllurusInvoiceRules = (function () {
     return `${s < 0 ? 'Minus ' : ''}Ringgit Malaysia ${words(r)}${c ? ` and Cents ${words(c)}` : ''} Only`;
   }
 
-  return { payDefaults, snapshotPayment, newInvoiceDefaults, paymentFor, conditionsFor, amountInWords, UNITS, DEFAULT_UNIT, unitOf, qtyError, fmtQty, sen, lineSen, totals, STATUSES, isInvoice, canEdit, canDelete, canSend, canPay, canVoid, counts, shown, draftErrors, pay, duplicate, nextNo, rememberUnits, unitFor };
+  return { cleanSchedule, scheduleErrors, instalments, hasSchedule, dueNow, dueDate, agingRows, payDefaults, snapshotPayment, newInvoiceDefaults, paymentFor, conditionsFor, amountInWords, UNITS, DEFAULT_UNIT, unitOf, qtyError, fmtQty, sen, lineSen, totals, STATUSES, isInvoice, canEdit, canDelete, canSend, canPay, canVoid, counts, shown, draftErrors, pay, duplicate, nextNo, rememberUnits, unitFor };
 })();

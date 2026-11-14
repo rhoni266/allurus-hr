@@ -46,6 +46,13 @@ const page = (m) => `<!doctype html><html class="printing"><head><meta charset="
   ok('Draft: watermark and pill', /DRAFT/.test(draft.pages[0]));
   const sent = await render('sent', model(2, { status: 'Sent' }));
   ok('Sent: no watermark', !/DRAFT|VOID/.test(sent.pages[0]));
+  const sch = { invoiceTotal: 'RM 3,000.00', rows: [{ label: 'Deposit', amount: '1,000.00', due: '21/11/2026', status: 'Due' }, { label: 'Second', amount: '1,000.00', due: '20/12/2026', status: 'Upcoming' }, { label: 'Balance', amount: '1,000.00', due: 'At go-live', status: 'Upcoming' }] };
+  for (const n of [1, 10]) {
+    const r = await render(`sched-${n}-lines`, model(n, { schedule: sch, amountHeadline: 'RM 1,000.00' }));
+    ok(`Instalments, ${n} line${n === 1 ? '' : 's'}: one A4 page with Due now, the schedule, Terms and How to pay`, r.n === 1 && /Due now/i.test(r.pages[0]) && /Invoice total/i.test(r.pages[0]) && /Payment schedule/i.test(r.pages[0]) && /Upcoming/.test(r.pages[0]) && /How to pay/i.test(r.pages[0]), `${r.n} page(s)`);
+  }
+  const s25 = await render('sched-25-lines', model(25, { schedule: sch, amountHeadline: 'RM 1,000.00' }));
+  ok('Instalments, 25 lines: schedule, totals, Terms and How to pay only on the last page', s25.n === 2 && !/Payment schedule|How to pay/i.test(s25.pages[0]) && /Payment schedule/i.test(s25.pages[1]) && /How to pay/i.test(s25.pages[1]), `${s25.n} page(s)`);
   console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
   await b.close().catch(() => {}); process.exit(results.every(Boolean) ? 0 : 1);
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -254,7 +254,7 @@ window.AllurusFinance = (function () {
       const due14 = unpaid.filter((b) => b.due <= U.addDays(T(), 14));
       const recent = months().slice(0, 6).reverse();
       const attention = [
-        ...overdueInv.map((i) => ({ text: `<strong>${esc(i.customer)}</strong> owes ${money(invoiceTotals(i).due)} on ${esc(i.no)}, due ${U.fmtDate(i.due, { month: 'short', day: 'numeric' })}`, pill: '<span class="pill bad">Overdue invoice</span>', act: `data-act="fin-view-inv" data-id="${i.id}"` })),
+        ...overdueInv.map((i) => ({ text: `<strong>${esc(i.customer)}</strong> owes ${money(invoiceTotals(i).due)} on ${esc(i.no)}, due ${U.fmtDate(IR.dueDate(i, T()), { month: 'short', day: 'numeric' })}`, pill: '<span class="pill bad">Overdue invoice</span>', act: `data-act="fin-view-inv" data-id="${i.id}"` })),
         ...overdueBills.map((b) => ({ text: `Pay <strong>${esc(b.supplier)}</strong> ${money(b.amount + b.tax)}, due ${U.fmtDate(b.due, { month: 'short', day: 'numeric' })}`, pill: '<span class="pill bad">Overdue bill</span>', act: 'data-act="fin-go" data-v="bills"' })),
         ...Object.entries(f.reports).filter(([, r]) => r.status === 'Changes requested').map(([k]) => ({ text: `Your auditor asked for changes to the ${U.fmtMonth(k)} report`, pill: '<span class="pill warn">Auditor</span>', act: `data-act="fin-report" data-v="${k}"` })),
         ...months().filter((k) => k < mk && repStatus(k) === 'Not submitted').slice(0, 2).map((k) => ({ text: `${U.fmtMonth(k)} is closed. Submit its report to your auditor.`, pill: '<span class="pill warn">To submit</span>', act: `data-act="fin-report" data-v="${k}"` })),
@@ -479,7 +479,7 @@ window.AllurusFinance = (function () {
       statuses: [['all', 'All'], ['Draft', 'Draft'], ['Sent', 'Sent'], ['Partially paid', 'Part paid'], ['Overdue', 'Overdue'], ['Paid', 'Paid'], ['Void', 'Void'], ['Notes', 'Credit / debit / refund notes']],
       rows: () => fin().invoices.map((i) => {
         const t = invoiceTotals(i), st = isInvoice(i) ? invoiceStatus(i, T()) : 'Issued', note = !isInvoice(i), sign = note && i.type !== 'debit' ? -1 : 1;
-        return { id: i.id, i, st, note, ref: i.no, date: i.issue, who: i.customer, terms: isInvoice(i) ? termsText(contactOf(i)) : '', due: isInvoice(i) ? i.due : '', currency: i.currency || 'MYR',
+        return { id: i.id, i, st, note, ref: i.no, date: i.issue, who: i.customer, terms: isInvoice(i) ? termsText(contactOf(i)) : '', due: isInvoice(i) ? IR.dueDate(i, T()) : '', currency: i.currency || 'MYR',
           amount: note ? sign * t.total : t.balance, paid: note ? 0 : t.paid, balance: note || st === 'Void' || st === 'Draft' ? 0 : t.due,
           items: (i.items || []).map((it) => `${it.desc} · ${IR.fmtQty(it.qty, it.unit)}`).join('; ') };
       }),
@@ -799,7 +799,7 @@ window.AllurusFinance = (function () {
             ${fld('', 'Doc No', ro(`<span class="num">${i ? esc(i.no) : 'Given when saved'}</span>`))}
             ${fld('lg-issue', 'Date', edit ? `<input class="lg-in num" id="lg-issue" type="date" value="${d.issue}" required>` : ro(fmtD(d.issue)))}
             ${isInvoice(d) ? fld('', 'Terms', `<span class="lg-ro" id="lg-terms">${termsText(c) || '<span class="lg-faint">—</span>'}</span>`) : ''}
-            ${isInvoice(d) ? fld('lg-due', 'Due Date', edit ? `<input class="lg-in num" id="lg-due" type="date" value="${d.due}" required>` : ro(`<span class="${st === 'Overdue' ? 'lg-bad' : ''}">${fmtD(d.due)}</span>`)) : ''}
+            ${isInvoice(d) ? fld('lg-due', 'Due Date', edit ? `<input class="lg-in num" id="lg-due" type="date" value="${d.due}" required>` : ro(`<span class="${st === 'Overdue' ? 'lg-bad' : ''}">${i ? dueShown(i) : fmtD(d.due)}</span>`)) : ''}
             ${d.currency && d.currency !== 'MYR' ? fld('', 'Currency', ro(esc(d.currency))) : ''}
           </div>
           <div class="lg-col">
@@ -813,6 +813,7 @@ window.AllurusFinance = (function () {
           <tbody id="lg-lines">${rows}</tbody>
           ${edit ? '<tfoot><tr><td colspan="7"><button type="button" class="lg-add" data-lg="add">+ Add line</button></td></tr></tfoot>' : ''}
         </table></div>
+        ${isInvoice(d) ? schedBlock(d, edit, T()) : ''}
         <div class="lg-errors" id="lg-errors" role="alert" hidden></div>
         <div class="lg-foot">
           <div class="lg-foot-l">
@@ -843,7 +844,8 @@ window.AllurusFinance = (function () {
       }).filter((it) => it.desc || it.qty || it.price);
       const name = ctx.$('#lg-cust').value.trim(), c = custOf(name);
       return { customer: c?.name || name, contactId: c?.id || '', email: ctx.$('#lg-email').value.trim() || c?.email || '', issue: ctx.$('#lg-issue').value, due: ctx.$('#lg-due').value,
-        items: lines, taxRate: Number(ctx.$('#lg-tax').value), notes: ctx.$('#lg-notes').value.trim(), conditions: (ctx.$('#lg-conditions')?.value || '').trim(), reference: (ctx.$('#lg-reference')?.value || '').trim() };
+        items: lines, taxRate: Number(ctx.$('#lg-tax').value), notes: ctx.$('#lg-notes').value.trim(), conditions: (ctx.$('#lg-conditions')?.value || '').trim(), reference: (ctx.$('#lg-reference')?.value || '').trim(),
+        schedule: IR.cleanSchedule(ctx.$$('.lg-srow', root).map((r) => { const v = (n) => r.querySelector(`[name="${n}"]`).value; return { label: v('sl'), amount: v('sa').trim(), due: v('sd'), dueText: v('st') }; })) };
     }
     function bindDoc() {
       const root = ctx.$('.lg-doc'); if (!root) return;
@@ -869,6 +871,14 @@ window.AllurusFinance = (function () {
         const t = invoiceTotals(d);
         ctx.$('#lg-sub').textContent = n2(t.sub); ctx.$('#lg-taxamt').textContent = n2(t.tax); ctx.$('#lg-total').textContent = n2(t.total);
         ctx.$('#lg-words').textContent = IR.amountInWords(t.total);
+        const sum = ctx.$('#lg-ssum');
+        if (sum) {
+          const rowsNow = ctx.$$('.lg-srow', root).map((r) => r.querySelector('[name=sa]').value.trim()).filter(Boolean), s = rowsNow.reduce((a, v) => a + IR.sen(Number(v) || 0), 0), tot = IR.sen(t.total);
+          sum.textContent = rowsNow.length ? (s === tot ? `Instalments ${n2(s / 100)} = invoice total ${n2(t.total)}` : `Instalments ${n2(s / 100)} of ${n2(t.total)}: ${s > tot ? 'over by' : 'short by'} ${n2(Math.abs(tot - s) / 100)}`) : '';
+          sum.className = `lg-ssum${rowsNow.length && s !== tot ? ' lg-bad' : ''}`;
+          const first = ctx.$$('.lg-srow', root).map((r) => r.querySelector('[name=sd]').value).find(Boolean), dueEl = ctx.$('#lg-due');
+          if (dueEl && first) dueEl.value = first;
+        }
       };
       root.addEventListener('input', () => { lg.dirty = true; refresh(); });
       root.addEventListener('change', (ev) => {
@@ -896,6 +906,8 @@ window.AllurusFinance = (function () {
         if (act === 'del') { if (ctx.$$('.lg-line', root).length > 1) tr.remove(); else tr.replaceWith(blank()); }
         lg.dirty = true; renumber(); refresh();
       });
+      ctx.$('[data-lg=sadd]', root)?.addEventListener('click', () => { const box = ctx.$('#lg-srows', root); box.insertAdjacentHTML('beforeend', schedRow({})); box.lastElementChild.querySelector('[name=sl]').focus(); lg.dirty = true; refresh(); });
+      ctx.$('#lg-srows', root)?.addEventListener('click', (ev) => { const b = ev.target.closest('[data-srow=del]'); if (!b) return; b.closest('.lg-srow').remove(); lg.dirty = true; refresh(); });
       ctx.$('[data-lg=add]', root).addEventListener('click', () => { body.appendChild(blank()); renumber(); body.lastElementChild.querySelector('[name=d]').focus(); });
       // Enter moves to the next cell; from the last cell of the last line it adds a line. Shift+Enter: a new line in a description.
       body.addEventListener('keydown', (ev) => {
@@ -942,6 +954,26 @@ window.AllurusFinance = (function () {
       if (!confirm('Leave without saving this draft?')) { ev.preventDefault(); ev.stopPropagation(); } else lg.dirty = false;
     }, true);
     window.addEventListener('beforeunload', (ev) => { if (lg.dirty && ctx.$('.lg-doc.is-edit')) { ev.preventDefault(); ev.returnValue = ''; } });
+    // ---------- The payment schedule on the invoice form ----------
+    const schedRow = (r = {}) => `<div class="lg-srow"><input class="lg-in" name="sl" value="${esc(r.label || '')}" maxlength="60" placeholder="Deposit" aria-label="Instalment name"><input class="lg-in num" name="sa" inputmode="decimal" value="${r.amount ? esc(String(r.amount)) : ''}" placeholder="0.00" aria-label="Instalment amount (RM)"><input class="lg-in num" name="sd" type="date" value="${esc(r.due || '')}" aria-label="Due date"><input class="lg-in" name="st" value="${esc(r.dueText || '')}" maxlength="40" placeholder="or: At go-live" aria-label="Or a note instead of a date"><button type="button" class="lg-btn lg-sdel" data-srow="del" aria-label="Remove this instalment">×</button></div>`;
+    function schedBlock(d, edit, today) {
+      const rows = IR.cleanSchedule(d.schedule);
+      if (!edit) {
+        if (!rows.length) return '';
+        const st = IR.instalments(d, today), SCH = { Paid: 'Paid / Dibayar', Due: 'Due / Perlu dibayar', Upcoming: 'Upcoming / Akan datang' };
+        return `<div class="lg-sched"><div class="lg-sched-h"><b>Payment schedule</b> <span class="lg-faint">Jadual bayaran</span></div><table class="lg-grid lg-pays" aria-label="Payment schedule"><thead><tr><th>Instalment</th><th class="r">Amount (RM)</th><th>Due</th><th>Status</th></tr></thead><tbody>${st.map((x) => `<tr><td>${esc(x.label)}</td><td class="r num">${n2(x.amountSen / 100)}</td><td class="num">${x.due ? fmtD(x.due) : esc(x.dueText)}</td><td><span class="${x.overdue ? 'lg-bad' : ''}">${SCH[x.status]}${x.overdue ? ' · overdue' : ''}</span></td></tr>`).join('')}</tbody></table></div>`;
+      }
+      return `<div class="lg-sched" id="lg-sched"><div class="lg-sched-h"><b>Payment schedule</b> <span class="lg-faint">Jadual bayaran · optional: the instalments must add up to the invoice total</span></div>
+        <div class="lg-srows" id="lg-srows">${rows.map(schedRow).join('')}</div>
+        <div class="lg-sched-f"><button type="button" class="lg-add" data-lg="sadd">+ Add instalment</button><span class="lg-ssum" id="lg-ssum" role="status"></span></div></div>`;
+    }
+
+    // The due date shown for an invoice: with instalments, the first unpaid instalment's date (or its note, such as At go-live).
+    function dueShown(i) {
+      if (!IR.hasSchedule(i)) return fmtD(i.due);
+      const x = IR.instalments(i, T()).find((r) => r.unpaidSen > 0);
+      return x ? (x.due ? fmtD(x.due) : x.dueText || fmtD(i.due)) : fmtD(IR.dueDate(i, T()));
+    }
     // The printed invoice: the standard A4 layout (js/invoice-print.js, docs/mockups/invoice-standard.html), the same for every
     // company. This builds its model from the invoice and the company's settings. "Tax invoice" only when the company has an SST
     // number (Settings → Company → e-Invoice). The status pill and the DRAFT / VOID watermark follow the invoice's status.
@@ -956,8 +988,9 @@ window.AllurusFinance = (function () {
         isInvoice: inv, status: inv ? invoiceStatus(i, T()) : 'Issued',
         company: { name: s.company, initial: String(s.company || '?').trim().charAt(0).toUpperCase(), reg: e.brn || er.ssm || '', addr: coAddr, tel: e.phone || er.phone || '', email: e.email || '', tin: e.tin || '', sst },
         title: inv ? (sst ? 'Tax Invoice' : 'Invoice') : noteName(i), subtitle: inv ? (sst ? 'Invois Cukai · Tax invoice' : 'Invois · Invoice') : SUB[i.type] || '',
-        no: i.no, issue: fmtD(i.issue), due: inv ? fmtD(i.due) : '', terms: inv ? termsText(c) : '', forInvoice: orig ? orig.no : '', currency: cur === 'MYR' ? 'RM' : cur,
-        amountHeadline: inv ? money(t.due) : money(t.total),
+        schedule: inv && IR.hasSchedule(i) ? { invoiceTotal: money(t.balance), rows: IR.instalments(i, T()).map((x) => ({ label: x.label, amount: n2(x.amountSen / 100), due: x.due ? fmtD(x.due) : x.dueText, status: x.status })) } : null,
+        no: i.no, issue: fmtD(i.issue), due: inv ? dueShown(i) : '', terms: inv ? termsText(c) : '', forInvoice: orig ? orig.no : '', currency: cur === 'MYR' ? 'RM' : cur,
+        amountHeadline: inv ? money(IR.dueNow(i, T())) : money(t.total),
         customerName: i.customer, customer: { addr: addrLines(c?.address), tin: c?.tin || '', idLine: c?.idNo ? `${c.idType || 'BRN'}: ${c.idNo}` : '', tel: c?.phone || '', email: i.email || c?.email || '' },
         reference: i.reference || '',
         items: i.items.map((it) => ({ desc: it.desc, qty: Number(it.qty).toLocaleString('en-MY', { maximumFractionDigits: 3 }), unit: IR.unitOf(it.unit).label, price: n2(it.price), amount: n2(IR.lineSen(it) / 100) })),
@@ -995,7 +1028,7 @@ window.AllurusFinance = (function () {
       const i = fin().invoices.find((x) => x.id === id); if (!i) return;
       const t = invoiceTotals(i);
       confirmInv(`Record a payment on ${i.no}`, `<p class="muted">${esc(i.customer)} still owes <strong>${m2(t.due)}</strong>${t.paid ? ` (${m2(t.paid)} paid so far)` : ''}. Enter less for a part payment.</p>
-        <div class="form-grid"><div class="field"><label for="py-amt">Amount received</label><input class="input num" id="py-amt" name="amount" type="number" min="0.01" step="0.01" max="${t.due}" required value="${t.due.toFixed(2)}"></div>
+        <div class="form-grid"><div class="field"><label for="py-amt">Amount received</label><input class="input num" id="py-amt" name="amount" type="number" min="0.01" step="0.01" max="${t.due}" required value="${IR.dueNow(i, T()).toFixed(2)}"></div>
         <div class="field"><label for="py-date">Date</label><input class="input" id="py-date" name="date" type="date" required value="${T()}" max="${T()}"></div></div>`, 'Record payment',
         (d) => store().pay(id, d.amount, d.date).then((r) => {
           if (!r.ok) { failed(r, id); return r; }

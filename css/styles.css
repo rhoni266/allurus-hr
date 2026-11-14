@@ -2132,3 +2132,41 @@ html.simple-staff .view { padding-bottom: 24px; }
 .invd-pay .qr { background: var(--soft); border-left: 1px solid var(--line); padding: 10px 12px; text-align: center; }
 .invd-pay .qr img { width: 24mm; height: 24mm; object-fit: contain; display: block; margin: 0 auto 4px; }
 .invd-pay .qr small { color: var(--muted); }
+
+/* Instalments: the form block and the printed schedule. */
+.lg-sched { margin-top: 12px; }
+.lg-sched-h { margin-bottom: 6px; }
+.lg-srows { display: grid; gap: 6px; }
+.lg-srow { display: grid; grid-template-columns: 1.4fr .8fr .9fr 1.1fr auto; gap: 6px; align-items: center; }
+.lg-sched-f { display: flex; align-items: center; gap: 12px; margin-top: 6px; flex-wrap: wrap; }
+.lg-ssum { font-size: 12.5px; color: var(--fg-2); }
+.lg-ssum.lg-bad { color: var(--bad); }
+@media (max-width: 700px) { .lg-srow { grid-template-columns: 1fr 1fr; } .lg-srow [name=sl] { grid-column: 1 / -1; } }
+.invd-strip.sched { grid-template-columns: 1.3fr .9fr .9fr .7fr 1.5fr; }
+.invd-strip .invd-itotal { margin-top: 3px; text-align: left; }
+.invd-strip .invd-itotal b { display: block; font-size: 9.5pt; font-weight: 600; color: var(--ink-2); }
+.invd-sched { margin-top: 5mm; }
+.invd-sched table { width: 100%; border-collapse: collapse; margin-top: 3px; font-size: 8.8pt; }
+.invd-sched th { text-align: left; font-size: 7.5pt; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; padding: 0 8px 4px; border-bottom: 1px solid var(--ink); }
+.invd-sched td { padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.invd-sched .r { text-align: right; } .invd-sched .no { width: 22px; color: var(--muted); }
+.invd-sched tr { break-inside: avoid; page-break-inside: avoid; }
+.invd-sched .sch-paid { color: #047857; font-weight: 600; } .invd-sched .sch-due { color: #b45309; font-weight: 600; } .invd-sched .sch-upcoming { color: var(--muted); }
+
+/* With instalments the page carries one more table, so the spacing tightens a little to keep 10 lines on one A4 page. */
+.invd.tight .invd-items td { padding: 3px 8px; }
+.invd.tight .invd-items { margin-top: 3.5mm; }
+.invd.tight .invd-parties, .invd.tight .invd-strip { margin-top: 3.5mm; }
+.invd.tight .invd-after, .invd.tight .invd-sched { margin-top: 3mm; }
+.invd.tight .invd-bottom { margin-top: 3.5mm; }
+.invd.tight .invd-sched td { padding: 2px 8px; }
+.invd.tight .invd-pay .pay-main { padding: 8px 12px; }
+.invd.tight .invd-head { padding-top: 3mm; }
+.invd.tight .invd-items td { padding: 2.5px 8px; }
+.invd.tight .invd-strip > div { padding: 6px 11px; }
+.invd.tight .co-meta { line-height: 1.35; }
+.invd.tight .invd-terms ol, .invd.tight .invd-terms p { font-size: 8pt; }
+.invd.tight .invd-pay .kv { row-gap: 2px; }
+.invd.tight .invd-pay .ref { margin-top: 5px; padding: 4px 8px; }
+.invd.tight .notes { margin-top: 2mm; }
+.invd.tight .totals td { padding: 2px 0; }
