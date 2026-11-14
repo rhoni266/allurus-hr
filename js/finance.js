@@ -816,6 +816,7 @@ window.AllurusFinance = (function () {
         <div class="lg-errors" id="lg-errors" role="alert" hidden></div>
         <div class="lg-foot">
           <div class="lg-foot-l">
+            ${fld('lg-reference', 'Reference (printed, optional) / Rujukan', edit ? `<textarea class="lg-in" id="lg-reference" rows="2" maxlength="300" placeholder="For example a project or PO number">${esc(d.reference || '')}</textarea>` : ro(esc(d.reference || '')))}
             ${fld('lg-notes', 'Notes (printed)', edit ? `<textarea class="lg-in" id="lg-notes" rows="3" maxlength="500" placeholder="Anything specific to this invoice">${esc(d.notes || '')}</textarea>` : ro(esc(d.notes || '')))}
             ${fld('lg-conditions', 'Terms (printed) / Terma', edit ? `<textarea class="lg-in" id="lg-conditions" rows="3" maxlength="1000" placeholder="Terms of sale, late payment…">${esc(d.conditions || '')}</textarea>` : ro(esc(d.conditions || '')))}
             <p class="lg-words" id="lg-words">${IR.amountInWords(t.total)}</p>
@@ -842,7 +843,7 @@ window.AllurusFinance = (function () {
       }).filter((it) => it.desc || it.qty || it.price);
       const name = ctx.$('#lg-cust').value.trim(), c = custOf(name);
       return { customer: c?.name || name, contactId: c?.id || '', email: ctx.$('#lg-email').value.trim() || c?.email || '', issue: ctx.$('#lg-issue').value, due: ctx.$('#lg-due').value,
-        items: lines, taxRate: Number(ctx.$('#lg-tax').value), notes: ctx.$('#lg-notes').value.trim(), conditions: (ctx.$('#lg-conditions')?.value || '').trim() };
+        items: lines, taxRate: Number(ctx.$('#lg-tax').value), notes: ctx.$('#lg-notes').value.trim(), conditions: (ctx.$('#lg-conditions')?.value || '').trim(), reference: (ctx.$('#lg-reference')?.value || '').trim() };
     }
     function bindDoc() {
       const root = ctx.$('.lg-doc'); if (!root) return;
@@ -941,58 +942,30 @@ window.AllurusFinance = (function () {
       if (!confirm('Leave without saving this draft?')) { ev.preventDefault(); ev.stopPropagation(); } else lg.dirty = false;
     }, true);
     window.addEventListener('beforeunload', (ev) => { if (lg.dirty && ctx.$('.lg-doc.is-edit')) { ev.preventDefault(); ev.returnValue = ''; } });
-    // The printed invoice (A4, black on white, fine on a mono printer): company at the top left, the document title,
-    // number and date at the top right, Bill To and document boxes, the lines (their header repeats on every page),
-    // then the amount in words and totals once at the end, and signature boxes. "Page x of y" is printed in the page
-    // margin; drafts and void invoices carry a light DRAFT / VOID watermark on every page. "TAX INVOICE" only when the
-    // company has an SST number (Settings → Company → e-Invoice).
+    // The printed invoice: the standard A4 layout (js/invoice-print.js, docs/mockups/invoice-standard.html), the same for every
+    // company. This builds its model from the invoice and the company's settings. "Tax invoice" only when the company has an SST
+    // number (Settings → Company → e-Invoice). The status pill and the DRAFT / VOID watermark follow the invoice's status.
     function invoiceDoc(i) {
-      const s = ctx.state.settings, e = s.einvoice || {}, er = s.employer || {}, c = contactOf(i), t = invoiceTotals(i);
-      const st = isInvoice(i) ? invoiceStatus(i, T()) : 'Issued', sst = e.sst && e.sst !== 'NA' ? e.sst : '';
-      const title = isInvoice(i) ? (sst ? 'TAX INVOICE' : 'INVOICE') : noteName(i).toUpperCase();
+      const s = ctx.state.settings, e = s.einvoice || {}, er = s.employer || {}, c = contactOf(i), t = invoiceTotals(i), P = window.AllurusInvoicePrint;
+      const inv = isInvoice(i), sst = e.sst && e.sst !== 'NA' ? e.sst : '', cur = i.currency || 'MYR', money = (n) => `${cur === 'MYR' ? 'RM' : cur} ${n2(n)}`;
       const coAddr = addrLines(e.address).length ? addrLines(e.address) : String(er.address || s.office || '').split(/,\s*/).filter(Boolean);
-      const reg = e.brn || er.ssm || '';
-      const pays = isInvoice(i) ? paymentsOf(i) : [], notes = isInvoice(i) ? fin().invoices.filter((x) => x.ref === i.id) : [];
+      const pays = inv ? paymentsOf(i) : [], notes = inv ? fin().invoices.filter((x) => x.ref === i.id) : [];
       const orig = i.ref ? fin().invoices.find((x) => x.id === i.ref) : null;
-      const kv = (k, v) => (v ? `<tr><th>${k}</th><td>${v}</td></tr>` : '');
-      const mark = st === 'Draft' ? 'DRAFT' : st === 'Void' ? 'VOID' : '';
-      return `<div class="pdoc">
-        ${mark ? `<div class="pdoc-mark" aria-hidden="true">${mark}</div>` : ''}
-        <header class="pdoc-top">
-          <div class="pdoc-co"><div class="pdoc-coname">${esc(s.company)}</div>
-            ${reg ? `<div>Company No: ${esc(reg)}</div>` : ''}
-            ${coAddr.map((l) => `<div>${esc(l)}</div>`).join('')}
-            ${[e.phone || er.phone ? `Tel: ${esc(e.phone || er.phone)}` : '', e.email ? `Email: ${esc(e.email)}` : ''].filter(Boolean).map((l) => `<div>${l}</div>`).join('')}
-            ${e.tin ? `<div>TIN: ${esc(e.tin)}</div>` : ''}${sst ? `<div>SST Reg No: ${esc(sst)}</div>` : ''}</div>
-          <div class="pdoc-title"><div class="pdoc-h">${title}</div><table class="pdoc-kv">${kv('No.', `<strong>${esc(i.no)}</strong>`)}${kv('Date', fmtD(i.issue))}</table></div>
-        </header>
-        <div class="pdoc-boxes">
-          <div class="pdoc-box"><div class="pdoc-boxh">Bill To</div><strong>${esc(i.customer)}</strong>
-            ${addrLines(c?.address).map((l) => `<div>${esc(l)}</div>`).join('')}
-            ${c?.tin ? `<div>TIN: ${esc(c.tin)}</div>` : ''}${c?.idNo ? `<div>${esc(c.idType || 'BRN')}: ${esc(c.idNo)}</div>` : ''}
-            ${c?.phone ? `<div>Tel: ${esc(c.phone)}</div>` : ''}${i.email || c?.email ? `<div>Email: ${esc(i.email || c.email)}</div>` : ''}</div>
-          <div class="pdoc-box"><table class="pdoc-kv">
-            ${kv('Doc No', esc(i.no))}${kv('Date', fmtD(i.issue))}
-            ${isInvoice(i) ? kv('Terms', esc(termsText(c))) + kv('Due Date', fmtD(i.due)) : kv('For invoice', orig ? esc(orig.no) : '')}
-            ${kv('Currency', esc(i.currency || 'MYR'))}${i.reason ? kv('Reason', esc(i.reason)) : ''}${st === 'Void' ? kv('Void', esc(i.voidReason || '')) : ''}</table></div>
-        </div>
-        <table class="pdoc-lines">
-          <thead><tr><th class="c">No</th><th>Description</th><th class="r">Qty</th><th>Unit</th><th class="r">Unit Price (RM)</th><th class="r">Amount (RM)</th></tr></thead>
-          <tbody>${i.items.map((it, k) => `<tr><td class="c">${k + 1}</td><td class="pdoc-desc">${esc(it.desc)}</td><td class="r">${Number(it.qty).toLocaleString('en-MY', { maximumFractionDigits: 3 })}</td><td>${esc(IR.unitOf(it.unit).label)}</td><td class="r">${n2(it.price)}</td><td class="r">${n2(IR.lineSen(it) / 100)}</td></tr>`).join('')}</tbody>
-        </table>
-        <div class="pdoc-end">
-          <div class="pdoc-words"><div class="pdoc-boxh">Amount in words</div>${esc(IR.amountInWords(t.total))}${i.notes ? `<div class="pdoc-notes"><div class="pdoc-boxh">Notes</div>${esc(i.notes)}</div>` : ''}</div>
-          <table class="pdoc-sum">
-            <tr><th>Sub Total</th><td>${n2(t.sub)}</td></tr>
-            <tr><th>${esc(fin().settings.taxLabel)} ${i.taxRate}%</th><td>${n2(t.tax)}</td></tr>
-            <tr class="pdoc-grand"><th>Total (RM)</th><td>${n2(t.total)}</td></tr>
-            ${notes.map((n) => `<tr><th>${esc(noteName(n))} ${esc(n.no)}</th><td>${n.type === 'debit' ? '' : '-'}${n2(invoiceTotals(n).total)}</td></tr>`).join('')}
-            ${pays.length ? `<tr><th>Paid</th><td>-${n2(t.paid)}</td></tr><tr class="pdoc-grand"><th>Balance Due (RM)</th><td>${n2(t.due)}</td></tr>` : ''}
-          </table>
-        </div>
-        ${IR.payTermsHTML(i, fin().settings.payDefaults, esc)}
-        <div class="pdoc-sign"><div><span></span>Received by</div><div><span></span>Authorised by</div></div>
-      </div>`;
+      const SUB = { credit: 'Nota kredit · Credit note', debit: 'Nota debit · Debit note', refund: 'Nota bayaran balik · Refund note' };
+      return P.html({
+        isInvoice: inv, status: inv ? invoiceStatus(i, T()) : 'Issued',
+        company: { name: s.company, initial: String(s.company || '?').trim().charAt(0).toUpperCase(), reg: e.brn || er.ssm || '', addr: coAddr, tel: e.phone || er.phone || '', email: e.email || '', tin: e.tin || '', sst },
+        title: inv ? (sst ? 'Tax Invoice' : 'Invoice') : noteName(i), subtitle: inv ? (sst ? 'Invois Cukai · Tax invoice' : 'Invois · Invoice') : SUB[i.type] || '',
+        no: i.no, issue: fmtD(i.issue), due: inv ? fmtD(i.due) : '', terms: inv ? termsText(c) : '', forInvoice: orig ? orig.no : '', currency: cur === 'MYR' ? 'RM' : cur,
+        amountHeadline: inv ? money(t.due) : money(t.total),
+        customerName: i.customer, customer: { addr: addrLines(c?.address), tin: c?.tin || '', idLine: c?.idNo ? `${c.idType || 'BRN'}: ${c.idNo}` : '', tel: c?.phone || '', email: i.email || c?.email || '' },
+        reference: i.reference || '',
+        items: i.items.map((it) => ({ desc: it.desc, qty: Number(it.qty).toLocaleString('en-MY', { maximumFractionDigits: 3 }), unit: IR.unitOf(it.unit).label, price: n2(it.price), amount: n2(IR.lineSen(it) / 100) })),
+        words: IR.amountInWords(t.total), notes: i.notes || '', reason: i.reason || '', voidReason: i.voidReason || '',
+        totals: { sub: n2(t.sub), taxLabel: `${fin().settings.taxLabel} ${i.taxRate}%`, tax: n2(t.tax), total: n2(t.total),
+          adj: notes.map((n) => ({ label: `${noteName(n)} ${n.no}`, sign: n.type === 'debit' ? '' : '-', amount: n2(invoiceTotals(n).total) })), hasPays: pays.length > 0, paid: n2(t.paid) },
+        payment: IR.paymentFor(i, fin().settings.payDefaults), conditions: IR.conditionsFor(i),
+      }, esc);
     }
 
     // Opening an invoice or note shows its document screen.

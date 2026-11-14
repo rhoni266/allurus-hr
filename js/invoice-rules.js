@@ -108,22 +108,12 @@ window.AllurusInvoiceRules = (function () {
     return inv.status === 'Draft' ? snapshotPayment(live) : (inv.payment ? snapshotPayment(inv.payment) : null);
   }
   const conditionsFor = (inv) => (isInvoice(inv) ? String(inv.conditions || '').trim() : '');
-  const PAY_LABELS = { head: ['Payment details', 'Butiran pembayaran'], bank: ['Bank', 'Bank'], accName: ['Account name', 'Nama akaun'], accNo: ['Account no.', 'No. akaun'], ref: ['Payment instructions', 'Arahan pembayaran'], qr: ['DuitNow / QR', 'DuitNow / QR'], terms: ['Terms', 'Terma'] };
-  // The two blocks under the totals: "Payment details" (bank, account name, account no., QR) and "Terms", both apart from Notes.
-  function payTermsHTML(inv, live, esc) {
-    const p = paymentFor(inv, live), t = conditionsFor(inv), L = (k) => `${PAY_LABELS[k][0]} <span lang="ms" class="bm">/ ${PAY_LABELS[k][1]}</span>`;
-    const row = (k, v) => (v ? `<tr><th>${L(k)}</th><td>${esc(v)}</td></tr>` : '');
-    const box = p ? `<div class="pdoc-payment"><div class="pdoc-boxh">${L('head')}</div><div class="pdoc-payflex"><table class="pdoc-kv">${row('bank', p.bank)}${row('accName', p.accName)}${row('accNo', p.accNo)}</table>${p.qr ? `<img class="pdoc-qr" src="${p.qr}" alt="${esc(PAY_LABELS.qr[0])}">` : ''}</div>${p.instructions ? `<div class="pdoc-payins">${esc(p.instructions)}</div>` : ''}</div>` : '';
-    const terms = t ? `<div class="pdoc-terms"><div class="pdoc-boxh">${L('terms')}</div>${esc(t)}</div>` : '';
-    return box || terms ? `<div class="pdoc-paywrap">${box}${terms}</div>` : '';
-  }
-
   // ---------- Duplicate: a new Draft with the same customer and lines ----------
   function duplicate(inv, { id, no, today, dueDays = 30, addDays }) {
     const items = (inv.items || []).map((it) => ({ desc: it.desc, qty: it.qty, unit: it.unit || DEFAULT_UNIT, price: it.price, classification: it.classification || '022' }));
     return {
       id, type: 'invoice', no, status: 'Draft', customer: inv.customer, contactId: inv.contactId || '', email: inv.email || '',
-      issue: today, due: addDays(today, dueDays), items, taxRate: inv.taxRate, notes: inv.notes || '', conditions: inv.conditions || '', currency: inv.currency || 'MYR',
+      issue: today, due: addDays(today, dueDays), items, taxRate: inv.taxRate, notes: inv.notes || '', conditions: inv.conditions || '', reference: inv.reference || '', currency: inv.currency || 'MYR',
       paidOn: '', payments: [], duplicatedFrom: { id: inv.id, no: inv.no }, einvoice: { status: 'Draft' },
     };
   }
@@ -158,5 +148,5 @@ window.AllurusInvoiceRules = (function () {
     return `${s < 0 ? 'Minus ' : ''}Ringgit Malaysia ${words(r)}${c ? ` and Cents ${words(c)}` : ''} Only`;
   }
 
-  return { payDefaults, snapshotPayment, newInvoiceDefaults, paymentFor, conditionsFor, payTermsHTML, PAY_LABELS, amountInWords, UNITS, DEFAULT_UNIT, unitOf, qtyError, fmtQty, sen, lineSen, totals, STATUSES, isInvoice, canEdit, canDelete, canSend, canPay, canVoid, counts, shown, draftErrors, pay, duplicate, nextNo, rememberUnits, unitFor };
+  return { payDefaults, snapshotPayment, newInvoiceDefaults, paymentFor, conditionsFor, amountInWords, UNITS, DEFAULT_UNIT, unitOf, qtyError, fmtQty, sen, lineSen, totals, STATUSES, isInvoice, canEdit, canDelete, canSend, canPay, canVoid, counts, shown, draftErrors, pay, duplicate, nextNo, rememberUnits, unitFor };
 })();

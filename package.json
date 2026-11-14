@@ -1,7 +1,7 @@
 {
   "name": "allurus-hr",
   "private": true,
-  "version": "3.67.0",
+  "version": "3.68.0",
   "description": "Allurus HR and the allurus.my site. No build step; open index.html (landing) or app.html (the app).",
   "scripts": {
     "release": "node scripts/release.js",
