@@ -12,7 +12,7 @@ window.AllurusFinance = (function () {
     return {
       openingCash: 0, openingDate: U.today().slice(0, 7) + '-01',
       txns: [], invoices: [], bills: [], contacts: [], budgets: {}, reports: {},
-      settings: { taxRate: 8, taxLabel: 'SST', auditorFirm: '', auditorName: '', auditorEmail: '', ...settings },
+      settings: { taxRate: 8, taxLabel: 'SST', auditorFirm: '', auditorName: '', auditorEmail: '', payDefaults: { bank: '', accName: '', accNo: '', instructions: '', qr: '', terms: '' }, ...settings },
     };
   }
 
@@ -740,7 +740,7 @@ window.AllurusFinance = (function () {
       if (!isNew && !i) return `<div class="ledger lg-doc"><p class="lg-pad">That invoice isn’t here any more. <a href="#invoices">Back to invoices</a></p></div>`;
       if (isNew && isAuditor()) return `<div class="ledger lg-doc"><p class="lg-pad">Auditors can’t create invoices. <a href="#invoices">Back to invoices</a></p></div>`;
       const edit = isNew || (IR.canEdit(i) && !isAuditor());
-      const d = i || { customer: '', email: '', issue: T(), due: U.addDays(T(), 30), items: [], taxRate: fin().settings.taxRate, notes: '' };
+      const d = i || { customer: '', email: '', issue: T(), due: U.addDays(T(), 30), items: [], taxRate: fin().settings.taxRate, notes: '', ...IR.newInvoiceDefaults(fin().settings.payDefaults) };
       const st = i ? (isInvoice(i) ? invoiceStatus(i, T()) : 'Issued') : 'Draft';
       const c = custOf(d.customer) || (i ? contactOf(i) : null);
       const t = invoiceTotals(d), label = fin().settings.taxLabel;
@@ -816,7 +816,8 @@ window.AllurusFinance = (function () {
         <div class="lg-errors" id="lg-errors" role="alert" hidden></div>
         <div class="lg-foot">
           <div class="lg-foot-l">
-            ${fld('lg-notes', 'Notes (printed)', edit ? `<textarea class="lg-in" id="lg-notes" rows="3" maxlength="500" placeholder="Payment details, thanks…">${esc(d.notes || '')}</textarea>` : ro(esc(d.notes || '')))}
+            ${fld('lg-notes', 'Notes (printed)', edit ? `<textarea class="lg-in" id="lg-notes" rows="3" maxlength="500" placeholder="Anything specific to this invoice">${esc(d.notes || '')}</textarea>` : ro(esc(d.notes || '')))}
+            ${fld('lg-conditions', 'Terms (printed) / Terma', edit ? `<textarea class="lg-in" id="lg-conditions" rows="3" maxlength="1000" placeholder="Terms of sale, late payment…">${esc(d.conditions || '')}</textarea>` : ro(esc(d.conditions || '')))}
             <p class="lg-words" id="lg-words">${IR.amountInWords(t.total)}</p>
           </div>
           <div class="lg-sum">
@@ -841,7 +842,7 @@ window.AllurusFinance = (function () {
       }).filter((it) => it.desc || it.qty || it.price);
       const name = ctx.$('#lg-cust').value.trim(), c = custOf(name);
       return { customer: c?.name || name, contactId: c?.id || '', email: ctx.$('#lg-email').value.trim() || c?.email || '', issue: ctx.$('#lg-issue').value, due: ctx.$('#lg-due').value,
-        items: lines, taxRate: Number(ctx.$('#lg-tax').value), notes: ctx.$('#lg-notes').value.trim() };
+        items: lines, taxRate: Number(ctx.$('#lg-tax').value), notes: ctx.$('#lg-notes').value.trim(), conditions: (ctx.$('#lg-conditions')?.value || '').trim() };
     }
     function bindDoc() {
       const root = ctx.$('.lg-doc'); if (!root) return;
@@ -989,6 +990,7 @@ window.AllurusFinance = (function () {
             ${pays.length ? `<tr><th>Paid</th><td>-${n2(t.paid)}</td></tr><tr class="pdoc-grand"><th>Balance Due (RM)</th><td>${n2(t.due)}</td></tr>` : ''}
           </table>
         </div>
+        ${IR.payTermsHTML(i, fin().settings.payDefaults, esc)}
         <div class="pdoc-sign"><div><span></span>Received by</div><div><span></span>Authorised by</div></div>
       </div>`;
     }
@@ -1182,6 +1184,58 @@ window.AllurusFinance = (function () {
     const note = () => (ctx.$('#rep-note')?.value || '').trim();
     function addTrail(mk, action, n) { fin().reports[mk].trail.push({ t: T(), who: who(), action, note: n }); }
 
+    // ---------- Settings → Finance → Invoice defaults ----------
+    // Bank details, an optional DuitNow/QR image, payment instructions and default terms. Terms are pre-filled into each new invoice;
+    // the payment details are copied onto an invoice when it is issued, so changing them here never alters an old one.
+    const canDefaults = () => ctx.role() === 'admin' && ctx.can('finance') && !isAuditor();
+    function invoiceDefaultsCard() {
+      if (!canDefaults()) return '';
+      const d = IR.payDefaults(fin().settings.payDefaults), f = (id, label, ms, v, extra = '') => `<div class="field"><label for="${id}">${label} <span lang="ms" class="faint">/ ${ms}</span></label><input class="input" id="${id}" ${extra} value="${esc(v)}"></div>`;
+      return `<div class="card" id="inv-defaults"><div class="card-head"><h3>Invoice defaults <span lang="ms" class="faint">/ Lalai invois</span></h3><span class="hint">Finance</span></div>
+        <p class="muted" style="margin-bottom:10px">Printed on invoices in a “Payment details” box and a “Terms” section, apart from Notes. The payment details are copied onto an invoice when it is issued, so changing them here never alters an old invoice. Credit and debit notes have no payment box.</p>
+        <div class="form-grid">${f('idf-bank', 'Bank name', 'Nama bank', d.bank, 'maxlength="80"')}${f('idf-accname', 'Account name', 'Nama akaun', d.accName, 'maxlength="80"')}${f('idf-accno', 'Account number', 'No. akaun', d.accNo, 'maxlength="40" inputmode="numeric"')}</div>
+        <div class="field" style="margin-top:8px"><label for="idf-ins">Payment instructions <span lang="ms" class="faint">/ Arahan pembayaran</span></label><textarea class="textarea" id="idf-ins" rows="2" maxlength="300" placeholder="Please quote the invoice no. as reference">${esc(d.instructions)}</textarea></div>
+        <div class="field" style="margin-top:8px"><label for="idf-qr">DuitNow / QR image (optional) <span lang="ms" class="faint">/ Imej QR</span></label>
+          <div class="idf-qr">${d.qr ? `<img id="idf-qr-img" src="${d.qr}" alt="DuitNow QR">` : '<span class="faint" id="idf-qr-none">No image</span>'}<input type="file" id="idf-qr" accept="image/png,image/jpeg,image/webp" aria-label="Upload a DuitNow QR image">${d.qr ? '<button type="button" class="btn btn-sm" id="idf-qr-clear">Remove</button>' : ''}</div></div>
+        <div class="field" style="margin-top:8px"><label for="idf-terms">Default terms <span lang="ms" class="faint">/ Terma lalai</span> <span class="faint" id="idf-count">${d.terms.length}/1000</span></label><textarea class="textarea" id="idf-terms" rows="5" maxlength="1000" placeholder="Goods remain the property of the company until paid in full.">${esc(d.terms)}</textarea><span class="field-hint">Pre-filled into every new invoice; edit it on an invoice if that one differs.</span></div>
+        <div class="actions" style="margin-top:12px"><button type="button" class="btn btn-primary" id="idf-save">Save <span lang="ms">/ Simpan</span></button></div></div>`;
+    }
+    // A QR photo is shrunk (max 360 px) and stored with the settings, so it stays small.
+    function shrinkImage(file) {
+      return new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onerror = () => rej(new Error('read')); fr.onload = () => {
+          const im = new Image(); im.onerror = () => rej(new Error('image'));
+          im.onload = () => {
+            const k = Math.min(1, 360 / Math.max(im.width, im.height)), c = document.createElement('canvas');
+            c.width = Math.max(1, Math.round(im.width * k)); c.height = Math.max(1, Math.round(im.height * k));
+            c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+            let out = c.toDataURL('image/png'); if (out.length > 120000) out = c.toDataURL('image/jpeg', 0.8);
+            res(out);
+          };
+          im.src = fr.result;
+        };
+        fr.readAsDataURL(file);
+      });
+    }
+    function bindInvoiceDefaults() {
+      const el = ctx.$('#inv-defaults'); if (!el) return;
+      let qr = IR.payDefaults(fin().settings.payDefaults).qr;
+      const val = (id) => ctx.$(id)?.value || '';
+      ctx.$('#idf-terms')?.addEventListener('input', (ev) => { ctx.$('#idf-count').textContent = `${ev.target.value.length}/1000`; });
+      ctx.$('#idf-qr')?.addEventListener('change', async (ev) => {
+        const file = ev.target.files?.[0]; if (!file) return;
+        try { qr = await shrinkImage(file); } catch (err) { ctx.toast('That image could not be read. Try a PNG or JPG.', 'error'); return; }
+        if (!IR.payDefaults({ qr }).qr) { qr = ''; ctx.toast('That image is too large. Use a smaller QR image.', 'error'); return; }
+        const box = ctx.$('.idf-qr'); box.querySelector('img,#idf-qr-none')?.remove(); const im = new Image(); im.id = 'idf-qr-img'; im.alt = 'DuitNow QR'; im.src = qr; box.prepend(im);
+      });
+      ctx.$('#idf-qr-clear')?.addEventListener('click', () => { qr = ''; ctx.$('#idf-qr-img')?.remove(); ctx.$('#idf-qr-clear')?.remove(); });
+      ctx.$('#idf-save')?.addEventListener('click', () => {
+        fin().settings.payDefaults = IR.payDefaults({ bank: val('#idf-bank'), accName: val('#idf-accname'), accNo: val('#idf-accno'), instructions: val('#idf-ins'), terms: val('#idf-terms'), qr });
+        commit('Invoice defaults saved', 'Invoice defaults (payment details and terms) changed');
+      });
+    }
+
     function settingsModal() {
       const s = fin().settings;
       openModal({
@@ -1317,7 +1371,7 @@ window.AllurusFinance = (function () {
       },
     });
 
-    return { badge };
+    return { badge, invoiceDefaultsCard, bindInvoiceDefaults };
   }
 
   return { blank, seed, install, compute, allTxns, invoiceTotals, isInvoice, INCOME_CATS, EXPENSE_CATS };

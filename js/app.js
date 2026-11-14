@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.66';
+  const APP_VERSION = '3.67';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -1650,6 +1650,7 @@
             ${row('Simple staff screen', 'On a phone, staff see only Check in (with their attendance meters), Apply leave (with balances) and Payslip. Admin roles keep their own phone screens, and computers keep the normal app. Off = the normal phone Home.', seg('simple', sa.simple))}
             ${row('Default language', 'The language the staff screen opens in. Staff can switch it themselves in Me, and their choice is remembered on their phone.', `<div class="seg">${[['en', 'English'], ['bm', 'Bahasa Malaysia']].map(([v, l]) => `<button data-act="sa-lang" data-v="${v}" class="${(sa.lang === 'bm' ? 'bm' : 'en') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
             ${row('Protect payslip PDFs with the IC number', 'Payslip PDFs are locked with a password: the person’s IC number without dashes (the passport number for foreign workers). Staff, and HR on a computer, download the PDF instead of printing it. A person with no IC on record cannot download until HR adds it. An IC-number password stops casual opening of a forwarded or lost PDF. It is not strong protection, because IC numbers are widely known. Inside the app, payslips are still protected by the person’s sign-in.', seg('pdfPw', sa.pdfPw))}</div>`; } }] : []),
+      ...(role() === 'admin' && can('finance') && finApi?.invoiceDefaultsCard() ? [{ id: 'invoicedefaults', label: 'Invoice defaults', icon: 'doc', summary: 'Bank details, QR and terms on invoices', keys: 'invoice defaults finance bank account duitnow qr payment instructions terms conditions', html: () => finApi.invoiceDefaultsCard() }] : []),
       { id: 'leave', label: 'Leave & holidays', icon: 'calendar', summary: 'Leave types, public holidays, rest days', keys: 'leave type entitlement annual sick public holiday state weekend rest day work week approver approval carry forward year-end',
         html: () => leaveApi.settingsCards() },
       { id: 'payroll', label: 'Payroll', icon: 'wallet', summary: my ? 'Currency, EPF, SOCSO, EIS, PCB' : 'Currency, tax and benefits', keys: 'payroll currency salary epf kwsp socso perkeso eis pcb income tax lhdn hrdf hrd corp levy benefit contribution statutory deduction',
@@ -1819,6 +1820,7 @@
     grievApi.bindSettings();
     einvApi.bindSettings();
     prodApi?.bindSettings();
+    finApi?.bindInvoiceDefaults();
     claimsApi.bindSettings();
     kioskApi.bindSettings();
     bind('#s-company', 'company'); bind('#s-currency', 'currency'); bindHeadOffice(); $('#s-minwage')?.addEventListener('change', (ev) => { state.settings.minWage = Math.max(0, Number(ev.target.value) || AllurusSalary.MIN_WAGE_DEFAULT); commit('Minimum monthly wage for the pay-run check saved'); }); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);

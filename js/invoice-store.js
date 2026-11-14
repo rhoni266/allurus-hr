@@ -76,7 +76,7 @@ window.AllurusInvoiceStore = (function () {
       const errs = R.draftErrors(d); if (errs.length) return Promise.resolve(fail('invalid', errs.join('. ')));
       const id = newId('i'), no = R.nextNo(list(), 'INV', U.monthKey(d.issue));
       const doc = { type: 'invoice', no, status: 'Draft', customer: d.customer, contactId: d.contactId || '', email: d.email || '', issue: d.issue, due: d.due,
-        items: d.items, taxRate: d.taxRate, notes: d.notes || '', currency: d.currency || 'MYR', paidOn: '', payments: [], einvoice: { status: 'Draft' },
+        items: d.items, taxRate: d.taxRate, notes: d.notes || '', conditions: String(d.conditions || '').slice(0, 1000), currency: d.currency || 'MYR', paidOn: '', payments: [], einvoice: { status: 'Draft' },
         ...(d.duplicatedFrom ? { duplicatedFrom: d.duplicatedFrom } : {}), ...(d.category ? { category: d.category } : {}),
         createdBy: uid(), createdAt: NOW, ...stamp(1) };
       const ops = [{ op: 'set', path: `invoices/${id}`, data: doc }, { op: 'set', path: `invoiceNos/${no}`, data: { invoiceId: id } }];
@@ -89,9 +89,10 @@ window.AllurusInvoiceStore = (function () {
       const inv = byId(id); if (!inv) return Promise.resolve(fail('changed'));
       if (!R.canEdit(inv)) return Promise.resolve(fail('locked', `${inv.no} is ${inv.status.toLowerCase()} and can’t be edited. Duplicate it or issue a credit note.`));
       const next = { ...inv, ...patch }, errs = R.draftErrors(next); if (errs.length) return Promise.resolve(fail('invalid', errs.join('. ')));
-      const allowed = ['customer', 'contactId', 'email', 'issue', 'due', 'items', 'taxRate', 'notes', 'currency', 'einvoice', 'category'];
+      const allowed = ['customer', 'contactId', 'email', 'issue', 'due', 'items', 'taxRate', 'notes', 'conditions', 'currency', 'einvoice', 'category'];
       const data = Object.fromEntries(Object.entries(patch).filter(([k]) => allowed.includes(k)));
       rememberUnits(data.items);
+      if (data.conditions != null) data.conditions = String(data.conditions).slice(0, 1000);
       return run(`inv:${id}`, [{ op: 'update', path: `invoices/${id}`, data: { ...data, ...stamp(ver(inv) + 1) } }], `${inv.no} saved`);
     }
     function remove(id) {
@@ -107,7 +108,9 @@ window.AllurusInvoiceStore = (function () {
       if (!R.canSend(inv)) return Promise.resolve(fail('locked', `${inv.no} is already ${inv.status.toLowerCase()}.`));
       const errs = R.draftErrors(inv); if (errs.length) return Promise.resolve(fail('invalid', errs.join('. ')));
       const a = auditOp(inv, 'send', 'Sent');
-      return run(`inv:${id}`, [{ op: 'update', path: `invoices/${id}`, data: { status: 'Sent', sentAt: NOW, sentBy: uid(), ...stamp(ver(inv) + 1), lastAuditId: a.id } }, a.op],
+      // The payment details as they are now are copied onto the invoice and stay as they are (changing the settings later leaves it alone).
+      const pay = R.snapshotPayment(fin().settings?.payDefaults);
+      return run(`inv:${id}`, [{ op: 'update', path: `invoices/${id}`, data: { status: 'Sent', sentAt: NOW, sentBy: uid(), ...(pay ? { payment: pay } : {}), ...stamp(ver(inv) + 1), lastAuditId: a.id } }, a.op],
         `${inv.no} marked as sent. It’s now locked.`, `Invoice ${inv.no} sent to ${inv.customer}`);
     }
     function pay(id, amount, date) {
@@ -145,7 +148,8 @@ window.AllurusInvoiceStore = (function () {
     // A delivery's invoice: issued (sent) at delivery, with any cash collected as a payment.
     function issueDelivered(inv, cash, date) {
       const id = newId('i'), a = auditOp({ id, no: inv.no, status: '' }, 'send', 'Sent', { source: 'delivery' });
-      let doc = { ...inv, type: 'invoice', status: 'Sent', paidOn: '', payments: [], sentAt: NOW, sentBy: uid(), createdBy: uid(), createdAt: NOW, ...stamp(1), lastAuditId: a.id };
+      const pay = R.snapshotPayment(fin().settings?.payDefaults), terms = R.newInvoiceDefaults(fin().settings?.payDefaults).conditions;
+      let doc = { ...inv, ...(inv.conditions == null && terms ? { conditions: terms } : {}), ...(pay ? { payment: pay } : {}), type: 'invoice', status: 'Sent', paidOn: '', payments: [], sentAt: NOW, sentBy: uid(), createdBy: uid(), createdAt: NOW, ...stamp(1), lastAuditId: a.id };
       if (cash > 0) { const r = R.pay(doc, Math.min(cash, R.totals(doc).due), date, uid()); if (!r.error) doc = { ...doc, ...r }; }
       const ops = [{ op: 'set', path: `invoices/${id}`, data: doc }, { op: 'set', path: `invoiceNos/${inv.no}`, data: { invoiceId: id } }, a.op];
       if (live()) cloud().invoiceWrite(ops).then((r) => { if (r.error) ctx.toast(`Couldn’t save invoice ${inv.no}. ${MESSAGES[r.error] || ''}`, 'error'); });

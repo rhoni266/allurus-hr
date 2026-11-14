@@ -83,12 +83,47 @@ window.AllurusInvoiceRules = (function () {
     return { payments, status, paidOn: status === 'Paid' ? date : '' };
   }
 
+  // ---------- Payment details and terms on the invoice ----------
+  // Settings → Finance → Invoice defaults hold the company's bank details, an optional DuitNow/QR image, payment instructions and
+  // default terms. A new invoice gets the terms pre-filled (editable on that invoice). The payment details are copied onto the
+  // invoice when it is issued (sent) and never change afterwards: later changes to the settings don't alter old invoices. A draft
+  // shows the current settings. Credit, debit and refund notes never show a payment box or terms.
+  const clean = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+  const QR_OK = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+  const QR_MAX = 150000;
+  function payDefaults(raw) {
+    const r = raw || {}, qr = typeof r.qr === 'string' && r.qr.length <= QR_MAX && QR_OK.test(r.qr) ? r.qr : '';
+    return { bank: clean(r.bank, 80), accName: clean(r.accName, 80), accNo: clean(r.accNo, 40), instructions: clean(r.instructions, 300), qr, terms: String(r.terms == null ? '' : r.terms).replace(/\r\n/g, '\n').trim().slice(0, 1000) };
+  }
+  // The copy kept on an issued invoice: null when there is nothing to show.
+  function snapshotPayment(def) {
+    const d = payDefaults(def), p = { bank: d.bank, accName: d.accName, accNo: d.accNo, instructions: d.instructions, qr: d.qr };
+    return Object.values(p).some(Boolean) ? p : null;
+  }
+  const newInvoiceDefaults = (def) => ({ conditions: payDefaults(def).terms });
+  // What the document shows. Notes: nothing. Drafts: the current settings. Issued invoices: their own copy (an invoice issued before
+  // this feature has none, so it shows no box rather than today's details).
+  function paymentFor(inv, live) {
+    if (!isInvoice(inv)) return null;
+    return inv.status === 'Draft' ? snapshotPayment(live) : (inv.payment ? snapshotPayment(inv.payment) : null);
+  }
+  const conditionsFor = (inv) => (isInvoice(inv) ? String(inv.conditions || '').trim() : '');
+  const PAY_LABELS = { head: ['Payment details', 'Butiran pembayaran'], bank: ['Bank', 'Bank'], accName: ['Account name', 'Nama akaun'], accNo: ['Account no.', 'No. akaun'], ref: ['Payment instructions', 'Arahan pembayaran'], qr: ['DuitNow / QR', 'DuitNow / QR'], terms: ['Terms', 'Terma'] };
+  // The two blocks under the totals: "Payment details" (bank, account name, account no., QR) and "Terms", both apart from Notes.
+  function payTermsHTML(inv, live, esc) {
+    const p = paymentFor(inv, live), t = conditionsFor(inv), L = (k) => `${PAY_LABELS[k][0]} <span lang="ms" class="bm">/ ${PAY_LABELS[k][1]}</span>`;
+    const row = (k, v) => (v ? `<tr><th>${L(k)}</th><td>${esc(v)}</td></tr>` : '');
+    const box = p ? `<div class="pdoc-payment"><div class="pdoc-boxh">${L('head')}</div><div class="pdoc-payflex"><table class="pdoc-kv">${row('bank', p.bank)}${row('accName', p.accName)}${row('accNo', p.accNo)}</table>${p.qr ? `<img class="pdoc-qr" src="${p.qr}" alt="${esc(PAY_LABELS.qr[0])}">` : ''}</div>${p.instructions ? `<div class="pdoc-payins">${esc(p.instructions)}</div>` : ''}</div>` : '';
+    const terms = t ? `<div class="pdoc-terms"><div class="pdoc-boxh">${L('terms')}</div>${esc(t)}</div>` : '';
+    return box || terms ? `<div class="pdoc-paywrap">${box}${terms}</div>` : '';
+  }
+
   // ---------- Duplicate: a new Draft with the same customer and lines ----------
   function duplicate(inv, { id, no, today, dueDays = 30, addDays }) {
     const items = (inv.items || []).map((it) => ({ desc: it.desc, qty: it.qty, unit: it.unit || DEFAULT_UNIT, price: it.price, classification: it.classification || '022' }));
     return {
       id, type: 'invoice', no, status: 'Draft', customer: inv.customer, contactId: inv.contactId || '', email: inv.email || '',
-      issue: today, due: addDays(today, dueDays), items, taxRate: inv.taxRate, notes: inv.notes || '', currency: inv.currency || 'MYR',
+      issue: today, due: addDays(today, dueDays), items, taxRate: inv.taxRate, notes: inv.notes || '', conditions: inv.conditions || '', currency: inv.currency || 'MYR',
       paidOn: '', payments: [], duplicatedFrom: { id: inv.id, no: inv.no }, einvoice: { status: 'Draft' },
     };
   }
@@ -123,5 +158,5 @@ window.AllurusInvoiceRules = (function () {
     return `${s < 0 ? 'Minus ' : ''}Ringgit Malaysia ${words(r)}${c ? ` and Cents ${words(c)}` : ''} Only`;
   }
 
-  return { amountInWords, UNITS, DEFAULT_UNIT, unitOf, qtyError, fmtQty, sen, lineSen, totals, STATUSES, isInvoice, canEdit, canDelete, canSend, canPay, canVoid, counts, shown, draftErrors, pay, duplicate, nextNo, rememberUnits, unitFor };
+  return { payDefaults, snapshotPayment, newInvoiceDefaults, paymentFor, conditionsFor, payTermsHTML, PAY_LABELS, amountInWords, UNITS, DEFAULT_UNIT, unitOf, qtyError, fmtQty, sen, lineSen, totals, STATUSES, isInvoice, canEdit, canDelete, canSend, canPay, canVoid, counts, shown, draftErrors, pay, duplicate, nextNo, rememberUnits, unitFor };
 })();

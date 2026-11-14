@@ -667,7 +667,8 @@ service cloud.firestore {
         // Mark as sent.
         function markSent() {
           return od().status == 'Draft' && nd().status == 'Sent'
-            && changed().hasOnly(['status', 'sentAt', 'sentBy', 'v', 'updatedAt', 'updatedBy', 'lastAuditId'])
+            && changed().hasOnly(['status', 'sentAt', 'sentBy', 'payment', 'v', 'updatedAt', 'updatedBy', 'lastAuditId'])
+            && nd().get('payment', {}).keys().hasOnly(['bank', 'accName', 'accNo', 'instructions', 'qr'])   // the copy of the payment details: known text fields only (the budget of 1,000 expressions is nearly used up)
             && nd().sentBy == request.auth.uid && nd().sentAt == request.time && invAudit('send');
         }
         // After sending: payments, note effects, e-Invoice status. A status change (part paid, paid) is audited.

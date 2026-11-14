@@ -17,7 +17,7 @@ const today = new Date().toISOString().slice(0, 10);
 // One person's app: the store with a cloud that writes to the emulator as them.
 function app(uid) {
   const db = env.authenticatedContext(uid, { email: `${uid}@co1.my`, email_verified: true }).firestore();
-  const state = { finance: { invoices: [], contacts: [], txns: [] } };
+  const state = { finance: { invoices: [], contacts: [], txns: [], settings: {} } };
   // (Arrays rebuilt here: the store runs in a sandbox, and Firestore only takes this realm's arrays.)
   const forWrite = (v) => (v && v.__now ? serverTimestamp() : Array.isArray(v) ? Array.from(v, forWrite)
     : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).map(([k, x]) => [k, forWrite(x)])) : v);
@@ -39,7 +39,7 @@ function app(uid) {
   // What the live listener does: the list as the server has it.
   const reload = async () => { const s = await getDocs(collection(db, `tenants/${T}/invoices`)); state.finance.invoices = s.docs.map((d) => { const x = d.data(); Object.keys(x).forEach((k) => { if (x[k]?.toMillis) x[k] = x[k].toMillis(); }); return { id: d.id, ...x }; }); };
   const audit = async () => (await getDocs(collection(db, `tenants/${T}/invoiceAudit`))).docs.map((d) => d.data().action);
-  return { store, state, reload, audit, find: (id) => state.finance.invoices.find((i) => i.id === id) };
+  return { store, state, reload, audit, db, find: (id) => state.finance.invoices.find((i) => i.id === id) };
 }
 const draft = (o = {}) => ({ customer: 'Kedai Ali', issue: today, due: addDays(today, 30), taxRate: 8, items: [{ desc: 'Rice 5kg bag', qty: 12.5, unit: 'kg', price: 4.2 }, { desc: 'Cups', qty: 3, unit: 'pcs', price: 1 }], ...o });
 
@@ -115,4 +115,30 @@ test('sending an invoice someone else just sent is refused', async () => {
   const c = await a.store.createDraft(draft()); await a.reload(); await b.reload();
   assert.ok((await b.store.send(c.id)).ok);
   assert.equal((await a.store.send(c.id)).error, 'changed');
+});
+
+test('payment details and terms: copied onto the invoice when it is sent, unchanged by later settings changes, and the rules guard the shape', async () => {
+  const a = app('fin');
+  a.state.finance.settings.payDefaults = { bank: 'Maybank', accName: 'Kedai Ali Sdn Bhd', accNo: '5123 4567 8901', instructions: 'Quote the invoice no.', qr: '', terms: 'Net 30' };
+  const r = await a.store.createDraft(draft({ conditions: 'Net 30' })); assert.equal(r.ok, true, r.error);
+  await a.reload(); assert.equal(a.find(r.id).conditions, 'Net 30'); assert.equal(a.find(r.id).payment, undefined, 'a draft has no copy yet');
+  assert.equal((await a.store.send(r.id)).ok, true);
+  await a.reload(); const sent = a.find(r.id);
+  assert.equal(sent.payment.bank, 'Maybank'); assert.equal(sent.payment.accNo, '5123 4567 8901');
+  // the company changes its details; the issued invoice does not move
+  a.state.finance.settings.payDefaults = { bank: 'CIMB', accName: 'Other', accNo: '1', instructions: '', qr: '', terms: 'Net 7' };
+  const r2 = await a.store.createDraft(draft({ conditions: 'Net 7' })); assert.equal(r2.ok, true);
+  await a.reload(); assert.equal((await a.store.send(r2.id)).ok, true);
+  await a.reload();
+  assert.equal(a.find(r.id).payment.bank, 'Maybank', 'old invoice unchanged'); assert.equal(a.find(r.id).conditions, 'Net 30');
+  assert.equal(a.find(r2.id).payment.bank, 'CIMB', 'the new one has the new details');
+  // after sending, the copy can't be edited
+  const { updateDoc, doc: d2 } = require('firebase/firestore');
+  const ref = d2(a.db, `tenants/${T}/invoices/${r.id}`);
+  await assert.rejects(updateDoc(ref, { 'payment.bank': 'Hacked', v: sent.v + 1 }));
+  // wrong shapes are refused on a draft
+  const r3 = await a.store.createDraft(draft()); await a.reload();
+  const bad = await a.store.saveDraft(r3.id, { conditions: 'x'.repeat(1001) });
+  assert.equal(bad.ok, true, 'the store cuts the terms at 1000 before sending');
+  await a.reload(); assert.equal(a.find(r3.id).conditions.length, 1000);
 });
