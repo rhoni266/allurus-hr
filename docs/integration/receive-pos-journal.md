@@ -1,0 +1,23 @@
+# receivePosJournal: sisi Allurus (dibina, belum deploy)
+
+Menerima jurnal harian POS ([daily-journal-contract.md](daily-journal-contract.md)) dan mencipta satu **general entry** yang seimbang. Kod: `functions/pos-journal.js` (logik, diuji), `functions/index.js` (Cloud Function `receivePosJournal`, asia-southeast1), `js/ledger-rules.js` (peraturan entri dan trial balance). Ujian: `functions/test/pos-journal.test.js`, `tests/ledger.test.js`, `tests-rules/prod.rules.test.js` (peraturan `generalEntries`).
+
+## Pengangkutan: mengikut cadangan kontrak, tiada perubahan
+`POST` JSON; `X-Timestamp` (saat unix), `X-Idempotency-Key`, `X-Signature` = HMAC-SHA256 heks bagi `"<X-Timestamp>.<badan mentah>"`. Tandatangan dibanding dengan `crypto.timingSafeEqual` (panjang sama, heks huruf besar atau kecil diterima). Cap masa lebih daripada 5 minit dari sekarang ditolak; **saya juga menolak cap masa lebih 5 minit di masa depan** (kontrak hanya menyebut yang lama). Badan maksimum 64 KB. Jawapan: 201 dicipta, 200 duplikat (entri sedia ada), 401 tidak dibenarkan (cap masa, tandatangan, tenant tiada rahsia: mesej sama), 400 jurnal tidak sah, 409 kunci sama muatan berbeza, 413, 405, 422 belum dikonfigurasi.
+
+## Keputusan yang bukan dalam kontrak (perlu disahkan)
+1. **Rahsia**: satu Firebase secret `POS_JOURNAL_SECRETS` (JSON: id tenant POS kepada rahsia). Tetapkan: `firebase functions:secrets:set POS_JOURNAL_SECRETS`. Tiada rahsia dalam repo, dokumen Firestore atau log.
+2. **Pemetaan tenant dan akaun**: dokumen pelayan sahaja `posIntegrations/{id tenant POS}` = `{ enabled: true, allurusTenantId, accountMap: { cash: "...", card: "...", ... }, outlets?: [id outlet] }`. Peraturan Firestore menolak semua capaian pelayar. **Kunci akaun tanpa nama dalam `accountMap` ditolak (422, tiada apa-apa ditulis): tiada tekaan.** Hanya kunci yang digunakan jurnal itu perlu dinamakan.
+3. **Idempotensi**: id entri = SHA-256 kunci (`tenant:outlet:tarikh:versi`). Muatan dihash secara kanonik (kunci diisih, baris diisih mengikut akaun dan sisi), jadi susunan baris berbeza = muatan sama. Dicipta, disemak dan dibanding dalam satu transaksi Firestore. Entri tidak pernah diubah atau dipadam.
+4. **Entri**: `tenants/{t}/generalEntries/{id}`: `lines[{account (nama syarikat), key (kunci neutral), side, cents, outletId}]`, `totalDebitCents = totalCreditCents`, `metadata`, `payloadHash`, `receivedAt`. Jumlah dalam **sen (integer)**, berbeza daripada baris `txns` Finance yang dalam ringgit perpuluhan. Pengesahan imbangan sama dua kali (skema/validator dan `ledger-rules.js`).
+5. **Sebelum deploy**: `scripts/copy-pos-rules.js` kini juga menyalin `js/ledger-rules.js` ke `functions/` (sama seperti `pos-rules.js`, diabaikan git); `firebase.json` predeploy menjalankan ujian jurnal.
+
+## Apa yang ADA dalam modul Finance (dilaporkan sebelum membina)
+- Pembukuan **satu entri** sahaja: `fin.txns` = `{id, date, desc, type: in|out, category, amount (ex-cukai), tax, ref, source, reconciled}`, ditambah invois, bil dan baris gaji.
+- **Tiada carta akaun.** `category` ialah senarai tetap teks: pendapatan `Subscriptions, Services, Product sales, Other income`; perbelanjaan `Payroll, Rent, Utilities, Software, Marketing, Travel, Entertainment, Training, Professional fees, Repairs and maintenance, Office supplies, Bank charges, Staff benefits, Raw materials, Packaging, Stock purchases…`. Tuntutan sebut "GL account" tetapi itu hanya nama kategori.
+- **Tiada general entry, tiada lejar, tiada trial balance.** Kenyataan "aliran general entry > trial balance" tidak wujud dalam kod. Yang dibina di sini ialah lapisan minimum (entri seimbang, tidak boleh diubah, `trialBalance()`), **tanpa skrin**.
+- **Tiada dimensi outlet atau pusat kos** dalam Finance. `outlet_id` disimpan pada setiap baris entri (`outletId`) dan dalam `posIntegrations.outlets` (senarai dibenarkan, pilihan). Tiada laporan mengikut outlet lagi.
+- Nama akaun dalam `accountMap` ialah teks bebas yang syarikat pilih (contoh `Cash on hand`, `SST output`). Memilih padanan ke kategori `txns` (supaya jualan POS muncul dalam laporan bulanan sedia ada) ialah keputusan pembangun Allurus, belum dibuat.
+
+## Belum dibuat
+Skrin Finance untuk entri dan trial balance; laporan mengikut outlet; penyambungan entri POS ke laporan bulanan sedia ada; konfigurasi sebenar `posIntegrations` dan rahsia; deploy. Soalan terbuka kontrak 3 (waktu potong selepas tengah malam) dan 4 (dasar `version`) masih menunggu pemilik.

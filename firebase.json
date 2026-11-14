@@ -85,7 +85,7 @@
       "source": "functions",
       "codebase": "default",
       "ignore": ["node_modules", "test", "*.log"],
-      "predeploy": ["node scripts/copy-pos-rules.js", "node --test functions/test/pos-core.test.js"]
+      "predeploy": ["node scripts/copy-pos-rules.js", "node --test functions/test/pos-core.test.js functions/test/pos-journal.test.js"]
     }
   ],
   "firestore": {
