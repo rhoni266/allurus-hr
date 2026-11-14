@@ -485,6 +485,10 @@ service cloud.firestore {
         && request.resource.data.setAt is int;
     }
 
+    // Which Allurus company a POS tenant posts its daily journal into, and its account names (functions/pos-journal.js). Server only: the
+    // HMAC secrets are in Firebase secrets, never here. Top level, keyed by the POS tenant id.
+    match /posIntegrations/{id} { allow read, write: if false; }
+
     match /tenants/{t} {
       allow read: if member(t);
       // Only the superadmin opens a company (with an audit entry). It has no owner until its first admin
@@ -966,8 +970,6 @@ service cloud.firestore {
       match /pos_refunds/{id} { allow read: if onTill(['manager']) && canRead(t); allow write: if false; }
       match /pos_shifts/{id} { allow read: if onTill(['manager', 'cashier']) && canRead(t); allow write: if false; }
       match /pos_counters/{id} { allow read, write: if false; }
-      // Which Allurus company a POS tenant posts into, and its account names (server only; the HMAC secrets are in Firebase secrets, not here).
-      match /posIntegrations/{id} { allow read, write: if false; }
       match /pos_audit/{id} { allow read: if onTill(['manager']) && canRead(t); allow write: if false; }
 
       match /blobs/{id} {

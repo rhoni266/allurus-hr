@@ -42,7 +42,7 @@ function validateJournal(j) {
   const e = [];
   const keys = (o, allowed, where) => { Object.keys(o).forEach((k) => { if (!allowed.includes(k)) e.push(`${where}: unknown field ${k}`); }); };
   if (!j || typeof j !== 'object' || Array.isArray(j)) return ['The journal must be an object'];
-  keys(j, ['schema', 'schema_version', 'tenant_id', 'outlet_id', 'business_date', 'version', 'idempotency_key', 'currency', 'lines', 'metadata'], 'journal');
+  keys(j, ['schema', 'schema_version', 'tenant_id', 'outlet_id', 'business_date', 'version', 'idempotency_key', 'currency', 'lines', 'metadata', 'account_map'], 'journal');
   if (j.schema !== 'possaas.daily-journal') e.push('schema must be possaas.daily-journal');
   if (j.schema_version !== 1) e.push('schema_version must be 1');
   if (typeof j.tenant_id !== 'string' || !UUID.test(j.tenant_id)) e.push('tenant_id is not a valid id');
@@ -66,6 +66,12 @@ function validateJournal(j) {
     });
     if (!e.length && dr !== cr) e.push(`Debits ${dr} and credits ${cr} are not equal`);
     if (!e.length && !Number.isSafeInteger(dr)) e.push('The totals are too large');
+  }
+  // Optional: the POS's own copy of its account names. Allurus is the source of truth (posIntegrations.accountMap); this is only checked against it.
+  if (j.account_map !== undefined) {
+    const am = j.account_map;
+    if (!am || typeof am !== 'object' || Array.isArray(am)) e.push('account_map must be an object');
+    else Object.entries(am).forEach(([k, v]) => { if (!ACCOUNTS.includes(k)) e.push(`account_map: unknown account ${k}`); else if (typeof v !== 'string' || !v.trim() || v.length > 80) e.push(`account_map.${k} must be a name`); });
   }
   const m = j.metadata;
   if (!m || typeof m !== 'object' || Array.isArray(m)) e.push('metadata is required');
@@ -125,6 +131,11 @@ async function handle({ method, headers, rawBody }, deps) {
   const cfg = await deps.store.config(parsed.tenant_id);
   if (!cfg || cfg.enabled !== true || typeof cfg.allurusTenantId !== 'string' || !cfg.allurusTenantId) { log('not_configured', { tenant: parsed.tenant_id }); return res(422, { error: 'not_configured' }); }
   if (Array.isArray(cfg.outlets) && !cfg.outlets.includes(parsed.outlet_id)) return res(422, { error: 'outlet_not_allowed' });
+  // Allurus owns the account map. A map sent in the journal must agree with it for every key it names; any difference refuses the journal.
+  if (parsed.account_map !== undefined) {
+    const off = Object.keys(parsed.account_map).filter((k) => !cfg.accountMap || parsed.account_map[k] !== cfg.accountMap[k]).sort();
+    if (off.length) { log('account_map_mismatch', { accounts: off }); return res(422, { error: 'account_map_mismatch', accounts: off }); }
+  }
   const missing = [...new Set(parsed.lines.map((l) => l.account))].filter((a) => !cfg.accountMap || typeof cfg.accountMap[a] !== 'string' || !cfg.accountMap[a].trim());
   if (missing.length) { log('unmapped', { missing }); return res(422, { error: 'unmapped_account', accounts: missing }); }
   const hash = payloadHash(parsed), entryId = crypto.createHash('sha256').update(parsed.idempotency_key).digest('hex').slice(0, 40);

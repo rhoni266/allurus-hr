@@ -143,6 +143,34 @@ test('mapping: no guessing. An unmapped account, a disabled or unknown tenant, o
   assert.equal((await run(req(example), fakeStore(partial))).status, 201);
 });
 
+test('Allurus owns the account map: a journal account_map that disagrees is 422 account_map_mismatch and writes nothing', async () => {
+  const withMap = (m) => ({ ...clone(example), account_map: m });
+  // agrees (all keys, or only some): accepted, and the stored names are Allurus's
+  const full = await run(req(withMap(ACCOUNT_MAP))); assert.equal(full.status, 201);
+  assert.equal([...full.store.entries.values()][0].lines.find((l) => l.key === 'sales').account, 'Sales');
+  assert.equal((await run(req(withMap({ cash: 'Cash on hand', sales: 'Sales' })))).status, 201, 'a subset that agrees is fine');
+  assert.equal((await run(req(withMap({})))).status, 201, 'an empty map names nothing, so nothing disagrees');
+  // does not agree: a different name, a name where Allurus has none, a key Allurus does not have
+  const diff = await run(req(withMap({ ...ACCOUNT_MAP, cash: 'Petty cash' }))); assert.equal(diff.status, 422); assert.deepEqual(diff.body, { error: 'account_map_mismatch', accounts: ['cash'] }); assert.equal(diff.store.entries.size, 0);
+  const two = await run(req(withMap({ ...ACCOUNT_MAP, cash: 'x', card: 'y' }))); assert.deepEqual(two.body.accounts, ['card', 'cash']); assert.equal(two.store.entries.size, 0);
+  const partialCfg = { ...CFG, accountMap: { cash: 'C', card: 'K', duitnow_qr: 'D', sales: 'S', sst_output: 'T', rounding: 'R' } };
+  const extra = await run(req(withMap({ cash: 'C', ewallet: 'Wallet' })), fakeStore(partialCfg)); assert.equal(extra.status, 422, 'a name for a key Allurus has no name for'); assert.equal(extra.body.error, 'account_map_mismatch'); assert.equal(extra.store.entries.size, 0);
+  assert.equal((await run(req(withMap({ cash: 'cash on hand' })))).status, 422, 'compared exactly, case and all');
+  // an existing entry is not touched by a later mismatching journal
+  const store = fakeStore(); await run(req(example), store);
+  const later = await run(req(withMap({ ...ACCOUNT_MAP, sales: 'Revenue' })), store); assert.equal(later.status, 422); assert.equal(store.entries.size, 1);
+  assert.equal([...store.entries.values()][0].lines.find((l) => l.key === 'sales').account, 'Sales');
+  // the mismatch is decided before the money: still 422 even when the same journal would otherwise be a 409 conflict
+  const conflicting = withMap({ ...ACCOUNT_MAP, cash: 'Other' }); conflicting.lines[0].amount_cents += 100; conflicting.lines[3].amount_cents += 100;
+  assert.equal((await run(req(conflicting), store)).status, 422);
+  // malformed maps are 400
+  for (const bad of [[1], 'x', null, { petty: 'x' }, { cash: '' }, { cash: 5 }, { cash: 'x'.repeat(81) }]) assert.equal((await run(req(withMap(bad)))).status, 400, JSON.stringify(bad));
+  // a different map is part of the payload: the same key with another (agreeing) map is a different payload, so 409, not a silent duplicate
+  const s2 = fakeStore(); await run(req(example), s2); assert.equal((await run(req(withMap({ cash: 'Cash on hand' })), s2)).status, 409);
+  // it is signed with the body, so it cannot be stripped or altered in transit
+  const r = req(withMap({ cash: 'Cash on hand' })); r.rawBody = r.rawBody.replace('Cash on hand', 'Petty cash'); assert.equal((await run(r)).status, 401);
+});
+
 test('method and size: only POST; a body over 64 KB is refused', async () => {
   assert.equal((await run({ ...req(example), method: 'GET' })).status, 405);
   assert.equal((await run({ ...req(example), method: 'PUT' })).status, 405);
@@ -160,7 +188,7 @@ test('logs carry events and ids only: never the body, the lines, the signature o
 test('the validator matches the contract schema (accounts, required fields) and the secrets are not in the repo', () => {
   assert.deepEqual([...J.ACCOUNTS].sort(), [...schema.properties.lines.items.properties.account.enum].sort());
   assert.deepEqual(J.validateJournal(example), []);
-  assert.deepEqual(Object.keys(schema.properties).sort(), Object.keys(example).sort());
+  assert.deepEqual(Object.keys(schema.properties).sort(), Object.keys(example).sort());   // account_map is an optional extra beyond the contract schema
   const idx = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
   assert.match(idx, /defineSecret\('POS_JOURNAL_SECRETS'\)/); assert.ok(!/POS_JOURNAL_SECRETS\s*=\s*['"{]/.test(idx), 'no secret value in the code');
   assert.ok(!fs.readFileSync(path.join(__dirname, '..', '..', 'firestore.rules'), 'utf8').includes(SECRET));
