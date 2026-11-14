@@ -824,6 +824,13 @@ service cloud.firestore {
       // They key in quantities only (prodQty). They can't read days, shares, rates or pay, and can't write them.
       function prodSup() { return member(t) && me().get('prodEntry', false) == true; }
       function prodLock(m) { return /databases/$(database)/documents/tenants/$(t)/prodLocks/$(m); }
+      // ---- General entries (js/ledger-rules.js): balanced double-entry postings, for example the daily journal received from the POS
+      // (functions/pos-journal.js). Finance readers see them; nobody writes or edits them from a browser: only the server posts one, and
+      // an entry is never changed or deleted (a correction is another entry).
+      match /generalEntries/{e} {
+        allow read: if hasArea(t, 'finance') && canRead(t);
+        allow write: if false;
+      }
       match /prodDays/{d} {
         function pdMonth() { return d.split('-')[0] + '-' + d.split('-')[1]; }
         // Several products on one day: items is a list of up to 8 lines, each a map of known fields with text quantity and rate (no
@@ -959,6 +966,8 @@ service cloud.firestore {
       match /pos_refunds/{id} { allow read: if onTill(['manager']) && canRead(t); allow write: if false; }
       match /pos_shifts/{id} { allow read: if onTill(['manager', 'cashier']) && canRead(t); allow write: if false; }
       match /pos_counters/{id} { allow read, write: if false; }
+      // Which Allurus company a POS tenant posts into, and its account names (server only; the HMAC secrets are in Firebase secrets, not here).
+      match /posIntegrations/{id} { allow read, write: if false; }
       match /pos_audit/{id} { allow read: if onTill(['manager']) && canRead(t); allow write: if false; }
 
       match /blobs/{id} {

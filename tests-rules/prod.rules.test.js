@@ -219,3 +219,22 @@ test('supervisor: a company without the add-on, or a switched-off supervisor, ha
   await env.withSecurityRulesDisabled((c) => updateDoc(doc(c.firestore(), `tenants/${T}`), { addons: { prodCommission: false } }));
   await assertFails(setDoc(Q(as('sup2'), '2026-11-13~pp-1'), qty('2026-11-13', 'pp-1', { by: 'e10' })));
 });
+
+// ---- general entries (js/ledger-rules.js): read by Finance only, never written from a browser ----
+test('general entries: Finance readers read them; nobody writes, edits or deletes one from a browser; posIntegrations is server-only', async () => {
+  await env.withSecurityRulesDisabled(async (c) => {
+    const db = c.firestore();
+    await setDoc(doc(db, 'users/fin'), { tenantId: T, roles: ['admin', 'employee'], perms: ['finance'], empId: 'e11' });
+    await setDoc(doc(db, `tenants/${T}/generalEntries/k1`), { date: '2026-11-14', lines: [] });
+    await setDoc(doc(db, 'posIntegrations/p1'), { allurusTenantId: T });
+  });
+  const GE = (db, id) => doc(db, `tenants/${T}/generalEntries/${id}`);
+  await assertSucceeds(getDoc(GE(as('fin'), 'k1')));
+  await assertFails(getDoc(GE(as('a'), 'k1')));                                    // a normal employee
+  await assertFails(getDoc(GE(as('hr'), 'k1')));                                   // people area is not Finance
+  await assertFails(setDoc(GE(as('fin'), 'k2'), { date: '2026-11-14', lines: [] })); // not even Finance writes from a browser
+  await assertFails(updateDoc(GE(as('fin'), 'k1'), { date: '2026-11-15' }));
+  await assertFails(deleteDoc(GE(as('own'), 'k1')));
+  await assertFails(getDoc(doc(as('own'), 'posIntegrations/p1')));
+  await assertFails(setDoc(doc(as('own'), 'posIntegrations/p2'), { allurusTenantId: T }));
+});
