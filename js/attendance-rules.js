@@ -116,6 +116,25 @@ window.AllurusTimeRules = (function () {
     if (O != null) while (O <= I) O += 1440;
     return { I, O, S, E };
   }
+  // ---------- Several sessions in one day ----------
+  // A day record keeps the first check-in as `in`, the earlier sessions as history [{ in, out }], the latest check-in as `lastIn`
+  // and the latest check-out as `out`. Minutes between two clock times, a check-out earlier than its check-in being past midnight.
+  const spanMin = (a, b) => { const x = toMin(a), y = toMin(b); return x == null || y == null ? 0 : (y - x + 1440) % 1440; };
+  function sessions(rec, nowHM) {
+    if (!rec || !rec.in) return [];
+    const list = (rec.history || []).filter((h) => h && h.in).map((h) => ({ in: h.in, out: h.out || '' }));
+    list.push({ in: list.length ? rec.lastIn || rec.in : rec.in, out: rec.out || nowHM || '' });
+    return list;
+  }
+  // Minutes worked: the sum of every session. An open session counts up to nowHM when given.
+  const sessionMin = (rec, nowHM) => sessions(rec, nowHM).reduce((s, x) => s + (x.out ? spanMin(x.in, x.out) : 0), 0);
+  // Minutes between one session's check-out and the next check-in.
+  function stepOutMin(rec) {
+    const list = sessions(rec);
+    let away = 0;
+    for (let i = 1; i < list.length; i++) if (list[i - 1].out) away += spanMin(list[i - 1].out, list[i].in);
+    return away;
+  }
   const EMPTY_BUCKETS = () => ({ normal: 0, restIn: 0, rest: 0, holidayIn: 0, holiday: 0, night: 0 });
   // Total overtime minutes (the in-normal-hours rest day and holiday minutes are paid work, but not overtime).
   const otMinutes = (b) => (b.normal || 0) + (b.rest || 0) + (b.holiday || 0) + (b.night || 0);
@@ -135,7 +154,10 @@ window.AllurusTimeRules = (function () {
     res.open = O == null;
     const brk = pattern ? Number(pattern.breakMin) || 0 : 60;
     const span = O == null ? 0 : O - I;
-    res.worked = Math.max(0, span - (span > BREAK_AFTER ? brk : 0));
+    // Several sessions in a day (stepped out and came back): hours worked are the sum of the sessions, so the time away is not
+    // counted. That time away is the break, so the shift's break is not taken off again. Lateness stays with the first check-in.
+    const away = stepOutMin(rec);
+    res.worked = Math.max(0, away ? span - away : span - (span > BREAK_AFTER ? brk : 0));
     const normalMin = (Number(rules.normalHours) || 8) * 60;
     let ot = 0, nightRaw = 0, inMin = 0;
 
@@ -225,9 +247,11 @@ window.AllurusTimeRules = (function () {
   // A shift that runs past midnight counts for the day it started. prevPattern = yesterday's shift for this person. A punch
   // after midnight and before that shift's end belongs to yesterday; anything else belongs to its own day.
   const isOvernight = (p) => !!p && !p.flexible && toMin(p.end) != null && toMin(p.end) <= toMin(p.start);
-  function shiftDayFor({ day, hm, prevPattern = null }) {
+  // prevChecked (optional): whether the person has a check-in on yesterday's record. A punch before yesterday's overnight shift ends but
+  // with nothing checked in yesterday is an early punch for today's shift, not the end of last night's; leave it out and it stays the old rule.
+  function shiftDayFor({ day, hm, prevPattern = null, prevChecked = null }) {
     const t = toMin(hm);
-    return isOvernight(prevPattern) && t != null && t <= toMin(prevPattern.end) ? addDays(day, -1) : day;
+    return isOvernight(prevPattern) && t != null && t <= toMin(prevPattern.end) && prevChecked !== false ? addDays(day, -1) : day;
   }
   // True once a shift that started on `day` has finished at nowDay/nowHM. No shift: the day is over at midnight.
   function shiftEnded({ day, pattern = null, nowDay, nowHM }) {
@@ -349,7 +373,7 @@ window.AllurusTimeRules = (function () {
   return {
     toMin, fmtMin, fmtDur, dow, addDays, mondayOf, weekDays, workDays, EA_MONTH_LIMIT_H,
     defaultPatterns, defaultOT, defaultAllowances, defaultSettings,
-    patternFor, autoShift, resolveDay, shiftDayFor, shiftEnded, isOvernight, roundOT, evaluate, capMonth, otMinutes, paidMinutes,
+    patternFor, autoShift, resolveDay, shiftDayFor, shiftEnded, isOvernight, sessions, sessionMin, stepOutMin, roundOT, evaluate, capMonth, otMinutes, paidMinutes,
     hourlyRate, otPay, allowanceFor, copyWeek, applyTemplate, overlaps, shiftLabel, shiftMinutes, diff, batchPlan,
   };
 })();

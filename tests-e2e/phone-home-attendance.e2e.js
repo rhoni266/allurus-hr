@@ -39,6 +39,27 @@ const SHOTS = process.env.SHOTS || '';
     await m.evaluate(() => { document.documentElement.dataset.theme = 'light'; }); await m.waitForTimeout(300);
     await m.screenshot({ path: path.join(SHOTS, 'phone-home-en-light.png') });
   }
+  // Stepped out and coming back: after Check out the phone offers Check in again (EN, then BM), and nothing overflows.
+  await m.evaluate(() => {
+    const k = Object.keys(localStorage).find((x) => { try { const j = JSON.parse(localStorage[x]); return j && j.attendance && j.session; } catch (e) { return false; } });
+    const j = JSON.parse(localStorage[k]), id = j.accounts.find((a) => a.email === j.session.account || a.email === j.session.email)?.empId || 'e8';
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).format(new Date());
+    j.attendance[day] = j.attendance[day] || {}; j.attendance[day][id] = { s: 'present', in: '07:00', out: '10:00' };
+    localStorage[k] = JSON.stringify(j);
+  });
+  await m.reload(); await m.waitForSelector('.ss'); await m.waitForTimeout(500);
+  ok('After Check out the phone offers Check in again', await m.evaluate(() => /Check in again/.test(document.querySelector('.ss-big')?.innerText || '') && document.querySelector('.ss-big')?.dataset.act === 'check-in'));
+  ok('…hours stay in the sum of the sessions, no sideways scroll', await m.evaluate(() => document.documentElement.scrollWidth <= 391));
+  if (SHOTS) {
+    await m.evaluate(() => { document.documentElement.dataset.theme = 'light'; }); await m.waitForTimeout(300); await m.screenshot({ path: path.join(SHOTS, 'phone-again-en-light.png') });
+    await m.evaluate(() => { document.documentElement.dataset.theme = 'dark'; }); await m.waitForTimeout(300); await m.screenshot({ path: path.join(SHOTS, 'phone-again-en-dark.png') });
+    await m.evaluate(() => { document.documentElement.dataset.theme = 'light'; document.querySelector('[data-act=ss-me]').click(); }); await m.waitForTimeout(300);
+    await m.evaluate(() => document.querySelector('[data-act=ss-lang][data-v=bm]').click()); await m.waitForTimeout(500);
+    await m.screenshot({ path: path.join(SHOTS, 'phone-again-bm-light.png') });
+    ok('…BM says Daftar masuk semula', await m.evaluate(() => /Daftar masuk semula/.test(document.querySelector('.ss-big')?.innerText || '')));
+    await m.evaluate(() => { document.querySelector('[data-act=ss-me]').click(); }); await m.waitForTimeout(300);
+    await m.evaluate(() => document.querySelector('[data-act=ss-lang][data-v=en]').click()); await m.waitForTimeout(500);
+  }
   await m.evaluate(() => document.querySelector('.pa-week').click()); await m.waitForTimeout(400);
   ok('Tapping the week opens the attendance history', await m.evaluate(() => !!document.querySelector('.modal table')));
   // Suria: no simple screen; the normal app loads

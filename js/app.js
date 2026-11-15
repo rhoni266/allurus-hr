@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.69';
+  const APP_VERSION = '3.70';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -2140,7 +2140,7 @@
   // ---------- The simple staff screen ----------
   // One language at a time: the company default (Settings, Staff app), then the person's own choice, kept on their phone.
   const SS = {
-    en: { checkIn: 'Check in', checkOut: 'Check out', onLeave: 'On leave today', done: 'Done for today', since: 'In since', at: 'Check in at',
+    en: { checkIn: 'Check in', checkInAgain: 'Check in again', backAgain: 'Back after stepping out? Your hours add up.', checkOut: 'Check out', onLeave: 'On leave today', done: 'Done for today', since: 'In since', at: 'Check in at',
       ontime: 'On time', late: 'Late', absent: 'Absent', leave: 'Leave', rest: 'Rest day', holiday: 'Holiday', notyet: 'Not clocked in yet', today: 'Today',
       lateBy: (n) => `Late by ${n} min`, clockedIn: (t) => `Clocked in ${t}`, hours: 'Hours worked today', last7: 'This week', thisMonth: 'This month',
       history: 'Day by day', meters: 'This month, so far', onTimeM: 'On time', lateM: 'Late', absentM: 'Absent', shortM: 'Short hours',
@@ -2149,7 +2149,7 @@
       help: 'The PDF password is your IC number, without dashes.', noIc: 'Ask HR to add your IC to download your payslip.',
       me: 'Me', signOut: 'Sign out', language: 'Language', date: 'Date', in: 'In', out: 'Out', status: 'Status', lastMonth: 'Last month', nothing: 'Nothing yet.', short: 'short', worked: 'Worked',
       Approved: 'Approved', Pending: 'Pending', Rejected: 'Declined', Cancelled: 'Cancelled', waiting: (n) => `${n} request${n === 1 ? '' : 's'} waiting` },
-    bm: { checkIn: 'Daftar masuk', checkOut: 'Daftar keluar', onLeave: 'Bercuti hari ini', done: 'Selesai hari ini', since: 'Masuk sejak', at: 'Daftar masuk di',
+    bm: { checkIn: 'Daftar masuk', checkInAgain: 'Daftar masuk semula', backAgain: 'Dah balik selepas keluar sekejap? Jam kerja dicampur.', checkOut: 'Daftar keluar', onLeave: 'Bercuti hari ini', done: 'Selesai hari ini', since: 'Masuk sejak', at: 'Daftar masuk di',
       ontime: 'Tepat masa', late: 'Lewat', absent: 'Tidak hadir', leave: 'Cuti', rest: 'Hari rehat', holiday: 'Cuti umum', notyet: 'Belum daftar masuk', today: 'Hari ini',
       lateBy: (n) => `Lewat ${n} min`, clockedIn: (t) => `Daftar masuk ${t}`, hours: 'Jam bekerja hari ini', last7: 'Minggu ini', thisMonth: 'Bulan ini',
       history: 'Hari demi hari', meters: 'Bulan ini, setakat ini', onTimeM: 'Tepat masa', lateM: 'Lewat', absentM: 'Tidak hadir', shortM: 'Jam kurang',
@@ -2175,8 +2175,9 @@
   };
   // The day a person's shift is counted for right now: an overnight shift that began yesterday is still "today" until it ends.
   const workDay = (e) => {
-    const n = AllurusSimpleHome.nowKL(), p = timeApi.dayInfo(e, U.addDays(n.day, -1)).pattern;
-    return AllurusTimeRules.shiftDayFor({ day: n.day, hm: n.hm, prevPattern: p });
+    const n = AllurusSimpleHome.nowKL(), prev = U.addDays(n.day, -1), p = timeApi.dayInfo(e, prev).pattern;
+    return AllurusTimeRules.shiftDayFor({ day: n.day, hm: n.hm, prevPattern: p, prevChecked: !!state.attendance[prev]?.[e.id]?.in });
+
   };
   const ssEnded = (now) => (x) => AllurusTimeRules.shiftEnded({ day: x.day, pattern: x.pattern, nowDay: now.day, nowHM: now.hm });
   // Today's status pill, with the check-in time beside it.
@@ -2185,7 +2186,7 @@
     const tone = { ontime: 'ok', late: 'warn', absent: 'slate', leave: 'info' }[s.status] || '';
     const word = s.status === 'late' ? t.lateBy(s.min) : t[s.status] || t.today;
     const inTime = rec?.in ? `<span class="pa-time">${esc(t.clockedIn(H.time12(rec.in)))}</span>` : '';
-    const hrs = rec?.in ? `<p class="pa-hours">${esc(t.hours)}: <b>${H.fmtMin(Math.round(hoursBetween(rec.in, rec.out || nowHM()) * 60))}</b></p>` : '';
+    const hrs = rec?.in ? `<p class="pa-hours">${esc(t.hours)}: <b>${H.fmtMin(AllurusTimeRules.sessionMin(rec, nowHM()))}</b></p>` : '';
     return `<div class="pa-today"><span class="pill pa-pill ${tone}">${esc(word)}</span>${inTime}</div>${hrs}`;
   }
   // Monday to Sunday: a dot, the day letter and a word. Rest days and holidays are hollow rings.
@@ -2211,7 +2212,8 @@
     else if (!rec || !rec.in) clock = `<button type="button" class="btn btn-primary ss-big" data-act="check-in" data-v="present">${icon('camera')}<span>${esc(t.checkIn)}</span></button>
       <p class="ss-sub">${[shift, zone().label ? `${t.at} ${zone().label}` : ''].filter(Boolean).map(esc).join(' · ')}</p>`;
     else if (!rec.out) clock = `<button type="button" class="btn btn-primary ss-big" data-act="check-out">${icon('clock')}<span>${esc(t.checkOut)}</span></button><p class="ss-sub">${esc(t.since)} ${esc(H.time12(rec.lastIn || rec.in))}</p>`;
-    else clock = `<p class="ss-done">${esc(t.done)} · ${esc(H.time12(rec.in))}–${esc(H.time12(rec.out))}</p>`;
+    else clock = `<p class="ss-done">${esc(t.done)} · ${esc(H.time12(rec.in))}–${esc(H.time12(rec.out))}</p>
+      <button type="button" class="btn ss-big" data-act="check-in" data-v="present">${icon('camera')}<span>${esc(t.checkInAgain)}</span></button><p class="ss-sub">${esc(t.backAgain)}</p>`;
     const meters = rec?.in ? `<button type="button" class="ss-meters-tap" data-act="ss-days" data-v="${U.monthKey(now.day)}" aria-label="${esc(t.thisMonth + ' · ' + t.history)}">${ssMeters(U.monthKey(now.day))}</button>` : '';
     // Leave: the balances first, then what is waiting.
     const bal = leaveApi.myBalances(e).map(({ t: lt, b }) => `<li><span>${esc(lt.name)}</span><b class="nb">${b.unlimited ? esc(t.taken(L(b.used))) : esc(t.left(b.available, L))}</b></li>`).join('');
@@ -2266,7 +2268,7 @@
     if (rec?.s === 'leave') clock = `<span class="pill gold">On leave today. Enjoy it!</span>`;
     else if (!rec || !rec.in) clock = `<div class="actions"><button class="btn btn-primary btn-lg" data-act="check-in" data-v="present">${icon('camera')}Check in with selfie</button>${zone().remote ? '<button class="btn" data-act="check-in" data-v="remote">Work remotely</button>' : ''}</div>`;
     else if (!rec.out) clock = `<div class="clock-state"><div class="actions">${selfieThumb(me().id, T, rec)}<span class="pill ok">${rec.s === 'remote' ? 'Remote' : 'In office'} since ${rec.lastIn || rec.in}</span><button class="btn btn-primary" data-act="check-out">Check out</button></div>${rec.loc ? `<span class="faint" style="font-size:12.5px">${esc(locText(rec.loc))}</span>` : ''}</div>`;
-    else clock = `<div class="clock-state"><div class="actions">${selfieThumb(me().id, T, rec)}<span class="pill brand">Checked out at ${rec.out} · ${hoursBetween(rec.in, rec.out).toFixed(1)} h today</span><button class="btn btn-primary" data-act="check-in" data-v="present">${icon('camera')}Check in again</button>${zone().remote ? '<button class="btn" data-act="check-in" data-v="remote">Work remotely</button>' : ''}</div><span class="faint" style="font-size:12.5px">Checked out by mistake? Check in again. Your hours still count from ${rec.in}.</span></div>`;
+    else clock = `<div class="clock-state"><div class="actions">${selfieThumb(me().id, T, rec)}<span class="pill brand">Checked out at ${rec.out} · ${(AllurusTimeRules.sessionMin(rec) / 60).toFixed(1)} h today</span><button class="btn btn-primary" data-act="check-in" data-v="present">${icon('camera')}Check in again</button>${zone().remote ? '<button class="btn" data-act="check-in" data-v="remote">Work remotely</button>' : ''}</div><span class="faint" style="font-size:12.5px">Checked out by mistake? Check in again. Your hours add up every time you are in.</span></div>`;
     if (CLOUD && window.AllurusDevice && AllurusDevice.here() !== 'phone' && rec?.s !== 'leave') clock = '<span class="faint">Check in from your registered phone. Check-in doesn’t work on a computer.</span>';
     const ps = AllurusPlanner.summary(state, e);
     const coming = (state.claims || []).filter((c) => c.empId === e.id && c.status === 'Approved').reduce((s, c) => s + c.approved, 0);
@@ -2320,7 +2322,7 @@
       d = U.addDays(d, -1);
     }
     const c = { present: 0, remote: 0, absent: 0, leave: 0 }; let hours = 0;
-    days.forEach((x) => { const r = x.rec; if (r) { c[r.s]++; hours += r.out ? hoursBetween(r.in, r.out) : (r.in ? 8 : 0); } });
+    days.forEach((x) => { const r = x.rec; if (r) { c[r.s]++; hours += r.out ? AllurusTimeRules.sessionMin(r) / 60 : (r.in ? 8 : 0); } });
     const m = timeApi.monthFor(e, U.monthKey(T));
     const pill = { present: '<span class="pill ok">In office</span>', remote: '<span class="pill info">Remote</span>', absent: '<span class="pill bad">Absent</span>', leave: '<span class="pill gold">Leave</span>' };
     return `
@@ -2336,7 +2338,7 @@
       <div class="grid g-2">${timeApi.myShiftsCard(e, { days: 14, title: 'My roster', link: false })}${timeApi.myRequestsCard(e)}</div>
       <div class="card card-flush"><div class="table-wrap"><table>
         <thead><tr><th>Date</th><th class="hide-sm">Shift</th><th>Status</th><th>Check-in</th><th>Check-out</th><th class="r">Hours</th><th></th></tr></thead>
-        <tbody>${days.map((x) => { const r = x.rec, tags = timeApi.tagsFor(x); return `<tr><td class="num">${U.fmtDate(x.day, { weekday: 'short', month: 'short', day: 'numeric' })}</td><td class="hide-sm">${timeApi.shiftCell(x)}</td><td>${r ? pill[r.s] : '<span class="pill">Not marked</span>'}${tags ? `<div class="tm-tags">${tags}</div>` : ''}</td><td class="num muted"><div class="loc-cell">${selfieThumb(me().id, x.day, r)}<span>${r?.in || '—'}</span></div></td><td class="num muted">${r?.out || '—'}</td><td class="r num">${r?.in ? (r.out ? hoursBetween(r.in, r.out) : 8).toFixed(1) : '—'}</td>
+        <tbody>${days.map((x) => { const r = x.rec, tags = timeApi.tagsFor(x); return `<tr><td class="num">${U.fmtDate(x.day, { weekday: 'short', month: 'short', day: 'numeric' })}</td><td class="hide-sm">${timeApi.shiftCell(x)}</td><td>${r ? pill[r.s] : '<span class="pill">Not marked</span>'}${tags ? `<div class="tm-tags">${tags}</div>` : ''}</td><td class="num muted"><div class="loc-cell">${selfieThumb(me().id, x.day, r)}<span>${r?.in || '—'}</span></div></td><td class="num muted">${r?.out || '—'}</td><td class="r num">${r?.in ? (r.out ? AllurusTimeRules.sessionMin(r) / 60 : 8).toFixed(1) : '—'}</td>
           <td><div class="row-actions">${x.ev.unapproved ? `<button class="btn btn-sm" data-act="tm-request-day" data-id="${x.day}" data-v="ot">Ask for OT</button>` : x.ev.late ? `<button class="btn btn-sm btn-ghost" data-act="tm-request-day" data-id="${x.day}" data-v="waiver">Waive</button>` : x.day < T && (!r || (r.in && !r.out)) && x.type === 'normal' && !x.leave ? `<button class="btn btn-sm btn-ghost" data-act="tm-request-day" data-id="${x.day}" data-v="correction">Correct</button>` : ''}</div></td></tr>`; }).join('')}</tbody>
       </table></div></div>`;
   };
@@ -2872,6 +2874,7 @@
     const [pj = '', job = ''] = String(project || '').split('|');
     const extra = { photo, loc, face, device, upload, via, by, project: pj, job, flags, offline, reviewed: null, syncedAt: '' };
     const prev = state.attendance[T][e.id];
+    if (prev?.in && !prev.out && prev.s !== 'leave') return prev;   // already in: a second tap (or an old queued one) must not restart the day or the late time
     if (prev?.in && prev.out) {
       prev.history = [...(prev.history || []), { in: prev.lastIn || prev.in, out: prev.out, photo: prev.photo, loc: prev.loc, face: prev.face, via: prev.via, project: prev.project, job: prev.job || '' }];
       Object.assign(prev, { s: mode, out: '', lastIn: time, ...extra });
@@ -2884,7 +2887,7 @@
   }
   function ciConfirm() {
     const L = ci.loc, T = U.today(), t = nowHM(), z = zone(), e = me();
-    if (!L || !ci.photo) return;
+    if (!L || !ci.photo) { ciProblem('The check-in did not go through', 'Your location or selfie was lost, so nothing was saved. Tap Try again and take your selfie once more.', '', '<button class="btn" data-act="close-overlay">Close</button><button class="btn btn-primary" data-act="ci-retry">Try again</button>'); return; }
     const project = kioskApi.pickedProject('ci-project');
     if (project === false) return;
     const loc = L.field
@@ -2898,11 +2901,13 @@
     }
     if (ci.face?.result === 'enrolled') e.face = { photo: ci.photo, descriptor: ci.face.descriptor, status: 'pending', enrolledOn: T, consentOn: T };
     const offline = navigator.onLine === false;
-    const rec = writeCheckin(e, { mode: ci.mode, time: t, photo: ci.photo, loc, face, device, upload: ci.upload, via: 'self', project, flags: L.flags || [], offline });
+    let rec;
+    try { rec = writeCheckin(e, { mode: ci.mode, time: t, photo: ci.photo, loc, face, device, upload: ci.upload, via: 'self', project, flags: L.flags || [], offline }); } catch (err) { console.warn('[check-in] could not save', err); rec = null; }
+    if (!rec) { ciProblem('The check-in did not go through', 'Nothing was saved. Tap Try again, or tell HR if it keeps happening.', '', '<button class="btn" data-act="close-overlay">Close</button><button class="btn btn-primary" data-act="ci-retry">Try again</button>'); return; }
     const where = L.field ? (L.m != null ? `field · ${U.fmtDist(L.m)} from ${z.label}` : 'field') : `${U.fmtDist(L.m)} from ${z.label}`;
     // Every check-in goes through the outbox, so one taken offline reaches the server when the phone reconnects.
     kioskApi.rememberFix(L);
-    kioskApi.queue(e, T, rec, 'self');
+    kioskApi.queue(e, workDay(e), rec, 'self');
     closeOverlay();
     const flagged = face && (face.review || ['mismatch', 'unavailable'].includes(face.result));
     if (!flagged) setTimeout(() => AllurusUX.celebrate(), 150);
@@ -3116,7 +3121,7 @@
     'check-in': (_, v) => checkIn(v),
     'ci-retry': () => ciLocate(),
     'ci-capture': () => {
-      const v = $('#ci-video'); if (!v?.videoWidth) return;
+      const v = $('#ci-video'); if (!v?.videoWidth) { toast('The camera isn’t ready yet. Wait a second and tap Take selfie again.', 'error'); return; }
       ci.canvas = squareCanvas(v, v.videoWidth, v.videoHeight, true, 480);
       ci.photo = squareCanvas(v, v.videoWidth, v.videoHeight, true, 320).toDataURL('image/jpeg', 0.72);
       ci.upload = false; stopCamera(); ciVerify();

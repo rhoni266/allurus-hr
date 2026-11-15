@@ -78,3 +78,62 @@ test('no scheduled shift is never absent (status and meters)', () => {
   const m = H.meters([info('2026-11-10', null, null), info('2026-11-11', null, OFFICE)], { today: '2026-11-12' });
   assert.equal(m.absent.days, 1, 'only the day with a shift counts');
 });
+
+// ---------- Several punches a day, early punches, failed punches (Major Far East UAT, 2026-11-15) ----------
+const rec = (o) => ({ s: 'present', in: '', out: '', ...o });
+test('several sessions in a day: hours are the sum of the sessions', () => {
+  // 08:00-10:00, stepped out, 10:30-12:00, out for lunch, 13:00-17:00
+  const r = rec({ in: '08:00', out: '17:00', lastIn: '13:00', history: [{ in: '08:00', out: '10:00' }, { in: '10:30', out: '12:00' }] });
+  assert.deepEqual(R.sessions(r).map((x) => `${x.in}-${x.out}`), ['08:00-10:00', '10:30-12:00', '13:00-17:00']);
+  assert.equal(R.sessionMin(r), 120 + 90 + 240, 'the time away is not counted');
+  assert.equal(R.stepOutMin(r), 30 + 60);
+  assert.equal(R.evaluate({ rec: r, pattern: OFFICE }).worked, 450, 'the pay engine counts the same sum');
+  // a single session still takes the break off, as before
+  assert.equal(R.evaluate({ rec: rec({ in: '08:00', out: '17:00' }), pattern: OFFICE }).worked, 480);
+  // an open session counts up to now
+  assert.equal(R.sessionMin(rec({ in: '08:00', out: '', lastIn: '10:30', history: [{ in: '08:00', out: '10:00' }] }), '11:00'), 120 + 30);
+});
+test('several sessions: late is from the first check-in only', () => {
+  const r = rec({ in: '08:20', out: '17:00', lastIn: '13:00', history: [{ in: '08:20', out: '12:00' }] });
+  const ev = R.evaluate({ rec: r, pattern: OFFICE });
+  assert.equal(ev.lateRaw, 20, 'OFFICE starts 08:00; coming back at 13:00 does not add lateness'); assert.equal(ev.late, 20);
+  const onTime = R.evaluate({ rec: rec({ in: '07:55', out: '17:00', lastIn: '14:00', history: [{ in: '07:55', out: '12:00' }] }), pattern: OFFICE });
+  assert.equal(onTime.late, 0, 'a late return is not late');
+});
+test('an early punch 1 and 2 hours before the shift counts for that day and is not late', () => {
+  for (const hm of ['07:00', '06:00']) {
+    assert.equal(R.shiftDayFor({ day: '2026-11-14', hm, prevPattern: OFFICE }), '2026-11-14', hm + ' with a day shift');
+    const ev = R.evaluate({ rec: rec({ in: hm, out: '17:00' }), pattern: OFFICE });
+    assert.equal(ev.late, 0); assert.equal(ev.lateRaw, 0);
+  }
+  // Last night's shift ended at 06:00. An early punch at 05:00 with nothing checked in last night is today's, not last night's.
+  assert.equal(R.shiftDayFor({ day: '2026-11-14', hm: '05:00', prevPattern: NIGHT, prevChecked: false }), '2026-11-14');
+  assert.equal(R.shiftDayFor({ day: '2026-11-14', hm: '05:00', prevPattern: NIGHT, prevChecked: true }), '2026-11-13', 'still last night when they were in');
+  assert.equal(R.shiftDayFor({ day: '2026-11-14', hm: '05:00', prevPattern: NIGHT }), '2026-11-13', 'unknown keeps the old rule');
+  // an overnight shift 20:00-04:00: an early punch at 18:30 is its own day
+  const GUARD = { id: 'g', start: '20:00', end: '04:00', breakMin: 60, grace: 10, days: [0, 1, 2, 3, 4, 5, 6], flexible: false };
+  assert.equal(R.shiftDayFor({ day: '2026-11-14', hm: '18:30', prevPattern: GUARD, prevChecked: true }), '2026-11-14');
+  assert.equal(R.evaluate({ rec: rec({ in: '18:30', out: '04:00' }), pattern: GUARD }).late, 0);
+});
+const appSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+const cloudSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'cloud.js'), 'utf8');
+test('the phone screen offers Check in again after Check out, in English and BM', () => {
+  const home = appSrc.slice(appSrc.indexOf('function simpleHomeView()'), appSrc.indexOf('const meters = rec?.in'));
+  assert.match(home, /ss-done[\s\S]*data-act="check-in" data-v="present"[\s\S]*checkInAgain/, 'a button after the done line');
+  assert.match(appSrc, /checkInAgain: 'Check in again'/); assert.match(appSrc, /checkInAgain: 'Daftar masuk semula'/);
+});
+test('a second check-in while already in does not restart the day', () => {
+  const w = appSrc.slice(appSrc.indexOf('function writeCheckin('), appSrc.indexOf('function ciConfirm('));
+  assert.match(w, /prev\?\.in && !prev\.out[^\n]*return prev/);
+  assert.match(w, /history = \[\.\.\.\(prev\.history \|\| \[\]\), \{ in: prev\.lastIn \|\| prev\.in/, 'the earlier session goes into the history');
+});
+test('a failed check-in always shows an error, never a silent return', () => {
+  const c = appSrc.slice(appSrc.indexOf('function ciConfirm('), appSrc.indexOf('// Selfies are kept for 30 days'));
+  assert.doesNotMatch(c, /if \(!L \|\| !ci\.photo\) return;/, 'no silent return when the selfie or location is missing');
+  assert.match(c, /if \(!L \|\| !ci\.photo\) \{ ciProblem\('The check-in did not go through'/);
+  assert.match(c, /catch \(err\)[\s\S]*ciProblem\('The check-in did not go through'/, 'a save that throws shows the error and not the success message');
+  assert.match(appSrc, /The camera isn’t ready yet[^\n]*'error'/, 'the shutter before the camera is ready tells the person');
+  // the server refusing or not being reached is said every time for a check-in, not once per session
+  assert.match(cloudSrc, /attendance~[\s\S]*Your check-in was not saved/);
+  assert.match(cloudSrc, /Couldn’t reach the server\. Your check-in is kept on this phone/);
+});

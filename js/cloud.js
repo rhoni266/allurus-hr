@@ -299,7 +299,11 @@ async function push() {
             catch (e2) { S.blocked.add(w.path); applyDoc(w.path, S.base.get(w.path) || {}); }
           }
           app.refresh();
-          warnOnce('denied', 'Some changes need HR or an admin, so they weren’t saved.');
+          // A refused check-in is never silent, and is said every time (not once per session): the person must know it was not saved.
+          if (writes.slice(i, i + 400).some((w) => /attendance~/.test(w.path))) app.toast('Your check-in was not saved. Check in again, or tell HR if it keeps happening.', 'error');
+          else warnOnce('denied', 'Some changes need HR or an admin, so they weren’t saved.');
+        } else if (writes.slice(i, i + 400).some((w) => /attendance~/.test(w.path))) {
+          const now = Date.now(); if (!S.attWarnAt || now - S.attWarnAt > 20000) { S.attWarnAt = now; app.toast('Couldn’t reach the server. Your check-in is kept on this phone and will be sent when you’re back online.', 'error'); }
         } else warnOnce('offline', 'Couldn’t reach the server. Your changes are kept and will be sent when you’re back online.');
       }
     }

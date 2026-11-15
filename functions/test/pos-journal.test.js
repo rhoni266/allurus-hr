@@ -15,7 +15,8 @@ const example = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'doc
 const schema = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'integration', 'daily-journal.schema.json'), 'utf8'));
 
 const POS_TENANT = example.tenant_id, SECRET = 'test-secret-not-a-real-one', NOW = Date.UTC(2026, 10, 15, 1, 0, 0);
-const ACCOUNT_MAP = { cash: 'Cash on hand', card: 'Card clearing', duitnow_qr: 'DuitNow clearing', ewallet: 'E-wallet clearing', sales: 'Sales', service_charge: 'Service charge', sst_output: 'SST output', rounding: 'Rounding', cash_over_short: 'Cash over/short' };
+// The contract example carries an account_map, and Allurus must agree with it, so the test company uses the example's names for those keys.
+const ACCOUNT_MAP = { cash: 'Cash on hand', card: 'Card clearing', duitnow_qr: 'DuitNow clearing', ewallet: 'E-wallet clearing', sales: 'Sales', service_charge: 'Service charge', sst_output: 'SST output', rounding: 'Rounding', cash_over_short: 'Cash over/short', ...(example.account_map || {}) };
 const CFG = { enabled: true, allurusTenantId: 'co1', accountMap: ACCOUNT_MAP };
 
 function fakeStore(cfg = CFG) {
@@ -47,7 +48,7 @@ test('the contract example is accepted, posted as one balanced general entry, an
   assert.equal(entry.totalDebitCents, 14250); assert.equal(entry.totalCreditCents, 14250);
   assert.deepEqual(ledger.entryErrors({ date: entry.date, lines: entry.lines.map((l) => ({ account: l.account, side: l.side, cents: l.cents })) }), []);
   assert.ok(entry.lines.every((l) => l.outletId === example.outlet_id), 'the outlet is kept as a dimension on every line');
-  assert.ok(entry.lines.find((l) => l.key === 'cash').account === 'Cash on hand', 'the company\'s own account name, not the neutral key');
+  assert.ok(entry.lines.find((l) => l.key === 'cash').account === ACCOUNT_MAP.cash, 'the company\'s own account name, not the neutral key');
   const tb = ledger.trialBalance([entry].map((x) => ({ date: x.date, lines: x.lines.map((l) => ({ account: l.account, side: l.side, cents: l.cents })) })));
   assert.equal(tb.balanced, true); assert.equal(tb.debit, 14250);
 });
@@ -132,7 +133,7 @@ test('refused before anything is written: unbalanced, bad key, unknown field or 
 
 test('mapping: no guessing. An unmapped account, a disabled or unknown tenant, or an outlet not allowed is 422 and writes nothing', async () => {
   const noCash = { ...CFG, accountMap: { ...ACCOUNT_MAP, cash: '' } };
-  const a = await run(req(example), fakeStore(noCash)); assert.equal(a.status, 422); assert.deepEqual(a.body, { error: 'unmapped_account', accounts: ['cash'] }); assert.equal(a.store.entries.size, 0);
+  const a = await run(req((({ account_map, ...r }) => r)(example)), fakeStore(noCash)); assert.equal(a.status, 422); assert.deepEqual(a.body, { error: 'unmapped_account', accounts: ['cash'] }); assert.equal(a.store.entries.size, 0);
   const none = await run(req(example), fakeStore({ ...CFG, accountMap: {} })); assert.equal(none.status, 422);
   assert.equal((await run(req(example), fakeStore({ ...CFG, enabled: false }))).status, 422);
   assert.equal((await run(req(example), fakeStore(null))).status, 422, 'a tenant with a secret but no configuration');
@@ -140,7 +141,7 @@ test('mapping: no guessing. An unmapped account, a disabled or unknown tenant, o
   assert.equal((await run(req(example), fakeStore({ ...CFG, outlets: [example.outlet_id] }))).status, 201);
   // only the accounts a journal uses need a name
   const partial = { ...CFG, accountMap: { cash: 'C', card: 'K', duitnow_qr: 'D', sales: 'S', sst_output: 'T', rounding: 'R' } };
-  assert.equal((await run(req(example), fakeStore(partial))).status, 201);
+  assert.equal((await run(req((({ account_map, ...r }) => r)(example)), fakeStore(partial))).status, 201);
 });
 
 test('Allurus owns the account map: a journal account_map that disagrees is 422 account_map_mismatch and writes nothing', async () => {
@@ -148,14 +149,14 @@ test('Allurus owns the account map: a journal account_map that disagrees is 422 
   // agrees (all keys, or only some): accepted, and the stored names are Allurus's
   const full = await run(req(withMap(ACCOUNT_MAP))); assert.equal(full.status, 201);
   assert.equal([...full.store.entries.values()][0].lines.find((l) => l.key === 'sales').account, 'Sales');
-  assert.equal((await run(req(withMap({ cash: 'Cash on hand', sales: 'Sales' })))).status, 201, 'a subset that agrees is fine');
+  assert.equal((await run(req(withMap({ cash: ACCOUNT_MAP.cash, sales: ACCOUNT_MAP.sales })))).status, 201, 'a subset that agrees is fine');
   assert.equal((await run(req(withMap({})))).status, 201, 'an empty map names nothing, so nothing disagrees');
   // does not agree: a different name, a name where Allurus has none, a key Allurus does not have
   const diff = await run(req(withMap({ ...ACCOUNT_MAP, cash: 'Petty cash' }))); assert.equal(diff.status, 422); assert.deepEqual(diff.body, { error: 'account_map_mismatch', accounts: ['cash'] }); assert.equal(diff.store.entries.size, 0);
   const two = await run(req(withMap({ ...ACCOUNT_MAP, cash: 'x', card: 'y' }))); assert.deepEqual(two.body.accounts, ['card', 'cash']); assert.equal(two.store.entries.size, 0);
   const partialCfg = { ...CFG, accountMap: { cash: 'C', card: 'K', duitnow_qr: 'D', sales: 'S', sst_output: 'T', rounding: 'R' } };
   const extra = await run(req(withMap({ cash: 'C', ewallet: 'Wallet' })), fakeStore(partialCfg)); assert.equal(extra.status, 422, 'a name for a key Allurus has no name for'); assert.equal(extra.body.error, 'account_map_mismatch'); assert.equal(extra.store.entries.size, 0);
-  assert.equal((await run(req(withMap({ cash: 'cash on hand' })))).status, 422, 'compared exactly, case and all');
+  assert.equal((await run(req(withMap({ cash: ACCOUNT_MAP.cash.toLowerCase() })))).status, 422, 'compared exactly, case and all');
   // an existing entry is not touched by a later mismatching journal
   const store = fakeStore(); await run(req(example), store);
   const later = await run(req(withMap({ ...ACCOUNT_MAP, sales: 'Revenue' })), store); assert.equal(later.status, 422); assert.equal(store.entries.size, 1);
@@ -166,9 +167,9 @@ test('Allurus owns the account map: a journal account_map that disagrees is 422 
   // malformed maps are 400
   for (const bad of [[1], 'x', null, { petty: 'x' }, { cash: '' }, { cash: 5 }, { cash: 'x'.repeat(81) }]) assert.equal((await run(req(withMap(bad)))).status, 400, JSON.stringify(bad));
   // a different map is part of the payload: the same key with another (agreeing) map is a different payload, so 409, not a silent duplicate
-  const s2 = fakeStore(); await run(req(example), s2); assert.equal((await run(req(withMap({ cash: 'Cash on hand' })), s2)).status, 409);
+  const s2 = fakeStore(); await run(req(example), s2); assert.equal((await run(req(withMap({ cash: ACCOUNT_MAP.cash })), s2)).status, 409);
   // it is signed with the body, so it cannot be stripped or altered in transit
-  const r = req(withMap({ cash: 'Cash on hand' })); r.rawBody = r.rawBody.replace('Cash on hand', 'Petty cash'); assert.equal((await run(r)).status, 401);
+  const r = req(withMap({ cash: ACCOUNT_MAP.cash })); r.rawBody = r.rawBody.replace(ACCOUNT_MAP.cash, 'Petty cash'); assert.equal((await run(r)).status, 401);
 });
 
 test('method and size: only POST; a body over 64 KB is refused', async () => {
