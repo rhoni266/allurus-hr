@@ -199,3 +199,26 @@ function loadOps() {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'js', 'ops-rules.js'), 'utf8'), sb);
   return sb.AllurusOpsRules;
 }
+
+// ---- "Show POS" company setting (addons.showPos, default on) ----
+test('posShown: on unless the company setting is explicitly false', () => {
+  const P = require('../js/pos-rules.js');
+  assert.equal(P.posShown(undefined), true);
+  assert.equal(P.posShown({}), true);
+  assert.equal(P.posShown({ simpleStaffHome: true }), true);
+  assert.equal(P.posShown({ showPos: true }), true);
+  assert.equal(P.posShown({ showPos: false }), false);
+  assert.equal(P.posShown({ showPos: 0 }), true); // only a real false hides it
+});
+
+test('showPos is wired: the loader reads it, the card/routes/templates/till respect it, set-addon can switch it', () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const read = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  assert.match(read('js/cloud.js'), /showPos:\s*company\?\.addons\?\.showPos !== false/);
+  const app = read('js/app.js');
+  assert.match(app, /CLOUD && posShown\(\) \? \[\{ id: 'allurus-pos'/);
+  assert.match(app, /\^pos\(-\|\$\)\/\.test\(r\.id\) \|\| posShown\(\)/);
+  assert.match(app, /\(!t\.pos \|\| \(state\.pos && posShown\(\)\)\)/);
+  assert.match(read('js/pos.js'), /window\.AllurusAddons\?\.showPos !== false/);
+  assert.match(read('scripts/set-addon.js'), /showPos/);
+});

@@ -12,7 +12,7 @@ window.AllurusPos = (function () {
   let ctx = null;
   const st = () => ctx.state;
   const pos = () => st().pos;
-  const has = () => !!st().pos && (!window.AllurusFeatures || window.AllurusFeatures.has('pos'));
+  const has = () => !!st().pos && window.AllurusAddons?.showPos !== false && (!window.AllurusFeatures || window.AllurusFeatures.has('pos'));
   const outlet = () => pos().outlets[0];
   const esc = (s) => ctx.esc(s);
   const icon = (n) => ctx.icon(n);

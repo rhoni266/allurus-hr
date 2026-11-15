@@ -8,7 +8,8 @@
 // prodCommission = the daily production commission (docs/PRODUCTION-COMMISSION-SPEC.md). Nothing else is touched.
 const { admin } = require('./admin');
 
-const ADDONS = { prodCommission: 'Daily production commission', simpleStaffHome: 'Simple staff screen (Check in, Apply leave, Payslip) on phones', salaryMonthlyOnly: 'Salaries are typed and shown as monthly only (cannot be switched to yearly)' };
+const ADDONS = { prodCommission: 'Daily production commission', simpleStaffHome: 'Simple staff screen (Check in, Apply leave, Payslip) on phones', salaryMonthlyOnly: 'Salaries are typed and shown as monthly only (cannot be switched to yearly)', showPos: 'Show POS (the Allurus POS card in Settings and every POS menu and link; ON by default, --off hides it, nothing is deleted)' };
+const DEFAULT_ON = { showPos: true };   // absent counts as ON
 
 (async () => {
   const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
@@ -23,7 +24,7 @@ const ADDONS = { prodCommission: 'Daily production commission', simpleStaffHome:
     if (hits.length !== 1) { console.error(hits.length ? `More than one company matches "${target}": ${hits.map((d) => d.data().name).join(', ')}. Use the id.` : `No company matches "${target}".`); process.exit(1); }
     snap = hits[0];
   }
-  const t = snap.data(), now = !!(t.addons && t.addons[name] === true), want = !OFF;
+  const t = snap.data(), now = DEFAULT_ON[name] ? !(t.addons && t.addons[name] === false) : !!(t.addons && t.addons[name] === true), want = !OFF;
   console.log(`Company: ${t.name} (${snap.id})\n${ADDONS[name]} is ${now ? 'ON' : 'off'} now. It will be ${want ? 'ON' : 'off'}.`);
   if (now === want) { console.log('Nothing to change.'); process.exit(0); }
   if (!YES) { console.log('Check only. Add --yes to do it.'); process.exit(0); }

@@ -10,7 +10,7 @@
   // Demo mode can show more than one sample company: ?demo or ?demo=serimaju opens Seri Maju, ?demo=suria opens
   // Suria Enterprise. Each has its own storage key (js/seed.js, AllurusSeed.companies).
   const DEMO = AllurusSeed.company((/[?&]demo=([a-z0-9-]+)/i.exec(location.search)?.[1] || 'serimaju').toLowerCase());
-  if (!CLOUD_ON && DEMO.id === 'majorfe') window.AllurusAddons = { simpleStaffHome: true, salaryMonthlyOnly: true };   // the demo has the add-ons so the simple screen can be previewed
+  if (!CLOUD_ON && DEMO.id === 'majorfe') window.AllurusAddons = { simpleStaffHome: true, salaryMonthlyOnly: true, showPos: false };   // the demo has the add-ons so the simple screen can be previewed
   const STORE_KEY = CLOUD_ON ? 'allurus-hr-cloud-v1' : DEMO.storeKey;
   // A fresh copy of the sample data: the chosen demo company, or Seri Maju as the base for the cloud workspace.
   const seedNew = () => {
@@ -461,6 +461,7 @@
   const salaryBasis = () => AllurusSalary.basisOf(state.settings, window.AllurusAddons);
   const salShown = (yearly) => AllurusSalary.shown(yearly, salaryBasis());
   const addonOn = (k) => window.AllurusAddons?.[k] === true;
+  const posShown = () => window.AllurusAddons?.showPos !== false;   // company setting "Show POS" (default on); off hides every POS card, menu and link
   const staffApp = () => { const s = state.settings.staffApp || {}; return { avail: addonOn('simpleStaffHome'), simple: s.simple !== false, pdfPw: s.pdfPw !== false, lang: s.lang === 'bm' ? 'bm' : 'en' }; };
   const onSimplePhone = () => (window.AllurusDevice?.here() === 'phone' || (!CLOUD && window.innerWidth <= 760));
   const simpleOn = () => !!window.AllurusSimpleHome && role() === 'employee' && AllurusSimpleHome.useSimple({ addon: staffApp().avail, setting: state.settings.staffApp?.simple, roles: state.session.roles || [], phone: onSimplePhone() });
@@ -491,7 +492,7 @@
     outlet: { label: 'Outlet manager', desc: 'Runs the outlet: the till, menu, voids, shifts and sales reports, plus stock', perms: ['pos', 'operations', 'time'], pos: true },
     manager: { label: 'Admin manager', desc: 'Runs the office and the floor: everything but hiring and appraisals', perms: ['people', 'time', 'payroll', 'claims', 'finance', 'operations', 'settings'], ops: true },
   };
-  const shownTemplates = () => Object.entries(TEMPLATES).filter(([, t]) => (!t.ops || opsApi?.has() || state.ops) && (!t.pos || state.pos));
+  const shownTemplates = () => Object.entries(TEMPLATES).filter(([, t]) => (!t.ops || opsApi?.has() || state.ops) && (!t.pos || (state.pos && posShown())));
   const templateOf = (perms) => (!perms ? 'owner' : Object.keys(TEMPLATES).find((k) => TEMPLATES[k].perms.length === perms.length && TEMPLATES[k].perms.every((x) => perms.includes(x))) || 'custom');
   const ROUTE_AREA = {
     employees: 'people', departments: 'people', onboarding: 'people', assets: 'people', 'org-chart': 'people', rooms: 'people', announcements: 'people', 'hr-reports': 'people',
@@ -554,7 +555,7 @@
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
     { id: 'billing', label: 'Billing', icon: 'doc', group: 'Workspace' },
   ];
-  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => !(role() === 'employee' && simpleOn() && r.id !== 'home')).filter((r) => (r.id !== 'approvals' || can('time') || can('claims')) && (r.id !== 'production' || prodApi?.canEntry()) && (r.id !== 'my-production' || prodApi?.showStaff()) && (r.id !== 'billing' || (CLOUD && (!myPerms() || myPerms().includes('settings')))) && (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)) && (posApi ? posApi.routeAllowed(r.id) : !/^pos(-|$)/.test(r.id)));
+  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => !(role() === 'employee' && simpleOn() && r.id !== 'home')).filter((r) => (r.id !== 'approvals' || can('time') || can('claims')) && (r.id !== 'production' || prodApi?.canEntry()) && (r.id !== 'my-production' || prodApi?.showStaff()) && (r.id !== 'billing' || (CLOUD && (!myPerms() || myPerms().includes('settings')))) && (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)) && (!/^pos(-|$)/.test(r.id) || posShown()) && (posApi ? posApi.routeAllowed(r.id) : !/^pos(-|$)/.test(r.id)));
   // A page may carry a query after "?" (#ops-stock?po=…); it is the page's to read.
   const route = () => { const h = location.hash.replace('#', '').split('?')[0].replace(/^settings\/.*/, 'settings'); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
@@ -1680,7 +1681,7 @@
           : '<div class="card"><div class="card-head"><h3>Team access</h3></div><p class="muted">Invitations and roles are set up in your real workspace. In this demo, sign in as the sample people from the sign-in page.</p></div>') },
       // id/label distinct from the 'pos' nav route above (ROLE_ROUTES' Till/Tables/Kitchen/Shift group): that's
       // the older js/pos.js module; this card is for the newer pos/ app (its own Google Sheet, POS-LIVE-FLOW-SPEC.md).
-      ...(CLOUD ? [{ id: 'allurus-pos', label: 'Allurus POS', icon: 'wallet', summary: 'Start your POS trial, or open the till', keys: 'pos point of sale till cafe pos trial checkout allurus pos',
+      ...(CLOUD && posShown() ? [{ id: 'allurus-pos', label: 'Allurus POS', icon: 'wallet', summary: 'Start your POS trial, or open the till', keys: 'pos point of sale till cafe pos trial checkout allurus pos',
         html: () => `<div class="card"><div class="card-head"><h3>Allurus POS</h3></div>
           ${row('Allurus POS', 'A cafe till - checkout, stock and sales reports in a Google Sheet of your own. Starting a trial needs an Owner or a Settings admin.',
             `<a class="btn btn-primary" href="/pos/start">Start POS trial</a> <a class="btn" href="/pos">Open POS</a>`)}</div>` }] : []),

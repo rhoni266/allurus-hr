@@ -315,7 +315,10 @@
   // ---------- CSV ----------
   const csv = (rows) => rows.map((r) => r.map((c) => { const s = String(c ?? ''); return /[",\n]/.test(s) || /^[=+\-@]/.test(s) ? `"${(/^[=+\-@]/.test(s) ? "'" : '') + s.replace(/"/g, '""')}"` : s; }).join(',')).join('\n');
 
-  const api = { isSen, toSen, fmt, bp, roundCash, allocate, unitWithMods, lineGross, checkModifiers, totals, METHODS, STATUSES, canTransition, settle, cashApply,
+  /** The company setting "Show POS" (tenants/{t}.addons.showPos). On by default: only an explicit false hides POS. */
+  const posShown = (addons) => !(addons && addons.showPos === false);
+
+  const api = { posShown, isSen, toSen, fmt, bp, roundCash, allocate, unitWithMods, lineGross, checkModifiers, totals, METHODS, STATUSES, canTransition, settle, cashApply,
     safeResult, looksLikePan, recordedProvider, mockSoftPos, runCardPayment, recoverCardPayment, shiftSummary, stockMoves, addMoves, nextReceiptNo,
     mergeQueued, methodAllowed, ROLE_CAN, canDo, discountNeedsManager, klDay, klHour, daySales, financeEntries, toReconcile, canTrade, csv };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
