@@ -135,3 +135,34 @@ test('payroll: production commission is wages for EPF, SOCSO, EIS and PCB, but n
   // Other earnings never get the HRD flag by accident.
   assert.equal(U.payCalc(24000, 0, settings, e, '2026-11-30', { extra: [{ key: 'ot', amount: 50, epf: true, socso: true, tax: true }] }).hrdf, plain.hrdf);
 });
+
+test('production supervisor: department production and role supervisor (or Fouzer) can key in quantities', () => {
+  const depts = [
+    { id: 'd-prod', name: 'Production' },
+    { id: 'd-sales', name: 'Sales' },
+    { id: 'd-pengeluaran', name: 'Jabatan Pengeluaran' },
+    { id: 'd-f44ulif', name: 'SUPERVISORY', about: 'SUPERVICE DAILY PRODUCTION ', lead: 'e00zi6nl' },
+  ];
+
+  // 1. Explicit prodEntry on account
+  assert.equal(P.isProdSupervisor({ account: { prodEntry: true } }), true);
+
+  // 2. Fouzer (specifically Fouzer Ngah at Major Far East)
+  assert.equal(P.isProdSupervisor({ employee: { first: 'FOUZER ', last: 'NGAH', role: 'crew', dept: 'd-f44ulif' }, departments: depts }), true);
+  assert.equal(P.isProdSupervisor({ account: { name: 'FOUZER NGAH' } }), true);
+  assert.equal(P.isProdSupervisor({ employee: { first: 'Fouzer', role: 'Operator' } }), true);
+
+  // 3. Department Production + Role Supervisor
+  assert.equal(P.isProdSupervisor({ employee: { first: 'Ali', role: 'Production Supervisor', dept: 'd-prod' }, departments: depts }), true);
+  assert.equal(P.isProdSupervisor({ employee: { first: 'Ahmad', role: 'Penyelia Kilang', dept: 'd-pengeluaran' }, departments: depts }), true);
+  assert.equal(P.isProdSupervisor({ employee: { first: 'Kasim', role: 'Supervisor', dept: 'd-custom' }, prodDepts: ['d-custom'] }), true);
+
+  // 4. Department lead of production department
+  assert.equal(P.isProdSupervisor({ employee: { id: 'e00zi6nl', first: 'Hafiz', role: 'Crew Lead', dept: 'd-f44ulif' }, departments: depts }), true);
+
+  // 5. Non-supervisors or non-production do not qualify
+  assert.equal(P.isProdSupervisor({ employee: { first: 'John', role: 'General Worker', dept: 'd-prod' }, departments: depts }), false);
+  assert.equal(P.isProdSupervisor({ employee: { first: 'Mary', role: 'Supervisor', dept: 'd-sales' }, departments: depts }), false);
+  assert.equal(P.isProdSupervisor({ employee: { first: 'Bob', role: 'Accountant', dept: 'd-fin' }, departments: depts }), false);
+  assert.equal(P.isProdSupervisor(), false);
+});

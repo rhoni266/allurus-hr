@@ -87,7 +87,16 @@ window.AllurusProduction = (function () {
   // ---------- The production supervisor (an employee with the permission; quantities only) ----------
   // They key in each product's quantity on the phone. They never see rates, the pool or any RM: the money is worked out by an
   // admin from the company's rates and the day's attendance, which a supervisor can't read (firestore.rules: prodQty).
-  const isSup = () => on() && ctx.role() === 'employee' && ctx.account()?.prodEntry === true;
+  const isSup = () => {
+    if (!on() || ctx.role() !== 'employee') return false;
+    const acct = ctx.account(), me = ctx.me();
+    return P.isProdSupervisor({
+      employee: me,
+      account: acct,
+      departments: st().departments || [],
+      prodDepts: cfg().depts || [],
+    });
+  };
   const qtys = () => st().prodQty || {};
   const qtyOf = (date) => { const o = {}; Object.values(qtys()).filter((q) => q.date === date).forEach((q) => { o[q.pid] = q; }); return o; };
   // Which products have a figure for a day: on a saved day, or typed by a supervisor.
@@ -372,7 +381,7 @@ window.AllurusProduction = (function () {
       }
       approve(...a);
     };
-    return { on, canEntry, canSettings, settingsCard, bindSettings, fillCard, supCard, isSup, products: prods, forPayroll, payrollBanner, homeCard, inScheme, mine, totalOf, plan, warnings, days, isLocked, lockMonth, showStaff: () => on() && (inScheme(ctx.me()) || Object.keys(st().prodShares || {}).length > 0) };
+    return { on, canEntry, canSettings, settingsCard, bindSettings, fillCard, supCard, isSup, isProdSupervisor: P.isProdSupervisor, products: prods, forPayroll, payrollBanner, homeCard, inScheme, mine, totalOf, plan, warnings, days, isLocked, lockMonth, showStaff: () => on() && (inScheme(ctx.me()) || Object.keys(st().prodShares || {}).length > 0) };
   }
   return { install };
 })();

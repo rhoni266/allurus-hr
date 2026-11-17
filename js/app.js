@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.74';
+  const APP_VERSION = '3.75';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -2947,6 +2947,7 @@
         ${myLeaves.length ? `<div class="list">${myLeaves.slice(0, 4).map((l) => `<div class="list-item"><div class="grow"><div class="person-name">${esc(leaveApi.typeName(l.type))} · ${l.days} day${l.days === 1 ? '' : 's'}</div><div class="person-sub">${U.fmtDate(l.from, { month: 'short', day: 'numeric' })}${l.to !== l.from ? ' – ' + U.fmtDate(l.to, { month: 'short', day: 'numeric' }) : ''}</div></div>${leavePill(l.status)}</div>`).join('')}</div>` : `<div class="empty"><strong>Nothing booked</strong>You have ${aLeft} days to enjoy. <button class="link-btn" data-act="new-leave">Plan a break</button></div>`}</div>` },
       { id: 'shifts', title: 'My shifts', span: 4, render: () => timeApi.myShiftsCard(e) },
       ...(prodApi?.inScheme(e) || prodApi?.showStaff() ? [{ id: 'prod', title: 'Production commission', span: 4, render: () => prodApi.homeCard(e) }] : []),
+      ...(prodApi?.isSup() ? [{ id: 'prodsup', title: 'Fill production', span: 4, render: () => prodApi.supCard() }] : []),
       { id: 'news', title: 'Announcements', span: 6, render: () => notifyApi.homeCard(e) },
       ...(leaveApi.isApprover(e.id) ? [{ id: 'teamoff', title: 'Who’s off in your team', span: 4, render: () => leaveApi.whoOffCard({ depts: leaveApi.myDepts(e.id), title: 'Who’s off in your team' }) }] : []),
       { id: 'goals', title: 'My goals', span: 6, render: () => `<div class="card"><div class="card-head"><h3>My goals</h3><a class="hint" href="#my-appraisal">Update</a></div>
@@ -4482,9 +4483,32 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
       try { this.open = await fire().openStatus(); } catch (e) { this.open = { code: '', until: null }; }
       fire().syncAllStaffKeys?.(state.employees);
       fire().syncStaffLinks?.();
+      this.syncProductionSupervisors();
       this.remindIc();
       this.noticeRegistered();
       return this.data;
+    },
+    syncProductionSupervisors() {
+      if (!prodApi?.on() || !can('settings')) return;
+      const users = this.data?.users || [];
+      users.forEach(async (u) => {
+        if (!u.empId || u.disabled || u.pending || u.prodEntry === true || (u.roles || []).includes('admin')) return;
+        const e = emp(u.empId);
+        if (!e) return;
+        const qualifies = prodApi.isProdSupervisor?.({
+          employee: e,
+          account: u,
+          departments: state.departments,
+          prodDepts: state.settings?.prod?.depts,
+        });
+        if (qualifies) {
+          const r = await fire().setProdEntry(u.uid, true);
+          if (r?.ok) {
+            u.prodEntry = true;
+            log(`Auto-enabled production supervisor access for ${fullName(e)}`);
+          }
+        }
+      });
     },
     // Each new open-page registration: one in-app notice to HR and one log line (never the IC or password).
     noticeRegistered() {
@@ -4819,7 +4843,13 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
     prodToggle(e) {
       const u = this.userOf(e);
       if (!u || (u.roles || []).includes('admin') || !prodApi?.on()) return '';
-      return `<label class="faint" style="display:flex;gap:6px;align-items:center;justify-content:flex-end;font-size:12px;margin-top:4px"><input type="checkbox" data-prod-sup="${esc(u.uid)}" ${u.prodEntry ? 'checked' : ''}> Production supervisor <span lang="ms">/ Penyelia pengeluaran</span></label>`;
+      const isSupervisor = u.prodEntry === true || !!prodApi.isProdSupervisor?.({
+        employee: e,
+        account: u,
+        departments: state.departments,
+        prodDepts: state.settings?.prod?.depts,
+      });
+      return `<label class="faint" style="display:flex;gap:6px;align-items:center;justify-content:flex-end;font-size:12px;margin-top:4px"><input type="checkbox" data-prod-sup="${esc(u.uid)}" ${isSupervisor ? 'checked' : ''}> Production supervisor <span lang="ms">/ Penyelia pengeluaran</span></label>`;
     },
     async setProdSup(uid, on) {
       const u = (this.data?.users || []).find((x) => x.uid === uid), e = u && emp(u.empId);
@@ -4995,7 +5025,14 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
       s.plans = ws.plans || {}; s.reliefs = ws.reliefs || {}; s.taxProfiles = ws.taxProfiles || {};
       s.workspaces = {};
       if (theme) s.settings.theme = theme;
-      s.accounts = [{ email: p.email, name: p.name, hash: '', roles: p.roles.slice(), perms: Array.isArray(p.perms) ? p.perms.slice() : null, tenantId: p.tenantId, empId: p.empId, prodEntry: p.prodEntry === true, cloud: true }];
+      const ownEmp = (ws.employees || []).find((e) => e && e.id === p.empId);
+      const isSup = p.prodEntry === true || !!(window.AllurusProd?.isProdSupervisor?.({
+        employee: ownEmp,
+        account: p,
+        departments: ws.departments,
+        prodDepts: ws.settings?.prod?.depts,
+      }));
+      s.accounts = [{ email: p.email, name: p.name, hash: '', roles: p.roles.slice(), perms: Array.isArray(p.perms) ? p.perms.slice() : null, tenantId: p.tenantId, empId: p.empId, prodEntry: isSup, cloud: true }];
       const keep = (state.session.account === p.email && p.roles.includes(state.session.role)) ? state.session.role : preferredRole(p.roles);
       s.session = { account: p.email, roles: p.roles.slice(), role: keep, empId: p.empId, tenantId: p.tenantId, cloud: { uid: p.uid } };
       try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) { /* storage full or unavailable */ }

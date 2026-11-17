@@ -503,6 +503,7 @@ async function start(profile) {
     api.syncAllStaffKeys(ws.employees);
     S.icSeen = M.icMap(ws.employees);   // what each person's IC was, to spot a removed or changed one later
     scheduleLinks();
+    api.syncProductionSupervisors(ws.employees);
   }
   // Listen to own user profile: if disabled by admin or session terminated, sign out
   if (profile.uid) {
@@ -607,7 +608,15 @@ const forWrite = (v) => (v && v.__now ? serverTimestamp() : Array.isArray(v) ? v
 // one person's own share (they read only theirs); prodLocks/{yyyy-mm}: a finalised payroll month. Only where the company
 // has the addon (tenants/{t}.addons.prodCommission).
 function listenProd() {
-  const t = T(), emp = S.profile.empId, entry = can('operations') || can('payroll'), sup = !entry && S.profile.prodEntry === true;
+  const t = T(), emp = S.profile.empId, entry = can('operations') || can('payroll');
+  const empObj = (app.state?.employees || []).find((e) => e && e.id === emp);
+  const isSup = S.profile.prodEntry === true || !!(window.AllurusProd?.isProdSupervisor?.({
+    employee: empObj,
+    account: S.profile,
+    departments: app.state?.departments || [],
+    prodDepts: app.state?.settings?.prod?.depts || [],
+  }));
+  const sup = !entry && isSup;
   Object.assign(S, { prodOn: true, prodDays: {}, prodLocks: {}, prodShares: {}, prodQty: {} });
   // Admins read days, locks and the supervisors' quantities; a production supervisor reads only the quantities (and their own share).
   const src = entry
@@ -1128,6 +1137,27 @@ const api = {
     }
     if (count > 0) {
       try { await b.commit(); } catch (e) { console.warn('[Allurus cloud] syncAllStaffKeys', e); count = 0; todo.forEach((ic) => S.keyKnown.delete(ic)); }
+    }
+  },
+  async syncProductionSupervisors(employees = app.state?.employees) {
+    if (!S.profile?.tenantId || !can('settings') || !Array.isArray(employees)) return;
+    if (!window.AllurusCompany?.addons?.prodCommission && !app.state?.settings?.prod) return;
+    try {
+      const snap = await getDocs(query(collection(db, 'users'), where('tenantId', '==', S.profile.tenantId)));
+      const P = window.AllurusProd;
+      if (!P?.isProdSupervisor) return;
+      const depts = app.state?.departments || [];
+      const prodDepts = app.state?.settings?.prod?.depts || [];
+      snap.docs.forEach(async (d) => {
+        const u = d.data();
+        if (!u.empId || u.disabled || u.pending || u.prodEntry === true || (u.roles || []).includes('admin')) return;
+        const e = employees.find((x) => x && x.id === u.empId);
+        if (P.isProdSupervisor({ employee: e, account: u, departments: depts, prodDepts })) {
+          await setDoc(doc(db, `users/${d.id}`), { prodEntry: true }, { merge: true }).catch(() => {});
+        }
+      });
+    } catch (e) {
+      console.warn('[Allurus cloud] syncProductionSupervisors', e);
     }
   },
   async openStatus() {

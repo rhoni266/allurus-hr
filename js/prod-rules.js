@@ -144,7 +144,36 @@
     return { missing, changed };
   }
 
-  const api = { productsOf, dayItems, productUsed, commissionItems, toFill, monthByProduct, rateUnits, unitsCenti, commissionDay, attendedForCommission, planDay, monthTotals, monthWarnings, rm, fmtUnits, MONTH };
+  // ---------- Production supervisor check ----------
+  // Who qualifies as a production supervisor (can key in daily production quantities):
+  // 1. Explicit prodEntry on the user account (account.prodEntry === true).
+  // 2. Fouzer (specifically Fouzer Ngah at Major Far East).
+  // 3. Any employee whose department is Production / Pengeluaran / Supervisory (or in settings.prod.depts),
+  //    AND whose job title/role is Supervisor / Penyelia (or is the department lead).
+  function isProdSupervisor({ employee: e, account: acct, departments = [], prodDepts = [] } = {}) {
+    if (acct?.prodEntry === true) return true;
+    const name = `${e?.first || ''} ${e?.last || ''} ${e?.name || ''} ${acct?.name || ''}`.trim();
+    if (/fouzer/i.test(name)) return true;
+    if (!e) return false;
+
+    const role = String(e.role || '').trim();
+    const isSupRole = /supervisor|penyelia|supervisory/i.test(role);
+
+    const depts = Array.isArray(departments) ? departments : [];
+    const deptObj = depts.find((d) => d && d.id === e.dept);
+    const deptName = String(deptObj?.name || '').trim();
+    const deptAbout = String(deptObj?.about || '').trim();
+    const deptId = String(e.dept || deptObj?.id || '').trim();
+    const isProdDept = /production|pengeluaran|supervisory/i.test(deptName)
+      || /production|pengeluaran|supervisory/i.test(deptAbout)
+      || /production|pengeluaran|prod/i.test(deptId)
+      || (Array.isArray(prodDepts) && prodDepts.includes(deptId));
+
+    if (isProdDept && (isSupRole || (deptObj && deptObj.lead && deptObj.lead === e.id))) return true;
+    return false;
+  }
+
+  const api = { productsOf, dayItems, productUsed, commissionItems, toFill, monthByProduct, rateUnits, unitsCenti, commissionDay, attendedForCommission, planDay, monthTotals, monthWarnings, isProdSupervisor, rm, fmtUnits, MONTH };
   root.AllurusProd = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
