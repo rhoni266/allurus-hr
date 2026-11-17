@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.72';
+  const APP_VERSION = '3.73';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -803,11 +803,11 @@
         <button type="button" class="btn login-submit" data-act="device-signout" style="margin-top:10px">Sign out · <span lang="ms">Log keluar</span></button></div></div>`;
       return;
     }
-    // A link to an Operations page of the person's other view (a notification opened in the employee app)
-    // switches to that view.
+    // A link to a page in the person's other authorized view (e.g. an admin route like #attendance or an ops page
+    // opened while in employee view) switches to that view if permitted.
     const want = location.hash.slice(1).split('?')[0];
-    if (/^ops-/.test(want) && !routes().some((x) => x.id === want)) {
-      const was = state.session.role, other = state.session.roles.find((x) => x !== was && (ROLE_ROUTES[x] || []).some((rr) => rr.id === want));
+    if (want && !routes().some((x) => x.id === want)) {
+      const was = state.session.role, other = (state.session.roles || []).find((x) => x !== was && (ROLE_ROUTES[x] || []).some((rr) => rr.id === want));
       if (other) { state.session.role = other; if (routes().some((x) => x.id === want)) save(); else state.session.role = was; }
     }
     const r = route();
@@ -2518,6 +2518,11 @@
       <div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div>
       <h1>Sign in to Allurus</h1>
       <p class="sub">People operations for growing companies.</p>
+      ${CLOUD ? `<div class="card demo-banner" style="width:100%;max-width:440px;margin:0 auto 16px;padding:14px 16px;text-align:center">
+        <div style="font-weight:600;font-size:13.5px;margin-bottom:4px">Viewing or evaluating Allurus?</div>
+        <p class="muted" style="font-size:12.5px;margin:0 0 10px">Explore the demo company with sample attendance and workforce data—no sign-in required.</p>
+        <a class="btn btn-sm btn-primary" href="?demo${location.hash || ''}" style="width:100%;justify-content:center">Open Demo Company ${location.hash ? `(${esc(location.hash.slice(1))})` : '· Full Access'}</a>
+      </div>` : ''}
       <form class="login-card" id="login-form" novalidate>
         ${CLOUD && ui.loginIc ? `<div class="field"><label for="login-code">Company code</label><input class="input" id="login-code" name="code" autocomplete="organization" autocapitalize="none" placeholder="From your join message" required></div>
         <div class="field"><label for="login-email">IC number</label><input class="input" id="login-email" name="email" inputmode="numeric" autocomplete="username" placeholder="12 digits, no dashes" required></div>`
@@ -2533,7 +2538,7 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${DEMO.logins.filter(([e]) => state.accounts.some((a) => a.email === e)).map(([e, label, sub]) => `<button type="button" class="btn" style="flex-direction:column;align-items:flex-start;height:auto;padding:10px 12px;text-align:left" data-act="demo-as" data-v="${e}"><span style="font-weight:600">${label}</span><span class="muted" style="font-size:12px;font-weight:400">${sub}</span></button>`).join('')}
           <a class="btn" href="/demo/pos" target="_blank" rel="noopener" style="flex-direction:column;align-items:flex-start;height:auto;padding:10px 12px;text-align:left"><span style="font-weight:600">Cafe POS</span><span class="muted" style="font-size:12px;font-weight:400">Try the till: checkout, waste, stock, sales</span></a></div></div>`}
       ${CLOUD ? '<div class="register-cta"><div><strong>New to Allurus?</strong><span class="muted"> Sign up your company and try it free for 30 days.</span></div><a class="btn btn-primary" href="/signup">Start free trial</a></div>' : `<div class="register-cta"><div><strong>New to Allurus?</strong><span class="muted"> Register your company and start a free trial.</span></div><button class="btn btn-primary" data-act="register">${icon('plus')}Register company</button></div>`}
-      <p class="faint" style="font-size:12.5px">${CLOUD ? 'Your company’s data is kept securely in the cloud and shared live with your team. <a href="?demo">Try the demo company instead</a>.' : CAN_CLOUD ? `Demo company, saved in this browser only. <a href="${location.pathname}">Sign in to your real workspace</a>.` : `Demo mode. Your workspace is saved in this browser${cloud.db ? '; company sign-ups and check-ins are also shared with the Allurus team' : ''}.`} Version ${APP_VERSION}</p>
+      <p class="faint" style="font-size:12.5px">${CLOUD ? `Your company’s data is kept securely in the cloud and shared live with your team. <a href="?demo${location.hash || ''}">Try the demo company instead</a>.` : CAN_CLOUD ? `Demo company, saved in this browser only. <a href="${location.pathname}">Sign in to your real workspace</a>.` : `Demo mode. Your workspace is saved in this browser${cloud.db ? '; company sign-ups and check-ins are also shared with the Allurus team' : ''}.`} Version ${APP_VERSION}</p>
     </div>`;
   }
   function bindLogin() {
@@ -2581,10 +2586,20 @@
     if (acct.tenantId && acct.tenantId !== state.session.tenantId && state.workspaces[acct.tenantId]) switchWorkspace(acct.tenantId);
     Object.assign(state.session, { account: acct.email, roles: acct.roles.slice(), role: preferredRole(acct.roles), empId: acct.empId });
     save();
-    // Pick up where this person left off last time.
+    // Check if a specific route was requested in the URL hash and switch role if needed.
+    const requested = (location.hash || '').slice(1).split('?')[0];
+    if (requested && !routes().some((r) => r.id === requested)) {
+      const matchRole = (acct.roles || []).find((r) => (ROLE_ROUTES[r] || []).some((rr) => rr.id === requested));
+      if (matchRole) {
+        state.session.role = matchRole;
+        save();
+      }
+    }
+    const hasRequested = requested && routes().some((r) => r.id === requested);
+    // Pick up where this person left off last time, unless a valid route was requested.
     const last = AllurusUX.prefs().lastRoute?.[state.session.role];
     // An expired company's admin opens on Billing (the rest is read-only until it's paid).
-    const target = CLOUD && fire()?.profile?.billingOnly ? 'billing' : last && routes().some((r) => r.id === last) ? last : posApi?.landing(state.session.role) || opsApi?.landing(state.session.role) || '';
+    const target = CLOUD && fire()?.profile?.billingOnly ? 'billing' : hasRequested ? requested : last && routes().some((r) => r.id === last) ? last : posApi?.landing(state.session.role) || opsApi?.landing(state.session.role) || '';
     if (location.hash.slice(1) !== target) location.hash = target; else render();
     window.scrollTo(0, 0);
     toast(target && target !== routes()[0].id ? `Welcome back. You’re where you left off.` : `Signed in as ${acct.name || acct.email}`);
@@ -4067,6 +4082,15 @@
   document.addEventListener('click', (ev) => {
     const scrim = ev.target.closest('[data-scrim]');
     if (scrim && ev.target === scrim) { closeOverlay(); return; }
+    const hashLink = ev.target.closest('a[href^="#"]');
+    if (hashLink) {
+      const h = (hashLink.getAttribute('href') || '').slice(1).split('?')[0];
+      const cur = (location.hash || '').slice(1).split('?')[0];
+      if (h && h === cur) {
+        navigated = true;
+        render();
+      }
+    }
     const el = ev.target.closest('[data-act]');
     if (!el) {
       if (!ev.target.closest('.sidebar') && !ev.target.closest('.menu-btn')) $('#sidebar').classList.remove('open');
@@ -5061,6 +5085,12 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
   // ---------- Boot ----------
   installOffer.start();
   if (state.session.account && state.session.roles?.length > 1) state.session.role = preferredRole(state.session.roles);
+  // In demo mode without an active session, auto-sign-in to Owner/Admin if a specific route or hash is requested
+  if (!CLOUD_ON && !state.session.account && location.hash.slice(1)) {
+    const req = location.hash.slice(1).split('?')[0];
+    const matchAcct = (state.accounts || []).find((a) => (a.roles || []).some((r) => (ROLE_ROUTES[r] || []).some((rr) => rr.id === req))) || state.accounts?.[0];
+    if (matchAcct) startSession(matchAcct);
+  }
   $('#today').textContent = U.fmtDate(U.today(), { weekday: 'short', month: 'short', day: 'numeric' });
   $('#brand-mark').innerHTML = LOGO_MARK;
   captureSetupLink();

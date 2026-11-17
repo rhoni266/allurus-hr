@@ -90,3 +90,19 @@ test('Attendance detail modal and 12-hour formatting helpers are defined', () =>
   assert.match(appSrc, /function openAttendanceDetail\(/, 'openAttendanceDetail function is defined');
   assert.match(appSrc, /const fmt12 =/, 'fmt12 12-hour converter is defined');
 });
+
+test('Attendance navigation and role-switching: requested hash is preserved and switches view', () => {
+  // startSession preserves requested route in location.hash
+  assert.match(appSrc, /const hasRequested = requested && routes\(\)\.some/, 'startSession checks if requested route is allowed');
+  assert.match(appSrc, /hasRequested \? requested : last/, 'startSession preserves requested hash over last route');
+
+  // render() auto-switches role if a requested route belongs to another role
+  assert.match(appSrc, /if \(want && !routes\(\)\.some\(\(x\) => x\.id === want\)\)/, 'render auto-switches to matching role for any authorized route');
+
+  // demo-mode boot auto-signs in to matching account when hash is requested
+  assert.match(appSrc, /!CLOUD_ON && !state\.session\.account && location\.hash\.slice\(1\)/, 'demo boot auto signs in to account with route access');
+
+  // clicking same hash link re-renders
+  assert.match(appSrc, /if \(h && h === cur\)/, 'clicking link with same hash triggers render');
+});
+
