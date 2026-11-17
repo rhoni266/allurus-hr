@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "possaas.daily-journal"
+    },
+    "schema_version": {
+      "type": "number",
+      "const": 1
+    },
+    "tenant_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "outlet_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "business_date": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "idempotency_key": {
+      "type": "string"
+    },
+    "currency": {
+      "type": "string",
+      "const": "MYR"
+    },
+    "lines": {
+      "minItems": 2,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "account": {
+            "type": "string",
+            "enum": [
+              "cash",
+              "card",
+              "duitnow_qr",
+              "ewallet",
+              "sales",
+              "service_charge",
+              "sst_output",
+              "rounding",
+              "cash_over_short"
+            ]
+          },
+          "side": {
+            "type": "string",
+            "enum": ["debit", "credit"]
+          },
+          "amount_cents": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["account", "side", "amount_cents"],
+        "additionalProperties": false
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "timezone": {
+          "type": "string",
+          "minLength": 1
+        },
+        "order_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "void_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "refund_batch_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "held_sales_unresolved": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "adjusts_business_dates": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "sales_cents": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "reversal_cents": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cash_variance_cents": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "timezone",
+        "order_count",
+        "void_count",
+        "refund_batch_count",
+        "held_sales_unresolved"
+      ],
+      "additionalProperties": false
+    },
+    "account_map": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "enum": [
+          "cash",
+          "card",
+          "duitnow_qr",
+          "ewallet",
+          "sales",
+          "service_charge",
+          "sst_output",
+          "rounding",
+          "cash_over_short"
+        ]
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "required": [
+    "schema",
+    "schema_version",
+    "tenant_id",
+    "outlet_id",
+    "business_date",
+    "version",
+    "idempotency_key",
+    "currency",
+    "lines",
+    "metadata",
+    "account_map"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,36 @@
+{
+  "schema": "possaas.daily-journal",
+  "schema_version": 1,
+  "tenant_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "outlet_id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+  "business_date": "2026-11-14",
+  "version": 1,
+  "idempotency_key": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa:cccccccc-cccc-4ccc-8ccc-cccccccccccc:2026-11-14:1",
+  "currency": "MYR",
+  "lines": [
+    { "account": "cash", "side": "debit", "amount_cents": 8420 },
+    { "account": "card", "side": "debit", "amount_cents": 3180 },
+    { "account": "duitnow_qr", "side": "debit", "amount_cents": 2650 },
+    { "account": "sales", "side": "credit", "amount_cents": 13660 },
+    { "account": "sst_output", "side": "credit", "amount_cents": 580 },
+    { "account": "rounding", "side": "credit", "amount_cents": 10 }
+  ],
+  "metadata": {
+    "timezone": "Asia/Kuala_Lumpur",
+    "order_count": 31,
+    "void_count": 0,
+    "refund_batch_count": 0,
+    "held_sales_unresolved": 0,
+    "sales_cents": 14250,
+    "reversal_cents": 0,
+    "cash_variance_cents": 0
+  },
+  "account_map": {
+    "card": "Card Receivable",
+    "cash": "Cash in Hand",
+    "duitnow_qr": "DuitNow QR Receivable",
+    "rounding": "Rounding",
+    "sales": "Sales",
+    "sst_output": "SST Output"
+  }
+}

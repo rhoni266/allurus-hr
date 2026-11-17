@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Allurus owner overview</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0;font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;color:#16181D;-webkit-font-smoothing:antialiased}
+a{color:#0F766E}a:hover{color:#0B5F59}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="min-height: 100vh; box-sizing: border-box; padding: 28px; background: #DCE3E2; display: flex; justify-content: center; align-items: flex-start">
+<div style="width: 100%; max-width: 1384px; border-radius: 14px; background: #F5F6F7; border: 1px solid rgba(22,24,29,0.10); box-shadow: 0 24px 60px rgba(22,24,29,0.18); overflow: hidden; display: flex; flex-direction: column">
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid rgba(22,24,29,0.08); background: rgba(255,255,255,0.85)">
+<div style="display: flex; gap: 8px; padding-right: 6px" aria-hidden="true"><span style="width: 12px; height: 12px; border-radius: 50%; background: #FF5F57"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #FEBC2E"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #28C840"></span></div>
+<div style="display: flex; flex-direction: column; margin-right: auto"><h1 style="margin: 0; font-size: 17px; font-weight: 700">Owner overview · Major Far East</h1><span style="font-size: 12px; color: #5F636B">November 2026 to date · updated 9:10 am · demo data</span></div>
+<div role="group" aria-label="Period" style="display: flex; padding: 2px; border-radius: 8px; background: rgba(22,24,29,0.06)">
+<sc-for list="{{periods}}" as="p" hint-placeholder-count="3"><button type="button" onClick="{{p.pick}}" aria-pressed="{{p.on}}" style="{{p.style}}">{{p.label}}</button></sc-for>
+</div>
+<button type="button" style="height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid rgba(22,24,29,0.14); background: #fff; color: #16181D; font-size: 13px; font-weight: 500; cursor: pointer">Export PDF</button>
+</div>
+
+<div style="padding: 20px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px">
+
+<div style="grid-column: 1 / -1; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px">
+<sc-for list="{{kpis}}" as="k" hint-placeholder-count="6">
+<section style="background: #fff; border: 1px solid rgba(22,24,29,0.07); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0">
+<span style="font-size: 12px; font-weight: 600; color: #5F636B">{{k.label}}</span>
+<span style="font-size: 26px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; white-space: nowrap">{{k.value}}</span>
+<span style="{{k.deltaStyle}}">{{k.delta}}</span>
+<span style="font-size: 12px; color: #5F636B">{{k.sub}}</span>
+</section>
+</sc-for>
+</div>
+
+<section style="grid-column: span 3; background: #fff; border: 1px solid rgba(22,24,29,0.07); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px">
+<div style="display: flex; flex-direction: column; margin-right: auto"><h2 style="margin: 0; font-size: 15px; font-weight: 700">Daily production</h2><span style="font-size: 12px; color: #5F636B">pcs per day, last 30 days · bar = day's total, line = 7-day average</span></div>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #5F636B"><i style="width: 10px; height: 10px; border-radius: 3px; background: #00917F"></i>Daily total</span>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #5F636B"><i style="width: 14px; height: 2px; border-radius: 1px; background: #16181D"></i>7-day average</span>
+</div>
+<div style="position: relative; height: 240px; display: flex; gap: 0" role="img" aria-label="{{prodAria}}">
+<div style="width: 44px; display: flex; flex-direction: column; justify-content: space-between; font-size: 11px; color: #5F636B; text-align: right; padding: 0 8px 18px 0; box-sizing: border-box">
+<sc-for list="{{prodTicks}}" as="t" hint-placeholder-count="4"><span style="line-height: 1">{{t}}</span></sc-for>
+</div>
+<div style="position: relative; flex: 1; min-width: 0">
+<div style="position: absolute; inset: 0 0 18px 0; display: flex; flex-direction: column; justify-content: space-between; pointer-events: none">
+<sc-for list="{{prodTicks}}" as="t" hint-placeholder-count="4"><span style="height: 1px; background: rgba(22,24,29,0.07)"></span></sc-for>
+</div>
+<div style="position: absolute; inset: 0 0 18px 0; display: flex; align-items: flex-end; gap: 2px">
+<sc-for list="{{prodBars}}" as="b" hint-placeholder-count="30">
+<div onMouseEnter="{{b.hover}}" onMouseLeave="{{clearHover}}" style="flex: 1; height: 100%; display: flex; align-items: flex-end; cursor: default"><span style="{{b.style}}"></span></div>
+</sc-for>
+</div>
+<svg viewBox="0 0 1000 100" preserveAspectRatio="none" style="position: absolute; left: 0; right: 0; top: 0; height: calc(100% - 18px); width: 100%; pointer-events: none; overflow: visible" aria-hidden="true"><polyline points="{{avgPoints}}" fill="none" stroke="#16181D" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"></polyline></svg>
+<div style="position: absolute; left: 0; right: 0; bottom: 0; height: 14px; display: flex; justify-content: space-between; font-size: 11px; color: #5F636B">
+<sc-for list="{{prodXLabels}}" as="x" hint-placeholder-count="5"><span>{{x}}</span></sc-for>
+</div>
+<sc-if value="{{tip.show}}" hint-placeholder-val="{{ false }}">
+<div style="{{tip.style}}">
+<b style="font-size: 12px">{{tip.date}}</b>
+<span style="font-size: 12px">{{tip.units}}</span>
+<span style="font-size: 12px; color: #5F636B">{{tip.pool}}</span>
+<span style="font-size: 12px; color: #5F636B">{{tip.people}}</span>
+</div>
+</sc-if>
+</div>
+</div>
+</section>
+
+<section style="background: #fff; border: 1px solid rgba(22,24,29,0.07); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+<h2 style="margin: 0; font-size: 15px; font-weight: 700">Production commission</h2>
+<span style="font-size: 12px; color: #5F636B">November to date · RM0.05 per pcs</span>
+<span style="font-size: 30px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums">{{commTotal}}</span>
+<span style="font-size: 12px; color: #5F636B">paid out with November payroll</span>
+<div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px">
+<div style="display: flex; justify-content: space-between; font-size: 13px"><span style="color: #5F636B">Average per person per day</span><b style="font-variant-numeric: tabular-nums">{{commAvg}}</b></div>
+<div style="display: flex; justify-content: space-between; font-size: 13px"><span style="color: #5F636B">Best day</span><b style="font-variant-numeric: tabular-nums">{{commBest}}</b></div>
+<div style="display: flex; justify-content: space-between; font-size: 13px"><span style="color: #5F636B">Days entered</span><b style="font-variant-numeric: tabular-nums">{{commDays}}</b></div>
+<div style="display: flex; justify-content: space-between; font-size: 13px"><span style="color: #5F636B">Days missing an entry</span><b style="color: #A05F00">1 · Fri 6 Nov</b></div>
+</div>
+<a href="#" style="font-size: 13px; font-weight: 600; margin-top: auto">Open Production</a>
+</section>
+
+<section style="grid-column: span 2; background: #fff; border: 1px solid rgba(22,24,29,0.07); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px">
+<div style="display: flex; flex-direction: column; margin-right: auto"><h2 style="margin: 0; font-size: 15px; font-weight: 700">Attendance</h2><span style="font-size: 12px; color: #5F636B">staff per working day, last 14 days</span></div>
+<sc-for list="{{attLegend}}" as="l" hint-placeholder-count="4"><span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #5F636B"><i style="{{l.sw}}"></i>{{l.label}}</span></sc-for>
+</div>
+<div style="height: 180px; display: flex; align-items: flex-end; gap: 6px" role="img" aria-label="Attendance last 14 working days: most days about 31 present, 3 late, 1 absent, 1 on leave">
+<sc-for list="{{attDays}}" as="d" hint-placeholder-count="14">
+<div title="{{d.title}}" style="flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; align-items: stretch">
+<sc-for list="{{d.segs}}" as="s" hint-placeholder-count="4"><span style="{{s}}"></span></sc-for>
+<span style="font-size: 10px; color: #5F636B; text-align: center; margin-top: 4px">{{d.label}}</span>
+</div>
+</sc-for>
+</div>
+<span style="font-size: 12px; color: #5F636B">Hover a day for the numbers. Today: 31 present · 4 late · 3 absent · 2 on leave.</span>
+</section>
+
+<section style="grid-column: span 2; background: #fff; border: 1px solid rgba(22,24,29,0.07); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px">
+<div style="display: flex; flex-direction: column; margin-right: auto"><h2 style="margin: 0; font-size: 15px; font-weight: 700">Payroll cost</h2><span style="font-size: 12px; color: #5F636B">RM per month, last 6 months</span></div>
+<sc-for list="{{payLegend}}" as="l" hint-placeholder-count="4"><span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #5F636B"><i style="{{l.sw}}"></i>{{l.label}}</span></sc-for>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<sc-for list="{{payRows}}" as="r" hint-placeholder-count="6">
+<div title="{{r.title}}" style="display: grid; grid-template-columns: 36px minmax(0, 1fr) 92px; align-items: center; gap: 10px">
+<span style="font-size: 12px; color: #5F636B">{{r.month}}</span>
+<div style="height: 18px; display: flex; gap: 2px"><sc-for list="{{r.segs}}" as="s" hint-placeholder-count="4"><span style="{{s}}"></span></sc-for></div>
+<span style="font-size: 12px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums">{{r.total}}</span>
+</div>
+</sc-for>
+</div>
+<span style="font-size: 12px; color: #5F636B">Employer EPF, SOCSO, EIS and HRD levy included. November is an estimate until payroll is finalised.</span>
+</section>
+
+<section style="grid-column: span 2; background: #fff; border: 1px solid rgba(22,24,29,0.07); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px">
+<div style="display: flex; flex-direction: column; margin-right: auto"><h2 style="margin: 0; font-size: 15px; font-weight: 700">Money in and out</h2><span style="font-size: 12px; color: #5F636B">RM thousand per month, last 6 months</span></div>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #5F636B"><i style="width: 10px; height: 10px; border-radius: 3px; background: #00917F"></i>In (sales + invoices paid)</span>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #5F636B"><i style="width: 10px; height: 10px; border-radius: 3px; background: #B5852A"></i>Out (payroll + bills)</span>
+</div>
+<div style="height: 180px; display: flex; align-items: flex-end; gap: 14px" role="img" aria-label="Money in and out per month for the last six months; money in is higher than money out every month">
+<sc-for list="{{cash}}" as="c" hint-placeholder-count="6">
+<div title="{{c.title}}" style="flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; gap: 4px">
+<div style="flex: 1; display: flex; align-items: flex-end; gap: 2px"><span style="{{c.inStyle}}"></span><span style="{{c.outStyle}}"></span></div>
+<span style="font-size: 11px; color: #5F636B; text-align: center">{{c.month}}</span>
+</div>
+</sc-for>
+</div>
+<span style="font-size: 12px; color: #5F636B">{{cashNote}}</span>
+</section>
+
+<section style="grid-column: span 1; background: #fff; border: 1px solid rgba(22,24,29,0.07); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+<h2 style="margin: 0; font-size: 15px; font-weight: 700">Needs you</h2>
+<sc-for list="{{todo}}" as="t" hint-placeholder-count="5">
+<a href="#" style="display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 10px; background: #F6F7F8; color: #16181D; text-decoration: none">
+<span style="{{t.dot}}" aria-hidden="true"></span>
+<span style="display: flex; flex-direction: column; line-height: 1.3; flex: 1; min-width: 0"><b style="font-size: 13px; font-weight: 600">{{t.title}}</b><span style="font-size: 12px; color: #5F636B">{{t.sub}}</span></span>
+<span style="font-size: 12px; font-weight: 700; color: #16181D">{{t.badge}}</span>
+</a>
+</sc-for>
+</section>
+
+<section style="grid-column: span 1; background: #fff; border: 1px solid rgba(22,24,29,0.07); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+<h2 style="margin: 0; font-size: 15px; font-weight: 700">Coming up</h2>
+<sc-for list="{{upcoming}}" as="u" hint-placeholder-count="5">
+<div style="display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 10px; align-items: center">
+<span style="display: flex; flex-direction: column; align-items: center; padding: 4px 0; border-radius: 8px; background: rgba(0,145,127,0.10); color: #0B5F59; line-height: 1.1"><b style="font-size: 15px">{{u.day}}</b><span style="font-size: 10px; font-weight: 600">{{u.mon}}</span></span>
+<span style="display: flex; flex-direction: column; line-height: 1.3"><b style="font-size: 13px; font-weight: 600">{{u.title}}</b><span style="font-size: 12px; color: #5F636B">{{u.sub}}</span></span>
+</div>
+</sc-for>
+</section>
+
+<section style="grid-column: 1 / -1; background: #fff; border: 1px solid rgba(22,24,29,0.07); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0">
+<div style="display: flex; align-items: baseline; justify-content: space-between"><h2 style="margin: 0; font-size: 15px; font-weight: 700">By department, November to date</h2><span style="font-size: 12px; color: #5F636B">table view of the charts above</span></div>
+<div style="overflow-x: auto">
+<table style="width: 100%; border-collapse: collapse; font-size: 13px; min-width: 720px">
+<thead><tr style="text-align: left; color: #5F636B; font-size: 12px">
+<th scope="col" style="padding: 8px 10px; font-weight: 600; border-bottom: 1px solid rgba(22,24,29,0.08)">Department</th>
+<th scope="col" style="padding: 8px 10px; font-weight: 600; border-bottom: 1px solid rgba(22,24,29,0.08); text-align: right">Staff</th>
+<th scope="col" style="padding: 8px 10px; font-weight: 600; border-bottom: 1px solid rgba(22,24,29,0.08); text-align: right">Attendance</th>
+<th scope="col" style="padding: 8px 10px; font-weight: 600; border-bottom: 1px solid rgba(22,24,29,0.08); text-align: right">Leave days</th>
+<th scope="col" style="padding: 8px 10px; font-weight: 600; border-bottom: 1px solid rgba(22,24,29,0.08); text-align: right">Overtime h</th>
+<th scope="col" style="padding: 8px 10px; font-weight: 600; border-bottom: 1px solid rgba(22,24,29,0.08); text-align: right">Commission</th>
+<th scope="col" style="padding: 8px 10px; font-weight: 600; border-bottom: 1px solid rgba(22,24,29,0.08); text-align: right">Payroll cost</th>
+</tr></thead>
+<tbody>
+<sc-for list="{{depts}}" as="d" hint-placeholder-count="5">
+<tr style="border-bottom: 1px solid rgba(22,24,29,0.06)"><td style="padding: 8px 10px; font-weight: 600">{{d.name}}</td><td style="padding: 8px 10px; text-align: right; font-variant-numeric: tabular-nums">{{d.staff}}</td><td style="padding: 8px 10px; text-align: right; font-variant-numeric: tabular-nums">{{d.att}}</td><td style="padding: 8px 10px; text-align: right; font-variant-numeric: tabular-nums">{{d.leave}}</td><td style="padding: 8px 10px; text-align: right; font-variant-numeric: tabular-nums">{{d.ot}}</td><td style="padding: 8px 10px; text-align: right; font-variant-numeric: tabular-nums">{{d.comm}}</td><td style="padding: 8px 10px; text-align: right; font-variant-numeric: tabular-nums">{{d.cost}}</td></tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</section>
+
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1480}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { period: 'Month', hover: -1 }; }
+  renderVals() {
+    const C = { teal: '#00917F', gold: '#B5852A', blue: '#2F6AD0', rust: '#B4532F' };
+    const rm = (n) => 'RM' + n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const periods = [['Month', 'This month'], ['Q', 'Last 3 months'], ['Year', 'This year']].map(([k, label]) => {
+      const on = k === this.state.period;
+      return { label, on: on ? 'true' : 'false', pick: () => this.setState({ period: k }),
+        style: 'height:26px;padding:0 12px;border:0;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;' + (on ? 'background:#fff;color:#16181D;box-shadow:0 1px 2px rgba(22,24,29,.15)' : 'background:transparent;color:#5F636B') };
+    });
+    const kpi = (label, value, delta, up, sub) => ({ label, value, delta, sub, deltaStyle: 'font-size:12px;font-weight:600;color:' + (up === null ? '#5F636B' : up ? '#17804A' : '#B3261E') });
+    const kpis = [
+      kpi('Staff', '40', '+2 this month', null, '38 active · 2 on leave'),
+      kpi('Attendance today', '91%', '-2 pts vs last week', false, '31 of 34 due checked in'),
+      kpi('Production, Nov', '21,580 pcs', '+8% vs Oct, same days', true, '8 days entered · 1 missing'),
+      kpi('Payroll, Nov (est.)', 'RM128,450', '+3.1% vs Oct', null, 'pay day 25 Nov'),
+      kpi('Money in, Nov', 'RM186,200', '+5% vs Oct', true, 'POS + invoices paid'),
+      kpi('Overdue invoices', 'RM14,820', '3 customers', false, 'oldest 41 days')
+    ];
+    // 30 days of production (fixed demo series; Sundays closed)
+    const start = new Date(2026, 9, 13);
+    const raw = [2380, 2510, 2440, 2620, 1890, 0, 2550, 2680, 2490, 2710, 2600, 1880, 0, 2620, 2740, 2580, 2810, 2690, 1950, 0, 2700, 2830, 2650, 2900, 0, 2050, 0, 2760, 2880, 2810];
+    const MISSING = 24;   // Fri 6 Nov: check-ins but no production entered
+    const days = raw.map((u, i) => { const d = new Date(start); d.setDate(start.getDate() + i); return { d, u }; });
+    const max = 3000;
+    const hov = this.state.hover;
+    const prodBars = days.map((x, i) => ({
+      hover: () => this.setState({ hover: i }),
+      style: 'display:block;width:100%;height:' + (x.u / max * 100) + '%;min-height:' + (x.u ? 2 : 0) + 'px;border-radius:4px 4px 0 0;background:' + (hov === i ? '#0B5F59' : C.teal) + ';opacity:' + (hov >= 0 && hov !== i ? 0.55 : 1)
+    }));
+    const avg = days.map((x, i) => { const w = days.slice(Math.max(0, i - 6), i + 1).filter((y) => y.u > 0); return w.length ? w.reduce((s, y) => s + y.u, 0) / w.length : 0; });
+    const avgPoints = avg.map((a, i) => ((i + 0.5) / days.length * 1000).toFixed(1) + ',' + (100 - a / max * 100).toFixed(1)).join(' ');
+    const fmtD = (d) => d.toLocaleDateString('en-MY', { day: 'numeric', month: 'short' });
+    const prodXLabels = [0, 7, 14, 21, 29].map((i) => fmtD(days[i].d));
+    const prodTicks = ['3,000', '2,000', '1,000', '0'];
+    const crew = 24;
+    let tip = { show: false };
+    if (hov >= 0) {
+      const x = days[hov], ppl = x.u ? crew - (hov % 4) : 0, pool = x.u * 0.05;
+      const left = Math.min(Math.max((hov + 0.5) / days.length * 100, 8), 84);
+      tip = { show: true, date: x.d.toLocaleDateString('en-MY', { weekday: 'short', day: 'numeric', month: 'short' }),
+        units: x.u ? x.u.toLocaleString('en-MY') + ' pcs · 7-day avg ' + Math.round(avg[hov]).toLocaleString('en-MY') : (hov === MISSING ? 'Not entered yet' : 'Closed (Sunday)'),
+        pool: x.u ? 'Pool ' + rm(pool) + ' · ' + rm(Math.floor(pool * 100 / ppl) / 100) + ' each' : (hov === MISSING ? '23 staff checked in: enter the total' : ''),
+        people: x.u ? ppl + ' staff checked in' : '',
+        style: 'position:absolute;top:8px;left:' + left + '%;transform:translateX(-50%);display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:10px;background:#fff;border:1px solid rgba(22,24,29,.12);box-shadow:0 8px 24px rgba(22,24,29,.14);pointer-events:none;white-space:nowrap' };
+    }
+    const nov = days.filter((x) => x.d.getMonth() === 10 && x.u > 0);
+    const commSen = nov.reduce((s, x) => s + Math.round(x.u * 5), 0);
+    const best = nov.reduce((b, x) => (x.u > b.u ? x : b), { u: 0 });
+    // Attendance, last 14 working days: present, late, on leave, absent
+    const attRaw = [[30, 3, 1, 2], [32, 2, 1, 1], [31, 3, 2, 0], [29, 4, 2, 1], [33, 1, 1, 1], [31, 2, 2, 1], [30, 3, 1, 2], [32, 3, 0, 1], [31, 2, 2, 1], [30, 4, 1, 1], [33, 2, 0, 1], [32, 2, 1, 1], [30, 3, 2, 1], [31, 4, 2, 3]];
+    const attLabels = ['27', '28', '29', '30', '31', '2', '3', '4', '5', '6', '7', '9', '10', '11'];
+    const seg = (n, col, total) => 'display:block;height:' + (n / total * 82) + '%;min-height:' + (n ? 3 : 0) + 'px;background:' + col + ';border-radius:3px';
+    const attDays = attRaw.map((r, i) => { const t = 40; return { label: attLabels[i], title: `${attLabels[i]}: ${r[0]} present, ${r[1]} late, ${r[2]} on leave, ${r[3]} absent`,
+      segs: [seg(r[3], C.rust, t), seg(r[2], C.blue, t), seg(r[1], C.gold, t), seg(r[0], C.teal, t)] }; });
+    const sw = (c) => 'width:10px;height:10px;border-radius:3px;background:' + c;
+    const attLegend = [['Present', C.teal], ['Late', C.gold], ['On leave', C.blue], ['Absent', C.rust]].map(([label, c]) => ({ label, sw: sw(c) }));
+    // Payroll cost per month: basic, overtime, commission, employer statutory
+    const payRaw = [['Jun', 98200, 7100, 0, 14900], ['Jul', 99100, 8300, 0, 15100], ['Aug', 99100, 6900, 0, 15000], ['Sep', 101400, 7800, 0, 15400], ['Oct', 102600, 8900, 0, 15600], ['Nov', 103800, 7200, 1079, 15800]];
+    const payMax = 140000;
+    const payRows = payRaw.map(([month, b, ot, cm, er]) => { const tot = b + ot + cm + er; const w = (n) => (n / payMax * 100).toFixed(2) + '%';
+      const s = (n, c) => 'display:block;width:' + w(n) + ';min-width:' + (n ? 3 : 0) + 'px;height:100%;background:' + c + ';border-radius:3px';
+      return { month, total: 'RM' + tot.toLocaleString('en-MY'), title: `${month}: basic RM${b.toLocaleString()}, overtime RM${ot.toLocaleString()}, commission RM${cm.toLocaleString()}, employer statutory RM${er.toLocaleString()}`,
+        segs: [s(b, C.teal), s(ot, C.gold), s(cm, C.blue), s(er, C.rust)] }; });
+    const payLegend = [['Basic pay', C.teal], ['Overtime', C.gold], ['Production commission', C.blue], ['Employer EPF/SOCSO/EIS/HRD', C.rust]].map(([label, c]) => ({ label, sw: sw(c) }));
+    const cashRaw = [['Jun', 162, 139], ['Jul', 171, 144], ['Aug', 158, 141], ['Sep', 176, 147], ['Oct', 177, 151], ['Nov', 186, 149]];
+    const cash = cashRaw.map(([month, i, o]) => ({ month, title: `${month}: in RM${i}k, out RM${o}k, net RM${i - o}k`,
+      inStyle: 'flex:1;height:' + (i / 200 * 100) + '%;background:' + C.teal + ';border-radius:4px 4px 0 0',
+      outStyle: 'flex:1;height:' + (o / 200 * 100) + '%;background:' + C.gold + ';border-radius:4px 4px 0 0' }));
+    const dot = (c) => 'width:10px;height:10px;border-radius:50%;flex:none;background:' + c;
+    const todo = [
+      { title: 'Approvals waiting', sub: '2 leave · 3 claims · 1 overtime', badge: '6', dot: dot('#0F766E') },
+      { title: 'Statutory payments due', sub: 'EPF, SOCSO, EIS, PCB for October · by 15 Nov', badge: '4 days', dot: dot('#A05F00') },
+      { title: 'Low stock', sub: 'Cement 50kg, PVC pipe 2", wire 2.5mm', badge: '3', dot: dot('#A05F00') },
+      { title: 'Overdue invoices', sub: 'Syarikat Bina Jaya and 2 others', badge: 'RM14.8k', dot: dot('#B3261E') },
+      { title: 'Production not entered', sub: 'Friday 6 November', badge: '1', dot: dot('#A05F00') }
+    ];
+    const upcoming = [
+      { day: '15', mon: 'NOV', title: 'Statutory deadline', sub: 'KWSP, PERKESO, LHDN, HRD Corp' },
+      { day: '18', mon: 'NOV', title: 'Nur Aisyah back from leave', sub: 'Warehouse' },
+      { day: '20', mon: 'NOV', title: 'Payroll check', sub: 'finalise by 22 Nov' },
+      { day: '25', mon: 'NOV', title: 'Pay day', sub: '40 payslips · RM128,450 est.' },
+      { day: '1', mon: 'DEC', title: 'Probation ends', sub: 'Azman Zain' }
+    ];
+    const depts = [
+      { name: 'Warehouse', staff: '24', att: '92%', leave: '9', ot: '61', comm: 'RM1,079.00', cost: 'RM71,400' },
+      { name: 'Delivery', staff: '7', att: '89%', leave: '3', ot: '38', comm: '—', cost: 'RM24,900' },
+      { name: 'Sales counter', staff: '4', att: '95%', leave: '1', ot: '6', comm: '—', cost: 'RM13,200' },
+      { name: 'Accounts & HR', staff: '3', att: '97%', leave: '1', ot: '0', comm: '—', cost: 'RM12,850' },
+      { name: 'Management', staff: '2', att: '100%', leave: '0', ot: '0', comm: '—', cost: 'RM6,100' }
+    ];
+    return {
+      periods, kpis, prodBars, avgPoints, prodXLabels, prodTicks, tip, clearHover: () => this.setState({ hover: -1 }),
+      prodAria: 'Daily production for the last 30 days, between about 1,900 and 2,900 pcs on working days, trending up; the 7-day average rises from about 2,450 to 2,800.',
+      commTotal: rm(commSen / 100), commAvg: rm(Math.floor(commSen / nov.length / crew) / 100), commBest: best.u ? best.u.toLocaleString('en-MY') + ' pcs · ' + fmtD(best.d) : '—', commDays: String(nov.length),
+      attDays, attLegend, payRows, payLegend, cash, cashNote: 'Net November so far: RM37k. Every month in the last six had more in than out.', todo, upcoming, depts
+    };
+  }
+}
+</script>
+</body>
+</html>

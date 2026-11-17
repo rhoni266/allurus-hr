@@ -12,7 +12,8 @@ they don't open as pages on their own: read them, don't serve them. Demo data on
 | `Employees.dc.html` | Employees: table + inspector, filters, teal selected row | MACOS-STYLE-UI-SPEC.md |
 | `PhoneEmployee.dc.html` | Employee on a phone: check-in card, leave and payslip widgets, quick actions, my requests, tabs | DEVICE-RULES-SPEC.md |
 | `PhoneAdmin.dc.html` | Admin on a phone: Approvals with filter, Approve/Decline, tabs | DEVICE-RULES-SPEC.md |
-| `LaptopBlocked.dc.html` | Employee on a computer: "Please use your phone" + QR + Sign out | DEVICE-RULES-SPEC.md |
+| `LaptopBlocked.dc.html` | Employee on a computer: "Please use your phone" + QR + Sign out | DEVICE-RULES-SPEC.md (rule later relaxed by ONE-PHONE-SPEC.md) |
+| `OwnerOverview.dc.html` | Owner overview: KPIs, daily production chart, commission, attendance, payroll cost, money in/out, needs you, coming up, department table | OWNER-OVERVIEW-SPEC.md |
 
 `{{name}}` in the markup is filled from `renderVals()` in the script at the bottom of each file.
 The `docs/**` folder isn't deployed, so these stay out of allurus.my.

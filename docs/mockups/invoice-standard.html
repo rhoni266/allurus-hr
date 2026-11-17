@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Invoice INV-202611-0001</title>
+<style>
+  @page { size: A4; margin: 0; }
+  :root {
+    --ink: #0f172a; --ink-2: #334155; --muted: #64748b; --line: #e2e8f0; --soft: #f8fafc;
+    --brand: #0f766e; --brand-soft: #ecfdf5;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #e5e7eb; }
+  body { font-family: "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: var(--ink);
+         font-size: 9.5pt; line-height: 1.4; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .page { width: 210mm; height: 297mm; overflow: hidden; margin: 0 auto; background: #fff; position: relative;
+          padding: 14mm 15mm 11mm; display: flex; flex-direction: column; }
+  .bar { position: absolute; top: 0; left: 0; right: 0; height: 5px; background: var(--brand); }
+  .num { font-variant-numeric: tabular-nums; }
+  .bm { color: var(--muted); font-weight: 400; }
+  small, .s { font-size: 8pt; }
+  .label { font-size: 7.5pt; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+
+  /* Header */
+  .head { display: grid; grid-template-columns: 1fr auto; gap: 10mm; align-items: start; }
+  .brand { display: flex; gap: 12px; align-items: flex-start; }
+  .logo { width: 44px; height: 44px; border-radius: 10px; background: var(--brand); color: #fff;
+          display: grid; place-items: center; font-weight: 700; font-size: 18pt; flex: none; }
+  .co-name { font-size: 14pt; font-weight: 700; letter-spacing: -.01em; margin: 0 0 2px; }
+  .co-meta { color: var(--ink-2); font-size: 8.5pt; line-height: 1.5; }
+  .co-meta span { color: var(--muted); }
+  .doc { text-align: right; }
+  .doc h1 { margin: 0; font-size: 22pt; font-weight: 700; letter-spacing: -.02em; }
+  .doc .sub { color: var(--muted); font-size: 9pt; margin-top: 1px; }
+  .status { display: inline-block; margin-top: 8px; padding: 3px 10px; border-radius: 999px; font-size: 8pt;
+            font-weight: 600; border: 1px solid var(--line); color: var(--muted); letter-spacing: .04em; }
+
+  /* Meta strip */
+  .strip { margin-top: 7mm; display: grid; grid-template-columns: 1.35fr 1fr 1fr .8fr 1.3fr; border: 1px solid var(--line);
+           border-radius: 10px; overflow: hidden; }
+  .strip > div { padding: 9px 11px; white-space: nowrap; border-right: 1px solid var(--line); }
+  .strip > div:last-child { border-right: 0; background: var(--brand-soft); }
+  .strip .v { font-weight: 600; margin-top: 3px; }
+  .strip .due-amt { font-size: 15pt; font-weight: 700; color: var(--brand); margin-top: 1px; letter-spacing: -.01em; }
+
+  /* Parties */
+  .parties { margin-top: 6mm; display: grid; grid-template-columns: 1fr 1fr; gap: 10mm; }
+  .party .name { font-weight: 600; font-size: 10.5pt; margin: 4px 0 2px; }
+  .party .addr { color: var(--ink-2); font-size: 9pt; }
+
+  /* Items */
+  table.items { width: 100%; border-collapse: collapse; margin-top: 6mm; }
+  .items .r { white-space: nowrap; }
+  .items th { text-align: left; font-size: 7.5pt; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+              font-weight: 600; padding: 0 8px 7px; border-bottom: 1.5px solid var(--ink); }
+  .items td { padding: 8px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .items .r { text-align: right; }
+  .items .no { width: 26px; color: var(--muted); }
+  .items .desc b { display: block; font-weight: 600; }
+  .items .desc span { color: var(--ink-2); font-size: 8.8pt; }
+
+  /* Totals */
+  .after { display: grid; grid-template-columns: 1fr 72mm; gap: 10mm; margin-top: 5mm; align-items: start; }
+  .words { color: var(--ink-2); font-size: 9pt; }
+  .words .label { display: block; margin-bottom: 3px; }
+  .notes { margin-top: 4mm; font-size: 9pt; color: var(--ink-2); }
+  .notes .label { display: block; margin-bottom: 3px; }
+  .totals { width: 100%; border-collapse: collapse; }
+  .totals td { padding: 4px 0; }
+  .totals td:last-child { text-align: right; }
+  .totals .sep td { border-top: 1px solid var(--line); }
+  .totals .grand td { border-top: 1.5px solid var(--ink); padding-top: 9px; font-weight: 700; font-size: 11pt; }
+  .totals .due td { border: 0; background: var(--brand); color: #fff; font-weight: 700; font-size: 11.5pt; padding: 9px 10px; }
+  .totals .due td:first-child { border-radius: 8px 0 0 8px; }
+  .totals .due td:last-child { border-radius: 0 8px 8px 0; }
+
+  /* Payment */
+  .pay { margin-top: 6mm; border: 1px solid var(--line); border-radius: 12px; display: grid;
+         grid-template-columns: 1fr auto; overflow: hidden; }
+  .pay-main { padding: 14px 16px; }
+  .pay h3 { margin: 0 0 10px; font-size: 10.5pt; }
+  .kv { display: grid; grid-template-columns: 34mm 1fr; row-gap: 6px; font-size: 9.5pt; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; font-weight: 600; }
+  .ref { margin-top: 10px; padding: 7px 10px; background: var(--soft); border-radius: 8px; font-size: 8.8pt; color: var(--ink-2); }
+  .ref b { color: var(--ink); }
+  .qr { background: var(--soft); border-left: 1px solid var(--line); padding: 14px 16px; text-align: center; width: 40mm; }
+  .qr .box { width: 24mm; height: 24mm; margin: 0 auto 6px; background:
+      repeating-linear-gradient(0deg, #0f172a 0 3px, transparent 3px 6px),
+      repeating-linear-gradient(90deg, #0f172a 0 3px, #fff 3px 6px); border: 3px solid #fff; outline: 1px solid var(--line); opacity: .85; }
+  .qr small { color: var(--muted); }
+
+  /* Terms */
+  .terms { margin-top: 5mm; }
+  .terms ol { margin: 5px 0 0; padding-left: 16px; color: var(--ink-2); font-size: 8.5pt; columns: 2; column-gap: 9mm; }
+  .terms li { margin-bottom: 3px; break-inside: avoid; }
+
+  /* Footer */
+  .spacer { flex: 1; }
+  .foot { margin-top: 5mm; padding-top: 4mm; border-top: 1px solid var(--line); display: grid;
+          grid-template-columns: auto 1fr auto; gap: 8mm; align-items: center; font-size: 8pt; color: var(--muted); }
+  .einv { display: flex; gap: 8px; align-items: center; }
+  .einv .mini { width: 16mm; height: 16mm; background:
+      repeating-linear-gradient(45deg, #0f172a 0 2px, #fff 2px 4px); outline: 1px solid var(--line); opacity: .7; }
+  .foot .mid { text-align: center; }
+  .watermark { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%) rotate(-24deg);
+               font-size: 110pt; font-weight: 800; color: rgba(15, 23, 42, .045); letter-spacing: .05em; pointer-events: none; }
+  @media print { html, body { background: #fff; } .page { margin: 0; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="bar"></div>
+  <div class="watermark">DRAFT</div>
+
+  <header class="head">
+    <div class="brand">
+      <div class="logo">A</div>
+      <div>
+        <p class="co-name">Allurus</p>
+        <div class="co-meta">
+          ALL URUS (202101023456)<br>
+          Lot 7, Jalan Kampung Tengah, Kawasan Perindustrian Chukai,<br>
+          24000 Kemaman, Terengganu<br>
+          +60 9-859 2210 · finance@allurus.my<br>
+          <span>TIN</span> C25845632000 · <span>SST</span> W10-2108-32000187
+        </div>
+      </div>
+    </div>
+    <div class="doc">
+      <h1>Invoice</h1>
+      <div class="sub">Invois Cukai · Tax invoice</div>
+      <div class="status">DRAFT</div>
+    </div>
+  </header>
+
+  <section class="strip">
+    <div><div class="label">Invoice no. <span class="bm">/ No.</span></div><div class="v num">INV-202611-0001</div></div>
+    <div><div class="label">Issued <span class="bm">/ Tarikh</span></div><div class="v num">14 Nov 2026</div></div>
+    <div><div class="label">Due <span class="bm">/ Tamat</span></div><div class="v num">21 Nov 2026</div></div>
+    <div><div class="label">Terms <span class="bm">/ Terma</span></div><div class="v">7 days</div></div>
+    <div><div class="label">Amount due <span class="bm">/ Jumlah</span></div><div class="due-amt num">RM 1,000.00</div></div>
+  </section>
+
+  <section class="parties">
+    <div class="party">
+      <div class="label">Bill to <span class="bm">/ Kepada</span></div>
+      <div class="name">Major Far East Sdn Bhd</div>
+      <div class="addr">Lot 1579, KM 105, Jalan Kemaman–Dungun,<br>Kawasan Perindustrian, 24300 Kerteh, Terengganu<br>09-827 0039 · majorfareast@yahoo.com</div>
+    </div>
+    <div class="party">
+      <div class="label">Reference <span class="bm">/ Rujukan</span></div>
+      <div class="name">Allurus HR · Annual subscription</div>
+      <div class="addr">Deposit 1 of 2 · Contract value RM 3,000.00<br>Period: 12 months from go-live</div>
+    </div>
+  </section>
+
+  <table class="items">
+    <thead><tr><th class="no">#</th><th>Description</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">Amount (RM)</th></tr></thead>
+    <tbody>
+      <tr>
+        <td class="no num">1</td>
+        <td class="desc"><b>Allurus HR – annual subscription, deposit</b>
+          <span>Onboarding &amp; setup. Modules: HR, attendance, leave, claims, payroll, production commission. 12 months from go-live.</span></td>
+        <td class="r num">1</td><td class="r num">1,000.00</td><td class="r num">1,000.00</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <section class="after">
+    <div>
+      <div class="words"><span class="label">Amount in words <span class="bm">/ Dalam perkataan</span></span>Ringgit Malaysia One Thousand Only</div>
+      <div class="notes"><span class="label">Notes <span class="bm">/ Catatan</span></span>Total annual contract RM 3,000.00. This invoice is deposit 1 of 2; the balance of RM 2,000.00 is invoiced at go-live.</div>
+    </div>
+    <table class="totals num">
+      <tr><td>Subtotal</td><td>1,000.00</td></tr>
+      <tr class="sep"><td>SST 0%</td><td>0.00</td></tr>
+      <tr class="grand"><td>Total (RM)</td><td>1,000.00</td></tr>
+      <tr><td>Paid</td><td>0.00</td></tr>
+      <tr class="due"><td>Amount due</td><td>RM 1,000.00</td></tr>
+    </table>
+  </section>
+
+  <section class="pay">
+    <div class="pay-main">
+      <h3>How to pay <span class="bm">/ Cara bayaran</span></h3>
+      <dl class="kv">
+        <dt>Bank</dt><dd>Maybank</dd>
+        <dt>Account name</dt><dd>Abdul Ghani bin Mohd Ridzwan</dd>
+        <dt>Account no.</dt><dd class="num">5630 2882 0314</dd>
+      </dl>
+      <div class="ref">Use <b>INV-202611-0001</b> as the payment reference, then email the receipt to finance@allurus.my.</div>
+    </div>
+    <div class="qr"><div class="box"></div><small>DuitNow QR<br>Scan to pay</small></div>
+  </section>
+
+  <section class="terms">
+    <div class="label">Terms <span class="bm">/ Terma</span></div>
+    <ol>
+      <li>Deposit due on confirmation; onboarding starts when paid.</li>
+      <li>UAT 14 days; accepted on sign-off or 7 days with no major issue.</li>
+      <li>Balance invoiced at go-live, due in 14 days.</li>
+      <li>12 months from go-live; renews yearly unless 30 days' notice.</li>
+      <li>Custom features are quoted separately.</li>
+      <li>Client owns its data; export on request.</li>
+    </ol>
+  </section>
+
+  <div class="spacer"></div>
+
+  <footer class="foot">
+    <div class="einv"><div class="mini"></div><div>e-Invoice (MyInvois)<br>UUID shown once validated</div></div>
+    <div class="mid">Computer-generated invoice. No signature required.<br>Thank you for your business · Terima kasih</div>
+    <div class="num">Page 1 of 1</div>
+  </footer>
+</div>
+</body>
+</html>
