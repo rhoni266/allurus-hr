@@ -387,6 +387,12 @@ td.r, th.r { text-align: right; }
 .compare img { width: 100%; aspect-ratio: 1; border-radius: 18px; object-fit: cover; }
 .compare figcaption { font-size: 12.5px; color: var(--fg-3); text-align: center; }
 .att-controls { display: flex; align-items: center; gap: 6px; }
+.card.clickable { cursor: pointer; transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease), border-color var(--dur) var(--ease); }
+.card.clickable:hover { transform: translateY(-2px); border-color: var(--line-strong); box-shadow: var(--shadow-pop); }
+.card.clickable:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.card.clickable.on { border-color: var(--brand); background: var(--surface-2); }
+tr.att-row-late td { background: var(--warn-soft); }
+tr.att-row-late:hover td { background: var(--warn-soft); }
 
 /* ---------- Finance & Accounting ---------- */
 .modal.lg { max-width: 880px; }

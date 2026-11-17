@@ -231,7 +231,7 @@
   // UI-only state (not persisted)
   const ui = {
     empQuery: '', empDept: 'all', empStatus: 'all',
-    attDate: U.today(), leaveFilter: 'Pending',
+    attDate: U.today(), attQuery: '', attDept: 'all', attStatus: 'all', attView: 'log', leaveFilter: 'Pending',
     payMonth: U.monthKey(U.today()), jobFilter: 'all',
     tenantQuery: '', tenantStatus: 'all',
   };
@@ -291,6 +291,7 @@
     pin: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     userplus: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M19 8v6M16 11h6"/>',
     logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
+    list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
   };
   const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
 
@@ -1260,37 +1261,262 @@
     const people = activeEmployees().filter((e) => e.start <= day).sort((a, b) => a.first.localeCompare(b.first));
     const opts = [['present', 'Present'], ['remote', 'Remote'], ['absent', 'Absent'], ['leave', 'Leave']];
     const tt = timeApi.dayTotals(day, people);
+    const inCount = s.present + s.remote;
+    const rate = people.length ? Math.round((inCount / people.length) * 100) : 0;
+
+    const q = (ui.attQuery || '').trim().toLowerCase();
+    const deptFilter = ui.attDept || 'all';
+    const statusFilter = ui.attStatus || 'all';
+
+    const filtered = people.filter((e) => {
+      if (deptFilter !== 'all' && e.dept !== deptFilter) return false;
+      if (q) {
+        const text = `${fullName(e)} ${e.role || ''} ${e.email || ''} ${dept(e.dept)?.name || ''}`.toLowerCase();
+        if (!text.includes(q)) return false;
+      }
+      if (statusFilter !== 'all') {
+        const r = rec[e.id];
+        const tc = timeApi.attCells(e, day);
+        if (statusFilter === 'present') {
+          if (r?.s !== 'present') return false;
+        } else if (statusFilter === 'remote') {
+          if (r?.s !== 'remote') return false;
+        } else if (statusFilter === 'late') {
+          if (!tc.info?.ev?.late || tc.info.ev.late <= 0) return false;
+        } else if (statusFilter === 'absent') {
+          if (r?.s !== 'absent') return false;
+        } else if (statusFilter === 'leave') {
+          if (r?.s !== 'leave' && !onLeaveOn(e.id, day)) return false;
+        } else if (statusFilter === 'none') {
+          if (r && r.s && r.s !== 'none') return false;
+        }
+      }
+      return true;
+    });
+
+    const isToday = day === U.today();
+    const isYesterday = day === U.addDays(U.today(), -1);
+    const isFiltered = !!(ui.attQuery || (ui.attDept && ui.attDept !== 'all') || (ui.attStatus && ui.attStatus !== 'all'));
+    const bar = (v, color) => (people.length && v > 0 ? `<i style="width:${(v / people.length) * 100}%;background:${color}"></i>` : '');
+
     return `
-      <div class="page-head"><div><h1>Attendance</h1><p class="sub">Mark who is in, remote or out. Approved leave is filled in automatically. Lateness, early-outs and overtime follow each person’s shift.</p></div>
+      <div class="page-head">
+        <div>
+          <h1>Attendance</h1>
+          <p class="sub">Mark who is in, remote or out. Approved leave is filled in automatically. Lateness, early-outs and overtime follow each person’s shift.</p>
+        </div>
         <div class="actions">
-          <button class="btn btn-icon" data-act="att-shift" data-v="-1" aria-label="Previous day">${icon('left')}</button>
+          <button class="btn btn-icon" data-act="att-shift" data-v="-1" aria-label="Previous day" title="Previous day">${icon('left')}</button>
           <input class="input" type="date" id="att-date" value="${day}" max="${U.addDays(U.today(), 30)}">
-          <button class="btn btn-icon" data-act="att-shift" data-v="1" aria-label="Next day">${icon('right')}</button>
-          <button class="btn" data-act="att-today">Today</button>
+          <button class="btn btn-icon" data-act="att-shift" data-v="1" aria-label="Next day" title="Next day">${icon('right')}</button>
+          <button class="btn ${isToday ? 'btn-primary' : ''}" data-act="att-today">Today</button>
+          <button class="btn ${isYesterday ? 'btn-primary' : ''}" data-act="att-yesterday">Yesterday</button>
+          <button class="btn" data-act="att-export" title="Export attendance for this date to CSV">${icon('download')}Export CSV</button>
           <button class="btn" data-act="tm-batch">${icon('edit')}Batch edit</button>
           <button class="btn btn-primary" data-act="att-all">${icon('check')}Mark rest present</button>
-        </div></div>
-      <div class="grid g-4 keep-2">
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>In office</div><div class="kpi-value">${s.present}</div></div>
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Remote</div><div class="kpi-value">${s.remote}</div></div>
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--bad)"></span>Absent</div><div class="kpi-value">${s.absent}</div></div>
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>On leave</div><div class="kpi-value">${s.leave}</div><div class="kpi-foot">${s.none} not marked</div></div>
+        </div>
       </div>
+
+      <div class="grid g-3 keep-2" style="margin-bottom:14px">
+        <div class="card kpi clickable ${statusFilter === 'all' && !isFiltered ? 'on' : ''}" data-act="att-filter-status" data-v="all" style="${statusFilter === 'all' && !isFiltered ? 'box-shadow:0 0 0 2px var(--brand)' : ''}" role="button" tabindex="0" title="Click to view all employees">
+          <div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Attendance rate</div>
+          <div class="kpi-value">${rate}%</div>
+          <div class="kpi-foot">${inCount} of ${people.length} present or remote</div>
+        </div>
+        <div class="card kpi clickable ${statusFilter === 'present' ? 'on' : ''}" data-act="att-filter-status" data-v="present" style="${statusFilter === 'present' ? 'box-shadow:0 0 0 2px var(--ok)' : ''}" role="button" tabindex="0" title="Click to filter In office">
+          <div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>In office</div>
+          <div class="kpi-value">${s.present}</div>
+          <div class="kpi-foot">${people.length ? Math.round((s.present / people.length) * 100) : 0}% at workplace</div>
+        </div>
+        <div class="card kpi clickable ${statusFilter === 'remote' ? 'on' : ''}" data-act="att-filter-status" data-v="remote" style="${statusFilter === 'remote' ? 'box-shadow:0 0 0 2px var(--info)' : ''}" role="button" tabindex="0" title="Click to filter Remote">
+          <div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Remote</div>
+          <div class="kpi-value">${s.remote}</div>
+          <div class="kpi-foot">${people.length ? Math.round((s.remote / people.length) * 100) : 0}% off-site</div>
+        </div>
+        <div class="card kpi clickable ${statusFilter === 'late' ? 'on' : ''}" data-act="att-filter-status" data-v="late" style="${statusFilter === 'late' ? 'box-shadow:0 0 0 2px var(--warn)' : ''}" role="button" tabindex="0" title="Click to filter Late check-ins">
+          <div class="kpi-label"><span class="dot" style="background:var(--warn)"></span>Late today</div>
+          <div class="kpi-value">${tt.late}</div>
+          <div class="kpi-foot">${tt.early ? `${tt.early} left early · ` : ''}${U.round2(tt.ot / 60)}h overtime</div>
+        </div>
+        <div class="card kpi clickable ${statusFilter === 'absent' ? 'on' : ''}" data-act="att-filter-status" data-v="absent" style="${statusFilter === 'absent' ? 'box-shadow:0 0 0 2px var(--bad)' : ''}" role="button" tabindex="0" title="Click to filter Absent">
+          <div class="kpi-label"><span class="dot" style="background:var(--bad)"></span>Absent</div>
+          <div class="kpi-value">${s.absent}</div>
+          <div class="kpi-foot">${people.length ? Math.round((s.absent / people.length) * 100) : 0}% unexcused</div>
+        </div>
+        <div class="card kpi clickable ${statusFilter === 'leave' ? 'on' : ''}" data-act="att-filter-status" data-v="leave" style="${statusFilter === 'leave' ? 'box-shadow:0 0 0 2px var(--gold)' : ''}" role="button" tabindex="0" title="Click to filter On leave">
+          <div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>On leave</div>
+          <div class="kpi-value">${s.leave}</div>
+          <div class="kpi-foot">${s.none} not marked yet</div>
+        </div>
+      </div>
+
+      <div class="card" style="padding:14px 18px;margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-size:13px;font-weight:600;color:var(--fg-2)">Attendance breakdown · ${people.length} employees</div>
+          <div style="font-size:12.5px;color:var(--fg-3);font-variant-numeric:tabular-nums">${rate}% attendance</div>
+        </div>
+        <div class="ops-aging" style="height:10px;margin:6px 0 10px;border-radius:5px;gap:2px" title="In office: ${s.present}, Remote: ${s.remote}, Late: ${tt.late}, On leave: ${s.leave}, Absent: ${s.absent}, Unmarked: ${s.none}">
+          ${bar(s.present, 'var(--ok)')}
+          ${bar(s.remote, 'var(--info)')}
+          ${bar(tt.late, 'var(--warn)')}
+          ${bar(s.leave, 'var(--gold)')}
+          ${bar(s.absent, 'var(--bad)')}
+          ${bar(s.none, 'var(--line-strong)')}
+        </div>
+        <div class="chips" style="gap:6px 14px;font-size:12px">
+          <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--ok)"></i>In office <b>${s.present}</b></span>
+          <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--info)"></i>Remote <b>${s.remote}</b></span>
+          <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--warn)"></i>Late <b>${tt.late}</b></span>
+          <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--gold)"></i>Leave <b>${s.leave}</b></span>
+          <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--bad)"></i>Absent <b>${s.absent}</b></span>
+          ${s.none ? `<span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--line-strong)"></i>Unmarked <b>${s.none}</b></span>` : ''}
+        </div>
+      </div>
+
       ${securityCard()}
       ${timeApi.requestsCard()}
+
       <div class="card card-flush">
-        <div class="card-head" style="padding-bottom:14px"><h3>${U.fmtDate(day, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</h3><div class="actions">${tt.late ? `<span class="tag bad">${tt.late} late</span>` : ''}${tt.early ? `<span class="tag warn">${tt.early} left early</span>` : ''}${tt.ot ? `<span class="tag ok">${U.round2(tt.ot / 60)} h overtime</span>` : ''}${U.isWeekend(day) ? '<span class="pill gold">Weekend</span>' : ''}</div></div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Employee</th><th class="hide-sm">Shift</th><th>Check-in</th><th class="hide-sm">Location</th><th>Status</th></tr></thead>
-          <tbody>${people.map((e) => { const r = rec[e.id], tc = timeApi.attCells(e, day); return `<tr>
-            <td>${person(e)}</td><td class="hide-sm">${tc.shift}</td>
-            <td class="num muted"><span class="att-time">${r?.in || '—'}${r?.out ? '–' + r.out : ''}<button class="btn btn-sm btn-icon btn-ghost" data-act="tm-edit" data-id="${e.id}" data-v="${day}" title="Edit times${tc.history ? ` (${tc.history} change${tc.history === 1 ? '' : 's'})` : ''}" aria-label="Edit times for ${esc(fullName(e))}">${icon('edit')}${tc.history ? '<i class="att-edited" aria-hidden="true"></i>' : ''}</button></span>${r?.history?.length ? `<div class="faint" style="font-size:12px">${r.history.length + 1} check-ins</div>` : ''}${r && (r.via === 'kiosk' || r.via === 'supervisor' || r.offline || r.project || r.flags?.length) ? `<div class="tm-tags">${r.via === 'kiosk' ? '<span class="tag">Kiosk</span>' : r.via === 'supervisor' ? `<span class="tag" title="Checked in by a supervisor">By ${esc(emp(r.by)?.first || 'supervisor')}</span>` : ''}${r.offline ? `<span class="tag ${r.syncedAt ? '' : 'warn'}" title="${r.syncedAt ? 'Synced ' + new Date(r.syncedAt).toLocaleString('en-MY') : 'Waiting to sync'}">Captured offline</span>` : ''}${r.flags?.length && !r.reviewed ? '<span class="tag bad" title="Location looks unusual">GPS check</span>' : ''}${kioskApi.projectTag(r)}</div>` : ''}${tc.tags ? `<div class="tm-tags">${tc.tags}</div>` : ''}${r?.face ? `<div style="margin-top:3px">${faceTag(r)}</div>` : ''}</td>
-            <td class="hide-sm muted" style="font-size:12.5px;max-width:300px"><div class="loc-cell">${selfieThumb(e.id, day, r)}<span>${r?.loc ? esc(locText(r.loc)) : '—'}</span></div></td>
-            <td><div class="att-controls"><div class="seg status" role="group" aria-label="Status for ${esc(fullName(e))}">${opts.map(([v, l]) => `<button data-act="att-set" data-id="${e.id}" data-v="${v}" class="${r?.s === v ? 'on' : ''}">${l}</button>`).join('')}</div>${r ? `<button class="btn btn-sm btn-icon btn-ghost" data-act="att-clear" data-id="${e.id}" title="Clear check-in" aria-label="Clear check-in for ${esc(fullName(e))}">${icon('x')}</button>` : ''}</div></td></tr>`; }).join('')}</tbody>
-        </table></div>
+        <div class="card-head" style="padding-bottom:12px">
+          <div>
+            <h3 style="margin:0">${U.fmtDate(day, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</h3>
+            <div style="font-size:12.5px;color:var(--fg-3);margin-top:2px">${filtered.length} of ${people.length} employees shown</div>
+          </div>
+          <div class="actions">
+            <div class="seg" role="group" aria-label="View mode">
+              <button data-act="att-view" data-v="log" class="${ui.attView !== 'trend' ? 'on' : ''}">${icon('list')}Daily log</button>
+              <button data-act="att-view" data-v="trend" class="${ui.attView === 'trend' ? 'on' : ''}">${icon('chart')}7-day trend</button>
+            </div>
+            ${tt.late ? `<span class="tag bad">${tt.late} late</span>` : ''}
+            ${tt.early ? `<span class="tag warn">${tt.early} left early</span>` : ''}
+            ${tt.ot ? `<span class="tag ok">${U.round2(tt.ot / 60)} h overtime</span>` : ''}
+            ${U.isWeekend(day) ? '<span class="pill gold">Weekend</span>' : ''}
+          </div>
+        </div>
+
+        ${ui.attView === 'trend' ? `
+          <div style="padding:18px 22px">
+            <div class="card-head" style="padding:0 0 12px 0">
+              <h4 style="margin:0">Attendance trend, last 7 workdays</h4>
+              <div class="legend"><span><i style="background:var(--brand)"></i>In office</span><span><i style="background:var(--gold)"></i>Remote</span></div>
+            </div>
+            ${attendanceChart(day)}
+          </div>
+        ` : `
+          <div class="toolbar" style="gap:10px">
+            <input class="input" id="att-q" type="search" placeholder="Search by name, role or email…" value="${esc(ui.attQuery || '')}" style="flex:1;min-width:180px">
+            <select class="select" id="att-dept">
+              <option value="all">All departments</option>
+              ${state.departments.map((d) => `<option value="${d.id}" ${ui.attDept === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}
+            </select>
+            <div class="seg" role="group" aria-label="Status filter">
+              ${[
+                ['all', `All (${people.length})`],
+                ['present', `In office (${s.present})`],
+                ['remote', `Remote (${s.remote})`],
+                ['late', `Late (${tt.late})`],
+                ['absent', `Absent (${s.absent})`],
+                ['leave', `Leave (${s.leave})`],
+                ['none', `Unmarked (${s.none})`],
+              ].map(([v, l]) => `<button data-act="att-filter-status" data-v="${v}" class="${statusFilter === v ? 'on' : ''}">${l}</button>`).join('')}
+            </div>
+          </div>
+          ${isFiltered ? `
+            <div class="toolbar" style="background:var(--brand-soft);padding:8px 22px;font-size:13px">
+              <span style="flex:1">Filtered to <b>${filtered.length}</b> of <b>${people.length}</b> employees</span>
+              <button class="btn btn-sm" data-act="att-filter-clear">Reset filters</button>
+            </div>
+          ` : ''}
+          <div class="table-wrap"><table>
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th class="hide-sm">Department</th>
+                <th class="hide-sm">Shift</th>
+                <th>Check-in / Out</th>
+                <th class="hide-sm">Location</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filtered.map((e) => {
+                const r = rec[e.id];
+                const tc = timeApi.attCells(e, day);
+                const isLate = tc.info?.ev?.late > 0;
+                const statusPill = r?.s === 'present'
+                  ? '<span class="pill ok">In office</span>'
+                  : r?.s === 'remote'
+                    ? '<span class="pill info">Remote</span>'
+                    : r?.s === 'absent'
+                      ? '<span class="pill bad">Absent</span>'
+                      : (r?.s === 'leave' || onLeaveOn(e.id, day))
+                        ? '<span class="pill gold">On leave</span>'
+                        : '<span class="pill">Not marked</span>';
+
+                return `<tr class="${isLate ? 'att-row-late' : ''}">
+                  <td>${person(e)}</td>
+                  <td class="hide-sm">${deptTag(e.dept)}</td>
+                  <td class="hide-sm">${tc.shift}</td>
+                  <td class="num muted">
+                    <span class="att-time" style="font-weight:600;color:var(--fg)">
+                      ${r?.in || '—'}${r?.out ? ' – ' + r.out : ''}
+                      <button class="btn btn-sm btn-icon btn-ghost" data-act="tm-edit" data-id="${e.id}" data-v="${day}" title="Edit times${tc.history ? ` (${tc.history} change${tc.history === 1 ? '' : 's'})` : ''}" aria-label="Edit times for ${esc(fullName(e))}">${icon('edit')}${tc.history ? '<i class="att-edited" aria-hidden="true"></i>' : ''}</button>
+                    </span>
+                    ${tc.info?.ev?.worked ? `<span class="faint" style="font-size:12px;margin-left:4px">(${U.round2(tc.info.ev.worked / 60)}h)</span>` : ''}
+                    ${r?.history?.length ? `<div class="faint" style="font-size:12px">${r.history.length + 1} check-ins</div>` : ''}
+                    ${r && (r.via === 'kiosk' || r.via === 'supervisor' || r.offline || r.project || r.flags?.length) ? `<div class="tm-tags">${r.via === 'kiosk' ? '<span class="tag">Kiosk</span>' : r.via === 'supervisor' ? `<span class="tag" title="Checked in by a supervisor">By ${esc(emp(r.by)?.first || 'supervisor')}</span>` : ''}${r.offline ? `<span class="tag ${r.syncedAt ? '' : 'warn'}" title="${r.syncedAt ? 'Synced ' + new Date(r.syncedAt).toLocaleString('en-MY') : 'Waiting to sync'}">Captured offline</span>` : ''}${r.flags?.length && !r.reviewed ? '<span class="tag bad" title="Location looks unusual">GPS check</span>' : ''}${kioskApi.projectTag(r)}</div>` : ''}
+                    ${tc.tags ? `<div class="tm-tags">${tc.tags}</div>` : ''}
+                    ${r?.face ? `<div style="margin-top:3px">${faceTag(r)}</div>` : ''}
+                  </td>
+                  <td class="hide-sm muted" style="font-size:12.5px;max-width:280px">
+                    <div class="loc-cell">${selfieThumb(e.id, day, r)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r?.loc ? esc(locText(r.loc)) : '—'}</span></div>
+                  </td>
+                  <td>
+                    <div class="att-controls" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+                      <div style="display:flex;align-items:center;gap:6px">
+                        ${statusPill}
+                        ${isLate ? `<span class="tag bad" title="Late by ${tc.info.ev.late} minutes">${tc.info.ev.late}m late</span>` : ''}
+                      </div>
+                      <div style="display:flex;align-items:center;gap:6px">
+                        <div class="seg status" role="group" aria-label="Status for ${esc(fullName(e))}">
+                          ${opts.map(([v, l]) => `<button data-act="att-set" data-id="${e.id}" data-v="${v}" class="${r?.s === v ? 'on' : ''}">${l}</button>`).join('')}
+                        </div>
+                        ${r ? `<button class="btn btn-sm btn-icon btn-ghost" data-act="att-clear" data-id="${e.id}" title="Clear check-in" aria-label="Clear check-in for ${esc(fullName(e))}">${icon('x')}</button>` : ''}
+                      </div>
+                    </div>
+                  </td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+          ${filtered.length ? '' : `
+            <div class="empty">
+              <strong>No employees match those filters</strong>
+              Try a different search or clear the filters.
+              <div style="margin-top:10px"><button class="btn btn-sm" data-act="att-filter-clear">Reset filters</button></div>
+            </div>
+          `}
+          </div>
+        `}
       </div>`;
   };
-  AFTER.attendance = () => { $('#att-date').addEventListener('change', (ev) => { if (ev.target.value) { ui.attDate = ev.target.value; render(); } }); };
+  AFTER.attendance = () => {
+    $('#att-date')?.addEventListener('change', (ev) => { if (ev.target.value) { ui.attDate = ev.target.value; render(); } });
+    const q = $('#att-q');
+    if (q) {
+      q.addEventListener('input', () => {
+        ui.attQuery = q.value;
+        const pos = q.selectionStart;
+        render();
+        const n = $('#att-q');
+        if (n) { n.focus(); n.setSelectionRange(pos, pos); }
+      });
+    }
+    $('#att-dept')?.addEventListener('change', (ev) => {
+      ui.attDept = ev.target.value;
+      render();
+    });
+  };
   function setAttendance(id, s) {
     const day = ui.attDate;
     state.attendance[day] = state.attendance[day] || {};
@@ -3320,6 +3546,30 @@
     },
     'att-shift': (_, v) => { ui.attDate = U.addDays(ui.attDate, Number(v)); render(); },
     'att-today': () => { ui.attDate = U.today(); render(); },
+    'att-yesterday': () => { ui.attDate = U.addDays(U.today(), -1); render(); },
+    'att-view': (_, v) => { ui.attView = v; render(); },
+    'att-filter-status': (_, v) => { ui.attStatus = v; render(); },
+    'att-filter-clear': () => { ui.attQuery = ''; ui.attDept = 'all'; ui.attStatus = 'all'; render(); },
+    'att-export': () => {
+      const day = ui.attDate;
+      const rec = state.attendance[day] || {};
+      const people = activeEmployees().filter((e) => e.start <= day).sort((a, b) => a.first.localeCompare(b.first));
+      const headers = ['Date', 'Employee ID', 'Name', 'Email', 'Department', 'Job title', 'Shift', 'Status', 'Check-in', 'Check-out', 'Hours worked', 'Late (min)', 'Location', 'Method'];
+      const rows = people.map((e) => {
+        const r = rec[e.id];
+        const tc = timeApi.attCells(e, day);
+        const workedH = tc.info?.ev?.worked ? U.round2(tc.info.ev.worked / 60) : (r?.in ? (r.out ? U.round2(AllurusTimeRules.sessionMin(r) / 60) : 8) : 0);
+        const status = r ? r.s : (onLeaveOn(e.id, day) ? 'leave' : 'unmarked');
+        const method = r?.via || (r?.offline ? 'offline' : (r?.in ? 'app' : ''));
+        return [
+          day, e.id, fullName(e), e.email || '', dept(e.dept)?.name || '', e.role || '',
+          tc.info?.pattern?.name || 'Standard', status, r?.in || '', r?.out || '',
+          workedH, tc.info?.ev?.late || 0, r?.loc ? locText(r.loc) : '', method
+        ];
+      });
+      downloadCSV(`attendance-${day}.csv`, [headers, ...rows]);
+      toast('Attendance exported');
+    },
     'att-set': (id, v) => setAttendance(id, v),
     'att-clear': (id) => {
       const day = ui.attDate;
