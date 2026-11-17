@@ -231,7 +231,7 @@
   // UI-only state (not persisted)
   const ui = {
     empQuery: '', empDept: 'all', empStatus: 'all',
-    attDate: U.today(), attQuery: '', attDept: 'all', attStatus: 'all', attView: 'log', leaveFilter: 'Pending',
+    attDate: U.today(), attQuery: '', attDept: 'all', attLoc: 'all', attShift: 'all', attSort: 'name', attPage: 1, attPageSize: 10, attTrendRange: 14, attStatus: 'all', attView: 'log', leaveFilter: 'Pending',
     payMonth: U.monthKey(U.today()), jobFilter: 'all',
     tenantQuery: '', tenantStatus: 'all',
   };
@@ -292,12 +292,23 @@
     userplus: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M19 8v6M16 11h6"/>',
     logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
     list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+    eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
   };
   const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
 
   // ---------- Lookups & formatting ----------
   const emp = (id) => state.employees.find((e) => e.id === id);
   const dept = (id) => state.departments.find((d) => d.id === id);
+  const fmt12 = (hm) => {
+    if (!hm) return '';
+    if (typeof AllurusSimpleHome !== 'undefined' && AllurusSimpleHome?.time12) {
+      return AllurusSimpleHome.time12(hm);
+    }
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(hm || ''));
+    if (!m) return hm;
+    const h = +m[1];
+    return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'am' : 'pm'}`;
+  };
   const fullName = (e) => (e ? `${e.first} ${e.last}` : 'Unknown');
   // Local symbols where they read better, for example RM for Malaysian ringgit.
   const locale = () => ({ MYR: 'en-MY', SGD: 'en-SG', GBP: 'en-GB', INR: 'en-IN', AUD: 'en-AU', CAD: 'en-CA' })[state.settings.currency] || 'en-US';
@@ -999,11 +1010,12 @@
     return AllurusUX.board('admin', W.filter((w) => !w.area || can(w.area)));
   };
 
-  function attendanceChart(endDay) {
+  function attendanceChart(endDay, count = 7) {
     const days = [];
     let d = endDay;
-    while (days.length < 7) { if (!U.isWeekend(d)) days.unshift(d); d = U.addDays(d, -1); }
-    const W = 560, H = 220, L = 34, B = 26, top = 18, cw = (W - L) / days.length, bw = Math.min(38, cw * 0.5);
+    const target = Math.max(5, Math.min(count, 30));
+    while (days.length < target) { if (!U.isWeekend(d)) days.unshift(d); d = U.addDays(d, -1); }
+    const W = 560, H = 220, L = 34, B = 26, top = 18, cw = (W - L) / days.length, bw = Math.max(6, Math.min(38, cw * (days.length > 14 ? 0.65 : 0.5)));
     const y = (p) => top + (H - top - B) * (1 - p / 100);
     let svg = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Attendance rate per day">`;
     [0, 50, 100].forEach((p) => { svg += `<line class="grid-line" x1="${L}" x2="${W}" y1="${y(p)}" y2="${y(p)}"/><text class="axis" x="${L - 8}" y="${y(p) + 4}" text-anchor="end">${p}%</text>`; });
@@ -1012,10 +1024,13 @@
       const pp = s.total ? (s.present / s.total) * 100 : 0;
       const rp = s.total ? (s.remote / s.total) * 100 : 0;
       const x = L + cw * i + (cw - bw) / 2;
-      svg += `<rect class="b-present" x="${x}" y="${y(pp)}" width="${bw}" height="${y(0) - y(pp)}" rx="5"><title>${U.fmtDate(day)}: ${s.present} in office</title></rect>`;
-      if (rp > 0) svg += `<rect class="b-remote" x="${x}" y="${y(pp + rp)}" width="${bw}" height="${Math.max(0, y(pp) - y(pp + rp) - 2)}" rx="5"><title>${s.remote} remote</title></rect>`;
-      svg += `<text class="val" x="${x + bw / 2}" y="${y(pp + rp) - 6}" text-anchor="middle">${Math.round(pp + rp)}%</text>`;
-      svg += `<text class="axis" x="${x + bw / 2}" y="${H - 6}" text-anchor="middle">${U.fmtDate(day, { weekday: 'short' })} ${U.parse(day).getDate()}</text>`;
+      svg += `<rect class="b-present" x="${x}" y="${y(pp)}" width="${bw}" height="${y(0) - y(pp)}" rx="${bw > 12 ? 4 : 2}"><title>${U.fmtDate(day)}: ${s.present} in office</title></rect>`;
+      if (rp > 0) svg += `<rect class="b-remote" x="${x}" y="${y(pp + rp)}" width="${bw}" height="${Math.max(0, y(pp) - y(pp + rp) - 2)}" rx="${bw > 12 ? 4 : 2}"><title>${s.remote} remote</title></rect>`;
+      if (days.length <= 14) {
+        svg += `<text class="val" x="${x + bw / 2}" y="${y(pp + rp) - 6}" text-anchor="middle" font-size="${bw < 18 ? '10px' : '11.5px'}">${Math.round(pp + rp)}%</text>`;
+      }
+      const label = days.length > 14 ? `${U.parse(day).getDate()}` : `${U.fmtDate(day, { weekday: 'short' })} ${U.parse(day).getDate()}`;
+      svg += `<text class="axis" x="${x + bw / 2}" y="${H - 6}" text-anchor="middle" font-size="${days.length > 14 ? '10px' : '11px'}">${label}</text>`;
     });
     return svg + '</svg>';
   }
@@ -1253,6 +1268,97 @@
     });
   }
 
+  function openAttendanceDetail(empId, day) {
+    const e = emp(empId);
+    if (!e) return;
+    const dayStr = day || ui.attDate;
+    const r = state.attendance[dayStr]?.[empId];
+    const tc = timeApi.attCells(e, dayStr);
+    const audits = timeApi.auditFor(dayStr, empId) || [];
+    const workedM = tc.info?.ev?.worked != null ? tc.info.ev.worked : (r?.in ? (r.out ? AllurusTimeRules.sessionMin(r) : 480) : 0);
+    const workedH = U.round2(workedM / 60);
+    const isLate = tc.info?.ev?.late > 0;
+    const isEarly = tc.info?.ev?.early > 0;
+    const otMin = tc.info?.ev?.ot || 0;
+    const shiftName = tc.info?.pattern?.name || 'Standard';
+    const shiftTimes = tc.info?.pattern ? `${tc.info.pattern.start || ''} – ${tc.info.pattern.end || ''}` : '09:00 – 18:00';
+    const method = r?.via === 'kiosk' ? 'Kiosk terminal' : r?.via === 'supervisor' ? `Supervisor (${fullName(emp(r.by)) || 'Manager'})` : r?.offline ? 'Captured offline' : (r?.in ? 'Mobile app' : '—');
+    const in12 = r?.in ? fmt12(r.in) : '—';
+    const out12 = r?.out ? fmt12(r.out) : '—';
+    const isMissing = r?.in && !r?.out && (AllurusTimeRules.shiftEnded({ day: dayStr, pattern: tc.info?.pattern, nowDay: U.today(), nowHM: (new Date()).toTimeString().slice(0, 5) }) || dayStr < U.today());
+
+    openModal({
+      title: `Attendance Record · ${fullName(e)}`,
+      size: 'md',
+      submit: null,
+      body: `
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line)">
+          ${avatar(e)}
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:16px;color:var(--fg)">${esc(fullName(e))} <span class="tag" style="margin-left:6px">${esc(e.id)}</span></div>
+            <div style="font-size:13px;color:var(--fg-3);margin-top:2px">${esc(e.role || 'Employee')} · ${deptTag(e.dept)}</div>
+          </div>
+          <div>
+            ${r?.s === 'present' ? '<span class="pill ok">In office</span>' : r?.s === 'remote' ? '<span class="pill info">Remote</span>' : r?.s === 'absent' ? '<span class="pill bad">Absent</span>' : (r?.s === 'leave' || onLeaveOn(e.id, dayStr)) ? '<span class="pill gold">On leave</span>' : '<span class="pill">Not marked</span>'}
+          </div>
+        </div>
+
+        <div class="grid g-2" style="margin-bottom:14px;gap:10px">
+          <div class="card" style="padding:12px 14px;background:var(--surface-2)">
+            <div class="kpi-label" style="font-size:11.5px;color:var(--fg-3)">Date &amp; Schedule</div>
+            <div style="font-weight:600;margin-top:3px;font-size:13.5px">${U.fmtDate(dayStr, { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })}</div>
+            <div style="font-size:12px;color:var(--fg-3);margin-top:2px">${esc(shiftName)} (${shiftTimes})</div>
+          </div>
+          <div class="card" style="padding:12px 14px;background:var(--surface-2)">
+            <div class="kpi-label" style="font-size:11.5px;color:var(--fg-3)">Hours &amp; Lateness</div>
+            <div style="font-weight:600;margin-top:3px;font-size:13.5px">${workedH}h recorded</div>
+            <div style="font-size:12px;margin-top:2px">
+              ${isLate ? `<span class="tag bad">${tc.info.ev.late}m late</span> ` : ''}
+              ${isEarly ? `<span class="tag warn">${tc.info.ev.early}m early departure</span> ` : ''}
+              ${otMin ? `<span class="tag ok">${U.round2(otMin / 60)}h overtime</span> ` : ''}
+              ${isMissing ? '<span class="tag warn">Missing check-out</span> ' : ''}
+              ${!isLate && !isEarly && !otMin && !isMissing ? '<span class="faint">On schedule</span>' : ''}
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:14px;margin-bottom:14px">
+          <h4 style="margin:0 0 10px;font-size:13px;color:var(--fg-2)">Punch Details</h4>
+          <div class="grid g-2" style="gap:10px;font-size:13px">
+            <div><span class="faint">Check-in:</span> <b>${in12}</b> ${r?.in ? `<span class="faint">(${r.in})</span>` : ''}</div>
+            <div><span class="faint">Check-out:</span> <b>${out12}</b> ${r?.out ? `<span class="faint">(${r.out})</span>` : (isMissing ? '<span class="tag warn">Not recorded</span>' : '')}</div>
+            <div><span class="faint">Method:</span> ${esc(method)}</div>
+            <div><span class="faint">Location:</span> ${r?.loc ? esc(locText(r.loc)) : (r?.s === 'remote' ? 'Remote' : (r?.s === 'present' ? 'Main workplace' : '—'))}</div>
+          </div>
+          ${r?.loc?.lat != null ? `
+            <div style="margin-top:10px;font-size:12px">
+              <span class="faint">Coordinates:</span>
+              <a href="${mapsLink(r.loc)}" target="_blank" rel="noopener" class="hint">${U.fmtCoords(r.loc)} · View on Google Maps</a>
+            </div>
+          ` : ''}
+          ${r?.photo ? `
+            <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);display:flex;align-items:center;gap:12px">
+              <img src="${r.photo}" style="width:64px;height:64px;border-radius:8px;object-fit:cover;border:1px solid var(--line)">
+              <div style="font-size:12px;color:var(--fg-3)">Selfie photo verified during check-in</div>
+            </div>
+          ` : ''}
+        </div>
+
+        ${audits.length ? `
+          <div style="margin-bottom:14px">
+            <h4 style="margin:0 0 8px;font-size:13px;color:var(--fg-2)">Audit &amp; Change Trail</h4>
+            ${timeApi.historyHtml(audits)}
+          </div>
+        ` : ''}
+
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+          <button class="btn" onclick="document.querySelector('.modal-scrim')?.click()">Close</button>
+          <button class="btn btn-primary" data-act="tm-edit" data-id="${e.id}" data-v="${dayStr}">${icon('edit')}Adjust record</button>
+        </div>
+      `,
+    });
+  }
+
   // ----- Attendance -----
   VIEWS.attendance = () => {
     const day = ui.attDate;
@@ -1263,20 +1369,39 @@
     const tt = timeApi.dayTotals(day, people);
     const inCount = s.present + s.remote;
     const rate = people.length ? Math.round((inCount / people.length) * 100) : 0;
+    const presentPct = people.length ? Math.round((s.present / people.length) * 100) : 0;
+    const remotePct = people.length ? Math.round((s.remote / people.length) * 100) : 0;
+    const absentPct = people.length ? Math.round((s.absent / people.length) * 100) : 0;
 
     const q = (ui.attQuery || '').trim().toLowerCase();
     const deptFilter = ui.attDept || 'all';
+    const locFilter = ui.attLoc || 'all';
+    const shiftFilter = ui.attShift || 'all';
     const statusFilter = ui.attStatus || 'all';
+    const sortMode = ui.attSort || 'name';
 
+    const nowHM_val = (new Date()).toTimeString().slice(0, 5);
+    const isPastOrEnded = (e, tc) => day < U.today() || AllurusTimeRules.shiftEnded({ day, pattern: tc.info?.pattern, nowDay: U.today(), nowHM: nowHM_val });
+
+    // Filter people
     const filtered = people.filter((e) => {
       if (deptFilter !== 'all' && e.dept !== deptFilter) return false;
+      const r = rec[e.id];
+      const tc = timeApi.attCells(e, day);
+      if (locFilter !== 'all') {
+        if (locFilter === 'hq' && (!r || !r.loc?.inside)) return false;
+        if (locFilter === 'remote' && (!r || r.s !== 'remote')) return false;
+        if (locFilter === 'field' && (!r || !r.loc?.field)) return false;
+      }
+      if (shiftFilter !== 'all') {
+        const pId = tc.info?.pattern?.id;
+        if (pId !== shiftFilter) return false;
+      }
       if (q) {
-        const text = `${fullName(e)} ${e.role || ''} ${e.email || ''} ${dept(e.dept)?.name || ''}`.toLowerCase();
+        const text = `${fullName(e)} ${e.id} ${e.role || ''} ${e.email || ''} ${dept(e.dept)?.name || ''}`.toLowerCase();
         if (!text.includes(q)) return false;
       }
       if (statusFilter !== 'all') {
-        const r = rec[e.id];
-        const tc = timeApi.attCells(e, day);
         if (statusFilter === 'present') {
           if (r?.s !== 'present') return false;
         } else if (statusFilter === 'remote') {
@@ -1294,23 +1419,91 @@
       return true;
     });
 
+    // Sorting
+    filtered.sort((a, b) => {
+      if (sortMode === 'name-desc') return fullName(b).localeCompare(fullName(a));
+      if (sortMode === 'time-earliest') {
+        const tA = rec[a.id]?.in || '99:99';
+        const tB = rec[b.id]?.in || '99:99';
+        return tA.localeCompare(tB);
+      }
+      if (sortMode === 'time-latest') {
+        const tA = rec[a.id]?.in || '00:00';
+        const tB = rec[b.id]?.in || '00:00';
+        return tB.localeCompare(tA);
+      }
+      if (sortMode === 'late') {
+        const lA = timeApi.attCells(a, day).info?.ev?.late || 0;
+        const lB = timeApi.attCells(b, day).info?.ev?.late || 0;
+        return lB - lA;
+      }
+      if (sortMode === 'worked') {
+        const wA = timeApi.attCells(a, day).info?.ev?.worked || 0;
+        const wB = timeApi.attCells(b, day).info?.ev?.worked || 0;
+        return wB - wA;
+      }
+      return fullName(a).localeCompare(fullName(b));
+    });
+
+    // Pagination
+    const pageSize = ui.attPageSize === 'all' ? filtered.length || 1 : Number(ui.attPageSize) || 10;
+    const totalPages = Math.ceil(filtered.length / pageSize) || 1;
+    if (ui.attPage > totalPages) ui.attPage = totalPages;
+    if (ui.attPage < 1) ui.attPage = 1;
+    const curPage = ui.attPage || 1;
+    const startIdx = (curPage - 1) * pageSize;
+    const pageEmployees = ui.attPageSize === 'all' ? filtered : filtered.slice(startIdx, startIdx + pageSize);
+    const showingStart = filtered.length ? startIdx + 1 : 0;
+    const showingEnd = Math.min(startIdx + pageSize, filtered.length);
+
     const isToday = day === U.today();
     const isYesterday = day === U.addDays(U.today(), -1);
-    const isFiltered = !!(ui.attQuery || (ui.attDept && ui.attDept !== 'all') || (ui.attStatus && ui.attStatus !== 'all'));
+    const thisMonday = AllurusTimeRules.mondayOf(U.today());
+    const isThisWeek = day === thisMonday;
+    const thisMonthStart = U.today().slice(0, 7) + '-01';
+    const isThisMonth = day === thisMonthStart;
+    const isFiltered = !!(ui.attQuery || (ui.attDept && ui.attDept !== 'all') || (ui.attLoc && ui.attLoc !== 'all') || (ui.attShift && ui.attShift !== 'all') || (ui.attStatus && ui.attStatus !== 'all'));
+
     const bar = (v, color) => (people.length && v > 0 ? `<i style="width:${(v / people.length) * 100}%;background:${color}"></i>` : '');
+
+    // Activity & Exceptions calculations
+    const checkedInPeople = people.filter((e) => rec[e.id]?.in);
+    checkedInPeople.sort((a, b) => (rec[a.id]?.in || '').localeCompare(rec[b.id]?.in || ''));
+    const earliest = checkedInPeople.slice(0, 3);
+    const latePeople = people.filter((e) => {
+      const tc = timeApi.attCells(e, day);
+      return tc.info?.ev?.late > 0;
+    });
+    const missingOutPeople = people.filter((e) => {
+      const r = rec[e.id];
+      if (!r?.in || r?.out) return false;
+      const tc = timeApi.attCells(e, day);
+      return isPastOrEnded(e, tc);
+    });
+
+    // Department breakdown
+    const deptAttendanceList = state.departments.map((d) => {
+      const emps = people.filter((e) => e.dept === d.id);
+      if (!emps.length) return null;
+      const presentCount = emps.filter((e) => rec[e.id]?.s === 'present' || rec[e.id]?.s === 'remote').length;
+      const deptRate = Math.round((presentCount / emps.length) * 100);
+      return { d, total: emps.length, presentCount, deptRate };
+    }).filter(Boolean);
 
     return `
       <div class="page-head">
         <div>
           <h1>Attendance</h1>
-          <p class="sub">Mark who is in, remote or out. Approved leave is filled in automatically. Lateness, early-outs and overtime follow each person’s shift.</p>
+          <p class="sub">Monitor workforce attendance, daily time records, and shift schedules.</p>
         </div>
-        <div class="actions">
+        <div class="actions" style="flex-wrap:wrap">
           <button class="btn btn-icon" data-act="att-shift" data-v="-1" aria-label="Previous day" title="Previous day">${icon('left')}</button>
           <input class="input" type="date" id="att-date" value="${day}" max="${U.addDays(U.today(), 30)}">
           <button class="btn btn-icon" data-act="att-shift" data-v="1" aria-label="Next day" title="Next day">${icon('right')}</button>
           <button class="btn ${isToday ? 'btn-primary' : ''}" data-act="att-today">Today</button>
           <button class="btn ${isYesterday ? 'btn-primary' : ''}" data-act="att-yesterday">Yesterday</button>
+          <button class="btn ${isThisWeek ? 'btn-primary' : ''}" data-act="att-week">This Week</button>
+          <button class="btn ${isThisMonth ? 'btn-primary' : ''}" data-act="att-month">This Month</button>
           <button class="btn" data-act="att-export" title="Export attendance for this date to CSV">${icon('download')}Export CSV</button>
           <button class="btn" data-act="tm-batch">${icon('edit')}Batch edit</button>
           <button class="btn btn-primary" data-act="att-all">${icon('check')}Mark rest present</button>
@@ -1326,12 +1519,12 @@
         <div class="card kpi clickable ${statusFilter === 'present' ? 'on' : ''}" data-act="att-filter-status" data-v="present" style="${statusFilter === 'present' ? 'box-shadow:0 0 0 2px var(--ok)' : ''}" role="button" tabindex="0" title="Click to filter In office">
           <div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>In office</div>
           <div class="kpi-value">${s.present}</div>
-          <div class="kpi-foot">${people.length ? Math.round((s.present / people.length) * 100) : 0}% at workplace</div>
+          <div class="kpi-foot">${presentPct}% at workplace</div>
         </div>
         <div class="card kpi clickable ${statusFilter === 'remote' ? 'on' : ''}" data-act="att-filter-status" data-v="remote" style="${statusFilter === 'remote' ? 'box-shadow:0 0 0 2px var(--info)' : ''}" role="button" tabindex="0" title="Click to filter Remote">
           <div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Remote</div>
           <div class="kpi-value">${s.remote}</div>
-          <div class="kpi-foot">${people.length ? Math.round((s.remote / people.length) * 100) : 0}% off-site</div>
+          <div class="kpi-foot">${remotePct}% off-site</div>
         </div>
         <div class="card kpi clickable ${statusFilter === 'late' ? 'on' : ''}" data-act="att-filter-status" data-v="late" style="${statusFilter === 'late' ? 'box-shadow:0 0 0 2px var(--warn)' : ''}" role="button" tabindex="0" title="Click to filter Late check-ins">
           <div class="kpi-label"><span class="dot" style="background:var(--warn)"></span>Late today</div>
@@ -1341,35 +1534,156 @@
         <div class="card kpi clickable ${statusFilter === 'absent' ? 'on' : ''}" data-act="att-filter-status" data-v="absent" style="${statusFilter === 'absent' ? 'box-shadow:0 0 0 2px var(--bad)' : ''}" role="button" tabindex="0" title="Click to filter Absent">
           <div class="kpi-label"><span class="dot" style="background:var(--bad)"></span>Absent</div>
           <div class="kpi-value">${s.absent}</div>
-          <div class="kpi-foot">${people.length ? Math.round((s.absent / people.length) * 100) : 0}% unexcused</div>
+          <div class="kpi-foot">${absentPct}% unexcused</div>
         </div>
         <div class="card kpi clickable ${statusFilter === 'leave' ? 'on' : ''}" data-act="att-filter-status" data-v="leave" style="${statusFilter === 'leave' ? 'box-shadow:0 0 0 2px var(--gold)' : ''}" role="button" tabindex="0" title="Click to filter On leave">
           <div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>On leave</div>
           <div class="kpi-value">${s.leave}</div>
-          <div class="kpi-foot">${s.none} not marked yet</div>
+          <div class="kpi-foot">${s.none ? `${s.none} not marked yet` : 'All scheduled accounted for'}</div>
         </div>
       </div>
 
-      <div class="card" style="padding:14px 18px;margin-bottom:14px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <div style="font-size:13px;font-weight:600;color:var(--fg-2)">Attendance breakdown · ${people.length} employees</div>
-          <div style="font-size:12.5px;color:var(--fg-3);font-variant-numeric:tabular-nums">${rate}% attendance</div>
+      <div class="att-bento">
+        <div class="card" style="padding:18px 20px;display:flex;flex-direction:column;justify-content:space-between">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+            <div>
+              <h3 style="margin:0;font-size:15px;font-weight:600">Attendance Trend</h3>
+              <div style="font-size:12px;color:var(--fg-3);margin-top:2px">Daily workforce turnout over workdays</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="seg" role="group" aria-label="Trend duration">
+                ${[7, 14, 30].map((n) => `<button data-act="att-trend-range" data-v="${n}" class="${(ui.attTrendRange || 14) === n ? 'on' : ''}">${n}d</button>`).join('')}
+              </div>
+              <div class="legend"><span><i style="background:var(--brand)"></i>In office</span><span><i style="background:var(--gold)"></i>Remote</span></div>
+            </div>
+          </div>
+          <div style="flex:1;min-height:220px;display:flex;align-items:center">
+            ${attendanceChart(day, ui.attTrendRange || 14)}
+          </div>
         </div>
-        <div class="ops-aging" style="height:10px;margin:6px 0 10px;border-radius:5px;gap:2px" title="In office: ${s.present}, Remote: ${s.remote}, Late: ${tt.late}, On leave: ${s.leave}, Absent: ${s.absent}, Unmarked: ${s.none}">
-          ${bar(s.present, 'var(--ok)')}
-          ${bar(s.remote, 'var(--info)')}
-          ${bar(tt.late, 'var(--warn)')}
-          ${bar(s.leave, 'var(--gold)')}
-          ${bar(s.absent, 'var(--bad)')}
-          ${bar(s.none, 'var(--line-strong)')}
+
+        <div style="display:flex;flex-direction:column;gap:var(--gap)">
+          <div class="card" style="padding:16px 18px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <div style="font-size:13px;font-weight:600;color:var(--fg-2)">Attendance breakdown · ${people.length} employees</div>
+              <div style="font-size:12.5px;color:var(--fg-3);font-variant-numeric:tabular-nums">${rate}% attendance</div>
+            </div>
+            <div class="ops-aging" style="height:10px;margin:6px 0 10px;border-radius:5px;gap:2px" title="In office: ${s.present}, Remote: ${s.remote}, Late: ${tt.late}, On leave: ${s.leave}, Absent: ${s.absent}, Unmarked: ${s.none}">
+              ${bar(s.present, 'var(--ok)')}
+              ${bar(s.remote, 'var(--info)')}
+              ${bar(tt.late, 'var(--warn)')}
+              ${bar(s.leave, 'var(--gold)')}
+              ${bar(s.absent, 'var(--bad)')}
+              ${bar(s.none, 'var(--line-strong)')}
+            </div>
+            <div class="chips" style="gap:6px 14px;font-size:12px">
+              <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--ok)"></i>In office <b>${s.present}</b> (${presentPct}%)</span>
+              <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--info)"></i>Remote <b>${s.remote}</b> (${remotePct}%)</span>
+              <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--warn)"></i>Late <b>${tt.late}</b></span>
+              <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--gold)"></i>Leave <b>${s.leave}</b></span>
+              <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--bad)"></i>Absent <b>${s.absent}</b> (${absentPct}%)</span>
+              ${s.none ? `<span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--line-strong)"></i>Unmarked <b>${s.none}</b></span>` : ''}
+            </div>
+          </div>
+
+          <div class="card" style="padding:14px 18px">
+            <div style="font-size:13px;font-weight:600;color:var(--fg-2);margin-bottom:8px">Department Turnout</div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              ${deptAttendanceList.length ? deptAttendanceList.map(({ d, total, presentCount, deptRate }) => `
+                <div class="hbar" style="grid-template-columns:110px minmax(0,1fr) 68px;padding:4px 0;font-size:12.5px">
+                  <span class="dept" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(d.name)}">${deptTag(d.id)}</span>
+                  <div class="hbar-track" style="height:7px;background:var(--line)" title="${presentCount} of ${total} present (${deptRate}%)">
+                    <i style="width:${deptRate}%;background:${d.color || 'var(--brand)'}"></i>
+                  </div>
+                  <span class="num r" style="font-weight:600;font-size:12px;color:var(--fg-2)">${presentCount}/${total} <span class="faint" style="font-weight:400">(${deptRate}%)</span></span>
+                </div>
+              `).join('') : '<div class="faint" style="font-size:12px">No departments active</div>'}
+            </div>
+          </div>
         </div>
-        <div class="chips" style="gap:6px 14px;font-size:12px">
-          <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--ok)"></i>In office <b>${s.present}</b></span>
-          <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--info)"></i>Remote <b>${s.remote}</b></span>
-          <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--warn)"></i>Late <b>${tt.late}</b></span>
-          <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--gold)"></i>Leave <b>${s.leave}</b></span>
-          <span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--bad)"></i>Absent <b>${s.absent}</b></span>
-          ${s.none ? `<span style="display:inline-flex;align-items:center;gap:5px"><i style="width:8px;height:8px;border-radius:50%;background:var(--line-strong)"></i>Unmarked <b>${s.none}</b></span>` : ''}
+      </div>
+
+      <div class="card" style="margin-bottom:14px;padding:16px 20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+          <div>
+            <h3 style="margin:0;font-size:15px;font-weight:600">Daily Attendance Activity &amp; Exceptions</h3>
+            <div style="font-size:12.5px;color:var(--fg-3);margin-top:2px">Arrival timing, late arrivals, and punch exceptions for ${U.fmtDate(day, { weekday: 'short', day: 'numeric', month: 'short' })}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            ${latePeople.length ? `<span class="pill warn">${latePeople.length} late</span>` : ''}
+            ${missingOutPeople.length ? `<span class="pill bad">${missingOutPeople.length} missing punch-out</span>` : ''}
+            ${!latePeople.length && !missingOutPeople.length ? '<span class="pill ok">All on schedule</span>' : ''}
+          </div>
+        </div>
+        <div class="att-feed-grid">
+          <div class="att-feed-box">
+            <div class="att-feed-title">
+              <span>First Check-ins</span>
+              <span class="faint">${checkedInPeople.length} punched in</span>
+            </div>
+            <div class="att-feed-list">
+              ${earliest.length ? earliest.map((e) => {
+                const r = rec[e.id];
+                return `<div class="att-feed-item">
+                  <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                    ${avatar(e)}
+                    <span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(fullName(e))}</span>
+                  </div>
+                  <span class="att-feed-time">${fmt12(r.in)}</span>
+                </div>`;
+              }).join('') : '<div class="faint" style="font-size:12.5px;padding:8px 0">No check-ins recorded yet</div>'}
+            </div>
+          </div>
+
+          <div class="att-feed-box">
+            <div class="att-feed-title">
+              <span>Late Arrivals</span>
+              <span class="${latePeople.length ? 'tag bad' : 'faint'}">${latePeople.length}</span>
+            </div>
+            <div class="att-feed-list">
+              ${latePeople.length ? latePeople.slice(0, 3).map((e) => {
+                const r = rec[e.id];
+                const tc = timeApi.attCells(e, day);
+                return `<div class="att-feed-item">
+                  <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                    ${avatar(e)}
+                    <div style="min-width:0">
+                      <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(fullName(e))}</div>
+                      <div class="faint" style="font-size:11px">In at ${fmt12(r?.in)}</div>
+                    </div>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:4px">
+                    <span class="tag bad">+${tc.info.ev.late}m</span>
+                    <button class="btn btn-sm btn-icon btn-ghost" data-act="att-detail" data-id="${e.id}" data-v="${day}" title="View details" aria-label="View details for ${esc(fullName(e))}">${icon('eye')}</button>
+                  </div>
+                </div>`;
+              }).join('') : '<div class="faint" style="font-size:12.5px;padding:8px 0">No late arrivals today · Great punctuality!</div>'}
+              ${latePeople.length > 3 ? `<div class="faint" style="font-size:11.5px;text-align:right">+${latePeople.length - 3} more late</div>` : ''}
+            </div>
+          </div>
+
+          <div class="att-feed-box">
+            <div class="att-feed-title">
+              <span>Missing Check-outs</span>
+              <span class="${missingOutPeople.length ? 'tag warn' : 'faint'}">${missingOutPeople.length}</span>
+            </div>
+            <div class="att-feed-list">
+              ${missingOutPeople.length ? missingOutPeople.slice(0, 3).map((e) => {
+                const r = rec[e.id];
+                return `<div class="att-feed-item">
+                  <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                    ${avatar(e)}
+                    <div style="min-width:0">
+                      <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(fullName(e))}</div>
+                      <div class="faint" style="font-size:11px">In: ${fmt12(r.in)} · Shift ended</div>
+                    </div>
+                  </div>
+                  <button class="btn btn-sm" data-act="tm-edit" data-id="${e.id}" data-v="${day}">Fix</button>
+                </div>`;
+              }).join('') : '<div class="faint" style="font-size:12.5px;padding:8px 0">All completed shifts have check-out punches</div>'}
+              ${missingOutPeople.length > 3 ? `<div class="faint" style="font-size:11.5px;text-align:right">+${missingOutPeople.length - 3} more</div>` : ''}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1400,15 +1714,35 @@
               <h4 style="margin:0">Attendance trend, last 7 workdays</h4>
               <div class="legend"><span><i style="background:var(--brand)"></i>In office</span><span><i style="background:var(--gold)"></i>Remote</span></div>
             </div>
-            ${attendanceChart(day)}
+            ${attendanceChart(day, 7)}
           </div>
         ` : `
-          <div class="toolbar" style="gap:10px">
-            <input class="input" id="att-q" type="search" placeholder="Search by name, role or email…" value="${esc(ui.attQuery || '')}" style="flex:1;min-width:180px">
-            <select class="select" id="att-dept">
+          <div class="toolbar" style="gap:10px;flex-wrap:wrap">
+            <input class="input" id="att-q" type="search" placeholder="Search by name, role or employee ID…" value="${esc(ui.attQuery || '')}" style="flex:1;min-width:180px">
+            <select class="select" id="att-dept" style="max-width:170px">
               <option value="all">All departments</option>
               ${state.departments.map((d) => `<option value="${d.id}" ${ui.attDept === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}
             </select>
+            <select class="select" id="att-loc" style="max-width:150px">
+              <option value="all" ${locFilter === 'all' ? 'selected' : ''}>All locations</option>
+              <option value="hq" ${locFilter === 'hq' ? 'selected' : ''}>On-site (in zone)</option>
+              <option value="remote" ${locFilter === 'remote' ? 'selected' : ''}>Remote</option>
+              <option value="field" ${locFilter === 'field' ? 'selected' : ''}>Field</option>
+            </select>
+            <select class="select" id="att-shift-pat" style="max-width:160px">
+              <option value="all">All shifts</option>
+              ${(state.settings.time?.patterns || []).map((p) => `<option value="${p.id}" ${shiftFilter === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
+            </select>
+            <select class="select" id="att-sort" style="max-width:160px">
+              <option value="name" ${sortMode === 'name' ? 'selected' : ''}>Name (A–Z)</option>
+              <option value="name-desc" ${sortMode === 'name-desc' ? 'selected' : ''}>Name (Z–A)</option>
+              <option value="time-earliest" ${sortMode === 'time-earliest' ? 'selected' : ''}>Check-in (Earliest)</option>
+              <option value="time-latest" ${sortMode === 'time-latest' ? 'selected' : ''}>Check-in (Latest)</option>
+              <option value="late" ${sortMode === 'late' ? 'selected' : ''}>Most late</option>
+              <option value="worked" ${sortMode === 'worked' ? 'selected' : ''}>Most hours</option>
+            </select>
+          </div>
+          <div class="toolbar" style="padding-top:0;gap:8px;overflow-x:auto">
             <div class="seg" role="group" aria-label="Status filter">
               ${[
                 ['all', `All (${people.length})`],
@@ -1433,16 +1767,26 @@
                 <th>Employee</th>
                 <th class="hide-sm">Department</th>
                 <th class="hide-sm">Shift</th>
-                <th>Check-in / Out</th>
+                <th>Check-in</th>
+                <th>Check-out</th>
+                <th>Hours</th>
                 <th class="hide-sm">Location</th>
                 <th>Status</th>
+                <th style="text-align:right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              ${filtered.map((e) => {
+              ${pageEmployees.map((e) => {
                 const r = rec[e.id];
                 const tc = timeApi.attCells(e, day);
                 const isLate = tc.info?.ev?.late > 0;
+                const isMissingOut = r?.in && !r?.out && isPastOrEnded(e, tc);
+                const workedM = tc.info?.ev?.worked != null ? tc.info.ev.worked : (r?.in ? (r.out ? AllurusTimeRules.sessionMin(r) : 480) : 0);
+                const workedH = U.round2(workedM / 60);
+                const otMin = tc.info?.ev?.ot || 0;
+                const shiftName = tc.info?.pattern?.name || 'Standard';
+                const shiftHours = tc.info?.pattern ? `${tc.info.pattern.start}–${tc.info.pattern.end}` : '09:00–18:00';
+
                 const statusPill = r?.s === 'present'
                   ? '<span class="pill ok">In office</span>'
                   : r?.s === 'remote'
@@ -1454,35 +1798,57 @@
                         : '<span class="pill">Not marked</span>';
 
                 return `<tr class="${isLate ? 'att-row-late' : ''}">
-                  <td>${person(e)}</td>
-                  <td class="hide-sm">${deptTag(e.dept)}</td>
-                  <td class="hide-sm">${tc.shift}</td>
-                  <td class="num muted">
-                    <span class="att-time" style="font-weight:600;color:var(--fg)">
-                      ${r?.in || '—'}${r?.out ? ' – ' + r.out : ''}
-                      <button class="btn btn-sm btn-icon btn-ghost" data-act="tm-edit" data-id="${e.id}" data-v="${day}" title="Edit times${tc.history ? ` (${tc.history} change${tc.history === 1 ? '' : 's'})` : ''}" aria-label="Edit times for ${esc(fullName(e))}">${icon('edit')}${tc.history ? '<i class="att-edited" aria-hidden="true"></i>' : ''}</button>
-                    </span>
-                    ${tc.info?.ev?.worked ? `<span class="faint" style="font-size:12px;margin-left:4px">(${U.round2(tc.info.ev.worked / 60)}h)</span>` : ''}
-                    ${r?.history?.length ? `<div class="faint" style="font-size:12px">${r.history.length + 1} check-ins</div>` : ''}
-                    ${r && (r.via === 'kiosk' || r.via === 'supervisor' || r.offline || r.project || r.flags?.length) ? `<div class="tm-tags">${r.via === 'kiosk' ? '<span class="tag">Kiosk</span>' : r.via === 'supervisor' ? `<span class="tag" title="Checked in by a supervisor">By ${esc(emp(r.by)?.first || 'supervisor')}</span>` : ''}${r.offline ? `<span class="tag ${r.syncedAt ? '' : 'warn'}" title="${r.syncedAt ? 'Synced ' + new Date(r.syncedAt).toLocaleString('en-MY') : 'Waiting to sync'}">Captured offline</span>` : ''}${r.flags?.length && !r.reviewed ? '<span class="tag bad" title="Location looks unusual">GPS check</span>' : ''}${kioskApi.projectTag(r)}</div>` : ''}
-                    ${tc.tags ? `<div class="tm-tags">${tc.tags}</div>` : ''}
-                    ${r?.face ? `<div style="margin-top:3px">${faceTag(r)}</div>` : ''}
+                  <td>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      ${avatar(e)}
+                      <div style="min-width:0">
+                        <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                          <button class="btn-ghost" data-act="att-detail" data-id="${e.id}" data-v="${day}" style="padding:0;font-weight:600;color:inherit;text-align:left;cursor:pointer">${esc(fullName(e))}</button>
+                          <span class="tag" style="margin-left:4px;font-size:11px">${esc(e.id)}</span>
+                        </div>
+                        <div class="person-sub">${esc(e.role || '')}</div>
+                      </div>
+                    </div>
                   </td>
-                  <td class="hide-sm muted" style="font-size:12.5px;max-width:280px">
-                    <div class="loc-cell">${selfieThumb(e.id, day, r)}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r?.loc ? esc(locText(r.loc)) : '—'}</span></div>
+                  <td class="hide-sm">${deptTag(e.dept)}</td>
+                  <td class="hide-sm">
+                    <span style="font-weight:500;font-size:12.5px">${esc(shiftName)}</span>
+                    <div class="faint" style="font-size:11.5px">${shiftHours}</div>
                   </td>
                   <td>
-                    <div class="att-controls" style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
-                      <div style="display:flex;align-items:center;gap:6px">
-                        ${statusPill}
-                        ${isLate ? `<span class="tag bad" title="Late by ${tc.info.ev.late} minutes">${tc.info.ev.late}m late</span>` : ''}
+                    <div style="display:flex;align-items:center;gap:6px">
+                      ${selfieThumb(e.id, day, r)}
+                      <div>
+                        <span style="font-weight:600;font-variant-numeric:tabular-nums;color:var(--fg)">${r?.in ? fmt12(r.in) : '—'}</span>
+                        ${isLate ? `<div class="tag bad" style="margin-top:2px" title="Late by ${tc.info.ev.late} minutes">${tc.info.ev.late}m late</div>` : ''}
                       </div>
-                      <div style="display:flex;align-items:center;gap:6px">
-                        <div class="seg status" role="group" aria-label="Status for ${esc(fullName(e))}">
-                          ${opts.map(([v, l]) => `<button data-act="att-set" data-id="${e.id}" data-v="${v}" class="${r?.s === v ? 'on' : ''}">${l}</button>`).join('')}
-                        </div>
-                        ${r ? `<button class="btn btn-sm btn-icon btn-ghost" data-act="att-clear" data-id="${e.id}" title="Clear check-in" aria-label="Clear check-in for ${esc(fullName(e))}">${icon('x')}</button>` : ''}
+                    </div>
+                  </td>
+                  <td>
+                    <span style="font-weight:600;font-variant-numeric:tabular-nums;color:var(--fg)">
+                      ${r?.out ? fmt12(r.out) : (isMissingOut ? '<span class="tag warn" title="Shift ended without clock-out">Missing check-out</span>' : (r?.in ? '<span class="faint" style="font-size:12px">In progress</span>' : '—'))}
+                    </span>
+                  </td>
+                  <td>
+                    <span style="font-weight:600;font-variant-numeric:tabular-nums">${workedH > 0 ? `${workedH}h` : '—'}</span>
+                    ${otMin > 0 ? `<div class="tag ok" style="margin-top:2px">+${U.round2(otMin / 60)}h OT</div>` : ''}
+                  </td>
+                  <td class="hide-sm muted" style="font-size:12.5px;max-width:240px">
+                    <div class="loc-cell">
+                      ${r?.loc?.lat != null ? `<a href="${mapsLink(r.loc)}" target="_blank" rel="noopener" class="hint" style="margin-right:4px" title="View map">${icon('pin')}</a>` : ''}
+                      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r?.loc ? esc(locText(r.loc)) : (r?.s === 'remote' ? 'Remote' : (r?.s === 'present' ? 'Main workplace' : '—'))}</span>
+                    </div>
+                    ${r && (r.via === 'kiosk' || r.via === 'supervisor' || r.offline) ? `<div class="tm-tags" style="margin-top:2px">${r.via === 'kiosk' ? '<span class="tag">Kiosk</span>' : r.via === 'supervisor' ? '<span class="tag">Supervisor</span>' : ''}${r.offline ? '<span class="tag warn">Offline</span>' : ''}</div>` : ''}
+                  </td>
+                  <td>${statusPill}</td>
+                  <td>
+                    <div class="att-controls" style="justify-content:flex-end">
+                      <button class="btn btn-sm btn-icon btn-ghost" data-act="att-detail" data-id="${e.id}" data-v="${day}" title="View details" aria-label="View details for ${esc(fullName(e))}">${icon('eye')}</button>
+                      <button class="btn btn-sm btn-icon btn-ghost" data-act="tm-edit" data-id="${e.id}" data-v="${day}" title="Edit times${tc.history ? ` (${tc.history} change${tc.history === 1 ? '' : 's'})` : ''}" aria-label="Edit times for ${esc(fullName(e))}">${icon('edit')}${tc.history ? '<i class="att-edited" aria-hidden="true"></i>' : ''}</button>
+                      <div class="seg status" role="group" aria-label="Status for ${esc(fullName(e))}">
+                        ${opts.map(([v, l]) => `<button data-act="att-set" data-id="${e.id}" data-v="${v}" class="${r?.s === v ? 'on' : ''}">${l}</button>`).join('')}
                       </div>
+                      ${r ? `<button class="btn btn-sm btn-icon btn-ghost" data-act="att-clear" data-id="${e.id}" title="Clear check-in" aria-label="Clear check-in for ${esc(fullName(e))}">${icon('x')}</button>` : ''}
                     </div>
                   </td>
                 </tr>`;
@@ -1497,15 +1863,35 @@
             </div>
           `}
           </div>
+
+          ${filtered.length > 0 ? `
+            <div class="att-pagination">
+              <div>
+                Showing <b>${showingStart}</b>–<b>${showingEnd}</b> of <b>${filtered.length}</b> employees
+              </div>
+              <div class="pages">
+                <button class="btn btn-sm btn-icon" data-act="att-page" data-v="-1" ${curPage <= 1 ? 'disabled' : ''} aria-label="Previous page">${icon('left')}</button>
+                <span>Page <b>${curPage}</b> of <b>${totalPages}</b></span>
+                <button class="btn btn-sm btn-icon" data-act="att-page" data-v="1" ${curPage >= totalPages ? 'disabled' : ''} aria-label="Next page">${icon('right')}</button>
+                <select class="select" id="att-page-size" style="margin-left:8px;padding:3px 8px;font-size:12px;height:28px" aria-label="Page size">
+                  <option value="10" ${pageSize === 10 ? 'selected' : ''}>10 / page</option>
+                  <option value="25" ${pageSize === 25 ? 'selected' : ''}>25 / page</option>
+                  <option value="50" ${pageSize === 50 ? 'selected' : ''}>50 / page</option>
+                  <option value="all" ${ui.attPageSize === 'all' ? 'selected' : ''}>All</option>
+                </select>
+              </div>
+            </div>
+          ` : ''}
         `}
       </div>`;
   };
   AFTER.attendance = () => {
-    $('#att-date')?.addEventListener('change', (ev) => { if (ev.target.value) { ui.attDate = ev.target.value; render(); } });
+    $('#att-date')?.addEventListener('change', (ev) => { if (ev.target.value) { ui.attDate = ev.target.value; ui.attPage = 1; render(); } });
     const q = $('#att-q');
     if (q) {
       q.addEventListener('input', () => {
         ui.attQuery = q.value;
+        ui.attPage = 1;
         const pos = q.selectionStart;
         render();
         const n = $('#att-q');
@@ -1514,6 +1900,26 @@
     }
     $('#att-dept')?.addEventListener('change', (ev) => {
       ui.attDept = ev.target.value;
+      ui.attPage = 1;
+      render();
+    });
+    $('#att-loc')?.addEventListener('change', (ev) => {
+      ui.attLoc = ev.target.value;
+      ui.attPage = 1;
+      render();
+    });
+    $('#att-shift-pat')?.addEventListener('change', (ev) => {
+      ui.attShift = ev.target.value;
+      ui.attPage = 1;
+      render();
+    });
+    $('#att-sort')?.addEventListener('change', (ev) => {
+      ui.attSort = ev.target.value;
+      render();
+    });
+    $('#att-page-size')?.addEventListener('change', (ev) => {
+      ui.attPageSize = ev.target.value;
+      ui.attPage = 1;
       render();
     });
   };
@@ -3544,27 +3950,35 @@
       if (n) { toast(`Move the ${n} people in this department first`); return; }
       state.departments = state.departments.filter((d) => d.id !== id); commit('Department deleted');
     },
-    'att-shift': (_, v) => { ui.attDate = U.addDays(ui.attDate, Number(v)); render(); },
-    'att-today': () => { ui.attDate = U.today(); render(); },
-    'att-yesterday': () => { ui.attDate = U.addDays(U.today(), -1); render(); },
+    'att-shift': (_, v) => { ui.attDate = U.addDays(ui.attDate, Number(v)); ui.attPage = 1; render(); },
+    'att-today': () => { ui.attDate = U.today(); ui.attPage = 1; render(); },
+    'att-yesterday': () => { ui.attDate = U.addDays(U.today(), -1); ui.attPage = 1; render(); },
+    'att-week': () => { ui.attDate = AllurusTimeRules.mondayOf(U.today()); ui.attPage = 1; render(); },
+    'att-month': () => { ui.attDate = U.today().slice(0, 7) + '-01'; ui.attPage = 1; render(); },
+    'att-trend-range': (_, v) => { ui.attTrendRange = Number(v) || 14; render(); },
     'att-view': (_, v) => { ui.attView = v; render(); },
-    'att-filter-status': (_, v) => { ui.attStatus = v; render(); },
-    'att-filter-clear': () => { ui.attQuery = ''; ui.attDept = 'all'; ui.attStatus = 'all'; render(); },
+    'att-filter-status': (_, v) => { ui.attStatus = v; ui.attPage = 1; render(); },
+    'att-filter-clear': () => { ui.attQuery = ''; ui.attDept = 'all'; ui.attLoc = 'all'; ui.attShift = 'all'; ui.attStatus = 'all'; ui.attPage = 1; render(); },
+    'att-page': (_, v) => { ui.attPage = Math.max(1, (ui.attPage || 1) + Number(v)); render(); },
+    'att-detail': (id, v) => openAttendanceDetail(id, v || ui.attDate),
     'att-export': () => {
       const day = ui.attDate;
       const rec = state.attendance[day] || {};
       const people = activeEmployees().filter((e) => e.start <= day).sort((a, b) => a.first.localeCompare(b.first));
-      const headers = ['Date', 'Employee ID', 'Name', 'Email', 'Department', 'Job title', 'Shift', 'Status', 'Check-in', 'Check-out', 'Hours worked', 'Late (min)', 'Location', 'Method'];
+      const headers = ['Date', 'Employee ID', 'Name', 'Email', 'Department', 'Job title', 'Shift', 'Status', 'Check-in (12h)', 'Check-in (24h)', 'Check-out (12h)', 'Check-out (24h)', 'Hours worked', 'Late (min)', 'Location', 'Coordinates', 'Method'];
       const rows = people.map((e) => {
         const r = rec[e.id];
         const tc = timeApi.attCells(e, day);
         const workedH = tc.info?.ev?.worked ? U.round2(tc.info.ev.worked / 60) : (r?.in ? (r.out ? U.round2(AllurusTimeRules.sessionMin(r) / 60) : 8) : 0);
         const status = r ? r.s : (onLeaveOn(e.id, day) ? 'leave' : 'unmarked');
         const method = r?.via || (r?.offline ? 'offline' : (r?.in ? 'app' : ''));
+        const in12 = r?.in ? fmt12(r.in) : '';
+        const out12 = r?.out ? fmt12(r.out) : '';
+        const coords = r?.loc?.lat != null ? `${r.loc.lat},${r.loc.lng}` : '';
         return [
           day, e.id, fullName(e), e.email || '', dept(e.dept)?.name || '', e.role || '',
-          tc.info?.pattern?.name || 'Standard', status, r?.in || '', r?.out || '',
-          workedH, tc.info?.ev?.late || 0, r?.loc ? locText(r.loc) : '', method
+          tc.info?.pattern?.name || 'Standard', status, in12, r?.in || '', out12, r?.out || '',
+          workedH, tc.info?.ev?.late || 0, r?.loc ? locText(r.loc) : '', coords, method
         ];
       });
       downloadCSV(`attendance-${day}.csv`, [headers, ...rows]);
