@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.73';
+  const APP_VERSION = '3.74';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -322,8 +322,9 @@
   };
   function hue(str) { let h = 0; for (const c of str) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
   function avatar(name, size = '') {
-    const initials = name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
-    return `<span class="avatar ${size}" style="background:hsl(${hue(name)} 38% 46%)">${esc(initials)}</span>`;
+    const n = (typeof name === 'object' && name) ? fullName(name) : String(name || '');
+    const initials = n.split(' ').filter(Boolean).map((p) => p[0]).slice(0, 2).join('').toUpperCase() || '•';
+    return `<span class="avatar ${size}" style="background:hsl(${hue(n)} 38% 46%)">${esc(initials)}</span>`;
   }
   function person(e, sub) {
     const n = fullName(e);
@@ -1293,7 +1294,7 @@
       submit: null,
       body: `
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line)">
-          ${avatar(e)}
+          ${avatar(fullName(e))}
           <div style="flex:1;min-width:0">
             <div style="font-weight:600;font-size:16px;color:var(--fg)">${esc(fullName(e))} <span class="tag" style="margin-left:6px">${esc(e.id)}</span></div>
             <div style="font-size:13px;color:var(--fg-3);margin-top:2px">${esc(e.role || 'Employee')} · ${deptTag(e.dept)}</div>
@@ -1626,7 +1627,7 @@
                 const r = rec[e.id];
                 return `<div class="att-feed-item">
                   <div style="display:flex;align-items:center;gap:8px;min-width:0">
-                    ${avatar(e)}
+                    ${avatar(fullName(e))}
                     <span style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(fullName(e))}</span>
                   </div>
                   <span class="att-feed-time">${fmt12(r.in)}</span>
@@ -1646,14 +1647,14 @@
                 const tc = timeApi.attCells(e, day);
                 return `<div class="att-feed-item">
                   <div style="display:flex;align-items:center;gap:8px;min-width:0">
-                    ${avatar(e)}
+                    ${avatar(fullName(e))}
                     <div style="min-width:0">
                       <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(fullName(e))}</div>
                       <div class="faint" style="font-size:11px">In at ${fmt12(r?.in)}</div>
                     </div>
                   </div>
                   <div style="display:flex;align-items:center;gap:4px">
-                    <span class="tag bad">+${tc.info.ev.late}m</span>
+                    <span class="tag bad">+${tc.info?.ev?.late || 0}m</span>
                     <button class="btn btn-sm btn-icon btn-ghost" data-act="att-detail" data-id="${e.id}" data-v="${day}" title="View details" aria-label="View details for ${esc(fullName(e))}">${icon('eye')}</button>
                   </div>
                 </div>`;
@@ -1672,7 +1673,7 @@
                 const r = rec[e.id];
                 return `<div class="att-feed-item">
                   <div style="display:flex;align-items:center;gap:8px;min-width:0">
-                    ${avatar(e)}
+                    ${avatar(fullName(e))}
                     <div style="min-width:0">
                       <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(fullName(e))}</div>
                       <div class="faint" style="font-size:11px">In: ${fmt12(r.in)} · Shift ended</div>
@@ -1800,7 +1801,7 @@
                 return `<tr class="${isLate ? 'att-row-late' : ''}">
                   <td>
                     <div style="display:flex;align-items:center;gap:10px">
-                      ${avatar(e)}
+                      ${avatar(fullName(e))}
                       <div style="min-width:0">
                         <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
                           <button class="btn-ghost" data-act="att-detail" data-id="${e.id}" data-v="${day}" style="padding:0;font-weight:600;color:inherit;text-align:left;cursor:pointer">${esc(fullName(e))}</button>

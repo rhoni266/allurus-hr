@@ -106,3 +106,9 @@ test('Attendance navigation and role-switching: requested hash is preserved and 
   assert.match(appSrc, /if \(h && h === cur\)/, 'clicking link with same hash triggers render');
 });
 
+test('avatar helper supports both string names and employee objects safely', () => {
+  assert.match(appSrc, /typeof name === 'object' && name\)\s*\?\s*fullName\(name\)\s*:\s*String\(name/, 'avatar safely coerces objects to full names');
+  assert.doesNotMatch(appSrc, /\$\{avatar\(e\)\}/, 'no raw employee object is passed to avatar in templates');
+});
+
+
