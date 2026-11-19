@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.78';
+  const APP_VERSION = '3.79';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -309,7 +309,7 @@
     const h = +m[1];
     return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'am' : 'pm'}`;
   };
-  const fullName = (e) => (e ? `${e.first} ${e.last}` : 'Unknown');
+  const fullName = (e) => (e ? `${U.softName(e.first, true)} ${U.softName(e.last, false)}` : 'Unknown');   // names typed in capitals are shown softly; the stored name is untouched
   // Local symbols where they read better, for example RM for Malaysian ringgit.
   const locale = () => ({ MYR: 'en-MY', SGD: 'en-SG', GBP: 'en-GB', INR: 'en-IN', AUD: 'en-AU', CAD: 'en-CA' })[state.settings.currency] || 'en-US';
   const money = (n, digits = 0) => {

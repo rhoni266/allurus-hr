@@ -66,6 +66,10 @@ const STATE_KEY = '(function(){return Object.keys(localStorage).find(function(x)
     chk('department names are not shouted (only the first letter is a capital)', d.caps === 0, d.names.slice(0, 3).join(' | '));
     chk('initials are 2 letters at about 40% of the circle and fit', d.initials.length > 0 && d.initials.every((i) => i.ok && Math.abs(i.fs - 0.4) < 0.03), d.initials.filter((i) => !i.ok).map((i) => i.t).join(','));
     chk('money is compact with the full amount in a tooltip, and fits', d.money.length > 0 && d.money.every((m) => m.ok && m.title && /RM|\d/.test(m.title)), d.money.slice(0, 3).map((m) => `${m.t} [${m.title}]`).join(' '));
+    await p.evaluate(() => { location.hash = 'employees'; }); await p.waitForTimeout(700);
+    const nm = await p.evaluate(() => { const all = [...document.querySelectorAll('#view .person *, #view table tbody td *')].filter((e) => !e.children.length).map((e) => e.textContent.trim()); const hasLead = all.some((t) => /^Muhammad Amirul Hakim bin Mohd Zakaria$/.test(t)); return { hasLead, shouted: all.filter((t) => t.length > 6 && t === t.toUpperCase() && /[A-Z]{4}/.test(t) && !/^(RM|ACTIVE|INACTIVE)/.test(t)) }; });
+    chk('people names typed in capitals are shown as names (and the test data was in capitals)', nm.hasLead && nm.shouted.length === 0, JSON.stringify({ lead: nm.hasLead, shouted: nm.shouted.slice(0, 2) }));
+    await p.evaluate(() => { location.hash = 'departments'; }); await p.waitForTimeout(500);
     chk('figures use tabular numbers', /tabular-nums/.test(d.tab), d.tab);
     chk('the card grid is auto-fill, no sideways scroll', /px/.test(d.grid) && d.sw <= vp.w + 1, d.grid);
     chk('the app font starts with the system stack (SF Pro first) and Inter is available', await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--font-sans').includes('SF Pro Text') && getComputedStyle(document.documentElement).getPropertyValue('--font-sans').includes('Inter') && document.fonts.check('12px Inter')));

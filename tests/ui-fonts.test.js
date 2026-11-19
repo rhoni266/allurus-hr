@@ -64,3 +64,16 @@ test('KPI figures shrink with their card', () => {
   assert.match(css, /\.kpi-value \{ font-size: clamp\(18px, 15cqi, 32px\)/);
   assert.match(css, /\.card\.kpi, \.kpi \{ container-type: inline-size/);
 });
+
+test('people names typed in capitals are shown as names; the stored name and the statutory files are untouched', () => {
+  assert.equal(`${U.softName('MUHAMMAD AMIRUL HAKIM', true)} ${U.softName('BIN MOHD ZAKARIA', false)}`, 'Muhammad Amirul Hakim bin Mohd Zakaria');
+  assert.equal(U.softName('MOHD NOOR', true), 'Mohd Noor');
+  assert.equal(`${U.softName('SITI', true)} ${U.softName('NUR-AIN A/P KUMAR', false)}`, 'Siti Nur-Ain a/p Kumar');
+  assert.equal(U.softName('N.W', true), 'N.W', 'initials stay'); assert.equal(U.softName('C. W.', true), 'C. W.');
+  assert.equal(U.softName('Farah Nadia', true), 'Farah Nadia', 'mixed case is exactly as typed'); assert.equal(U.softName('binti Rahman', false), 'binti Rahman');
+  assert.equal(U.softName('', true), ''); assert.equal(U.softName(null, true), '');
+  const app = read('js/app.js');
+  assert.ok(app.includes('U.softName(e.first, true)} ${U.softName(e.last, false)}'), 'one place: how the app shows a name');
+  const stat = read('js/statutory.js');
+  assert.ok(stat.includes("const fullName = (e) => `${e?.first || ''} ${e?.last || ''}`.trim();") && !stat.includes('softName'), 'EPF, SOCSO, tax and bank files use the name exactly as stored');
+});

@@ -7,6 +7,21 @@ window.U = (function () {
   // How a name is shown: text typed all in capitals is shown as "Supervisory daily production". Only the display changes; the data stays as typed.
   // Short words (HR, IT, QA) and anything that already has lower-case letters are left alone.
   const KEEP_CAPS = new Set(['HR', 'IT', 'QA', 'QC', 'HSE', 'EHS', 'R&D', 'PR', 'CEO', 'CFO', 'KL', 'SDN', 'BHD']);
+  // A person's name typed in capitals is shown as "Muhammad Amirul Hakim bin Mohd Zakaria". Particles (bin, binti, a/l, a/p) stay lower case after the first word;
+  // initials ("N.W", "C.") and one-letter words stay as typed. A part that is not all capitals is left exactly as typed. Display only.
+  const PARTICLES = new Set(['bin', 'binti', 'bte', 'bt', 'b', 'a/l', 'a/p', 'anak', 'al', 'ibni', 'ibn']);
+  const softName = (v, lead = true) => {
+    const t = String(v == null ? '' : v);
+    if (t.length < 2 || t !== t.toUpperCase() || t === t.toLowerCase()) return t;
+    let n = 0;
+    return t.split(/(\s+)/).map((w) => {
+      if (!w.trim()) return w;
+      const first = lead && n++ === 0, lw = w.toLowerCase();
+      if (w.includes('.') || w.length <= 1) return w;
+      if (PARTICLES.has(lw) && !first) return lw;
+      return lw.replace(/(^|[-'’/])([a-z])/g, (m, p, c) => p + c.toUpperCase());
+    }).join('');
+  };
   const soften = (v) => {
     const t = String(v == null ? '' : v);
     if (t.length <= 3 || t !== t.toUpperCase() || t === t.toLowerCase()) return t;
@@ -281,5 +296,5 @@ window.U = (function () {
     } catch (e) { return sha256js(msg); }
   }
 
-  return { soften, parseCoords, parseCoordsDetailed, hasCoords, distanceM, resolveZone, applyPublishedZone, checkZone, GPS_SLACK_M, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, locateError: () => lastLocateError, pad, iso, parse, today, addDays, isWeekend, setWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
+  return { soften, softName, parseCoords, parseCoordsDetailed, hasCoords, distanceM, resolveZone, applyPublishedZone, checkZone, GPS_SLACK_M, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, locateError: () => lastLocateError, pad, iso, parse, today, addDays, isWeekend, setWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
 })();

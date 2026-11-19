@@ -33,6 +33,7 @@ Dark is the default. Light is the same design with a pale gradient. People can s
 - `--font-mono`: `ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace`. IDs and codes only (class `.mono`: invoice no., employee ID, ticket ID, account no.).
 - Money and every other figure use `--font-sans` with `font-variant-numeric: tabular-nums`, never mono.
 - Text typed in capitals is shown softened (`U.soften`: "SUPERVISORY STAFF" becomes "Supervisory staff"; HR, IT, QA and the like stay). Only the display changes; the stored text stays as typed.
+- People names typed in capitals are shown as names (`U.softName`: "MUHAMMAD AMIRUL BIN MOHD" becomes "Muhammad Amirul bin Mohd"; bin, binti, a/l, a/p stay lower case; initials like N.W stay). The app does this in one place (`fullName` in `js/app.js`). EPF, SOCSO, tax and bank files (`js/statutory.js`) keep the name exactly as stored.
 - Cards: figures sit in `repeat(3, minmax(0, 1fr))` and scale with `clamp()`; below 270px wide a card stacks them 2 + 1. Initials in an avatar are 2 letters at about 40% of the circle.
 
 ## Shell
