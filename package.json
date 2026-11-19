@@ -17,6 +17,7 @@
     "test:e2e-inventory": "firebase emulators:exec --config firebase.e2e.json --only firestore,auth --project demo-allurus-e2e \"node tests-e2e/inventory.e2e.js\"",
     "test:e2e-inventory-phone": "node tests-e2e/inventory-phone.e2e.js",
     "test:e2e-phone-home": "node tests-e2e/phone-home-attendance.e2e.js",
+    "test:e2e-onetap": "node tests-e2e/onetap.e2e.js",
     "test:e2e-phone-leave": "node tests-e2e/phone-leave-attendance.e2e.js"
   },
   "devDependencies": {

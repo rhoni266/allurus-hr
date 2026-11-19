@@ -6,33 +6,60 @@ window.AllurusFace = (function () {
   const BASE = 'js/vendor/face/';
   // Euclidean distance between face descriptors: the same person is usually well under 0.5.
   const MATCH = 0.5, WEAK = 0.6;
-  let ready = null;
+  let ready = null, lib = null, detReady = null;
 
-  function load() {
-    if (ready) return ready;
-    ready = new Promise((resolve, reject) => {
+  // The library itself, on the phone's GPU (WebGL) or the CPU. The WASM backend isn't bundled.
+  function loadLib() {
+    if (lib) return lib;
+    lib = new Promise((resolve, reject) => {
       const go = async () => {
         try {
           const fa = window.faceapi;
-          // Use the phone's GPU (WebGL), or the CPU when that isn't available. The WASM backend isn't bundled.
           if (!(await fa.tf.setBackend('webgl').catch(() => false))) await fa.tf.setBackend('cpu');
           await fa.tf.ready();
-          await Promise.all([
-            fa.nets.tinyFaceDetector.loadFromUri(BASE),
-            fa.nets.faceLandmark68Net.loadFromUri(BASE),
-            fa.nets.faceRecognitionNet.loadFromUri(BASE),
-          ]);
           resolve(fa);
-        } catch (e) { ready = null; reject(e); }
+        } catch (e) { lib = null; reject(e); }
       };
       if (window.faceapi) { go(); return; }
       const s = document.createElement('script');
       s.src = BASE + 'face-api.js?v=1.7.15';
       s.onload = go;
-      s.onerror = () => { ready = null; reject(new Error('The face check could not load.')); };
+      s.onerror = () => { lib = null; reject(new Error('The face check could not load.')); };
       document.head.appendChild(s);
     });
+    return lib;
+  }
+
+  function load() {
+    if (ready) return ready;
+    ready = loadLib().then(async (fa) => {
+      await Promise.all([
+        fa.nets.tinyFaceDetector.loadFromUri(BASE),
+        fa.nets.faceLandmark68Net.loadFromUri(BASE),
+        fa.nets.faceRecognitionNet.loadFromUri(BASE),
+      ]);
+      return fa;
+    }).catch((e) => { ready = null; throw e; });
     return ready;
+  }
+
+  // Only the small face detector, for one-tap check-in when the face check is off: it needs to know a face is there, not whose.
+  function loadDetector() {
+    if (ready) return ready;
+    if (detReady) return detReady;
+    detReady = loadLib().then(async (fa) => { await fa.nets.tinyFaceDetector.loadFromUri(BASE); return fa; }).catch((e) => { detReady = null; throw e; });
+    return detReady;
+  }
+
+  // One quick look at a live video frame: the box of the one face in view, { x, y, width, height } in video pixels, or null when there is
+  // none or more than one. Cheap (the small detector only), so it can run several times a second.
+  async function live(video, inputSize = 224) {
+    const fa = await (ready || detReady || loadDetector());
+    const w = video.videoWidth, h = video.videoHeight;
+    if (!w || !h) return { box: null, count: 0 };
+    const raw = await fa.detectAllFaces(video, new fa.TinyFaceDetectorOptions({ inputSize, scoreThreshold: 0.5 }));
+    const kept = filterFaces(raw.map((d) => ({ score: d.score, box: { x: d.box.x, y: d.box.y, width: d.box.width, height: d.box.height } })), w);
+    return { box: kept.length === 1 ? kept[0].box : null, count: kept.length, width: w, height: h };
   }
 
   // Copy any image, canvas or video frame onto a canvas, optionally rotated about a point and brightened.
@@ -123,5 +150,5 @@ window.AllurusFace = (function () {
   const verdict = (d) => (d <= MATCH ? 'match' : d <= WEAK ? 'weak' : 'mismatch');
   const similarity = (d) => Math.max(0, Math.min(100, Math.round((1 - d) * 100)));
 
-  return { load, describe, distance, verdict, similarity, filterFaces, iou, RULES, MATCH, WEAK };
+  return { load, loadDetector, live, describe, distance, verdict, similarity, filterFaces, iou, RULES, MATCH, WEAK };
 })();

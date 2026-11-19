@@ -292,6 +292,7 @@ async function push() {
         await batch.commit();
       } catch (e) {
         console.warn('[Allurus cloud] write refused', e.code || e);
+        S.pushErr = e.code || 'failed';
         if (e.code === 'permission-denied') {
           // Find which documents the rules refused, undo them here, and stop retrying them this session.
           for (const w of writes.slice(i, i + 400)) {
@@ -697,6 +698,23 @@ const api = {
     });
     try { await b.commit(); return { ok: true }; }
     catch (e) { console.warn('[Allurus cloud] invoice write', e.code || e); return { error: e.code === 'permission-denied' || e.code === 'not-found' ? 'changed' : e.code === 'unavailable' ? 'offline' : 'failed' }; }
+  },
+  // Sends what is waiting now and says whether the server took it, for a person who must know their check-in was saved (one-tap check-in).
+  // { ok: true } once nothing about attendance is waiting; { ok: false, reason: 'denied' | 'offline' | 'timeout' } otherwise. Not live (demo): ok.
+  async settle(ms = 8000) {
+    if (!S.live) return { ok: true, live: false };
+    const t0 = Date.now(), wait = (n) => new Promise((r) => setTimeout(r, n));
+    const pend = () => [...localDocs().entries()].filter(([p, d]) => /attendance~/.test(p) && !M.diff(S.base.get(p), d.fields).empty).map(([p]) => p);
+    clearTimeout(S.timer);
+    for (;;) {
+      while (S.pushing && Date.now() - t0 < ms) await wait(100);
+      S.pushErr = null;
+      await push();
+      if (S.pushErr) return { ok: false, reason: S.pushErr === 'permission-denied' ? 'denied' : 'offline' };
+      if (!pend().length) return { ok: true };
+      if (Date.now() - t0 >= ms) return { ok: false, reason: navigator.onLine === false ? 'offline' : 'timeout' };
+      await wait(250);
+    }
   },
   // For tests and support: what's waiting to be sent.
   _debug: () => ({ live: S.live, pushing: S.pushing, admin: S.admin, pending: [...localDocs().entries()].filter(([p, d]) => !M.diff(S.base.get(p), d.fields).empty).map(([p, d]) => [p, M.diff(S.base.get(p), d.fields)]), blocked: [...S.blocked] }),

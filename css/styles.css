@@ -2190,3 +2190,23 @@ html.simple-staff .view { padding-bottom: 24px; }
 .invd.tight .invd-pay .ref { margin-top: 5px; padding: 4px 8px; }
 .invd.tight .notes { margin-top: 2mm; }
 .invd.tight .totals td { padding: 2px 0; }
+
+/* One-tap check-in (js/onetap-rules.js): live camera with a face guide, a status line, then a big tick. */
+.ot { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.ot-cam { position: relative; width: 100%; max-width: 320px; aspect-ratio: 1; border-radius: 24px; overflow: hidden; background: var(--line); }
+.ot-cam video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.ot-oval { position: absolute; left: 50%; top: 50%; width: 58%; height: 76%; transform: translate(-50%, -50%); border: 3px solid rgba(255, 255, 255, .85); border-radius: 50%; box-shadow: 0 0 0 999px rgba(0, 0, 0, .28); pointer-events: none; }
+.ot-status { margin: 0; min-height: 24px; font-size: 16px; font-weight: 600; text-align: center; color: var(--fg-1); }
+.ot-status.ok { color: var(--ok); }
+.ot-status.bad { color: var(--bad); }
+.ot-actions { display: flex; justify-content: center; min-height: 44px; }
+.ot-actions .btn, .ot-problem + .ci-actions .btn { min-height: 44px; }
+.ot-problem { display: flex; gap: 14px; align-items: flex-start; padding: 8px 0 4px; }
+.ot-problem strong { color: var(--bad); font-size: 16px; }
+.ot-problem p { margin: 4px 0 0; font-size: 14px; }
+.ot-done { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 18px 0 8px; }
+.ot-done h3 { margin: 0; font-size: 20px; }
+.ot-done p { margin: 0; font-size: 14px; }
+.ot-tick { width: 88px; height: 88px; border-radius: 50%; display: grid; place-items: center; background: var(--ok-soft); color: var(--ok); }
+.ot-tick.wait { background: var(--warn-soft, var(--info-soft)); color: var(--warn, var(--info)); }
+.ot-tick svg.i { width: 48px; height: 48px; }

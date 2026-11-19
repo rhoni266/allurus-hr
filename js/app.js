@@ -2844,7 +2844,8 @@
     const word = s.status === 'late' ? t.lateBy(s.min) : t[s.status] || t.today;
     const inTime = rec?.in ? `<span class="pa-time">${esc(t.clockedIn(H.time12(rec.in)))}</span>` : '';
     const hrs = rec?.in ? `<p class="pa-hours">${esc(t.hours)}: <b>${H.fmtMin(AllurusTimeRules.sessionMin(rec, nowHM()))}</b></p>` : '';
-    return `<div class="pa-today"><span class="pill pa-pill ${tone}">${esc(word)}</span>${inTime}</div>${hrs}`;
+    const waiting = rec?.offline && !rec.syncedAt ? `<span class="pill warn">${esc(OTt().waiting)}</span>` : '';   // punched without internet: still to be sent
+    return `<div class="pa-today"><span class="pill pa-pill ${tone}">${esc(word)}</span>${inTime}${waiting}</div>${hrs}`;
   }
   // Monday to Sunday: a dot, the day letter and a word. Rest days and holidays are hollow rings.
   function ssWeek(e, now) {
@@ -3204,7 +3205,7 @@
   // the place (GPS inside the zone) and the face (selfie compared on the phone with a reference photo).
   let camStream = null;
   const stopCamera = () => { camStream?.getTracks().forEach((t) => t.stop()); camStream = null; };
-  const ci = { mode: 'present', loc: null, photo: null, canvas: null, face: null, fails: 0, consent: false, first: false, upload: false };
+  const ci = { mode: 'present', loc: null, photo: null, canvas: null, face: null, fails: 0, consent: false, first: false, upload: false, auto: false, run: 0, kind: 'in', takenAt: '' };
   // Where check-ins are measured from: always the saved check-in point; the head office city only when none is set.
   const zone = () => U.resolveZone(state.settings);
 
@@ -3324,8 +3325,11 @@
       return;
     }
     ci.bypassLeaveCheck = false;
-    Object.assign(ci, { mode, loc: null, photo: null, canvas: null, face: null, fails: 0, consent: false, first: false, upload: false });
-    openModal({ title: mode === 'remote' ? 'Check in remotely' : 'Check in', size: 'sm', submit: null, body: '<div id="ci-body"></div>' });
+    if ($('#ci-body')) return;   // a check-in is already open: an extra tap does nothing
+    // In or out is decided by the day's record, not by which button was tapped; one tap does the whole punch (js/onetap-rules.js).
+    const kind = AllurusOneTap.nextKind(myRecord(wd)), curMode = kind === 'out' ? (myRecord(wd)?.s === 'remote' ? 'remote' : 'present') : mode;
+    Object.assign(ci, { mode: curMode, loc: null, photo: null, canvas: null, face: null, fails: 0, consent: false, first: false, upload: false, auto: true, kind, takenAt: '' });
+    openModal({ title: kind === 'out' ? OTt().outTitle : curMode === 'remote' ? 'Check in remotely' : OTt().inTitle, size: 'sm', submit: null, body: '<div id="ci-body"></div>' });
     $('#overlay-root .modal-foot').hidden = true;
     const g = deviceGate(me());
     if (!g.ok) {
@@ -3335,7 +3339,7 @@
     ci.first = !!g.first;
     if (faceOn()) AllurusFace.load().catch(() => {});
     if (faceOn() && !me().face) { ciConsent(); return; }
-    ciLocate();
+    ciOneTap();
   }
   function ciConsent() {
     ciStep(`<div class="ci-problem">${icon('shield')}<div><strong>Set up your face check</strong>
@@ -3343,6 +3347,199 @@
       <ul class="consent-list"><li>Your next selfie becomes your reference photo, and HR confirms it’s you.</li><li>The comparison runs on this phone. Your face is stored as a photo and a set of 128 numbers.</li><li>HR can see your reference photo and check-in selfies. They are used only for attendance.</li></ul></div></div>
       <label class="check"><input type="checkbox" id="ci-agree"><span>I agree to my face being used to verify my check-ins</span></label>
       <div class="ci-actions"><button class="btn" data-act="close-overlay">Not now</button><button class="btn btn-primary" data-act="ci-consent">Continue</button></div>`);
+  }
+  // ---------- One-tap check-in (js/onetap-rules.js) ----------
+  // Tap Check in or Check out once. The place and the camera start together; the photo is taken and the punch saved as soon as the phone is
+  // inside the zone and a face has been steady for about 0.7 s. Every way it can fail says so on screen; a tick is shown only once it is saved.
+  const OT = {
+    en: {
+      inTitle: 'Check in', outTitle: 'Check out', locating: 'Finding your location…', locOk: 'Location OK', faceWait: 'Face the camera', faceOk: 'Face found, hold still', noFace: 'No face found',
+      manyFaces: 'Only you in the photo, please', takePhoto: 'Take photo', retry: 'Try again', close: 'Close', locFirst: 'Your location is still being checked. Wait a moment.',
+      outside: (m, l) => `You are outside the area (${m} from ${l})`, outsideHow: (r) => `Move inside the ${r} m check-in zone, then try again. No punch was saved.`,
+      locDenied: 'Location is off', locDeniedHow: 'Android: turn on Location, then in Chrome tap the icon left of the address, Permissions, Location, Allow. iPhone: Settings, Privacy &amp; Security, Location Services, Safari Websites, While Using the App, and turn on Precise Location. Then try again.',
+      locError: 'Couldn’t find your location', locErrorHow: 'Move near a window or step outside, turn on Precise Location, then try again.',
+      noZone: 'Check-in location not set', noZoneHow: 'Ask HR to set the check-in point in Settings. No punch was saved.',
+      camDenied: 'Camera is off', camDeniedHow: 'Android: in Chrome tap the icon left of the address, Permissions, Camera, Allow. iPhone: Settings, Safari, Camera, Allow. Then try again.',
+      pickPhoto: 'Choose a photo',
+      saving: 'Saving…', failed: 'The punch was not saved', failedHow: 'Check your connection and try again.', keptHow: 'It is kept on this phone and will be sent when the server can be reached.',
+      offline: 'No internet. The punch is saved and will be sent when you are online.', waiting: 'Waiting', again: 'You already punched a moment ago.',
+      doneIn: (t) => `Checked in ${t}`, doneOut: (t) => `Checked out ${t}`, hours: 'Hours worked today',
+    },
+    bm: {
+      inTitle: 'Daftar masuk', outTitle: 'Daftar keluar', locating: 'Mengesan lokasi…', locOk: 'Lokasi OK', faceWait: 'Hadapkan muka ke kamera', faceOk: 'Muka dikesan', noFace: 'Muka tidak dikesan',
+      manyFaces: 'Hanya anda dalam gambar', takePhoto: 'Ambil gambar', retry: 'Cuba lagi', close: 'Tutup', locFirst: 'Lokasi masih disemak. Tunggu sekejap.',
+      outside: (m, l) => `Anda di luar kawasan (${m} dari ${l})`, outsideHow: (r) => `Masuk ke dalam kawasan ${r} m, kemudian cuba lagi. Tiada punch disimpan.`,
+      locDenied: 'Lokasi dimatikan', locDeniedHow: 'Android: hidupkan Lokasi, kemudian di Chrome tekan ikon di kiri alamat, Kebenaran, Lokasi, Benarkan. iPhone: Tetapan, Privasi &amp; Keselamatan, Perkhidmatan Lokasi, Laman Web Safari, Semasa Menggunakan Apl, dan hidupkan Lokasi Tepat. Kemudian cuba lagi.',
+      locError: 'Lokasi tidak dapat dikesan', locErrorHow: 'Dekati tingkap atau keluar sebentar, hidupkan Lokasi Tepat, kemudian cuba lagi.',
+      noZone: 'Lokasi daftar masuk belum ditetapkan', noZoneHow: 'Minta HR tetapkan lokasi di Tetapan. Tiada punch disimpan.',
+      camDenied: 'Kamera dimatikan', camDeniedHow: 'Android: di Chrome tekan ikon di kiri alamat, Kebenaran, Kamera, Benarkan. iPhone: Tetapan, Safari, Kamera, Benarkan. Kemudian cuba lagi.',
+      pickPhoto: 'Pilih gambar',
+      saving: 'Menyimpan…', failed: 'Punch tidak disimpan', failedHow: 'Semak sambungan internet dan cuba lagi.', keptHow: 'Ia disimpan pada telefon ini dan akan dihantar bila pelayan boleh dicapai.',
+      offline: 'Tiada internet. Punch disimpan dan akan dihantar bila online.', waiting: 'Menunggu', again: 'Anda baru sahaja punch.',
+      doneIn: (t) => `Daftar masuk ${t}`, doneOut: (t) => `Daftar keluar ${t}`, hours: 'Jam bekerja hari ini',
+    },
+  };
+  const OTt = () => OT[ssLang()];
+  const otGuard = AllurusOneTap.guard();
+  const otSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const otStatus = (text, cls = '') => { const el = $('#ot-status'); if (el) { el.textContent = text; el.className = `ot-status ${cls}`; } };
+  // A screen that says what went wrong and offers the way forward. Never a silent end.
+  const otProblem = (title, how, buttons, extra = '') => ciStep(`<div class="ot-problem" role="alert">${icon('pin')}<div><strong>${title}</strong><p class="muted">${how}</p>${extra}</div></div><div class="ci-actions">${buttons}</div>`);
+  const otButtons = (t, retry = true) => `<button class="btn" type="button" data-act="close-overlay">${esc(t.close)}</button>${retry ? `<button class="btn btn-primary" type="button" data-act="ot-retry">${esc(t.retry)}</button>` : ''}`;
+
+  // The place, resolved without any screen: { state: 'ok' | 'outside' | 'denied' | 'error' | 'nozone', ... }.
+  async function otLocate() {
+    const z = zone();
+    if (isField(me())) {
+      const loc = await U.locate({ gpsOnly: true });
+      ci.loc = { ...(loc || { lat: null, lng: null, accuracy: null }), field: true, inside: true, m: loc && z.source === 'checkin' ? U.checkZone(loc, z).m : null };
+      ci.loc.flags = kioskApi.gpsCheck(me(), ci.loc);
+      return { state: 'ok' };
+    }
+    if (z.source !== 'checkin') return { state: 'nozone' };
+    const loc = await U.locate({ gpsOnly: true });
+    if (!loc) { const why = U.locateError(); return { state: why === 'denied' ? 'denied' : 'error', why }; }
+    const { m, inside } = U.checkZone(loc, z);
+    if (ci.mode === 'present' && loc.accuracy > z.radius) return { state: 'error', why: 'accuracy' };
+    loc.m = m; loc.inside = inside; loc.flags = kioskApi.gpsCheck(me(), loc); ci.loc = loc;
+    if (ci.mode === 'present' && !inside) return { state: 'outside', m };
+    return { state: 'ok' };
+  }
+  async function otCamera() {
+    try {
+      camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 720 } }, audio: false });
+      const v = $('#ci-video'); if (!v) { stopCamera(); return 'gone'; }
+      v.srcObject = camStream; await v.play();
+      return 'ok';
+    } catch (e) { stopCamera(); return 'denied'; }
+  }
+  function otGrab() {
+    const v = $('#ci-video'); if (!v?.videoWidth) return false;
+    ci.takenAt = nowHM();   // the punch time is when the photo is taken, not when it reaches the server
+    ci.canvas = squareCanvas(v, v.videoWidth, v.videoHeight, true, 480);
+    ci.photo = squareCanvas(v, v.videoWidth, v.videoHeight, true, 320).toDataURL('image/jpeg', 0.72);
+    ci.upload = false; ci.run++; stopCamera();
+    return true;
+  }
+  async function ciOneTap() {
+    const run = ++ci.run, t = OTt(), e = me(), z = zone();
+    const alive = () => ci.run === run && !!$('#ci-body');
+    Object.assign(ci, { auto: true, photo: null, canvas: null, face: null, upload: false, locState: 'pending', camState: 'pending', locRes: null, kind: AllurusOneTap.nextKind(myRecord(workDay(e))) });
+    ciStep(`<div class="ot"><div class="ot-cam"><video id="ci-video" playsinline autoplay muted></video><div class="ot-oval" aria-hidden="true"></div></div>
+      <p class="ot-status" id="ot-status" role="status" aria-live="polite">${esc(t.locating)}</p><div class="ot-actions" id="ot-actions"></div></div>`);
+    // The place and the camera start at the same moment; neither waits for the other.
+    otLocate().then((r) => { if (ci.run === run) { ci.locRes = r; ci.locState = r.state === 'nozone' ? 'error' : r.state; } }).catch(() => { if (ci.run === run) { ci.locRes = { state: 'error', why: 'error' }; ci.locState = 'error'; } });
+    otCamera().then((c) => { if (ci.run === run) ci.camState = c; });
+    let detReady = null, cameraAt = null, shownManual = false;
+    (faceOn() ? AllurusFace.load() : AllurusFace.loadDetector()).then(() => { detReady = true; }, () => { detReady = false; });
+    const track = AllurusOneTap.steadyTracker();
+    while (alive()) {
+      const now = Date.now();
+      // The 8 seconds start when the camera and the face detector are both ready. If the detector could not load, the manual photo is offered at once.
+      if (ci.camState === 'ok' && cameraAt == null && detReady !== null) cameraAt = detReady ? now : now - AllurusOneTap.NO_FACE_MS;
+      let steadyMs = 0, count = 0;
+      if (ci.camState === 'ok' && detReady) {
+        try { const r = await AllurusFace.live($('#ci-video')); count = r.count; steadyMs = track.look(Date.now(), r.box); } catch (err) { track.reset(); }
+      }
+      if (!alive()) return;
+      const d = AllurusOneTap.decide({ loc: ci.locState, camera: ci.camState, steadyMs, cameraAt, now: Date.now() });
+      if (d.action === 'blocked') {
+        stopCamera();
+        const r = ci.locRes || {};
+        if (d.status === 'outside') otProblem(esc(t.outside(U.fmtDist(r.m), z.label)), esc(t.outsideHow(z.radius)), otButtons(t));
+        else if (d.status === 'loc-denied') otProblem(esc(t.locDenied), t.locDeniedHow, otButtons(t));
+        else if (d.status === 'loc-error') otProblem(esc(z.source !== 'checkin' && !isField(me()) ? t.noZone : t.locError), esc(z.source !== 'checkin' && !isField(me()) ? t.noZoneHow : t.locErrorHow), otButtons(t, z.source === 'checkin'));
+        else if (d.status === 'cam-denied') {
+          otProblem(esc(t.camDenied), t.camDeniedHow, otButtons(t) + (liveOnly() ? '' : `<button class="btn" type="button" data-act="ci-pick">${esc(t.pickPhoto)}</button><input type="file" id="ci-file" accept="image/*" capture="user" hidden>`));
+          if (!liveOnly()) $('#ci-file')?.addEventListener('change', (ev) => {
+            const f = ev.target.files?.[0]; if (!f) return;
+            const img = new Image();
+            img.onload = () => { ci.takenAt = nowHM(); ci.canvas = squareCanvas(img, img.naturalWidth, img.naturalHeight, false, 480); ci.photo = squareCanvas(img, img.naturalWidth, img.naturalHeight, false, 320).toDataURL('image/jpeg', 0.72); ci.upload = true; URL.revokeObjectURL(img.src); ciVerify(); };
+            img.onerror = () => toast('That file is not a photo. Try again.', 'error');
+            img.src = URL.createObjectURL(f);
+          });
+        }
+        return;
+      }
+      if (d.action === 'punch') { if (otGrab()) ciVerify(); else otProblem(esc(t.failed), esc(t.failedHow), otButtons(t)); return; }
+      const msg = count > 1 ? t.manyFaces : { locating: t.locating, 'loc-ok': t.locOk, 'face-wait': ci.locState === 'ok' ? `${t.locOk} · ${t.faceWait}` : t.faceWait, 'face-ok': t.faceOk, 'no-face': t.noFace }[d.status] || t.locating;
+      otStatus(msg, d.status === 'face-ok' ? 'ok' : d.status === 'no-face' ? 'bad' : '');
+      if (d.action === 'manual' && !shownManual) { shownManual = true; const box = $('#ot-actions'); if (box) box.innerHTML = `<button class="btn btn-primary" type="button" data-act="ci-capture">${icon('camera')}${esc(t.takePhoto)}</button>`; }
+      await otSleep(150);
+    }
+  }
+
+  // Saves the punch the moment the face check (if on) is done: no confirm screen. A tick only once it is saved.
+  function writeCheckout(e, { time, photo, loc, face, device, flags = [], offline = false }) {
+    const r = state.attendance[workDay(e)]?.[e.id];
+    if (!r || !r.in || r.out) return r;
+    Object.assign(r, { out: time, outPhoto: photo, outLoc: loc, outFace: face, outDevice: device, outFlags: flags });
+    if (offline) { r.offline = true; r.syncedAt = ''; }
+    return r;
+  }
+  async function ciAutoSave() {
+    const e = me(), t = OTt(), kind = ci.kind;
+    const gd = otGuard.tryStart(kind, Date.now());
+    if (!gd.ok) { if (gd.why === 'again') otProblem(esc(t.again), '', `<button class="btn btn-primary" type="button" data-act="close-overlay">${esc(t.close)}</button>`); return; }   // a second tap while saving is ignored
+    const project = kioskApi.pickedProject('ci-project');
+    if (project === false) { otGuard.failed(); ci.auto = false; ciReview(); return; }   // a project is required: the old screen has the picker
+    const L = ci.loc, z = zone(), T = U.today(), time = ci.takenAt || nowHM();
+    const loc = L.field
+      ? { lat: L.lat, lng: L.lng, accuracy: L.accuracy, source: L.lat != null ? 'gps' : 'none', field: true, m: L.m, zone: z.label }
+      : { lat: L.lat, lng: L.lng, accuracy: L.accuracy, label: L.label, source: 'gps', m: L.m, inside: L.inside, zone: z.label, radius: z.radius, zoneAt: { lat: z.lat, lng: z.lng, source: z.source } };
+    const face = ci.face ? { result: ci.face.result, sim: ci.face.sim ?? null, review: !!ci.face.review, why: ci.face.why || '', unconfirmed: !!ci.face.unconfirmed } : null;
+    const device = { id: deviceId(), name: deviceName() };
+    if (ci.first && lockOn()) {
+      e.devices = [...(e.devices || []), { id: device.id, name: device.name, status: 'approved', added: T, auto: true }];
+      log(`${fullName(e)} registered a phone for check-in (${device.name})`);
+    }
+    if (ci.face?.result === 'enrolled') e.face = { photo: ci.photo, descriptor: ci.face.descriptor, status: 'pending', enrolledOn: T, consentOn: T };
+    const offline = navigator.onLine === false;
+    let rec;
+    try {
+      rec = kind === 'out' ? writeCheckout(e, { time, photo: ci.photo, loc, face, device, flags: L.flags || [], offline })
+        : writeCheckin(e, { mode: ci.mode, time, photo: ci.photo, loc, face, device, upload: ci.upload, via: 'self', project, flags: L.flags || [], offline });
+    } catch (err) { console.warn('[check-in] could not save', err); rec = null; }
+    if (!rec) { otGuard.failed(); otProblem(esc(t.failed), esc(t.failedHow), otButtons(t)); return; }
+    kioskApi.rememberFix(L);
+    kioskApi.queue(e, workDay(e), rec, 'self');
+    const where = L.field ? (L.m != null ? `field · ${U.fmtDist(L.m)} from ${z.label}` : 'field') : `${U.fmtDist(L.m)} from ${z.label}`;
+    log(`${fullName(e)} checked ${kind === 'out' ? 'out' : 'in'}${ci.mode === 'remote' ? ' remotely' : ''} with a selfie, ${where}${face?.result === 'mismatch' ? '. The face did not match.' : ''}`);
+    save();
+    ci.saved = { kind, time, at: Date.now(), offline };
+    if (!offline && fire()) {
+      ciStep(`<div class="ci-status"><span class="spinner" aria-hidden="true"></span><div><strong>${esc(t.saving)}</strong></div></div>`);
+      const res = await fire().settle(8000);
+      if (!res.ok) { otGuard.failed(); otSaveFailed(res.reason); return; }
+    }
+    otGuard.saved(kind, Date.now());
+    otDone(offline);
+  }
+  // The server did not take it. Said in red, with Try again; never a tick.
+  function otSaveFailed(reason) {
+    const t = OTt();
+    if (reason === 'denied') { render(); otProblem(esc(t.failed), esc(t.failedHow), otButtons(t)); return; }   // the server refused it and the phone has dropped it: start again
+    otProblem(esc(t.failed), `${esc(t.failedHow)} ${esc(t.keptHow)}`, `<button class="btn" type="button" data-act="close-overlay">${esc(t.close)}</button><button class="btn btn-primary" type="button" data-act="ot-resave">${esc(t.retry)}</button>`);
+    render();
+  }
+  async function ciAutoResave() {
+    const t = OTt();
+    ciStep(`<div class="ci-status"><span class="spinner" aria-hidden="true"></span><div><strong>${esc(t.saving)}</strong></div></div>`);
+    const res = fire() ? await fire().settle(8000) : { ok: true };
+    if (!res.ok) { otSaveFailed(res.reason); return; }
+    otDone(false);
+  }
+  function otDone(offline) {
+    const e = me(), t = OTt(), H = AllurusSimpleHome, wd = workDay(e), now = H.nowKL(), sv = ci.saved || {}, run = ++ci.run;
+    const st = H.dayStatus(timeApi.dayInfo(e, wd), now, ssEnded(now)), word = st.status === 'late' ? ssT().lateBy(st.min) : ssT()[st.status] || ssT().today;
+    const tone = { ontime: 'ok', late: 'warn', absent: 'slate', leave: 'info' }[st.status] || '';
+    const time12 = H.time12(sv.time || nowHM(), ssLang());
+    ciStep(`<div class="ot-done" role="status">${offline
+      ? `<div class="ot-tick wait">${icon('clock')}</div><h3>${esc(t.offline)}</h3><span class="pill warn">${esc(t.waiting)}</span>`
+      : `<div class="ot-tick">${icon('check')}</div><h3>${esc((sv.kind === 'out' ? t.doneOut : t.doneIn)(time12))}</h3>`}
+      <p class="muted">${esc(zone().label || '')}</p><span class="pill pa-pill ${tone}">${esc(word)}</span></div>`);
+    render();
+    setTimeout(() => { if (ci.run === run && $('#ci-body')) closeOverlay(); }, 2000);
   }
   // What to tell someone whose phone gave no position, by the reason and the kind of phone.
   function locationHelp(why) {
@@ -3534,6 +3731,7 @@
     unavailable: () => `<div class="ci-where">${icon('pin')}<span>The face check couldn’t run on this phone. HR will review your selfie.</span></div>`,
   };
   function ciReview() {
+    if (ci.auto) { ciAutoSave(); return; }   // one-tap: no confirm screen
     const f = ci.face;
     ciStep(`${ciWhere()}${f ? FACE_NOTE[f.result](f) : ''}${ci.loc?.flags?.length ? `<div class="ci-where">${icon('pin')}<span>HR will double-check this location.</span></div>` : ''}${navigator.onLine === false ? `<div class="ci-where">${icon('clock')}<span>You’re offline. The check-in is saved on this phone and syncs later.</span></div>` : ''}<div class="ci-cam"><img class="ci-photo" src="${ci.photo}" alt="Your selfie"></div>
       ${kioskApi.projectField('ci-project', [myRecord(U.today())?.project, myRecord(U.today())?.job].filter(Boolean).join('|'))}
@@ -3551,8 +3749,8 @@
     const prev = state.attendance[T][e.id];
     if (prev?.in && !prev.out && prev.s !== 'leave') return prev;   // already in: a second tap (or an old queued one) must not restart the day or the late time
     if (prev?.in && prev.out) {
-      prev.history = [...(prev.history || []), { in: prev.lastIn || prev.in, out: prev.out, photo: prev.photo, loc: prev.loc, face: prev.face, via: prev.via, project: prev.project, job: prev.job || '' }];
-      Object.assign(prev, { s: mode, out: '', lastIn: time, ...extra });
+      prev.history = [...(prev.history || []), { in: prev.lastIn || prev.in, out: prev.out, photo: prev.photo, outPhoto: prev.outPhoto, outLoc: prev.outLoc, loc: prev.loc, face: prev.face, via: prev.via, project: prev.project, job: prev.job || '' }];
+      Object.assign(prev, { s: mode, out: '', lastIn: time, outPhoto: '', outLoc: null, outFace: null, ...extra });
     } else {
       state.attendance[T][e.id] = { s: mode, in: time, out: '', ...extra };
     }
@@ -3592,7 +3790,7 @@
   // Selfies are kept for 30 days so browser storage does not fill up.
   function pruneSelfies() {
     const cutoff = U.addDays(U.today(), -30);
-    Object.keys(state.attendance).forEach((d) => { if (d < cutoff) Object.values(state.attendance[d]).forEach((r) => { delete r.photo; (r.history || []).forEach((h) => { delete h.photo; }); }); });
+    Object.keys(state.attendance).forEach((d) => { if (d < cutoff) Object.values(state.attendance[d]).forEach((r) => { delete r.photo; delete r.outPhoto; (r.history || []).forEach((h) => { delete h.photo; delete h.outPhoto; }); }); });
   }
 
   // ----- How HR sees it -----
@@ -3826,11 +4024,13 @@
     'ci-retry': () => ciLocate(),
     'ci-capture': () => {
       const v = $('#ci-video'); if (!v?.videoWidth) { toast('The camera isn’t ready yet. Wait a second and tap Take selfie again.', 'error'); return; }
+      if (ci.auto && ci.locState !== 'ok' && ci.locState !== undefined) { toast(OTt().locFirst, 'error'); return; }
+      ci.takenAt = nowHM();   // the punch time is when the photo is taken
       ci.canvas = squareCanvas(v, v.videoWidth, v.videoHeight, true, 480);
       ci.photo = squareCanvas(v, v.videoWidth, v.videoHeight, true, 320).toDataURL('image/jpeg', 0.72);
-      ci.upload = false; stopCamera(); ciVerify();
+      ci.upload = false; ci.run++; stopCamera(); ciVerify();
     },
-    'ci-consent': () => { if (!$('#ci-agree')?.checked) { toast('Tick the box to agree, or choose Not now', 'error'); return; } ci.consent = true; ciLocate(); },
+    'ci-consent': () => { if (!$('#ci-agree')?.checked) { toast('Tick the box to agree, or choose Not now', 'error'); return; } ci.consent = true; ciOneTap(); },
     'dev-request': () => {
       const e = me(), id = deviceId();
       e.devices = [...(e.devices || []).filter((d) => d.id !== id), { id, name: deviceName(), status: 'pending', added: U.today() }];
@@ -3875,7 +4075,9 @@
       commit(`${label} turned ${v}`);
     },
     'ci-pick': () => $('#ci-file')?.click(),
-    'ci-retake': () => ciSelfie(),
+    'ci-retake': () => (ci.auto ? ciOneTap() : ciSelfie()),
+    'ot-retry': () => ciOneTap(),
+    'ot-resave': () => ciAutoResave(),
     'ci-confirm': () => ciConfirm(),
     'view-selfie': (id, day) => openSelfie(id, day),
     'zone-here': async () => {
@@ -3895,7 +4097,7 @@
       (navigator.clipboard?.writeText(url) || Promise.reject()).then(done, () => openModal({ title: 'Setup link for staff phones', size: 'sm', submit: null, body: `<p class="muted" style="margin-bottom:10px">Copy this link and send it to staff. Opening it once makes their phone use this check-in point.</p><textarea class="textarea" readonly style="width:100%;min-height:110px" onfocus="this.select()">${esc(url)}</textarea>` }));
     },
     'zone-remote': (_, v) => { state.settings.checkin.remote = v === 'on'; commit(v === 'on' ? 'Remote check-in allowed' : 'Remote check-in turned off'); },
-    'check-out': () => { const r = myRecord(workDay(me())); r.out = nowHM(); commit(`Checked out at ${r.out}`); },
+    'check-out': () => checkIn('present'),   // the same one-tap flow: the day's record says this is an out
     'my-payslip': (m) => openPayslip(me().id, m),
     'tenant-view': (id) => openTenant(id),
     'tenant-filter': (_, v) => { ui.tenantStatus = v; render(); },

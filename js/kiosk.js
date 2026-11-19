@@ -28,7 +28,7 @@ window.AllurusKiosk = (function () {
   const outbox = () => read(OUTBOX_KEY, []);
   // Every check-in is queued for the server, so one taken without a connection still arrives later.
   function queue(e, day, rec, via) {
-    const id = `${day}|${e.id}|${rec.lastIn || rec.in}|${via}`;
+    const id = `${day}|${e.id}|${rec.lastIn || rec.in}|${via}|${rec.out || ''}`;   // a check-out is its own entry, so it is not mistaken for the check-in still waiting
     const payload = { company: st().settings.company, empId: e.id, employee: ctx.fullName(e), day, time: rec.lastIn || rec.in, out: rec.out || '', mode: rec.s, via, lat: rec.loc?.lat ?? null, lng: rec.loc?.lng ?? null, accuracy: rec.loc?.accuracy ?? null, label: rec.loc?.zone || rec.loc?.label || '', flags: (rec.flags || []).map((f) => f.code), face: rec.face?.result || '', project: rec.project || '', offline: !!rec.offline, capturedAt: new Date().toISOString() };
     write(OUTBOX_KEY, C.enqueue(outbox(), { id, payload, offline: !!rec.offline, capturedAt: payload.capturedAt }));
     // HR hears about check-ins that need a look.
@@ -52,7 +52,7 @@ window.AllurusKiosk = (function () {
         let changed = false;
         r.sent.forEach((id) => { const [day, empId] = id.split('|'); const rec = st().attendance[day]?.[empId]; if (rec?.offline && !rec.syncedAt) { rec.syncedAt = new Date().toISOString(); changed = true; } });
         if (changed) { ctx.save(); if (!document.querySelector('#overlay-root form') && !kioskOn()) ctx.render(); }
-        ctx.toast(`${r.sent.length} check-in${r.sent.length === 1 ? '' : 's'} synced`);
+        if (!document.querySelector('.ot, .ot-done')) ctx.toast(`${r.sent.length} check-in${r.sent.length === 1 ? '' : 's'} synced`);   // not over the one-tap screen, which already says it
       }
     } finally { syncing = false; }
   }

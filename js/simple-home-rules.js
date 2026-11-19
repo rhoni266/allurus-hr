@@ -98,9 +98,10 @@
     return Array.from({ length: 7 }, (_, i) => new Date(d.getTime() + (i - back) * 86400000).toISOString().slice(0, 10));
   }
   // "8:42 am" from "08:42"
-  function time12(hm) {
+  // In Bahasa Malaysia: pg (pagi) and ptg (petang).
+  function time12(hm, lang) {
     const m = /^(\d{1,2}):(\d{2})$/.exec(String(hm || '')); if (!m) return '';
-    const h = +m[1]; return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'am' : 'pm'}`;
+    const h = +m[1], bm = lang === 'bm'; return `${h % 12 || 12}:${m[2]} ${h < 12 ? (bm ? 'pg' : 'am') : (bm ? 'ptg' : 'pm')}`;
   }
   // The date and clock in Asia/Kuala_Lumpur, whatever the phone's own zone says.
   function nowKL(date = new Date()) {
