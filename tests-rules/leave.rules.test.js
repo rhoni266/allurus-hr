@@ -79,11 +79,15 @@ test('the team calendar: everyone reads who is off; nobody adds an entry by hand
   await assertFails(setDoc(C(as('a'), 'l1'), { empId: 'e1', from: '2026-12-01', to: '2026-12-02', half: '', status: 'Pending', reason: 'x' }));
 });
 
-test('an employee cannot approve their own request; they may cancel it while pending', async () => {
+test('an employee cannot approve their own request; they may cancel it while pending or approved', async () => {
   await create(as('a'), 'a', 'l1', req('a', 'e1'));
   await assertFails(change(as('a'), 'a', 'l1', 1, { status: 'Approved' }, { ...cal(req('a', 'e1')), status: 'Approved' }));
   await assertFails(change(as('a'), 'a', 'l1', 1, { from: '2026-11-30' }));
   await assertSucceeds(change(as('a'), 'a', 'l1', 1, { status: 'Cancelled' }, { ...cal(req('a', 'e1')), status: 'Cancelled' }));
+  // When an already approved leave is cancelled by the employee (e.g. attending work on leave day)
+  await create(as('a'), 'a', 'l2', req('a', 'e1'));
+  await assertSucceeds(change(as('head'), 'head', 'l2', 1, { status: 'Approved', chain: [{ ...chain('e2')[0], status: 'approved', by: 'e2' }] }, { ...cal(req('a', 'e1')), status: 'Approved' }));
+  await assertSucceeds(change(as('a'), 'a', 'l2', 2, { status: 'Cancelled' }, { ...cal(req('a', 'e1')), status: 'Cancelled' }));
 });
 
 test('the approver decides (status and chain only), once, and can’t change the dates or approvers', async () => {

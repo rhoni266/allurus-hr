@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.75';
+  const APP_VERSION = '3.76';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -2796,6 +2796,10 @@
       of: (n, of, L) => `${n} of ${L(of)}`, leaveH: 'Leave', left: (n, L) => `${L(n)} left`, taken: (n) => `${n} taken`, apply: 'Apply leave',
       payslip: 'Payslip', download: 'Download payslip', older: 'Older payslips', none: 'No payslip yet.', net: 'Net',
       help: 'The PDF password is your IC number, without dashes.', noIc: 'Ask HR to add your IC to download your payslip.',
+      attendWorkPrompt: 'Working today? Tap check-in to cancel leave',
+      cancelLeaveConfirmTitle: 'Cancel leave & check in?',
+      cancelLeaveConfirmBody: (type) => `You have approved ${type} for today. If you are working today, cancelling this leave will restore your leave day and record your attendance. Would you like to cancel your leave and check in now?`,
+      cancelLeaveBtn: 'Cancel leave & check in', keepLeaveBtn: 'Keep leave',
       me: 'Me', signOut: 'Sign out', language: 'Language', date: 'Date', in: 'In', out: 'Out', status: 'Status', lastMonth: 'Last month', nothing: 'Nothing yet.', short: 'short', worked: 'Worked',
       Approved: 'Approved', Pending: 'Pending', Rejected: 'Declined', Cancelled: 'Cancelled', waiting: (n) => `${n} request${n === 1 ? '' : 's'} waiting` },
     bm: { checkIn: 'Daftar masuk', checkInAgain: 'Daftar masuk semula', backAgain: 'Dah balik selepas keluar sekejap? Jam kerja dicampur.', checkOut: 'Daftar keluar', onLeave: 'Bercuti hari ini', done: 'Selesai hari ini', since: 'Masuk sejak', at: 'Daftar masuk di',
@@ -2805,6 +2809,10 @@
       of: (n, of, L) => `${n} daripada ${L(of)}`, leaveH: 'Cuti', left: (n, L) => `baki ${L(n)}`, taken: (n) => `${n} diambil`, apply: 'Mohon cuti',
       payslip: 'Slip gaji', download: 'Muat turun slip gaji', older: 'Slip lama', none: 'Belum ada slip gaji.', net: 'Bersih',
       help: 'Kata laluan PDF ialah No. IC anda tanpa sengkang.', noIc: 'Minta HR tambah No. IC anda untuk memuat turun slip gaji.',
+      attendWorkPrompt: 'Hadir bekerja? Tekan daftar masuk untuk batal cuti',
+      cancelLeaveConfirmTitle: 'Batal cuti & daftar masuk?',
+      cancelLeaveConfirmBody: (type) => `Anda mempunyai ${type} yang diluluskan hari ini. Jika anda hadir bekerja, membatalkan cuti ini akan memulihkan baki cuti anda dan mencatat kehadiran anda. Adakah anda ingin membatalkan cuti dan mendaftar masuk sekarang?`,
+      cancelLeaveBtn: 'Batal cuti & daftar masuk', keepLeaveBtn: 'Kekalkan cuti',
       me: 'Saya', signOut: 'Log keluar', language: 'Bahasa', date: 'Tarikh', in: 'Masuk', out: 'Keluar', status: 'Status', lastMonth: 'Bulan lepas', nothing: 'Belum ada apa-apa.', short: 'kurang', worked: 'Bekerja',
       Approved: 'Diluluskan', Pending: 'Menunggu', Rejected: 'Ditolak', Cancelled: 'Dibatalkan', waiting: (n) => `${n} permohonan menunggu` },
   };
@@ -2855,9 +2863,15 @@
   function simpleHomeView() {
     const e = me(), now = AllurusSimpleHome.nowKL(), wd = workDay(e), rec = myRecord(wd), H = AllurusSimpleHome, info = timeApi.dayInfo(e, wd), t = ssT(), L = ssDays_;
     const shift = info.pattern ? AllurusTimeRules.shiftLabel(info.pattern) : '';
-    const onLeaveNow = rec?.s === 'leave' || info.leave;
+    const todayLeave = (state.leaves || []).find((l) => l.empId === e.id && l.status === 'Approved' && l.from <= wd && wd <= l.to);
+    const onLeaveNow = (rec?.s === 'leave' || info.leave) && !rec?.in;
     let clock;
-    if (onLeaveNow) clock = `<p class="ss-done">${esc(t.onLeave)}</p>`;
+    if (onLeaveNow) {
+      const ltName = todayLeave ? leaveApi.typeName(todayLeave.type) : t.leave;
+      clock = `<p class="ss-done">${esc(t.onLeave)} · ${esc(ltName)}</p>
+        <button type="button" class="btn btn-primary ss-big" data-act="check-in-on-leave" data-v="present">${icon('camera')}<span>${esc(t.checkIn)}</span></button>
+        <p class="ss-sub">${esc(t.attendWorkPrompt)}</p>`;
+    }
     else if (!rec || !rec.in) clock = `<button type="button" class="btn btn-primary ss-big" data-act="check-in" data-v="present">${icon('camera')}<span>${esc(t.checkIn)}</span></button>
       <p class="ss-sub">${[shift, zone().label ? `${t.at} ${zone().label}` : ''].filter(Boolean).map(esc).join(' · ')}</p>`;
     else if (!rec.out) clock = `<button type="button" class="btn btn-primary ss-big" data-act="check-out">${icon('clock')}<span>${esc(t.checkOut)}</span></button><p class="ss-sub">${esc(t.since)} ${esc(H.time12(rec.lastIn || rec.in))}</p>`;
@@ -2914,7 +2928,11 @@
     const birthday = e.birthday && e.birthday.slice(5) === T.slice(5);
     const ins = insights(), focus = ins.filter((x) => x.prio >= 2 && x.action).slice(0, 3);
     let clock;
-    if (rec?.s === 'leave') clock = `<span class="pill gold">On leave today. Enjoy it!</span>`;
+    if ((rec?.s === 'leave' || onLeaveOn(e.id, T)) && !rec?.in) {
+      const todayLeave = (state.leaves || []).find((l) => l.empId === e.id && l.status === 'Approved' && l.from <= T && T <= l.to);
+      const ltName = todayLeave ? leaveApi.typeName(todayLeave.type) : 'leave';
+      clock = `<div class="clock-state"><span class="pill gold">On leave today (${esc(ltName)})</span><div class="actions" style="margin-top:8px"><button type="button" class="btn btn-primary" data-act="check-in-on-leave" data-v="present">${icon('camera')}Working today? Cancel leave & check in</button></div></div>`;
+    }
     else if (!rec || !rec.in) clock = `<div class="actions"><button class="btn btn-primary btn-lg" data-act="check-in" data-v="present">${icon('camera')}Check in with selfie</button>${zone().remote ? '<button class="btn" data-act="check-in" data-v="remote">Work remotely</button>' : ''}</div>`;
     else if (!rec.out) clock = `<div class="clock-state"><div class="actions">${selfieThumb(me().id, T, rec)}<span class="pill ok">${rec.s === 'remote' ? 'Remote' : 'In office'} since ${rec.lastIn || rec.in}</span><button class="btn btn-primary" data-act="check-out">Check out</button></div>${rec.loc ? `<span class="faint" style="font-size:12.5px">${esc(locText(rec.loc))}</span>` : ''}</div>`;
     else clock = `<div class="clock-state"><div class="actions">${selfieThumb(me().id, T, rec)}<span class="pill brand">Checked out at ${rec.out} · ${(AllurusTimeRules.sessionMin(rec) / 60).toFixed(1)} h today</span><button class="btn btn-primary" data-act="check-in" data-v="present">${icon('camera')}Check in again</button>${zone().remote ? '<button class="btn" data-act="check-in" data-v="remote">Work remotely</button>' : ''}</div><span class="faint" style="font-size:12.5px">Checked out by mistake? Check in again. Your hours add up every time you are in.</span></div>`;
@@ -3299,6 +3317,13 @@
   };
 
   function checkIn(mode) {
+    const e = me(), wd = workDay(e);
+    const todayLeave = (state.leaves || []).find((l) => l.empId === e.id && l.status === 'Approved' && l.from <= wd && wd <= l.to);
+    if (todayLeave && (!state.attendance[wd]?.[e.id] || state.attendance[wd]?.[e.id]?.s === 'leave') && !ci.bypassLeaveCheck) {
+      ACTIONS['check-in-on-leave']?.(null, mode);
+      return;
+    }
+    ci.bypassLeaveCheck = false;
     Object.assign(ci, { mode, loc: null, photo: null, canvas: null, face: null, fails: 0, consent: false, first: false, upload: false });
     openModal({ title: mode === 'remote' ? 'Check in remotely' : 'Check in', size: 'sm', submit: null, body: '<div id="ci-body"></div>' });
     $('#overlay-root .modal-foot').hidden = true;
@@ -3769,6 +3794,35 @@
       });
     },
     'check-in': (_, v) => checkIn(v),
+    'check-in-on-leave': (_, mode = 'present') => {
+      const e = me(), wd = workDay(e), t = ssT();
+      const todayLeave = (state.leaves || []).find((l) => l.empId === e.id && l.status === 'Approved' && l.from <= wd && wd <= l.to);
+      const ltName = todayLeave ? leaveApi.typeName(todayLeave.type) : t.leave;
+      openModal({
+        title: t.cancelLeaveConfirmTitle,
+        size: 'sm',
+        submit: t.cancelLeaveBtn,
+        cancel: t.keepLeaveBtn,
+        body: `<p>${esc(t.cancelLeaveConfirmBody(ltName))}</p>`,
+        onSubmit: () => {
+          if (todayLeave) {
+            todayLeave.status = 'Cancelled';
+            todayLeave.cancelReason = 'Attended work on leave day';
+            if (lvStore?.live()) lvStore.changed(todayLeave, ['status']);
+          }
+          if (state.attendance[wd]?.[e.id]?.s === 'leave') {
+            delete state.attendance[wd][e.id];
+          }
+          log(`${fullName(e)} attended work on an approved leave day (${ltName}); leave cancelled and balance restored.`);
+          save();
+          render();
+          ci.bypassLeaveCheck = true;
+          setTimeout(() => {
+            checkIn(mode || 'present');
+          }, 60);
+        },
+      });
+    },
     'ci-retry': () => ciLocate(),
     'ci-capture': () => {
       const v = $('#ci-video'); if (!v?.videoWidth) { toast('The camera isn’t ready yet. Wait a second and tap Take selfie again.', 'error'); return; }
@@ -3890,11 +3944,11 @@
 
   // ---------- Overlays ----------
   function closeOverlay() { const had = $('#overlay-root').children.length; stopCamera(); $('#overlay-root').innerHTML = ''; if (had) AllurusUX.restoreFocus(); }
-  function openModal({ title, body, submit = 'Save', onSubmit, size = '' }) {
+  function openModal({ title, body, submit = 'Save', onSubmit, size = '', cancel = null }) {
     $('#overlay-root').innerHTML = `<div class="scrim" data-scrim><form class="modal ${size}" role="dialog" aria-modal="true" aria-label="${esc(title)}" novalidate>
       <div class="modal-head"><h2>${esc(title)}</h2><button type="button" class="btn btn-icon btn-ghost" data-act="close-overlay" aria-label="Close">${icon('x')}</button></div>
       <div class="modal-body">${body}</div>
-      <div class="modal-foot"><button type="button" class="btn" data-act="close-overlay">${submit ? 'Cancel' : 'Done'}</button>${submit ? `<button type="submit" class="btn btn-primary">${esc(submit)}</button>` : ''}</div></form></div>`;
+      <div class="modal-foot"><button type="button" class="btn" data-act="close-overlay">${cancel || (submit ? 'Cancel' : 'Done')}</button>${submit ? `<button type="submit" class="btn btn-primary">${esc(submit)}</button>` : ''}</div></form></div>`;
     const form = $('#overlay-root form');
     form.addEventListener('submit', (ev) => {
       ev.preventDefault();

@@ -234,3 +234,20 @@ test('unpaid leave deduction: basic ÷ divisor × days', () => {
   assert.equal(R.countDaysInMonth(leave, '2026-11', trg), 3);
   assert.equal(R.countDaysInMonth({ from: '2026-10-19', to: '2026-10-19', half: 'PM' }, '2026-10', trg), 0.5);
 });
+
+test('cancelled leave: does not deduct from balance; cancelling an approved leave restores balance', () => {
+  const types = R.defaultTypes();
+  const emp = { id: 'e1', start: '2018-01-01' };
+  const leaves = [
+    { empId: 'e1', type: 'annual', from: '2026-11-19', to: '2026-11-19', days: 1, status: 'Approved' },
+  ];
+  const b1 = R.balance({ type: types[0], types, emp, year: 2026, leaves, today: '2026-11-19' });
+  assert.equal(b1.used, 1);
+  assert.equal(b1.available, 15);
+
+  // When cancelled because employee attended work
+  leaves[0].status = 'Cancelled';
+  const b2 = R.balance({ type: types[0], types, emp, year: 2026, leaves, today: '2026-11-19' });
+  assert.equal(b2.used, 0);
+  assert.equal(b2.available, 16);
+});

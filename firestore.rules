@@ -711,8 +711,8 @@ service cloud.firestore {
         allow create: if member(t) && working(t) && nd().v == 1 && nd().createdBy == request.auth.uid && nd().approverIds is list && nd().approverIds.size() <= 12
           && ((nd().empId == emp() && nd().status == 'Pending' && !(emp() in nd().approverIds)) || hrLeave());
         allow update: if member(t) && working(t) && stamped() && nd().empId == od().empId && (
-          // the person cancels their own pending request
-          (od().empId == emp() && od().status == 'Pending' && nd().status == 'Cancelled' && changed().hasOnly(['status', 'v', 'updatedAt', 'updatedBy']))
+          // the person cancels their own pending or approved request (e.g. attending work on leave day)
+          (od().empId == emp() && od().status in ['Pending', 'Approved'] && nd().status == 'Cancelled' && changed().hasOnly(['status', 'v', 'updatedAt', 'updatedBy']))
           // an approver decides (never their own request)
           || (od().empId != emp() && emp() in od().approverIds && od().status == 'Pending' && nd().status in ['Pending', 'Approved', 'Rejected']
             && changed().hasOnly(['chain', 'status', 'v', 'updatedAt', 'updatedBy']))
