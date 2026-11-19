@@ -131,7 +131,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--brand); }
 .widget .card { height: 100%; }
 @media (max-width: 1279px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } .s-12, .s-8, .s-6 { grid-column: span 2; } .s-4 { grid-column: span 1; } }
 @media (max-width: 767px) { .board { grid-template-columns: minmax(0, 1fr); } .s-12, .s-8, .s-6, .s-4 { grid-column: span 1; } }
-.stat-v, .kpi .v, .kpi-v { font-size: 28px; font-weight: 700; letter-spacing: -.02em; }
+.kpi .v, .kpi-v { font-size: 28px; font-weight: 700; letter-spacing: -.02em; }   /* .stat-v (department cards) is sized in styles.css so it can shrink to fit */
 
 /* ---------- Tables ---------- */
 .table-wrap { overflow-x: auto; }

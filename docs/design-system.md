@@ -27,7 +27,13 @@ Dark is the default. Light is the same design with a pale gradient. People can s
 | `--blur` | `blur(20px) saturate(130%)` | glass backdrop |
 | `--ease`, `--dur` | `cubic-bezier(.2,.8,.2,1)`, .2s | motion |
 
-**Font:** Manrope (variable, 400 to 800). It is self-hosted at `assets/fonts/manrope-latin.woff2` under the SIL Open Font License, with system fonts as fallback.
+**Fonts (tokens in `css/styles.css`):**
+- `--font-sans`: `-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", Inter, "Segoe UI", Roboto, sans-serif`. iPhone and Mac get the real SF Pro. Everyone else gets Inter, self-hosted at `assets/fonts/inter-latin.woff2` (SIL Open Font License, text in `assets/fonts/OFL-Inter.txt`). SF Pro's licence only allows it on Apple devices, so it is named in the stack and never bundled. `--font` is the same value, kept for older rules.
+- `--font-compact`: `"SF Compact Text", "SF Compact", var(--font-sans)`. Dense spots: stat labels, chips, pills, tags, table cells, bottom bar.
+- `--font-mono`: `ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace`. IDs and codes only (class `.mono`: invoice no., employee ID, ticket ID, account no.).
+- Money and every other figure use `--font-sans` with `font-variant-numeric: tabular-nums`, never mono.
+- Text typed in capitals is shown softened (`U.soften`: "SUPERVISORY STAFF" becomes "Supervisory staff"; HR, IT, QA and the like stay). Only the display changes; the stored text stays as typed.
+- Cards: figures sit in `repeat(3, minmax(0, 1fr))` and scale with `clamp()`; below 270px wide a card stacks them 2 + 1. Initials in an avatar are 2 letters at about 40% of the circle.
 
 ## Shell
 

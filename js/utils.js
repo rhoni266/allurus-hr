@@ -4,6 +4,15 @@ window.U = (function () {
   const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const parse = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d || 1); };
   const today = () => iso(new Date());
+  // How a name is shown: text typed all in capitals is shown as "Supervisory daily production". Only the display changes; the data stays as typed.
+  // Short words (HR, IT, QA) and anything that already has lower-case letters are left alone.
+  const KEEP_CAPS = new Set(['HR', 'IT', 'QA', 'QC', 'HSE', 'EHS', 'R&D', 'PR', 'CEO', 'CFO', 'KL', 'SDN', 'BHD']);
+  const soften = (v) => {
+    const t = String(v == null ? '' : v);
+    if (t.length <= 3 || t !== t.toUpperCase() || t === t.toLowerCase()) return t;
+    const out = t.toLowerCase().replace(/[a-z&]+/g, (w) => (KEEP_CAPS.has(w.toUpperCase()) ? w.toUpperCase() : w));
+    return /^[A-Z]/.test(out) ? out : out.charAt(0).toUpperCase() + out.slice(1);
+  };
   const addDays = (s, n) => { const d = parse(s); d.setDate(d.getDate() + n); return iso(d); };
   // The company's rest days (0 = Sunday … 6 = Saturday). Saturday–Sunday unless the company works a
   // Friday–Saturday week (Kedah, Kelantan, Terengganu); set from the leave settings on every render.
@@ -272,5 +281,5 @@ window.U = (function () {
     } catch (e) { return sha256js(msg); }
   }
 
-  return { parseCoords, parseCoordsDetailed, hasCoords, distanceM, resolveZone, applyPublishedZone, checkZone, GPS_SLACK_M, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, locateError: () => lastLocateError, pad, iso, parse, today, addDays, isWeekend, setWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
+  return { soften, parseCoords, parseCoordsDetailed, hasCoords, distanceM, resolveZone, applyPublishedZone, checkZone, GPS_SLACK_M, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, locateError: () => lastLocateError, pad, iso, parse, today, addDays, isWeekend, setWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
 })();

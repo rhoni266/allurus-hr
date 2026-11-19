@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.77';
+  const APP_VERSION = '3.78';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -1235,18 +1235,18 @@
   VIEWS.departments = () => `
     <div class="page-head"><div><h1>Departments</h1><p class="sub">What each team is responsible for, who leads it and what it costs.</p></div>
       <div class="actions"><button class="btn btn-primary" data-act="add-dept">${icon('plus')}New department</button></div></div>
-    <div class="grid g-3">${state.departments.map((d) => {
+    <div class="dept-grid">${state.departments.map((d) => {
       const members = activeEmployees().filter((e) => e.dept === d.id);
       const payroll = members.reduce((s, e) => s + e.salary, 0);
       const lead = emp(d.lead);
       return `<div class="card dcard">
-        <div class="dcard-top"><h3><i style="background:${d.color}"></i>${esc(d.name)}</h3>
+        <div class="dcard-top"><h3><i style="background:${d.color}"></i><span>${esc(U.soften(d.name))}</span></h3>
           <div class="row-actions"><button class="btn btn-sm btn-icon btn-ghost" data-act="edit-dept" data-id="${d.id}" aria-label="Edit ${esc(d.name)}">${icon('edit')}</button><button class="btn btn-sm btn-icon btn-ghost" data-act="del-dept" data-id="${d.id}" aria-label="Delete ${esc(d.name)}">${icon('trash')}</button></div></div>
-        ${d.about ? `<p class="muted" style="font-size:13.5px">${esc(d.about)}</p>` : ''}
-        ${d.duties ? `<div class="duties">${d.duties.split(',').map((x) => x.trim()).filter(Boolean).map((x) => `<span class="tag">${esc(x)}</span>`).join('')}</div>` : ''}
+        ${d.about ? `<p class="muted dept-about">${esc(U.soften(d.about))}</p>` : ''}
+        ${d.duties ? `<div class="duties">${d.duties.split(',').map((x) => x.trim()).filter(Boolean).map((x) => `<span class="tag">${esc(U.soften(x))}</span>`).join('')}</div>` : ''}
         ${d.note ? `<p class="dept-note">${icon('pin')}<span>${esc(d.note)}</span></p>` : ''}
         ${lead ? person(lead, 'Department lead') : '<div class="faint">No lead assigned</div>'}
-        <div class="stats"><div><div class="stat-v">${members.length}</div><div class="stat-l">People</div></div><div><div class="stat-v">${compactMoney(members.length ? payroll / members.length : 0)}</div><div class="stat-l">Avg salary</div></div><div><div class="stat-v">${compactMoney(payroll)}</div><div class="stat-l">Annual cost</div></div></div>
+        <div class="stats"><div><div class="stat-v">${members.length}</div><div class="stat-l">People</div></div><div><div class="stat-v" title="${esc(money(members.length ? payroll / members.length : 0))}">${compactMoney(members.length ? payroll / members.length : 0)}</div><div class="stat-l">Avg salary</div></div><div><div class="stat-v" title="${esc(money(payroll))}">${compactMoney(payroll)}</div><div class="stat-l">Annual cost</div></div></div>
         <div class="faces">${members.slice(0, 7).map((e) => avatar(fullName(e), 'sm')).join('')}${members.length > 7 ? `<span class="avatar sm" style="background:var(--fg-3)">+${members.length - 7}</span>` : ''}</div>
       </div>`;
     }).join('')}</div>`;

@@ -1,3 +1,4 @@
+@font-face { font-family: Inter; font-style: normal; font-weight: 100 900; font-display: swap; src: url('../assets/fonts/inter-latin.woff2') format('woff2'); }
 /* Allurus HR — quiet, Apple-like surfaces: soft grey canvas, white cards, one teal accent, champagne highlight. */
 :root {
   --bg: #F5F5F7;
@@ -28,7 +29,12 @@
   --map-land-hover: #D6D9DD;
   --shadow: 0 1px 2px rgba(16, 18, 24, 0.04), 0 6px 24px rgba(16, 18, 24, 0.05);
   --shadow-lg: 0 24px 64px rgba(16, 18, 24, 0.18);
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* Fonts (docs/design-system.md). Apple devices get SF Pro, SF Compact and SF Mono from the system; everyone else gets Inter (self-hosted),
+     then the nearest system font. SF Pro cannot be bundled, so it is only ever named, never shipped. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", Inter, "Segoe UI", Roboto, sans-serif;
+  --font-compact: "SF Compact Text", "SF Compact", var(--font-sans);
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace;
+  --font: var(--font-sans);
   --radius: 18px;
   --radius-sm: 12px;
   /* Layout and motion tokens. Density and motion preferences override these. */
@@ -200,9 +206,9 @@ svg.i { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-widt
 .pill.info { background: var(--info-soft); color: var(--info); }
 .pill.brand { background: var(--brand-soft); color: var(--brand); }
 .pill.gold { background: var(--gold-soft); color: var(--gold); }
-.avatar { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 600; font-size: 12.5px; flex: none; letter-spacing: 0.02em; }
-.avatar.lg { width: 64px; height: 64px; font-size: 22px; }
-.avatar.sm { width: 26px; height: 26px; font-size: 11px; }
+.avatar { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 600; font-size: 14.4px; line-height: 1; flex: none; letter-spacing: 0; white-space: nowrap; overflow: hidden; }
+.avatar.lg { width: 64px; height: 64px; font-size: 25.6px; }
+.avatar.sm { width: 28px; height: 28px; font-size: 11.2px; }
 .person { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .person-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .person-sub { font-size: 12.5px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -295,15 +301,21 @@ td.r, th.r { text-align: right; }
 .chip .n { font-size: 11.5px; opacity: .65; }
 
 /* ---------- Department cards ---------- */
-.dcard { display: flex; flex-direction: column; gap: 16px; }
-.dcard-top { display: flex; align-items: center; justify-content: space-between; }
-.dcard-top h3 { font-size: 19px; display: flex; align-items: center; gap: 10px; }
-.dcard-top h3 i { width: 12px; height: 12px; border-radius: 4px; display: inline-block; }
+.dcard { display: flex; flex-direction: column; gap: 16px; container-type: inline-size; min-width: 0; }
+.dcard-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dcard-top h3 { font-size: 19px; display: flex; align-items: center; gap: 10px; min-width: 0; font-weight: 600; text-transform: none; }
+.dcard-top h3 > span { min-width: 0; overflow-wrap: anywhere; }
+.dcard-top h3 i { width: 12px; height: 12px; border-radius: 4px; display: inline-block; flex: none; }
+.dcard .dept-about { font-size: 13.5px; font-weight: 400; color: var(--fg-2); margin: 0; }
+/* The three figures share the width; each shrinks to fit (clamp), so none can run into the next. Narrow cards stack them 2 + 1. */
 .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.stat-v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.015em; }
-.stat-l { font-size: 12px; color: var(--fg-3); }
+.stats > div { min-width: 0; }
+.stat-v { font-family: var(--font-sans); font-size: clamp(12px, 5cqi, 20px); font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat-l { font-family: var(--font-compact); font-size: 12px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@container (max-width: 270px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.dept-grid { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); }
 .faces { display: flex; }
-.faces .avatar { border: 2px solid var(--surface); margin-left: -8px; }
+.faces .avatar { border: 2px solid var(--surface); margin-left: -3px; }   /* a light overlap: the initials of the one behind stay readable */
 .faces .avatar:first-child { margin-left: 0; }
 
 /* ---------- Overlays ---------- */
@@ -557,7 +569,6 @@ details.rules summary h3 { font-size: 17px; }
   .g-4, .g-3, .g-2 { grid-template-columns: minmax(0, 1fr); }
   .g-4.keep-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .form-grid { grid-template-columns: minmax(0, 1fr); }
-  .kpi-value { font-size: 26px; }
   .card { padding: 18px; }
   .toolbar { padding: 14px 16px; }
   th:first-child, td:first-child { padding-left: 16px; }
@@ -1314,7 +1325,7 @@ kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; 
 .hr-ct-head, .hr-ct-row { display: grid; grid-template-columns: minmax(0, 1fr) 130px 110px 70px 36px; gap: 6px; align-items: center; }
 .hr-ct-head { font-size: 12px; color: var(--fg-2); font-weight: 600; margin: 10px 0 4px; }
 .hr-ph { gap: 6px; }
-.hr-ph .chip { height: 26px; padding: 0 10px; font-size: 12px; font-family: ui-monospace, Menlo, monospace; }
+.hr-ph .chip { height: 26px; padding: 0 10px; font-size: 12px; font-family: var(--font-mono); }
 .hr-done summary { cursor: pointer; list-style: none; }
 .org ul { list-style: none; margin: 0; padding: 0 0 0 26px; position: relative; }
 .org > ul { padding-left: 0; }
@@ -1415,7 +1426,7 @@ kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; 
 .einv-head > div { flex: 1; min-width: 0; }
 .einv-kv { margin: 0; font-size: 13px; }
 .einv-kv dd { word-break: break-all; }
-.einv-link { font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--fg-2); }
+.einv-link { font-family: var(--font-mono); font-size: 12px; color: var(--fg-2); }
 .einv-errors { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
 .einv-actions { justify-content: flex-start; flex-wrap: wrap; }
 .einv-sec { margin: 14px 0 6px; }
@@ -1730,7 +1741,7 @@ tr.ops-low td:first-child { box-shadow: inset 3px 0 0 var(--bad); }
 .pos-pay-due { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .pos-pay-due strong { font-size: 28px; font-variant-numeric: tabular-nums; }
 .pos-quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.pos-receipt { font: 12.5px/1.4 ui-monospace, Menlo, Consolas, monospace; background: var(--surface-2); padding: 14px; border-radius: var(--radius-sm); white-space: pre-wrap; max-width: 360px; margin: 0 auto; }
+.pos-receipt { font: 12.5px/1.4 var(--font-mono); background: var(--surface-2); padding: 14px; border-radius: var(--radius-sm); white-space: pre-wrap; max-width: 360px; margin: 0 auto; }
 .pos-receipt-actions { display: flex; gap: 8px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
 .pos-kds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); align-items: start; }
 .pos-kds-col h3 { margin: 0 0 8px; }
@@ -2214,9 +2225,6 @@ html.simple-staff .view { padding-bottom: 24px; }
 /* Admin console on a phone (<= 480px): no sideways scroll, big tap targets, readable text, full-screen sheets (docs: admin mobile spec). */
 @media (max-width: 480px) {
   html, body { overflow-x: hidden; }
-  .stat-v { font-size: 16px; overflow-wrap: anywhere; }
-  .stats { gap: 8px; }
-  .dcard-top h3 { font-size: 17px; }
   /* Tap targets: 44px high. */
   .view .btn, .view .btn-sm, .topbar .btn, .topbar .cmdk-trigger, .modal .btn, .modal .btn-sm, .toolbar .btn, .view .avatar-btn, .topbar .avatar-btn { min-height: 44px; height: auto; }
   .view .btn-icon, .topbar .btn-icon, .modal .btn-icon, .view .btn-sm.btn-icon { min-width: 44px; width: 44px; }
@@ -2304,3 +2312,13 @@ html.simple-staff .view { padding-bottom: 24px; }
   .m-sheet-body > .seg { width: 100%; flex-wrap: wrap; }
   .m-sheet-body > .seg button { flex: 1 1 40%; }
 }
+
+/* Fonts by job: Compact for dense labels, Mono for IDs and codes only, tabular figures for every number (never mono). */
+.stat-l, .pill, .tag, .chip, .kpi-chip, .tabbar a, .tabbar button, .nav-label, .count, table th, table td, .badge { font-family: var(--font-compact); }
+.mono, .inv-no, .emp-id, .ticket-id, .acct-no, .einv-link { font-family: var(--font-mono); font-variant-numeric: normal; }
+.num, .kpi-value, .kpi-chip b, .pa-hours b, .money { font-family: var(--font-sans); font-variant-numeric: tabular-nums; }
+
+/* KPI figures shrink with their card so a long amount never runs into the next card or is cut. */
+.card.kpi, .kpi { container-type: inline-size; min-width: 0; }
+.kpi-value { font-size: clamp(18px, 15cqi, 32px); white-space: nowrap; overflow: hidden; text-overflow: clip; }
+.kpi-value .faint { font-size: max(11px, 0.5em) !important; }

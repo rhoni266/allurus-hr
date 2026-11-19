@@ -1,7 +1,7 @@
 {
   "name": "allurus-hr",
   "private": true,
-  "version": "3.77.0",
+  "version": "3.78.0",
   "description": "Allurus HR and the allurus.my site. No build step; open index.html (landing) or app.html (the app).",
   "scripts": {
     "release": "node scripts/release.js",
@@ -19,6 +19,7 @@
     "test:e2e-phone-home": "node tests-e2e/phone-home-attendance.e2e.js",
     "test:e2e-onetap": "node tests-e2e/onetap.e2e.js",
     "test:e2e-admin-mobile": "node tests-e2e/admin-mobile.e2e.js",
+    "test:e2e-ui-clip": "node tests-e2e/ui-clip.e2e.js",
     "test:e2e-phone-leave": "node tests-e2e/phone-leave-attendance.e2e.js"
   },
   "devDependencies": {
