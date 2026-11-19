@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.76';
+  const APP_VERSION = '3.77';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -826,6 +826,7 @@
     view.innerHTML = simpleOn() ? VIEWS[r]() : billingUi.banner() + heavy + (r === routes()[0].id ? billingUi.checklist() : '') + setup + VIEWS[r]();
     AFTER[r]?.();
     decorateHead(r);
+    if (role() !== 'employee' && window.AllurusMobile) { AllurusMobile.setLang(state.settings.staffApp?.lang === 'bm' ? 'bm' : 'en'); AllurusMobile.enhance(view); AllurusMobile.watch(); }   // phone: cards, one main button, Filters sheet
     // Content rises in on navigation only (saves re-render too, and shouldn't animate).
     view.classList.remove('enter'); if (navigated) { void view.offsetWidth; view.classList.add('enter'); }
     $('#sidebar').classList.remove('open');

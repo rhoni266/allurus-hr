@@ -565,7 +565,14 @@ window.AllurusUX = (function () {
   function renderTabbar(route) {
     const bar = $('#tabbar'); if (!bar) return;
     if (document.documentElement.classList.contains('simple-staff')) { bar.innerHTML = ''; return; }   // the simple staff screen has no tab bar
-    const rs = ctx.routes(), set = TABS[ctx.role()];
+    const rs = ctx.routes();
+    let set = TABS[ctx.role()];
+    // Admins: the 4 pages they use most (js/mobile-admin.js); an admin who is also staff gives the last place to Me.
+    if (ctx.role() === 'admin' && window.AllurusMobile) {
+      const alsoStaff = (ctx.state?.session?.roles || []).includes('employee');
+      set = window.AllurusMobile.pickTabs(rs.map((r) => r.id), alsoStaff ? 3 : 4).map((id) => [id, window.AllurusMobile.tabLabel(id)]);
+      if (alsoStaff) set.push({ act: 'tab-me', label: 'Me', icon: 'people' });
+    }
     const link = (r, label) => `<a href="#${r.id}" ${route === r.id ? 'aria-current="page" class="on"' : ''}>${ctx.icon(r.icon)}<span>${ctx.esc(label || r.label.replace(/^My (\w)/, (_, c) => c.toUpperCase()))}</span></a>`;
     const btn = (t) => `<button type="button" data-act="${t.act}" aria-label="${ctx.esc(t.label)}">${ctx.icon(t.icon)}<span>${ctx.esc(t.label)}</span></button>`;
     if (ctx.role() === 'admin' || ctx.role() === 'employee') {

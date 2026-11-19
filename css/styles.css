@@ -2210,3 +2210,97 @@ html.simple-staff .view { padding-bottom: 24px; }
 .ot-tick { width: 88px; height: 88px; border-radius: 50%; display: grid; place-items: center; background: var(--ok-soft); color: var(--ok); }
 .ot-tick.wait { background: var(--warn-soft, var(--info-soft)); color: var(--warn, var(--info)); }
 .ot-tick svg.i { width: 48px; height: 48px; }
+
+/* Admin console on a phone (<= 480px): no sideways scroll, big tap targets, readable text, full-screen sheets (docs: admin mobile spec). */
+@media (max-width: 480px) {
+  html, body { overflow-x: hidden; }
+  .stat-v { font-size: 16px; overflow-wrap: anywhere; }
+  .stats { gap: 8px; }
+  .dcard-top h3 { font-size: 17px; }
+  /* Tap targets: 44px high. */
+  .view .btn, .view .btn-sm, .topbar .btn, .topbar .cmdk-trigger, .modal .btn, .modal .btn-sm, .toolbar .btn, .view .avatar-btn, .topbar .avatar-btn { min-height: 44px; height: auto; }
+  .view .btn-icon, .topbar .btn-icon, .modal .btn-icon, .view .btn-sm.btn-icon { min-width: 44px; width: 44px; }
+  .topbar .cmdk-trigger { width: 44px; }
+  .topbar > .btn-icon { width: 44px; }
+  .topbar .avatar-btn { min-width: 44px; width: 44px; }
+  .view .input, .view select, .view .select, .modal .input, .modal select, .modal .select, .view input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]), .modal input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]) { min-height: 44px; font-size: 16px; }
+  .seg button { min-height: 44px; }
+  .nav-item a, .side-foot .btn, .side-btn, .nav-pin { min-height: 48px; min-width: 44px; }
+  .view button, .modal button, .view [role="button"] { min-height: 44px; }
+  .view .link-btn, .view .lg-linkbtn, .view .hint.card-link, .view button.hint, .view .chip, .view .pf-x, .view button.chip { min-height: 44px; display: inline-flex; align-items: center; }
+  .view .swatch, .view .swatches button { min-width: 44px; min-height: 44px; width: 44px; height: 44px; }
+  .view input[type="file"], .modal input[type="file"] { min-height: 44px; padding: 10px 0; }
+  .view button.pf-x { min-width: 44px; justify-content: center; }
+  /* Text: nothing under 11px. */
+  .view small, .modal small, .view .small, .view .hint, .view .faint { font-size: max(11px, 0.85em); }
+  .view small { font-size: 11px; }
+  /* The menu (the sidebar) opens as a full-screen list. */
+  .sidebar { width: 100%; max-width: none; }
+  .sidebar .nav-item a { font-size: 17px; }
+  /* Modals are full screen with the close button at the top and the save button kept at the bottom. */
+  .scrim:not(.drawer-scrim):not(.cmdk-scrim) { place-items: stretch; padding: 0; }
+  .scrim:not(.drawer-scrim):not(.cmdk-scrim) > .modal { width: 100%; max-width: none; height: 100%; max-height: none; border-radius: 0; display: flex; flex-direction: column; padding-bottom: env(safe-area-inset-bottom); }
+  .modal-head { position: sticky; top: 0; z-index: 2; background: var(--surface); padding-top: calc(14px + env(safe-area-inset-top)); }
+  .modal-body { flex: 1 1 auto; }
+  .modal-foot { position: sticky; bottom: 0; z-index: 2; background: var(--surface); border-top: 1px solid var(--line); padding-top: 12px; padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
+  .modal-foot .btn { flex: 1 1 0; justify-content: center; }
+  /* Forms: one column, labels above the field. */
+  .form-grid, .field-row { grid-template-columns: minmax(0, 1fr); }
+  .field > label, .field .label { display: block; margin-bottom: 6px; }
+  /* Key numbers: two to a row, charts full width. */
+  .g-4.keep-2, .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .card canvas, .card svg.chart, .chart { max-width: 100%; }
+}
+
+/* Admin phone reshaping (js/mobile-admin.js). Above 480px these wrappers disappear and everything looks as before. */
+.m-more { display: contents; }
+.m-more-btn, .m-toggle, .m-filter-btn, .m-sheet { display: none; }
+.m-menu, .m-menu[hidden] { display: contents; }
+.m-sheet-body { display: contents; }
+@media (max-width: 480px) {
+  /* Page header: the title and one main button; the others sit in the "..." menu. */
+  .page-head > .actions { display: flex; flex-wrap: nowrap; gap: 8px; align-items: center; width: 100%; }
+  .page-head > .actions > .btn-primary { flex: 1 1 auto; justify-content: center; }
+  .m-more { display: block; position: relative; flex: none; }
+  .m-more-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; width: 44px; }
+  .m-more-btn svg { fill: currentColor; stroke: none; }
+  .m-menu { display: none; position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 220px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-lg); }
+  .m-more.open > .m-menu { display: flex; flex-direction: column; gap: 2px; }
+  .m-menu[hidden] { display: none; }
+  .m-menu > .btn, .m-menu > button { width: 100%; justify-content: flex-start; border: 0; background: none; box-shadow: none; min-height: 48px; }
+  /* Tables become cards. */
+  table.m-cards, table.m-cards tbody { display: block; width: 100%; }
+  table.m-cards thead { display: none; }
+  table.m-cards tr { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  table.m-cards tr:last-child { border-bottom: 0; }
+  table.m-cards td { display: block; padding: 0 !important; border: 0; min-width: 0; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+  table.m-cards td.m-main-1 { grid-column: 1; grid-row: 1; font-weight: 600; }
+  table.m-cards td.m-main-2 { grid-column: 2; grid-row: 1; justify-self: end; }
+  table.m-cards td.m-main-3 { grid-column: 1 / -1; color: var(--fg-2); font-size: 14px; }
+  table.m-cards td.m-sel { position: absolute; right: 10px; top: 10px; }
+  table.m-cards td.m-act { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
+  table.m-cards tr.m-has-more td.m-act { grid-column: 2; grid-row: 3; justify-self: end; }
+  table.m-cards tr.m-has-more .m-toggle { grid-column: 1; grid-row: 3; }
+  table.m-cards tr.m-has-more.open td.m-extra { grid-row: auto; }
+  table.m-cards td.m-extra { display: none; grid-column: 1 / -1; justify-content: space-between; gap: 12px; padding-top: 6px !important; border-top: 1px dashed var(--line); font-size: 14px; }
+  table.m-cards td.m-extra::before { content: attr(data-label); color: var(--fg-3); font-size: 12px; flex: none; }
+  table.m-cards tr.open td.m-extra { display: flex; }
+  table.m-cards tr.m-single { display: block; }
+  table.m-cards .m-toggle { display: inline-flex; grid-column: 1 / -1; justify-self: start; align-items: center; min-height: 44px; padding: 0 4px; border: 0; background: none; color: var(--brand); font: 600 14px/1 var(--font); }
+  /* A wide report keeps its table, scrolling inside its own box, with the first column pinned. */
+  .m-scrollbox, .table-wrap { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table.m-scroll td:first-child, table.m-scroll th:first-child { position: sticky; left: 0; z-index: 1; background: var(--surface); }
+  /* Filters: one button; the controls are in a sheet. */
+  .toolbar.m-filters { flex-wrap: wrap; gap: 8px; }
+  .toolbar.m-filters > input[type="search"], .toolbar.m-filters > input.input { flex: 1 1 0; min-width: 0 !important; }
+  .m-filter-btn { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+  .m-filter-btn svg { width: 18px; height: 18px; }
+  .m-badge { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--brand); color: #fff; font-size: 12px; }
+  .m-sheet { display: none; position: fixed; inset: 0; z-index: 60; flex-direction: column; background: var(--surface); padding-bottom: env(safe-area-inset-bottom); }
+  .m-sheet.show { display: flex; }
+  .m-sheet-head { display: flex; align-items: center; justify-content: space-between; padding: calc(14px + env(safe-area-inset-top)) 18px 12px; border-bottom: 1px solid var(--line); font-size: 18px; }
+  .m-sheet-body { display: flex; flex-direction: column; gap: 16px; padding: 18px; overflow-y: auto; }
+  .m-sheet-body > select, .m-sheet-body > .select { width: 100%; }
+  .m-sheet-body > .seg { width: 100%; flex-wrap: wrap; }
+  .m-sheet-body > .seg button { flex: 1 1 40%; }
+}
