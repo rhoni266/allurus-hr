@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '3.80';
+  const APP_VERSION = '3.81';
   // Bump the key when the demo data changes shape, so every browser starts fresh.
   // Cloud mode (a Firebase config, and no ?demo in the address) caches its copy under its own key, so the demo
   // company and a real workspace never mix in one browser.
@@ -2302,7 +2302,7 @@
             ${row('Production orders', 'Recipes and production batches for a company that makes a product.', '<span class="pill">Coming later</span>')}
             ${row('Sales &amp; delivery', 'Sales orders and delivery runs with the driver’s phone.', '<span class="pill">Coming later</span>')}
             ${row('Machines', 'Preventive maintenance and breakdowns.', '<span class="pill">Coming later</span>')}
-            <p class="field-hint" style="margin-top:8px">The daily production total for commission is separate from stock for now: it does not change stock levels.</p></div>`; } },
+            <p class="field-hint" style="margin-top:8px">The daily production total for commission is separate from stock for now: it does not change stock levels.</p></div>${opsApi?.stockSettings() || ''}`; } },
       { id: 'claims', label: 'Claims', icon: 'receipt', summary: 'Claim categories, limits, mileage, medical', keys: 'claim category limit mileage medical expense reimbursement',
         html: () => claimsApi.settingsCards() },
       { id: 'people', label: 'People & talent', icon: 'userplus', summary: 'Onboarding, letters, hiring, appraisals', keys: 'employee department position import onboarding offboarding checklist letter template recruitment job offer appraisal grade band grievance',
@@ -2898,7 +2898,7 @@
       <header class="ss-head"><div><div class="ss-co">${esc(state.settings.company)}</div><h1 class="ss-name">${esc(fullName(e))}</h1><div class="ss-date">${U.fmtDate(now.day, { weekday: 'long', day: 'numeric', month: 'long' })}</div></div><button type="button" class="btn btn-sm ss-me" data-act="ss-me">${icon('people')}${esc(t.me)}</button></header>
       <section class="card ss-card" aria-label="${esc(t.checkIn)}">${clock}${ssToday(e, rec, info, now)}${ssWeek(e, now)}${meters}</section>
       ${prodApi?.supCard() || ''}
-      ${opsApi?.has() ? `<section class="card ss-card"><button type="button" class="btn btn-primary ss-wide" data-act="ops-so-request">${icon('box')}${esc(t.stockBtn)}</button></section>` : ''}
+      ${opsApi?.stockBits('simple') ? `<section class="card ss-card ss-stock">${opsApi.stockBits('simple')}</section>` : ''}
       <section class="card ss-card" aria-label="${esc(t.leaveH)}"><h2 class="ss-h">${esc(t.leaveH)}</h2>
         ${bal ? `<ul class="ss-list">${bal}</ul>` : ''}${waiting ? `<p class="ss-wait">${esc(t.waiting(waiting))}</p>` : ''}
         <button type="button" class="btn btn-primary ss-wide" data-act="new-leave">${icon('calendar')}${esc(t.apply)}</button>

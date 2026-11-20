@@ -2331,3 +2331,6 @@ html.simple-staff .view { padding-bottom: 24px; }
 .so-what { overflow-wrap: anywhere; }
 .so-acts { margin-top: 8px; display: flex; gap: 8px; }
 .so-ticket .person-sub { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+
+.ss-stock { display: grid; gap: 10px; }
+.ss-stock .btn { justify-content: center; }

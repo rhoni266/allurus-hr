@@ -778,6 +778,84 @@ service cloud.firestore {
           || (hrTime() && (od().empId != emp() || nd().status == od().status || nd().status == 'Cancelled')));
         allow delete: if hrTime() && working(t);
       }
+      // ---- Stock requests (request, approve, hand over, receive, return): one document each (js/stock-req.js) ----
+      // Appointments are in stockRoles/current (written by Operations or Settings admins: approvers and keepers); the catalog in
+      // stockCatalog/{item} says who may request each item. Read by the requester, the approvers, the keepers and the Operations area.
+      // Every change is one allowed step and writes its audit entry (stockAudit/{requestId~v}) in the same batch:
+      //   requester: asks (Diminta, for themselves, an allowed item), cancels while Diminta or Diluluskan, confirms Terima;
+      //   approver (never on their own request): Diminta to Diluluskan (same or lower quantity) or Ditolak (a reason);
+      //   keeper (never to themselves): Diluluskan to Diserahkan with a photo; Diserahkan to Dipulangkan (Baik, Rosak, Hilang);
+      //   an approver, keeper or Operations cancels an approved request nobody collected within the days set (the reservation is released).
+      // Stock on hand is computed from handed-over and returned requests, so staff never write a stock quantity.
+      match /stockRoles/{id} {
+        allow read: if member(t) && canRead(t);
+        allow write: if (hasArea(t, 'operations') || hasArea(t, 'settings')) && working(t)
+          && request.resource.data.approvers is list && request.resource.data.keepers is list
+          && request.resource.data.approvers.size() <= 200 && request.resource.data.keepers.size() <= 200;
+      }
+      match /stockCatalog/{id} {
+        allow read: if member(t) && canRead(t);
+        allow write: if hasArea(t, 'operations') && working(t);
+      }
+      match /stockAudit/{a} {
+        allow read: if hasArea(t, 'operations') && canRead(t);
+        allow create: if member(t) && working(t) && request.resource.data.actorUid == request.auth.uid && request.resource.data.at == request.time
+          && request.resource.data.requestId is string && request.resource.data.action in ['ask', 'approve', 'reject', 'hand', 'receive', 'return', 'cancel', 'expire', 'delete'];
+      }
+      match /stockRequests/{id} {
+        function emp() { return me().get('empId', ''); }
+        function audited(v) { return existsAfter(/databases/$(database)/documents/tenants/$(t)/stockAudit/$(id + '~' + string(v))); }
+        // The values are looked up once (rules may evaluate at most 1,000 expressions): the roles, who I am, what changed.
+        function step() {
+          let o = resource.data;
+          let n = request.resource.data;
+          let e = emp();
+          let sr = get(/databases/$(database)/documents/tenants/$(t)/stockRoles/current).data;
+          let apr = e in sr.get('approvers', []);
+          let kp = e in sr.get('keepers', []);
+          let ch = n.diff(o).affectedKeys();
+          let own = o.empId == e;
+          let st = o.status;
+          let ns = n.status;
+          let std = ['v', 'updatedAt', 'updatedBy'];
+          return n.updatedBy == request.auth.uid && n.updatedAt == request.time && n.v == o.v + 1 && n.empId == o.empId && n.itemId == o.itemId && n.qty == o.qty
+            && audited(n.v) && (
+            // the person cancels, or confirms they received
+            (own && st in ['Diminta', 'Diluluskan'] && ns == 'Dibatalkan' && ch.hasOnly(['status', 'cancelledAt', 'cancelNote'].concat(std)))
+            || (own && st == 'Diserahkan' && ns == 'Diserahkan' && !('receivedAt' in o) && ch.hasOnly(['receivedAt'].concat(std)))
+            // an approver decides (never their own request)
+            || (apr && !own && st == 'Diminta' && n.decidedBy == e && (
+              (ns == 'Diluluskan' && n.approvedQty is number && n.approvedQty > 0 && n.approvedQty <= o.qty
+                && ch.hasOnly(['status', 'approvedQty', 'decidedBy', 'decidedAt', 'decisionNote'].concat(std)))
+              || (ns == 'Ditolak' && n.decisionNote is string && n.decisionNote.size() > 0
+                && ch.hasOnly(['status', 'decidedBy', 'decidedAt', 'decisionNote'].concat(std)))))
+            // a keeper hands over (with a photo, never to themselves) and takes returns
+            || (kp && !own && st == 'Diluluskan' && ns == 'Diserahkan' && n.handedBy == e
+              && n.handedQty is number && n.handedQty > 0 && n.handedQty <= o.approvedQty && n.handPhoto is string && n.handPhoto.size() > 0
+              && ch.hasOnly(['status', 'handedQty', 'handedBy', 'handedAt', 'handPhoto'].concat(std)))
+            || (kp && st == 'Diserahkan' && o.get('returnable', false) == true && ns == 'Dipulangkan' && n.returnedBy == e
+              && n.condition in ['Baik', 'Rosak', 'Hilang'] && n.returnedQty is number && n.returnedQty >= 0 && n.returnedQty <= o.handedQty
+              && (n.condition == 'Hilang' ? n.lost == true : n.returnedQty > 0 && n.lost == false)
+              && ch.hasOnly(['status', 'condition', 'returnedQty', 'returnedBy', 'returnedAt', 'returnPhoto', 'lost'].concat(std)))
+            // an approved request nobody collected in time is cancelled by an approver, a keeper or Operations: the reservation is released
+            || ((apr || kp || hasArea(t, 'operations')) && st == 'Diluluskan' && ns == 'Dibatalkan'
+              && o.decidedAt + duration.value(sr.get('autoCancelDays', 2), 'd') <= request.time
+              && ch.hasOnly(['status', 'cancelledAt', 'cancelNote'].concat(std))));
+        }
+        allow read: if member(t) && canRead(t) && (resource.data.empId == emp()
+          || emp() in get(/databases/$(database)/documents/tenants/$(t)/stockRoles/current).data.get('approvers', [])
+          || emp() in get(/databases/$(database)/documents/tenants/$(t)/stockRoles/current).data.get('keepers', []) || hasArea(t, 'operations'));
+        allow create: if member(t) && working(t) && request.resource.data.v == 1 && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.status == 'Diminta'
+          && request.resource.data.qty is number && request.resource.data.qty > 0 && request.resource.data.itemId is string
+          && ((request.resource.data.empId == emp()
+            && emp() in get(/databases/$(database)/documents/tenants/$(t)/stockCatalog/$(request.resource.data.itemId)).data.get('allowed', []))
+            // Operations moves an old Minta stok ticket over (docs: stock request spec, migration), still waiting for an approver
+            || (hasArea(t, 'operations') && request.resource.data.get('migrated', false) == true))
+          && audited(1) && !('approvedQty' in request.resource.data) && !('handedQty' in request.resource.data) && !('decidedBy' in request.resource.data);
+        allow update: if member(t) && working(t) && step();
+        allow delete: if hasArea(t, 'operations') && working(t) && existsAfter(/databases/$(database)/documents/tenants/$(t)/stockAudit/$(id + '~del'));
+      }
       // Who did what to which invoice, and when. Added only; never changed or removed.
       match /invoiceAudit/{a} {
         allow read: if hasArea(t, 'finance') && canRead(t);

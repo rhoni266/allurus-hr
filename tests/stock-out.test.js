@@ -45,13 +45,9 @@ test('approve or reject once; a rejection needs a reason; no stock is touched', 
   assert.ok(!read('js/ops.js').match(/stockOutDecide[\s\S]{0,900}ops\(\)\.moves\.push/), 'deciding adds no move');
   assert.deepEqual(Object.keys(O.emptyOps()).includes('stockOuts'), true);
 });
-test('the app wires it: tab, request button on the phone home, item screen, badge, notification to everyone with the operations area', () => {
+test('the old Minta stok tickets still have their rules; the screens moved to js/stock-req.js (see tests/stock-request.test.js)', () => {
   const s = read('js/ops.js');
-  assert.ok(s.includes("'stockouts'") && s.includes("'ops-so-request'") && s.includes("'ops-sotk-approve'") && s.includes("'ops-sotk-reject'"));
-  assert.match(s, /btn-lg" data-act="ops-so-request">\$\{icon\('box'\)\}Request stock/);
-  assert.match(s, /notify\('ops\.stockout', [^\n]*opsPeople\(\)/);
-  assert.match(s, /pendingSO\(\)\.length;/);
-  assert.match(s, /'breakdowns', 'licences', 'stockOuts'\]/);
+  assert.ok(s.includes("'stockouts'") && s.includes('...SR.actions') && s.includes("'breakdowns', 'licences', 'stockOuts']"));
   const n = read('js/notify-rules.js'); assert.ok(n.includes("'ops.stockout':") && n.includes("'ops.stockout.decided':"));
 });
 test('the bucket is shared like breakdowns: every member reads, a member only adds; nothing deployed by this test', () => {

@@ -479,6 +479,7 @@ async function start(profile) {
   await new Promise((ready) => listen(ready));
   if (can('finance')) await listenInvoices();
   await Promise.all(Object.keys(REQ).map(listenRequests));
+  if (!profile.viewOnly) await listenStock();
   window.AllurusAddons = { simpleStaffHome: company?.addons?.simpleStaffHome === true, salaryMonthlyOnly: company?.addons?.salaryMonthlyOnly === true, showPos: company?.addons?.showPos !== false };   // read by the app (js/app.js staffApp)
   if (company?.addons?.prodCommission === true && !profile.viewOnly) await listenProd();
   // Build the workspace from what the server has, on a blank company.
@@ -497,6 +498,7 @@ async function start(profile) {
   ws.employees = employeesFrom();
   if (S.invoices) { ws.finance = ws.finance || {}; ws.finance.invoices = S.invoices; }
   Object.keys(REQ).forEach((c) => { ws[REQ[c].key] = requestsNow(c); });
+  if (S.stock) { ws.stockRoles = S.stock.roles; ws.stockCatalog = [...S.stock.catalog.values()]; ws.stockRequests = stockNow(); }
   if (S.prodOn) { ws.prod = { days: { ...S.prodDays }, locks: { ...S.prodLocks } }; ws.prodShares = { ...S.prodShares }; }
   app.adoptCloud(ws, profile);
   // Auto-sync staffKeys for all employees so any employee in the database can auto sign up
@@ -604,6 +606,31 @@ function listenRequests(coll) {
 const forWrite = (v) => (v && v.__now ? serverTimestamp() : Array.isArray(v) ? v.map(forWrite)
   : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).map(([k, x]) => [k, forWrite(x)])) : v);
 
+// ---------- Stock requests (docs: stock request spec; js/stock-req.js) ----------
+// stockRoles/current (appointments), stockCatalog/{item} (what staff may ask for) and stockRequests/{id}: everyone reads the first two;
+// requests: the person reads their own, an approver, a keeper or the operations area reads them all.
+function listenStock() {
+  const t = T(), emp = S.profile.empId, ops = can('operations');
+  const st = S.stock = { roles: {}, catalog: new Map(), mine: new Map(), all: new Map(), allOn: false };
+  const push = () => {
+    if (!S.live) return;
+    app.state.stockRoles = st.roles; app.state.stockCatalog = [...st.catalog.values()]; app.state.stockRequests = stockNow(); app.refresh();
+  };
+  return new Promise((ready) => {
+    let pending = 3; const done = new Set();
+    const fin = (k) => { if (!done.has(k)) { done.add(k); if (--pending === 0) ready(); return true; } return false; };
+    const ensureAll = () => {
+      if (st.allOn || !(ops || (st.roles.approvers || []).includes(emp) || (st.roles.keepers || []).includes(emp))) return;
+      st.allOn = true;
+      S.unsubs.push(onSnapshot(collection(db, `${t}/stockRequests`), (snap) => { st.all = new Map(snap.docs.map((d) => [d.id, docFrom(d)])); push(); }, (e) => { st.allOn = false; console.warn('[Allurus cloud] stock requests', e.code || e); }));
+    };
+    S.unsubs.push(onSnapshot(doc(db, `${t}/stockRoles/current`), (d) => { st.roles = d.exists() ? d.data() : {}; ensureAll(); if (!fin('roles')) push(); }, (e) => { console.warn('[Allurus cloud] stock roles', e.code || e); fin('roles'); }));
+    S.unsubs.push(onSnapshot(collection(db, `${t}/stockCatalog`), (snap) => { st.catalog = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }])); if (!fin('catalog')) push(); }, (e) => { console.warn('[Allurus cloud] stock catalog', e.code || e); fin('catalog'); }));
+    S.unsubs.push(onSnapshot(query(collection(db, `${t}/stockRequests`), where('empId', '==', emp)), (snap) => { st.mine = new Map(snap.docs.map((d) => [d.id, docFrom(d)])); if (!fin('mine')) push(); }, (e) => { console.warn('[Allurus cloud] my stock requests', e.code || e); fin('mine'); }));
+  });
+}
+const stockNow = () => [...new Map([...S.stock.mine, ...S.stock.all]).values()];
+
 // ---------- Daily production commission (docs/PRODUCTION-COMMISSION-SPEC.md) ----------
 // prodDays/{date}: the day, with its attendee list (admins with the operations or payroll area); prodShares/{date~empId}:
 // one person's own share (they read only theirs); prodLocks/{yyyy-mm}: a finalised payroll month. Only where the company
@@ -638,7 +665,7 @@ function listenProd() {
 
 function stop() {
   S.unsubs.forEach((u) => { try { u(); } catch (e) { /* already closed */ } });
-  Object.assign(S, { unsubs: [], live: false, base: new Map(), meta: new Map(), blocked: new Set(), warned: new Set(), invoices: null });
+  Object.assign(S, { unsubs: [], live: false, base: new Map(), meta: new Map(), blocked: new Set(), warned: new Set(), invoices: null, stock: null });
   clearTimeout(S.timer);
 }
 
