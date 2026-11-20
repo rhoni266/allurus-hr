@@ -39,7 +39,7 @@ test('names typed in capitals are shown softly; the stored text is never changed
   assert.equal(U.soften('sales dept'), 'sales dept', 'lower case is left as typed');
   assert.equal(U.soften('HR'), 'HR'); assert.equal(U.soften('QA'), 'QA'); assert.equal(U.soften(''), ''); assert.equal(U.soften(null), '');
   const app = read('js/app.js');
-  assert.ok(app.includes('U.soften(d.name)') && app.includes('U.soften(d.about)'), 'used for the department cards');
+  assert.ok(app.includes('U.title(d.name)') && app.includes('U.soften(d.about)'), 'used for the department cards');
   assert.ok(!/d\.name = U\.soften|dept\.name = U\.soften/.test(app), 'display only');
 });
 test('department cards: 3 figures that fit (clamp), 2 + 1 when narrow, auto-fill grid, compact money with the full amount in a tooltip', () => {
@@ -70,6 +70,7 @@ test('people names typed in capitals are shown as names; the stored name and the
   assert.equal(U.softName('MOHD NOOR', true), 'Mohd Noor');
   assert.equal(`${U.softName('SITI', true)} ${U.softName('NUR-AIN A/P KUMAR', false)}`, 'Siti Nur-Ain a/p Kumar');
   assert.equal(U.softName('N.W', true), 'N.W', 'initials stay'); assert.equal(U.softName('C. W.', true), 'C. W.');
+  assert.equal(U.softName('abdul ghani mr', true), 'Abdul Ghani Mr', 'all lower case is shown as a name'); assert.equal(U.title('OFFICE MANAGEMENT'), 'Office Management'); assert.equal(U.title('general worker'), 'General Worker'); assert.equal(U.title('Painter'), 'Painter'); assert.equal(U.title('HR & ADMIN'), 'HR & Admin'); assert.equal(U.title('Quality Control'), 'Quality Control', 'mixed case as typed');
   assert.equal(U.softName('Farah Nadia', true), 'Farah Nadia', 'mixed case is exactly as typed'); assert.equal(U.softName('binti Rahman', false), 'binti Rahman');
   assert.equal(U.softName('', true), ''); assert.equal(U.softName(null, true), '');
   const app = read('js/app.js');

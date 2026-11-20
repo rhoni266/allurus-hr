@@ -238,6 +238,25 @@
 
   // ---------- Icons ----------
   const ICONS = {
+    factory: '<path d="M3 21V10l6 3V10l6 3V6h3v15z"/><path d="M3 21h18M8 17h2M13 17h2"/>',
+    truck: '<path d="M2 7h11v9H2zM13 10h4l3 3v3h-7z"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="16.5" cy="17.5" r="1.8"/>',
+    wrench: '<path d="M15 4a4.5 4.5 0 0 0-3.8 6.4L4 17.6V20h2.4l7.2-7.2A4.5 4.5 0 0 0 20 9l-3 3-2.5-.5L14 9z"/>',
+    till: '<rect x="4" y="9" width="16" height="11" rx="2"/><path d="M7 9V5h10v4M8 13h2M12 13h2M8 16.5h8"/>',
+    tables: '<rect x="3.5" y="9" width="17" height="3" rx="1.5"/><path d="M6 12v7M18 12v7M12 12v4"/>',
+    flame: '<path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 .3 1.2 1 2 2 2 0-2.2-.3-5.5 1-8z"/>',
+    safe: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M12 9v1.5M12 13.5V15M7 19v1.5M17 19v1.5"/>',
+    laptop: '<rect x="5" y="5" width="14" height="10" rx="1.5"/><path d="M3 19h18"/>',
+    door: '<path d="M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17M4 21h16"/><circle cx="14.5" cy="12.5" r=".8"/>',
+    megaphone: '<path d="M4 10v4h3l8 4V6L7 10z"/><path d="M18 9.5a3.5 3.5 0 0 1 0 5M7 14l1.2 5H10l-1-5"/>',
+    rota: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 9v11M3 14.5h18"/>',
+    inbox: '<path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1 2h6l1-2h5"/>',
+    contact: '<rect x="4" y="3" width="15" height="18" rx="2"/><circle cx="11.5" cy="10" r="2.5"/><path d="M7.5 17c.6-2 2-3 4-3s3.4 1 4 3M21 7v3M21 14v3"/>',
+    scale: '<path d="M12 4v16M6 20h12M4 8h16"/><path d="M4 8l-2.5 6a3 3 0 0 0 5 0zM20 8l-2.5 6a3 3 0 0 0 5 0z"/>',
+    audit: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><circle cx="12" cy="14" r="2.5"/><path d="M14 16l2.5 2.5"/>',
+    cap: '<path d="M2 9l10-5 10 5-10 5z"/><path d="M6 11.5V16c0 1.5 2.7 3 6 3s6-1.5 6-3v-4.5"/>',
+    pie: '<path d="M12 3v9h9a9 9 0 1 1-9-9z"/><path d="M15.5 3.6A9 9 0 0 1 20.4 8.5H15.5z"/>',
+    folder: '<path d="M3 6a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    card: '<rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 9h19"/><rect x="6" y="13" width="5" height="2.5" rx=".6"/>',
     bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
     dashboard: '<rect x="3" y="3" width="7.5" height="9" rx="2"/><rect x="13.5" y="3" width="7.5" height="5" rx="2"/><rect x="13.5" y="11" width="7.5" height="10" rx="2"/><rect x="3" y="15" width="7.5" height="6" rx="2"/>',
     people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.8c1.9.7 3.1 2.4 3.5 5.2"/>',
@@ -330,7 +349,7 @@
     const n = fullName(e);
     return `<div class="person">${avatar(n)}<div style="min-width:0"><div class="person-name">${esc(n)}</div><div class="person-sub">${esc(sub ?? e.role)}</div></div></div>`;
   }
-  const deptTag = (id) => { const d = dept(id); return d ? `<span class="dept"><i style="background:${d.color}"></i>${esc(d.name)}</span>` : '<span class="faint">—</span>'; };
+  const deptTag = (id) => { const d = dept(id); return d ? `<span class="dept"><i style="background:${d.color}"></i>${esc(U.title(d.name))}</span>` : '<span class="faint">—</span>'; };
   const timeAgo = (t) => {
     const m = Math.round((Date.now() - t) / 60000);
     if (m < 1) return 'Just now'; if (m < 60) return `${m} min ago`;
@@ -513,9 +532,16 @@
     payroll: 'payroll', claims: 'claims',
     finance: 'finance', books: 'finance', invoices: 'finance', bills: 'finance', contacts: 'finance', budget: 'finance', tax: 'finance', reports: 'finance', projects: 'payroll',
     recruitment: 'talent', performance: 'talent', training: 'talent', grievances: 'talent',
-    'ops-today': 'operations', 'ops-stock': 'operations', 'ops-production': 'operations', 'ops-sales': 'operations', 'ops-machines': 'operations',
+    'ops-stock': 'operations', 'ops-production': 'operations', 'ops-sales': 'operations', 'ops-machines': 'operations',
     pos: 'pos', 'pos-tables': 'pos', 'pos-kitchen': 'pos', 'pos-shift': 'pos', 'pos-menu': 'pos', 'pos-reports': 'pos',
   };
+  // Settings → Modules: the company chooses which apps show in the sidebar and the All apps launcher. Nothing is deleted; the data is all back when an app is shown again.
+  function appsCard(allowed) {
+    const hid = hiddenApps(), list = ROLE_ROUTES.admin.filter((r) => !KEEP_APPS.includes(r.id));
+    const groups = [...new Set(list.map((r) => r.group))];
+    return `<div class="card-sub"><h4 style="margin:14px 0 4px">Apps shown</h4><p class="field-hint">Hide the apps your company does not use. They disappear from the sidebar and the All apps screen; nothing is deleted.${allowed || can('settings') ? '' : ' Needs the Settings area.'}</p>
+      ${groups.map((g) => `<div class="nav-label" style="padding-left:0">${esc(g)}</div><div class="chips" style="flex-wrap:wrap">${list.filter((r) => r.group === g).map((r) => `<button type="button" class="chip ${hid.has(r.id) ? '' : 'on'}" data-act="app-toggle" data-id="${r.id}" aria-pressed="${!hid.has(r.id)}" ${can('settings') ? '' : 'disabled'}>${icon(r.icon)}<span>${esc(r.label)}</span></button>`).join('')}</div>`).join('')}</div>`;
+  }
   const myPerms = () => { const a = account(); return a && Array.isArray(a.perms) ? a.perms : null; };
   // Whether the person may work in an area of the company console (only ever in Company Admin view).
   // Also off when the company's industries don't include that area (window.AllurusFeatures, set by cloud.js).
@@ -524,61 +550,61 @@
   // "HR admin", "Finance", "Owner"… for the company console; the role's own name otherwise.
   const roleLabel = (r) => (r === 'admin' && myPerms() ? TEMPLATES[templateOf(myPerms())]?.label || 'Company Admin' : ROLES[r]?.label || r);
   ROLE_ROUTES.admin = [
-    { id: 'ops-today', label: 'Operations today', icon: 'chart', group: 'Overview' },
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', group: 'Overview' },
     { id: 'approvals', label: 'Approvals', icon: 'check', group: 'Overview' },
     { id: 'ops-stock', label: 'Stock & purchasing', icon: 'box', group: 'Operations' },
-    { id: 'ops-production', label: 'Production', icon: 'layers', group: 'Operations' },
-    { id: 'ops-sales', label: 'Sales & delivery', icon: 'pin', group: 'Operations' },
-    { id: 'ops-machines', label: 'Machines', icon: 'sliders', group: 'Operations' },
-    { id: 'pos', label: 'Till', icon: 'receipt', group: 'Point of sale' },
-    { id: 'pos-tables', label: 'Tables', icon: 'grip', group: 'Point of sale' },
-    { id: 'pos-kitchen', label: 'Kitchen display', icon: 'clock', group: 'Point of sale' },
-    { id: 'pos-shift', label: 'Shift & cash', icon: 'wallet', group: 'Point of sale' },
-    { id: 'pos-menu', label: 'Menu & settings', icon: 'book', group: 'Point of sale' },
+    { id: 'ops-production', label: 'Production', icon: 'factory', group: 'Operations' },
+    { id: 'ops-sales', label: 'Sales & delivery', icon: 'truck', group: 'Operations' },
+    { id: 'ops-machines', label: 'Machines', icon: 'wrench', group: 'Operations' },
+    { id: 'pos', label: 'Till', icon: 'till', group: 'Point of sale' },
+    { id: 'pos-tables', label: 'Tables', icon: 'tables', group: 'Point of sale' },
+    { id: 'pos-kitchen', label: 'Kitchen display', icon: 'flame', group: 'Point of sale' },
+    { id: 'pos-shift', label: 'Shift & cash', icon: 'safe', group: 'Point of sale' },
+    { id: 'pos-menu', label: 'Menu & settings', icon: 'list', group: 'Point of sale' },
     { id: 'pos-reports', label: 'Sales reports', icon: 'chart', group: 'Point of sale' },
     { id: 'employees', label: 'Employees', icon: 'people', group: 'Workforce' },
     { id: 'production', label: 'Production', icon: 'layers', group: 'Workforce' },
     { id: 'departments', label: 'Departments', icon: 'building', group: 'Workforce' },
     { id: 'onboarding', label: 'Onboarding', icon: 'userplus', group: 'Workforce' },
-    { id: 'assets', label: 'Assets & loans', icon: 'box', group: 'Workforce' },
+    { id: 'assets', label: 'Assets & loans', icon: 'laptop', group: 'Workforce' },
     { id: 'org-chart', label: 'Org chart', icon: 'org', group: 'Workforce' },
-    { id: 'rooms', label: 'Meeting rooms', icon: 'calendar', group: 'Workforce' },
-    { id: 'announcements', label: 'Announcements', icon: 'doc', group: 'Workforce' },
+    { id: 'rooms', label: 'Meeting rooms', icon: 'door', group: 'Workforce' },
+    { id: 'announcements', label: 'Announcements', icon: 'megaphone', group: 'Workforce' },
     { id: 'attendance', label: 'Attendance', icon: 'clock', group: 'Time' },
-    { id: 'schedule', label: 'Schedule', icon: 'grip', group: 'Time' },
+    { id: 'schedule', label: 'Schedule', icon: 'rota', group: 'Time' },
     { id: 'leave', label: 'Time off', icon: 'calendar', group: 'Time' },
     { id: 'finance', label: 'Overview', icon: 'coins', group: 'Finance & Accounting' },
     { id: 'books', label: 'Bookkeeping', icon: 'book', group: 'Finance & Accounting' },
     { id: 'invoices', label: 'Invoices', icon: 'doc', group: 'Finance & Accounting' },
-    { id: 'bills', label: 'Bills', icon: 'receipt', group: 'Finance & Accounting' },
-    { id: 'contacts', label: 'Customers & suppliers', icon: 'building', group: 'Finance & Accounting' },
+    { id: 'bills', label: 'Bills', icon: 'inbox', group: 'Finance & Accounting' },
+    { id: 'contacts', label: 'Customers & suppliers', icon: 'contact', group: 'Finance & Accounting' },
     { id: 'payroll', label: 'Payroll', icon: 'wallet', group: 'Finance & Accounting' },
     { id: 'claims', label: 'Claims', icon: 'receipt', group: 'Finance & Accounting' },
     { id: 'budget', label: 'Budget', icon: 'target', group: 'Finance & Accounting' },
     { id: 'tax', label: 'Tax (LHDN)', icon: 'percent', group: 'Finance & Accounting' },
-    { id: 'guide', label: 'Statutory & Claim Guide', icon: 'shield', group: 'Finance & Accounting' },
-    { id: 'reports', label: 'Reports & audit', icon: 'shield', group: 'Finance & Accounting' },
+    { id: 'guide', label: 'Statutory & Claim Guide', icon: 'scale', group: 'Finance & Accounting' },
+    { id: 'reports', label: 'Reports & audit', icon: 'audit', group: 'Finance & Accounting' },
     { id: 'recruitment', label: 'Recruitment', icon: 'briefcase', group: 'Talent' },
     { id: 'performance', label: 'Performance', icon: 'trend', group: 'Talent' },
-    { id: 'training', label: 'Training', icon: 'book', group: 'Talent' },
+    { id: 'training', label: 'Training', icon: 'cap', group: 'Talent' },
     { id: 'grievances', label: 'Grievances', icon: 'shield', group: 'Talent' },
-    { id: 'hr-reports', label: 'HR reports', icon: 'chart', group: 'Insights' },
-    { id: 'projects', label: 'Project costing', icon: 'layers', group: 'Insights' },
+    { id: 'hr-reports', label: 'HR reports', icon: 'pie', group: 'Insights' },
+    { id: 'projects', label: 'Project costing', icon: 'folder', group: 'Insights' },
     { id: 'settings', label: 'Settings', icon: 'sliders', group: 'Workspace' },
-    { id: 'billing', label: 'Billing', icon: 'doc', group: 'Workspace' },
+    { id: 'billing', label: 'Billing', icon: 'card', group: 'Workspace' },
   ];
-  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => !(role() === 'employee' && simpleOn() && r.id !== 'home')).filter((r) => (r.id !== 'approvals' || can('time') || can('claims')) && (r.id !== 'production' || prodApi?.canEntry()) && (r.id !== 'my-production' || prodApi?.showStaff()) && (r.id !== 'billing' || (CLOUD && (!myPerms() || myPerms().includes('settings')))) && (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)) && (!/^pos(-|$)/.test(r.id) || posShown()) && (posApi ? posApi.routeAllowed(r.id) : !/^pos(-|$)/.test(r.id)));
+  const KEEP_APPS = ['dashboard', 'approvals', 'settings', 'billing'];
+  const hiddenApps = () => new Set(Array.isArray(state.settings?.hiddenApps) ? state.settings.hiddenApps : []);
+  const routes = () => (ROLE_ROUTES[role()] || []).filter((r) => role() !== 'admin' || KEEP_APPS.includes(r.id) || !hiddenApps().has(r.id)).filter((r) => !(role() === 'employee' && simpleOn() && r.id !== 'home')).filter((r) => (r.id !== 'approvals' || can('time') || can('claims')) && (r.id !== 'production' || prodApi?.canEntry()) && (r.id !== 'my-production' || prodApi?.showStaff()) && (r.id !== 'billing' || (CLOUD && (!myPerms() || myPerms().includes('settings')))) && (role() !== 'admin' || !ROUTE_AREA[r.id] || can(ROUTE_AREA[r.id])) && (r.id !== 'my-claims' || claimsApi?.enabled()) && (r.id !== 'my-approvals' || leaveApi?.isApprover(me()?.id) || hrApi?.hasTasks(me()?.id) || recruitApi?.hasTasks(me()?.id) || lmsApi?.hasTasks(me()?.id)) && (r.id !== 'grievances' || role() === 'admin' || grievApi?.isManager(me()?.id)) && (r.id !== 'my-timesheet' || costingApi?.hasProjects()) && (opsApi ? opsApi.routeAllowed(r.id) : !/^(ops-|my-deliveries|my-machines)/.test(r.id)) && (!/^pos(-|$)/.test(r.id) || posShown()) && (posApi ? posApi.routeAllowed(r.id) : !/^pos(-|$)/.test(r.id)));
   // A page may carry a query after "?" (#ops-stock?po=…); it is the page's to read.
-  const route = () => { const h = location.hash.replace('#', '').split('?')[0].replace(/^settings\/.*/, 'settings'); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
+  const route = () => { const h = location.hash.replace('#', '').split('?')[0].replace(/^settings\/.*/, 'settings').replace(/^ops-today$/, 'dashboard'); const rs = routes(); return rs.some((r) => r.id === h) ? h : rs[0].id; };
 
   // ---------- macOS-style shell (css/mac.css): toolbar title, collapsible sidebar, inspector, launcher and dock ----------
   // The launcher shows only the pages this person can open (routes(), which already applies can(area) and the
   // company's features). The dock and the collapsed sidebar are per person, per device (localStorage).
   const macShell = (() => {
     const store = { get: (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } } };
-    const TINTS = ['teal', 'deep', 'champagne', 'obsidian', 'slate', 'mist'];
-    const tintOf = (r, rs) => TINTS[[...new Set(rs.map((x) => x.group))].indexOf(r.group) % TINTS.length];
+    const secOf = (g, rs) => [...new Set(rs.map((x) => x.group))].indexOf(g) % 6;   // the section's colour is a dot beside its heading, never the tile
     const dockKey = () => `allurus-dock:${state.session.account || 'guest'}:${role()}`;
     let open = false, query = '', kb = 0, lastFocus = null;
     function title(r) {
@@ -599,14 +625,15 @@
     }
     const tile = (r, rs, inDock) => {
       const n = navCount(r), pinned = dock(rs).some((d) => d.id === r.id);
-      return `<a class="launch-app" href="#${r.id}" data-launch="${r.id}" aria-label="${esc(r.label)}${n ? `, ${n} waiting` : ''}"><span class="app-ic ic-${tintOf(r, rs)}" aria-hidden="true">${icon(r.icon)}</span>${n ? `<span class="app-badge" aria-hidden="true">${n > 99 ? '99+' : n}</span>` : ''}<span class="lbl">${esc(r.label)}</span>${inDock ? '' : `<button type="button" class="launch-pin" data-dock="${r.id}" aria-label="${pinned ? 'Remove from dock' : 'Add to dock'}: ${esc(r.label)}" title="${pinned ? 'Remove from dock' : 'Add to dock'}">${icon(pinned ? 'x' : 'plus')}</button>`}</a>`;
+      return `<a class="launch-app" href="#${r.id}" data-launch="${r.id}" aria-label="${esc(r.label)}${n ? `, ${n} waiting` : ''}"><span class="app-ic" aria-hidden="true">${icon(r.icon)}</span>${n ? `<span class="app-badge" aria-hidden="true">${n > 99 ? '99+' : n}</span>` : ''}<span class="lbl">${esc(r.label)}</span>${inDock ? '' : `<button type="button" class="launch-pin" data-dock="${r.id}" aria-label="${pinned ? 'Remove from dock' : 'Add to dock'}: ${esc(r.label)}" title="${pinned ? 'Remove from dock' : 'Add to dock'}">${icon(pinned ? 'x' : 'plus')}</button>`}</a>`;
     };
     function draw() {
       const root = $('#mac-launch'); if (!root) return;
       const rs = routes(), q = query.trim().toLowerCase();
       const list = rs.filter((r) => !q || `${r.label} ${r.group}`.toLowerCase().includes(q));
       kb = Math.min(kb, Math.max(0, list.length - 1));
-      $('.launch-grid', root).innerHTML = list.length ? list.map((r) => tile(r, rs)).join('') : `<p class="launch-empty">No app called “${esc(query)}”. Press Enter to search everything.</p>`;
+      let sec = '';
+      $('.launch-grid', root).innerHTML = list.length ? list.map((r) => { const h = !q && r.group !== sec ? `<h3 class="launch-sec"><i class="sec-dot sec-${secOf(r.group, rs)}"></i>${esc(r.group)}</h3>` : ''; sec = r.group; return h + tile(r, rs); }).join('') : `<p class="launch-empty">No app called “${esc(query)}”. Press Enter to search everything.</p>`;
       $$('.launch-app', $('.launch-grid', root)).forEach((a, i) => a.classList.toggle('kb', i === kb && !!q));
       $('.dock', root).innerHTML = dock(rs).map((r) => tile(r, rs, true)).join('');
     }
@@ -1004,6 +1031,7 @@
           : '<div class="empty"><strong>All caught up</strong>New requests will show up here.</div>'}</div>` },
       { id: 'insights', title: 'Insights', span: 4, render: () => insightsCard(ins) },
       { id: 'payroll', area: 'payroll', title: 'Payroll trend', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Net payroll</h3><span class="hint">${lastPaid ? 'Last paid ' + U.fmtMonth(lastPaid, { month: 'short' }) : ''}</span></div>${payrollChart()}</div>` },
+      ...(opsApi?.showToday?.() && can('operations') ? [{ id: 'opstoday', title: 'Operations', span: 12, render: () => `<div class="card-plain"><h3 class="lv-h">Operations</h3>${opsApi.todayBody()}</div>` }] : []),
       { id: 'headcount', title: 'Headcount by department', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Headcount by department</h3></div>${deptBars()}</div>` },
       { id: 'upcoming', title: 'Coming up', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Coming up</h3><span class="hint">Next 30 days</span></div>${upcomingList()}</div>` },
       { id: 'activity', title: 'Recent activity', span: 4, render: () => `<div class="card"><div class="card-head"><h3>Recent activity</h3></div>
@@ -1040,7 +1068,7 @@
   function deptBars() {
     const counts = state.departments.map((d) => ({ d, n: activeEmployees().filter((e) => e.dept === d.id).length }));
     const max = Math.max(1, ...counts.map((c) => c.n));
-    return counts.map(({ d, n }) => `<div class="hbar"><span class="dept" style="overflow:hidden">${esc(d.name)}</span><div class="hbar-track"><i style="width:${(n / max) * 100}%;background:${d.color}"></i></div><span class="num r">${n}</span></div>`).join('');
+    return counts.map(({ d, n }) => `<div class="hbar"><span class="dept" style="overflow:hidden">${esc(U.title(d.name))}</span><div class="hbar-track"><i style="width:${(n / max) * 100}%;background:${d.color}"></i></div><span class="num r">${n}</span></div>`).join('');
   }
 
   function payrollChart() {
@@ -1101,7 +1129,7 @@
       <div class="card card-flush">
         <div class="toolbar">
           <input class="input" id="emp-q" type="search" placeholder="Search by name, email or role" value="${esc(ui.empQuery)}" style="flex:1;min-width:200px">
-          <select class="select" id="emp-dept"><option value="all">All departments</option>${state.departments.map((d) => `<option value="${d.id}" ${ui.empDept === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>
+          <select class="select" id="emp-dept"><option value="all">All departments</option>${state.departments.map((d) => `<option value="${d.id}" ${ui.empDept === d.id ? 'selected' : ''}>${esc(U.title(d.name))}</option>`).join('')}</select>
           <div class="seg" role="group" aria-label="Status">${['all', 'Active', 'On leave', 'Inactive'].map((s) => `<button data-act="emp-status" data-v="${s}" class="${ui.empStatus === s ? 'on' : ''}">${s === 'all' ? 'All' : s}</button>`).join('')}</div>
         </div>
         ${ui.empOnly ? `<div class="toolbar" style="background:var(--warn-soft, var(--brand-soft))"><span style="flex:1">Showing the <b>${ui.empOnly.size}</b> people a bulk IC invite skipped. Add a valid IC (and no email) to invite them by IC.</span><button class="btn btn-sm" data-act="emp-only-clear">Show everyone</button></div>` : ''}
@@ -1240,7 +1268,7 @@
       const payroll = members.reduce((s, e) => s + e.salary, 0);
       const lead = emp(d.lead);
       return `<div class="card dcard">
-        <div class="dcard-top"><h3><i style="background:${d.color}"></i><span>${esc(U.soften(d.name))}</span></h3>
+        <div class="dcard-top"><h3><i style="background:${d.color}"></i><span>${esc(U.title(d.name))}</span></h3>
           <div class="row-actions"><button class="btn btn-sm btn-icon btn-ghost" data-act="edit-dept" data-id="${d.id}" aria-label="Edit ${esc(d.name)}">${icon('edit')}</button><button class="btn btn-sm btn-icon btn-ghost" data-act="del-dept" data-id="${d.id}" aria-label="Delete ${esc(d.name)}">${icon('trash')}</button></div></div>
         ${d.about ? `<p class="muted dept-about">${esc(U.soften(d.about))}</p>` : ''}
         ${d.duties ? `<div class="duties">${d.duties.split(',').map((x) => x.trim()).filter(Boolean).map((x) => `<span class="tag">${esc(U.soften(x))}</span>`).join('')}</div>` : ''}
@@ -1723,7 +1751,7 @@
             <input class="input" id="att-q" type="search" placeholder="Search by name, role or employee ID…" value="${esc(ui.attQuery || '')}" style="flex:1;min-width:180px">
             <select class="select" id="att-dept" style="max-width:170px">
               <option value="all">All departments</option>
-              ${state.departments.map((d) => `<option value="${d.id}" ${ui.attDept === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}
+              ${state.departments.map((d) => `<option value="${d.id}" ${ui.attDept === d.id ? 'selected' : ''}>${esc(U.title(d.name))}</option>`).join('')}
             </select>
             <select class="select" id="att-loc" style="max-width:150px">
               <option value="all" ${locFilter === 'all' ? 'selected' : ''}>All locations</option>
@@ -2299,6 +2327,7 @@
         html: () => { const on = !!opsApi?.has(), allowed = can('operations') && can('settings'); const seg = `<div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="mod-inventory" data-v="${v}" ${allowed ? '' : 'disabled'} class="${(on ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
           return `<div class="card"><div class="card-head"><h3>Modules</h3><span class="hint">Switch on the parts your company uses</span></div>
             ${row('Inventory (Stock &amp; purchasing)', 'Your items, how many you have and where, stock in and out with a reason, stock counts, low-stock warnings, purchase orders and receiving, and CSV reports. Turning it off hides the pages: your stock data is never deleted, and it is all back when you turn it on again.' + (allowed ? '' : ' Turning it on or off needs both the Settings and Operations areas.'), seg)}
+            ${appsCard(allowed)}
             ${row('Production orders', 'Recipes and production batches for a company that makes a product.', '<span class="pill">Coming later</span>')}
             ${row('Sales &amp; delivery', 'Sales orders and delivery runs with the driver’s phone.', '<span class="pill">Coming later</span>')}
             ${row('Machines', 'Preventive maintenance and breakdowns.', '<span class="pill">Coming later</span>')}
@@ -3941,6 +3970,7 @@
     'acc-key-remove': () => teamAccess.removeJoinKey(),
     'acc-open-ok': (uid, empId) => teamAccess.approve(uid, empId),
     'acc-open-no': (uid) => teamAccess.refuse(uid),
+    'app-toggle': (id) => { if (!can('settings') || !id || KEEP_APPS.includes(id)) return; const h = hiddenApps(); h.has(id) ? h.delete(id) : h.add(id); state.settings.hiddenApps = [...h]; commit('', `${h.has(id) ? 'Hid' : 'Showed'} the ${(ROLE_ROUTES.admin.find((r) => r.id === id) || {}).label || id} app`); },
     'mod-inventory': (_, v) => { if (!(can('operations') && can('settings')) || !opsApi) return; opsApi.setInventory(v === 'on'); },
     'sal-basis': (_, v) => { if (AllurusSalary.lockedMonthly(window.AllurusAddons) || !['monthly', 'yearly'].includes(v)) return; state.settings.salaryBasis = v; commit(`Salaries are now entered as ${v}`); },
     // Output column (pay run): one person's production days for the month.
@@ -4451,6 +4481,7 @@
       const b = AllurusBilling.banner(billingUi.company());
       const ro = billingUi.readOnly();
       if (!b && !ro) return '';
+      if (b?.quiet && !ro && route() !== 'dashboard') return '';   // a trial with more than 14 days left is mentioned on the home page only
       const tone = { info: 'var(--info-soft);color:var(--info)', amber: 'var(--warn-soft);color:var(--warn)', red: 'var(--bad-soft);color:var(--bad)' }[b?.level || 'red'];
       const del = AllurusBilling.deletion(billingUi.company());
       return `<div class="lock-banner" role="status" style="background:${tone};margin-bottom:14px;flex-wrap:wrap">${icon('clock')}<span style="flex:1">${esc(b?.text || '')}${ro ? ' Everything is read-only until then; you can still export your data.' : ''}${del ? ` Data is kept until ${esc(U.fmtDate(AllurusBilling.myDate(del.at)))}.` : ''}</span>

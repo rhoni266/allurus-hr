@@ -682,7 +682,7 @@ window.AllurusHR = (function () {
       'hr-goto-settings': (_, v) => { window.AllurusSettingsGo(v); },
     });
     return { TABS, tabBar, tabBody, onCreated, afterEdit, remove, addCareer, requestsCard, myProfileCards, myTasksCard, settingsCards, bindSettings, expiringItems, runReminders, insights, startChecklist, pendingCount: () => pendingReqs().length, openList,
-      overdueCount: () => H.overdueTasks(arr('checklists').filter((l) => emp(l.empId)), T()).length,
+      overdueCount: () => new Set(H.overdueTasks(arr('checklists').filter((l) => emp(l.empId)), T()).map((x) => x.empId)).size,   // people with something overdue, not tasks
       hasTasks: (id) => !!id && arr('checklists').some((l) => emp(l.empId) && l.empId !== id && l.tasks.some((x) => x.assignee === id && !x.done)) };
   }
   return { install };

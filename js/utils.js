@@ -12,7 +12,8 @@ window.U = (function () {
   const PARTICLES = new Set(['bin', 'binti', 'bte', 'bt', 'b', 'a/l', 'a/p', 'anak', 'al', 'ibni', 'ibn']);
   const softName = (v, lead = true) => {
     const t = String(v == null ? '' : v);
-    if (t.length < 2 || t !== t.toUpperCase() || t === t.toLowerCase()) return t;
+    // All capitals or all lower case is shown as a name ("abdul ghani mr" → "Abdul Ghani Mr"); mixed case is exactly as typed.
+    if (t.length < 2 || t === t.toLowerCase() && t === t.toUpperCase() || (t !== t.toUpperCase() && t !== t.toLowerCase())) return t;
     let n = 0;
     return t.split(/(\s+)/).map((w) => {
       if (!w.trim()) return w;
@@ -27,6 +28,20 @@ window.U = (function () {
     if (t.length <= 3 || t !== t.toUpperCase() || t === t.toLowerCase()) return t;
     const out = t.toLowerCase().replace(/[a-z&]+/g, (w) => (KEEP_CAPS.has(w.toUpperCase()) ? w.toUpperCase() : w));
     return /^[A-Z]/.test(out) ? out : out.charAt(0).toUpperCase() + out.slice(1);
+  };
+  // A label (a department, a job title) in Title Case when it was typed all in capitals or all in lower case; mixed case is left as typed. Display only.
+  const title = (v) => {
+    const t = String(v == null ? '' : v);
+    if (t.length < 2 || (t !== t.toUpperCase() && t !== t.toLowerCase()) || t === t.toUpperCase() && t === t.toLowerCase()) return t;
+    const SMALL = new Set(['and', 'of', 'the', 'for', 'to', 'in', 'on', '&']);
+    let n = 0;
+    return t.split(/(\s+)/).map((w) => {
+      if (!w.trim()) return w;
+      const first = n++ === 0, lw = w.toLowerCase();
+      if (KEEP_CAPS.has(w.toUpperCase())) return w.toUpperCase();
+      if (!first && SMALL.has(lw)) return lw;
+      return lw.replace(/(^|[-'’/(])([a-z])/g, (m, p, c) => p + c.toUpperCase());
+    }).join('');
   };
   const addDays = (s, n) => { const d = parse(s); d.setDate(d.getDate() + n); return iso(d); };
   // The company's rest days (0 = Sunday … 6 = Saturday). Saturday–Sunday unless the company works a
@@ -296,5 +311,5 @@ window.U = (function () {
     } catch (e) { return sha256js(msg); }
   }
 
-  return { soften, softName, parseCoords, parseCoordsDetailed, hasCoords, distanceM, resolveZone, applyPublishedZone, checkZone, GPS_SLACK_M, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, locateError: () => lastLocateError, pad, iso, parse, today, addDays, isWeekend, setWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
+  return { soften, softName, title, parseCoords, parseCoordsDetailed, hasCoords, distanceM, resolveZone, applyPublishedZone, checkZone, GPS_SLACK_M, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, locateError: () => lastLocateError, pad, iso, parse, today, addDays, isWeekend, setWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
 })();

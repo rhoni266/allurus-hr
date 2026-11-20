@@ -171,8 +171,8 @@ const PW = 'Pass-Word-2026!';
   ok('CSV: stock movements have a "Unit cost" column, filled for stock added (18.50 for the cement opening stock) and blank for stock out', /Unit cost/.test(mcsv[0]) && mcsv.some((l) => /HW-001/.test(l) && /Opening stock/.test(l) && /18\.50/.test(l)) && mcsv.some((l) => /"Sold"/.test(l) && !/18\.50/.test(l)), mcsv[0]);
   await p.keyboard.press('Escape'); await p.waitForTimeout(300);
 
-  await go(p, 'ops-today');
-  ok('"Operations today" opens for an inventory-only company (low stock, nothing about production)', (await p.evaluate(() => document.querySelector('#view h1')?.innerText || '')).length > 0 && !o.errors.length, o.errors.slice(0, 1).join(''));
+  await go(p, 'dashboard');
+  ok('The home page (with Operations today on it) opens for an inventory-only company', (await p.evaluate(() => document.querySelector('#view h1')?.innerText || '')).length > 0 && !o.errors.length, o.errors.slice(0, 1).join(''));
 
   // ---- 7. reload: the data came back from the cloud ----
   await sleep(2500); await p.reload(); await p.waitForSelector('#nav a, .sidebar a', { timeout: 30000 }); await p.waitForTimeout(3500);

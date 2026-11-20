@@ -727,9 +727,9 @@ window.AllurusOps = (function () {
     const depts = st().departments.map((d) => ({ d, n: staff.filter((e) => e.dept === d.id).length, inN: by.in.filter((e) => e.dept === d.id).length })).filter((x) => x.n);
     // Overtime worked this month, after the monthly limits, from the time rules.
     const ot = ctx.time ? staff.reduce((s, e) => s + (ctx.time.monthFor(e, t.slice(0, 7)).paidMin || 0), 0) : 0;
-    return card('Manpower', 'attendance', `${big(`${by.in.length}<span class="faint" style="font-size:18px"> / ${staff.length}</span>`, working ? 'in today' : 'Rest day')}
+    return card('Manpower', 'attendance', `${big(`${by.in.length}`, working ? `of ${staff.length} checked in` : `of ${staff.length} checked in · Rest day`)}
       <div class="chips" style="margin:8px 0">${by.leave.length ? `<span class="tag">On leave: ${by.leave.map((e) => esc(e.first)).join(', ')}</span>` : ''}${by.absent.length ? `<span class="tag warn">Not in yet: ${by.absent.map((e) => esc(e.first)).join(', ')}</span>` : ''}${by.late.length ? `<span class="tag">Late: ${by.late.map((e) => esc(e.first)).join(', ')}</span>` : ''}</div>
-      ${rows(depts.map((x) => `<li><span>${esc(x.d.name)}</span><span class="num">${x.inN} / ${x.n}</span></li>`))}${ot ? `<p class="faint">${Math.round(ot / 60)} h overtime worked this month</p>` : ''}`, by.absent.length > 2 ? 'warn' : '');
+      ${rows(depts.map((x) => `<li><span>${esc(U.title(x.d.name))}</span><span class="num">${x.inN} / ${x.n}</span></li>`))}${ot ? `<p class="faint">${Math.round(ot / 60)} h overtime worked this month</p>` : ''}`, by.absent.length > 2 ? 'warn' : '');
   }
   // Average daily use of a raw material over the last 30 days, from production moves.
   const used30 = (itemId) => -allMoves().filter((m) => m.itemId === itemId && m.qty < 0 && m.date > U.addDays(T(), -30)).reduce((s, m) => s + m.qty, 0);
@@ -805,12 +805,13 @@ window.AllurusOps = (function () {
     const k = (label, v, foot) => `<div class="card kpi"><div class="kpi-label">${label}</div><div class="kpi-value">${v}</div><div class="kpi-foot">${foot}</div></div>`;
     return `<h3 class="lv-h">${esc(name)} so far</h3><div class="grid g-4 keep-2" style="margin-bottom:16px">${k('Sales', money(sales), 'invoiced to clients')}${makes ? k('Output', made.toLocaleString('en-MY'), 'units made') : k('Stock on hand', money(levels().reduce((s, x) => s + x.onHand * (x.lastPrice || 0), 0)), 'at last purchase prices')}${k(makes ? 'Raw materials bought' : 'Stock bought', money(bought), makes ? 'ingredients and packaging' : 'from vendors this month')}${k('Payroll cost', money(pay), paid ? `${U.fmtMonth(paid, { month: 'long' })}, with employer contributions` : 'No payroll paid yet')}</div>`;
   }
-  function todayView() {
+  // The home page (Dashboard) carries these cards; the separate Operations today page is gone.
+  function todayBody() {
     const owner = !Array.isArray(ctx.account()?.perms);
-    return `${head('Operations today', `${fmt(T(), { weekday: 'long', day: 'numeric', month: 'long' })} at ${esc(st().settings.company)}. Everything that needs a look, on one page.`)}
-      ${owner ? monthCard() : ''}
+    return `${owner ? monthCard() : ''}
       <div class="ops-grid ops-today">${[manpower(), stockCard(), ...(ops().products.length ? [productionCard(), deliveriesCard()] : [incomingTodayCard()]), moneyInCard(), moneyOutCard(), ...(ops().machines.length ? [machinesCard()] : []), expiringCard()].join('')}</div>`;
   }
+  const todayView = () => `${head('Operations today', `${fmt(T(), { weekday: 'long', day: 'numeric', month: 'long' })} at ${esc(st().settings.company)}. Everything that needs a look, on one page.`)}${todayBody()}`;
 
   // ---------- Employee views: the driver's deliveries and machine breakdowns ----------
   const myDOs = (id, day = T()) => ops().dos.filter((d) => d.date === day && (d.driverId === id || d.helperId === id)).sort((a, b) => a.seq - b.seq);
@@ -987,7 +988,7 @@ window.AllurusOps = (function () {
         ctx.commit('Expiry date updated');
       },
     });
-    return { stockBits: (k) => (has() ? SR.homeBits(k) : ''), stockSettings: () => (has() ? SR.settingsCard() : ''), stockAfter: () => { if (has()) { SR.sweep(); SR.sync(); } }, SR: () => SR, has, setInventory, insights, expiringItems, badge, routeAllowed, landing, homeCard, heroAction, levels, openInvoices, sold30, myDOs, technicians, ui };
+    return { todayBody, showToday: () => has() && !scope(), stockBits: (k) => (has() ? SR.homeBits(k) : ''), stockSettings: () => (has() ? SR.settingsCard() : ''), stockAfter: () => { if (has()) { SR.sweep(); SR.sync(); } }, SR: () => SR, has, setInventory, insights, expiringItems, badge, routeAllowed, landing, homeCard, heroAction, levels, openInvoices, sold30, myDOs, technicians, ui };
   }
   return { install };
 })();

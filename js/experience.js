@@ -23,7 +23,7 @@ window.AllurusUX = (function () {
     return (s.prefs[k] = s.prefs[k] || {});
   }
   // Dark unless the person picked otherwise (a company's stored 'system' is the old default, not a choice).
-  const theme = () => prefs().theme || (ctx.state.settings.theme && ctx.state.settings.theme !== 'system' ? ctx.state.settings.theme : 'system');
+  const theme = () => prefs().theme || (ctx.state.settings.theme && ctx.state.settings.theme !== 'system' ? ctx.state.settings.theme : 'light');   // new users start in light; "Auto" is a choice they make
   const mq = (q) => window.matchMedia && matchMedia(q).matches;
   const isDark = () => theme() === 'dark' || (theme() === 'system' && mq('(prefers-color-scheme: dark)'));
   const reduceMotion = () => prefs().motion === 'reduce' || (prefs().motion !== 'full' && mq('(prefers-reduced-motion: reduce)'));
@@ -153,6 +153,10 @@ window.AllurusUX = (function () {
   function setupCard() {
     const p = prefs(), r = ctx.role(), s = setupState();
     if (!s.total || (p.setupHidden || {})[r]) return '';
+    // The checklist is for the first week: it folds away on its own after that (it stays in Help).
+    const since = Math.min(...[p.setupSince, ...Object.values(s.done || {})].filter((x) => +x > 0).map(Number), Date.now());
+    if (!p.setupSince) { p.setupSince = Date.now(); ctx.save(); }
+    if (Date.now() - since > 7 * 864e5) return '';
     if (s.complete) {
       if (!(p.setupCelebrated || {})[r]) { p.setupCelebrated = { ...(p.setupCelebrated || {}), [r]: true }; ctx.save(); setTimeout(() => { celebrate(); toast('You’re all set up. Nice work!'); }, 250); }
       return '';

@@ -287,7 +287,7 @@ window.AllurusProduction = (function () {
     const todo = P.toFill({ products: prods(), days: Object.fromEntries([T(), U.addDays(T(), -1)].map((d) => [d, { items: [...filledPids(d)].map((pid) => ({ pid })) }])), today: T(), hadWork });
     if (!todo.length) return '';
     const label = (d) => (d === T() ? 'Today / Hari ini' : 'Yesterday / Semalam');
-    return `<div class="card" id="prod-fill"><div class="card-head"><h3>Production to fill <span lang="ms" class="faint">/ Pengeluaran perlu diisi</span></h3><span class="hint">${todo.reduce((n, x) => n + x.products.length, 0)} open</span></div>
+    return `<div class="card" id="prod-fill"><div class="card-head"><h3>${st().settings?.staffApp?.lang === 'bm' ? 'Pengeluaran perlu diisi' : 'Production to fill'}</h3><span class="hint">${todo.reduce((n, x) => n + x.products.length, 0)} open</span></div>
       <div class="list">${todo.map((x) => `<a class="list-item pf-row" href="#production" data-act="prod-day" data-v="${x.date}"><div class="grow"><div class="person-name">${esc(label(x.date))}</div><div class="person-sub">${x.products.map((p) => esc(p.name)).join(', ')}</div></div><span class="pill warn">${x.products.length}</span></a>`).join('')}</div></div>`;
   }
 

@@ -46,7 +46,7 @@ window.AllurusBilling = (function () {
   // The banner for a company admin: null when nothing to say.
   function banner(c = {}, now = Date.now()) {
     const e = effective(c, now), end = endsAt(c, now), d = daysLeft(end, now);
-    if (e === 'trial') return { level: d <= 3 ? 'red' : d <= 7 ? 'amber' : 'info', days: d, text: d <= 1 ? 'Your free trial ends today.' : `Your free trial ends in ${d} days.`, action: 'Subscribe' };
+    if (e === 'trial') return { level: d <= 3 ? 'red' : d <= 7 ? 'amber' : 'info', quiet: d > 14, days: d, text: d <= 1 ? 'Your free trial ends today.' : `Your free trial ends in ${d} days.`, action: 'Subscribe' };
     if (e === 'past_due') return { level: 'red', days: d, text: `Payment overdue. Access stops in ${d} day${d === 1 ? '' : 's'} unless you pay.`, action: 'Pay now' };
     if (e === 'active' && d != null && d <= 7) return { level: 'amber', days: d, text: `Your subscription renews in ${d} day${d === 1 ? '' : 's'}.`, action: 'Pay now' };
     if (e === 'expired') return { level: 'red', days: 0, text: 'Your subscription has ended. Your data is safe; subscribe to continue.', action: 'Subscribe' };
