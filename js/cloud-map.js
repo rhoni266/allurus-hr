@@ -41,12 +41,12 @@
   const WRITE_AREA = { settings: 'settings', departments: 'people', directory: 'people', statutory: 'payroll', cycles: 'talent', importData: 'people' };
   const isFinance = (b) => b === 'finance' || b.startsWith('finance.');
   const isOps = (b) => b === 'ops' || b.startsWith('ops.');
-  const OPS_SHARED = ['ops.machines', 'ops.products', 'ops.breakdowns'];
+  const OPS_SHARED = ['ops.machines', 'ops.products', 'ops.breakdowns', 'ops.stockOuts'];
   // The driver whose deliveries a bucket holds ("ops.dos~e26" → "e26"), or ''.
   const driverOf = (b) => (b.startsWith('ops.dos~') ? b.slice(8) : '');
   const readClass = (b) => (PAYROLL.includes(b) ? 'p' : isFinance(b) ? 'f' : ADMIN_ONLY.includes(b) ? 'a' : TALENT.includes(b) ? 't' : ownerOf(b) ? `u:${ownerOf(b).area}:${ownerOf(b).who}` : driverOf(b) ? `d:${driverOf(b)}` : isOps(b) && !OPS_SHARED.includes(b) ? 'o' : 'm');
   const has = (admin, perms, area) => !!admin && (!perms || perms.includes(area));
-  const writeArea = (b) => (PAYROLL.includes(b) ? 'payroll' : isFinance(b) ? 'finance' : TALENT.includes(b) ? 'talent' : ownerOf(b) ? ownerOf(b).area : isOps(b) && b !== 'ops.breakdowns' ? 'operations' : WRITE_AREA[b] || (ADMIN_ONLY.includes(b) ? 'admin' : ''));
+  const writeArea = (b) => (PAYROLL.includes(b) ? 'payroll' : isFinance(b) ? 'finance' : TALENT.includes(b) ? 'talent' : ownerOf(b) ? ownerOf(b).area : isOps(b) && b !== 'ops.breakdowns' && b !== 'ops.stockOuts' ? 'operations' : WRITE_AREA[b] || (ADMIN_ONLY.includes(b) ? 'admin' : ''));
   // Whether a person may write a bucket. empId lets a driver update their own deliveries. Breakdowns are open to
   // every member, but the rules let someone without the operations area only add new reports.
   function canWrite(b, admin, perms, empId = '') {

@@ -2322,3 +2322,12 @@ html.simple-staff .view { padding-bottom: 24px; }
 .card.kpi, .kpi { container-type: inline-size; min-width: 0; }
 .kpi-value { font-size: clamp(18px, 15cqi, 32px); white-space: nowrap; overflow: hidden; text-overflow: clip; }
 .kpi-value .faint { font-size: max(11px, 0.5em) !important; }
+
+/* Stock-out requests: one card per ticket, the same on a phone and on a desk. */
+.so-list { list-style: none; margin: 0; padding: 0; }
+.so-ticket { padding: 12px 0; border-bottom: 1px solid var(--line); display: grid; gap: 4px; }
+.so-ticket:last-child { border-bottom: 0; }
+.so-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.so-what { overflow-wrap: anywhere; }
+.so-acts { margin-top: 8px; display: flex; gap: 8px; }
+.so-ticket .person-sub { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }

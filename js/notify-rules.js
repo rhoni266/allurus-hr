@@ -52,6 +52,8 @@ window.AllurusNotifyRules = (function () {
     'ops.breakdown': { cat: 'operations', icon: 'sliders', text: (d) => [`${d.machine} is down`, d.problem ? `${d.who} reported: ${d.problem}` : `Reported by ${d.who}.`] },
     'ops.fixed': { cat: 'operations', icon: 'check', text: (d) => [`${d.machine} is running again`, `Fixed by ${d.who}${d.hours ? ` after ${d.hours} hours` : ''}.`] },
     'ops.incoming': { cat: 'operations', icon: 'box', text: (d) => [`Coming in: ${d.no || 'a purchase order'}${d.expected ? `, ${d.expected}` : ''}`, `${d.vendor || 'The vendor'}${d.items ? `: ${d.items}` : ''}. Get the store ready.`] },
+    'ops.stockout': { cat: 'operations', icon: 'box', text: (d) => [`Stock-out request ${d.no}: ${d.qty} ${d.item}`, `${d.who} for ${d.forWho}, ${d.department}. Approve or reject it in Stock.`] },
+    'ops.stockout.decided': { cat: 'operations', icon: 'check', text: (d) => [`Your stock-out request ${d.no} was ${d.status}`, d.note ? `“${d.note}”` : `${d.qty} ${d.item}.`] },
     'ops.po': { cat: 'operations', icon: 'box', text: (d) => [`Purchase order ${d.no} needs approval`, `${d.vendor}, ${d.total}. Raised by ${d.who}.`] },
     'ops.delivery': { cat: 'operations', icon: 'pin', text: (d) => [`${d.count} deliver${d.count === 1 ? 'y' : 'ies'} for you ${d.when || 'today'}`, d.route || 'Open My deliveries for the route.'] },
     'ops.qc': { cat: 'operations', icon: 'shield', text: (d) => [`Batch ${d.no} is on QC hold`, d.note || 'Keep it off sale until QC releases it.'] },

@@ -258,6 +258,7 @@ test('operations buckets: admins with the operations area; drivers their own del
   assert.equal(M.canWrite('ops.dos~e27', false, null, 'e26'), false, 'but not another driver’s');
   assert.equal(M.canWrite('ops.dos~e27', true, OPS, 'e2'), true);
   assert.equal(M.canWrite('ops.breakdowns', false, null, 'e9'), true, 'an operator reports a breakdown (the rules allow adding only)');
+  assert.equal(M.canWrite('ops.stockOuts', false, null, 'e9'), true, 'anyone raises a stock-out request (the rules allow adding only)');
   assert.equal(M.canWrite('ops.machines', false, null, 'e9'), false);
   assert.equal(M.canWrite('finance.invoices', false, null, 'e26'), false, 'a driver never writes the books');
   // Seri Maju has no operations data, so no operations buckets.
@@ -266,11 +267,11 @@ test('operations buckets: admins with the operations area; drivers their own del
 
 test('firestore.rules agree with the operations classes', () => {
   const rules = fs.readFileSync(path.join(root, 'firestore.rules'), 'utf8');
-  assert.match(rules, /function opsShared\(b\) \{ return b in \['ops\.machines', 'ops\.products', 'ops\.breakdowns'\]; \}/);
+  assert.match(rules, /function opsShared\(b\) \{ return b in \['ops\.machines', 'ops\.products', 'ops\.breakdowns', 'ops\.stockOuts'\]; \}/);
   assert.match(rules, /r == 'o' && inArea\(adm, p, 'operations'\)/);
   assert.match(rules, /r == 'd:' \+ emp\)/);
   assert.match(rules, /isDriverBucket\(b\) && member\(t\) && driverOf\(b\) == me\(\)\.empId/);
-  assert.match(rules, /b == 'ops\.breakdowns' && \(hasArea\(t, 'operations'\) \|\| \(member\(t\) && onlyAdds\(\)\)\)/);
+  assert.match(rules, /b in \['ops\.breakdowns', 'ops\.stockOuts'\] && \(hasArea\(t, 'operations'\) \|\| \(member\(t\) && onlyAdds\(\)\)\)/);
   assert.match(rules, /changedKeys\(\)\.hasOnly\(\['~ord'\]\)/);
 });
 

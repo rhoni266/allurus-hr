@@ -19,6 +19,7 @@
     "test:e2e-phone-home": "node tests-e2e/phone-home-attendance.e2e.js",
     "test:e2e-onetap": "node tests-e2e/onetap.e2e.js",
     "test:e2e-admin-mobile": "node tests-e2e/admin-mobile.e2e.js",
+    "test:e2e-stock-out": "node tests-e2e/stock-out.e2e.js",
     "test:e2e-ui-clip": "node tests-e2e/ui-clip.e2e.js",
     "test:e2e-phone-leave": "node tests-e2e/phone-leave-attendance.e2e.js"
   },

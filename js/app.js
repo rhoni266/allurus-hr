@@ -2790,7 +2790,7 @@
   // ---------- The simple staff screen ----------
   // One language at a time: the company default (Settings, Staff app), then the person's own choice, kept on their phone.
   const SS = {
-    en: { checkIn: 'Check in', checkInAgain: 'Check in again', backAgain: 'Back after stepping out? Your hours add up.', checkOut: 'Check out', onLeave: 'On leave today', done: 'Done for today', since: 'In since', at: 'Check in at',
+    en: { stockBtn: 'Request stock', checkIn: 'Check in', checkInAgain: 'Check in again', backAgain: 'Back after stepping out? Your hours add up.', checkOut: 'Check out', onLeave: 'On leave today', done: 'Done for today', since: 'In since', at: 'Check in at',
       ontime: 'On time', late: 'Late', absent: 'Absent', leave: 'Leave', rest: 'Rest day', holiday: 'Holiday', notyet: 'Not clocked in yet', today: 'Today',
       lateBy: (n) => `Late by ${n} min`, clockedIn: (t) => `Clocked in ${t}`, hours: 'Hours worked today', last7: 'This week', thisMonth: 'This month',
       history: 'Day by day', meters: 'This month, so far', onTimeM: 'On time', lateM: 'Late', absentM: 'Absent', shortM: 'Short hours',
@@ -2803,7 +2803,7 @@
       cancelLeaveBtn: 'Cancel leave & check in', keepLeaveBtn: 'Keep leave',
       me: 'Me', signOut: 'Sign out', language: 'Language', date: 'Date', in: 'In', out: 'Out', status: 'Status', lastMonth: 'Last month', nothing: 'Nothing yet.', short: 'short', worked: 'Worked',
       Approved: 'Approved', Pending: 'Pending', Rejected: 'Declined', Cancelled: 'Cancelled', waiting: (n) => `${n} request${n === 1 ? '' : 's'} waiting` },
-    bm: { checkIn: 'Daftar masuk', checkInAgain: 'Daftar masuk semula', backAgain: 'Dah balik selepas keluar sekejap? Jam kerja dicampur.', checkOut: 'Daftar keluar', onLeave: 'Bercuti hari ini', done: 'Selesai hari ini', since: 'Masuk sejak', at: 'Daftar masuk di',
+    bm: { stockBtn: 'Minta stok', checkIn: 'Daftar masuk', checkInAgain: 'Daftar masuk semula', backAgain: 'Dah balik selepas keluar sekejap? Jam kerja dicampur.', checkOut: 'Daftar keluar', onLeave: 'Bercuti hari ini', done: 'Selesai hari ini', since: 'Masuk sejak', at: 'Daftar masuk di',
       ontime: 'Tepat masa', late: 'Lewat', absent: 'Tidak hadir', leave: 'Cuti', rest: 'Hari rehat', holiday: 'Cuti umum', notyet: 'Belum daftar masuk', today: 'Hari ini',
       lateBy: (n) => `Lewat ${n} min`, clockedIn: (t) => `Daftar masuk ${t}`, hours: 'Jam bekerja hari ini', last7: 'Minggu ini', thisMonth: 'Bulan ini',
       history: 'Hari demi hari', meters: 'Bulan ini, setakat ini', onTimeM: 'Tepat masa', lateM: 'Lewat', absentM: 'Tidak hadir', shortM: 'Jam kurang',
@@ -2898,6 +2898,7 @@
       <header class="ss-head"><div><div class="ss-co">${esc(state.settings.company)}</div><h1 class="ss-name">${esc(fullName(e))}</h1><div class="ss-date">${U.fmtDate(now.day, { weekday: 'long', day: 'numeric', month: 'long' })}</div></div><button type="button" class="btn btn-sm ss-me" data-act="ss-me">${icon('people')}${esc(t.me)}</button></header>
       <section class="card ss-card" aria-label="${esc(t.checkIn)}">${clock}${ssToday(e, rec, info, now)}${ssWeek(e, now)}${meters}</section>
       ${prodApi?.supCard() || ''}
+      ${opsApi?.has() ? `<section class="card ss-card"><button type="button" class="btn btn-primary ss-wide" data-act="ops-so-request">${icon('box')}${esc(t.stockBtn)}</button></section>` : ''}
       <section class="card ss-card" aria-label="${esc(t.leaveH)}"><h2 class="ss-h">${esc(t.leaveH)}</h2>
         ${bal ? `<ul class="ss-list">${bal}</ul>` : ''}${waiting ? `<p class="ss-wait">${esc(t.waiting(waiting))}</p>` : ''}
         <button type="button" class="btn btn-primary ss-wide" data-act="new-leave">${icon('calendar')}${esc(t.apply)}</button>

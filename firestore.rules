@@ -8,9 +8,9 @@ rules_version = '2';
 //     buckets/{id}         Shared records. Field r says who reads: 'm' every member, 'a' any Company Admin,
 //                          'p' admins with the payroll area, 'f' admins with the finance area, 'o' admins with
 //                          the operations area, 'd:<empId>' that driver's deliveries (ops.dos~<empId>), read and
-//                          updated by the driver and admins with the operations area. Breakdowns
-//                          (ops.breakdowns) are read by every member; without the operations area a member may
-//                          only add a report, not change or remove one.
+//                          updated by the driver and admins with the operations area. Breakdowns and
+//                          stock-out tickets (ops.breakdowns, ops.stockOuts) are read by every member; without the operations area a member may
+//                          only add a report or ticket, not change or remove one.
 //     people/{empId}       Full employee record: admins with the people or payroll area, and the person (who may
 //                          change only their phones and face).
 //     payslips/{empId}     Admins with the payroll area write and read; the person reads their own.
@@ -86,7 +86,7 @@ service cloud.firestore {
     function isOps(b) { return b == 'ops' || b.matches('ops[.].*'); }
     function isDriverBucket(b) { return b.matches('ops[.]dos~.+'); }
     function driverOf(b) { return b.split('~')[1]; }
-    function opsShared(b) { return b in ['ops.machines', 'ops.products', 'ops.breakdowns']; }
+    function opsShared(b) { return b in ['ops.machines', 'ops.products', 'ops.breakdowns', 'ops.stockOuts']; }
     // Grievances (with who raised them), candidates and hiring requests: admins with the talent area.
     function isTalent(b) { return b in ['grievances', 'candidates', 'requisitions']; }
     // Per-person lists, one bucket each ("documents~e5"): HR letters and documents, requests to change personal
@@ -123,9 +123,9 @@ service cloud.firestore {
     function bucketArea(b) {
       return b in ['payroll', 'payChanges', 'loans', 'insurance', 'statutory'] ? 'payroll'
         : (isFinance(b) ? 'finance' : (b == 'settings' ? 'settings' : (b in ['departments', 'directory', 'importData'] ? 'people'
-        : (b == 'cycles' || isTalent(b) ? 'talent' : (isOwned(b) ? 'people' : (isAttendance(b) ? 'time' : (b in ['savedReports', 'activity'] ? 'admin' : (isOps(b) && b != 'ops.breakdowns' ? 'operations' : ''))))))));
+        : (b == 'cycles' || isTalent(b) ? 'talent' : (isOwned(b) ? 'people' : (isAttendance(b) ? 'time' : (b in ['savedReports', 'activity'] ? 'admin' : (isOps(b) && !(b in ['ops.breakdowns', 'ops.stockOuts']) ? 'operations' : ''))))))));
     }
-    // A breakdown report added by someone without the operations area: new records only, nothing changed or removed.
+    // A breakdown report or stock-out ticket added by someone without the operations area: new records only, nothing changed or removed.
     function onlyAdds() {
       return resource == null || (request.resource.data.f.diff(resource.data.f).changedKeys().hasOnly(['~ord'])
         && request.resource.data.f.diff(resource.data.f).removedKeys().size() == 0);
@@ -134,8 +134,8 @@ service cloud.firestore {
       return (isDriverBucket(b) && member(t) && driverOf(b) == me().empId)
         || (isOwned(b) && member(t) && ownerOf(b) == me().empId)
         || (isAttendance(b) && member(t) && attOwner(b) == me().empId)
-        || (b == 'ops.breakdowns' && (hasArea(t, 'operations') || (member(t) && onlyAdds())))
-        || (b != 'ops.breakdowns' && (bucketArea(b) == '' ? member(t) : (bucketArea(b) == 'admin' ? admin(t) : hasArea(t, bucketArea(b)))));
+        || (b in ['ops.breakdowns', 'ops.stockOuts'] && (hasArea(t, 'operations') || (member(t) && onlyAdds())))
+        || (!(b in ['ops.breakdowns', 'ops.stockOuts']) && (bucketArea(b) == '' ? member(t) : (bucketArea(b) == 'admin' ? admin(t) : hasArea(t, bucketArea(b)))));
     }
     // Access d (an invite or profile) gives no more than the giver has: an Owner may give anything; anyone else only
     // a list of their own areas, never Owner (an admin with no list).

@@ -64,3 +64,12 @@ Follow `RUN-ALL-SPECS.md`. Branch `claude/inventory-on`. Back up the live rules 
   - stock-out moves don't need a cost yet. Don't build a costing method (average/FIFO) now. Just store the figure;
   - the moves CSV gets a "Unit cost" column.
 - Still no link to the daily production entry.
+
+## Update 20 Nov 2026: stock-out requests (tickets)
+A person, or a role in a department, asks for stock to be taken out. **The ticket never moves stock**: the store approves or rejects it, and still takes the stock out with Stock out on the item.
+- **Where:** `js/ops.js` (tab "Stock-out requests" in Stock & purchasing; "Request stock" on the staff phone Home; "Request stock out" on an item), `js/ops-rules.js` (`makeStockOut`, `decideStockOut`, `stockOutNo`, `STOCK_OUT_REASONS`).
+- **Data:** `ops.stockOuts` = `{ id, ticketNo (STO-YYMMDD-001), itemId, itemName, qty, unit, requesterType: 'individual' | 'role', staffId | null, role | null, department, reason (Used, Sold, Damaged), note, status: pending | approved | rejected, by, at, decidedBy, decidedAt, decisionNote }`.
+- **Who may do what:** every member reads and adds tickets (like breakdowns); only admins with the operations area approve or reject. A member without the stock list types the item name (the stock list and its costs stay with the operations area).
+- **Notification:** every account with the operations area is told on a new ticket; the person who asked is told when it is approved or rejected.
+- **Rules:** department required; person required for "a person", role required for "a role"; quantity above zero; a rejection needs a reason; a ticket is decided once.
+- **Firestore rules:** `ops.stockOuts` is added next to `ops.breakdowns` in `firestore.rules` and `js/cloud-map.js`. **The rules are not deployed**; publish them before staff on the live cloud use the button.

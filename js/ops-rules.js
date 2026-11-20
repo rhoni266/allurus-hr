@@ -146,7 +146,7 @@ window.AllurusOpsRules = (function () {
   // ---------- Inventory for a real company (docs/INVENTORY-ON-SPEC.md) ----------
   // Item (stock list): { id, code, name, kind, unit, category, location, opening, reorder, lastPrice (cost), price (selling), vendorId, supplier }.
   // Every change of quantity is a move, never an edit: { id, itemId, date, qty (+in / −out), kind, ref, note, by, at }.
-  const emptyOps = () => ({ items: [], moves: [], pos: [], products: [], batches: [], orders: [], dos: [], machines: [], maint: [], breakdowns: [], licences: [], seq: {} });
+  const emptyOps = () => ({ items: [], moves: [], pos: [], products: [], batches: [], orders: [], dos: [], machines: [], maint: [], breakdowns: [], licences: [], stockOuts: [], seq: {} });
   // Reasons, and which way each one moves stock. 'Count correction' and 'Adjustment' may go either way.
   const MOVE_KINDS = [
     { key: 'Received', sign: 1 }, { key: 'Returned', sign: 1 }, { key: 'Opening stock', sign: 1 },
@@ -174,6 +174,43 @@ window.AllurusOpsRules = (function () {
     if (signed > 0 && unitCost != null && unitCost !== '' && Number.isFinite(Number(unitCost)) && Number(unitCost) >= 0) move.unitCost = r2(unitCost);
     return { ok: true, move };
   }
+  // ---------- Stock-out tickets ----------
+  // A request to take stock out, raised from a phone by a person or by a role in a department. It never moves stock: the move is
+  // still made by the store (Stock out on the item). Ticket: { id, ticketNo, itemId, itemName, qty, unit, requesterType: 'individual' | 'role',
+  // staffId, role, department, reason, note, status: 'pending' | 'approved' | 'rejected', by, at, decidedBy, decidedAt, decisionNote }.
+  const STOCK_OUT_REASONS = MOVE_KINDS.filter((k) => k.sign < 0).map((k) => k.key);
+  const STOCK_OUT_STATUS = ['pending', 'approved', 'rejected'];
+  /** STO-YYMMDD-001, the running number for that day. */
+  const stockOutNo = (date, n) => `STO-${String(date).slice(2, 4)}${String(date).slice(5, 7)}${String(date).slice(8, 10)}-${String(n).padStart(3, '0')}`;
+  /**
+   * A stock-out ticket from what a person typed. `item` is the stock item when the person can see the list (else pass null and a typed
+   * `itemName`). Returns { ok, ticket } or { ok: false, error }. Status is always 'pending'.
+   */
+  function makeStockOut({ item = null, itemName = '', qty, requesterType, staffId = '', role = '', department = '', reason = 'Used', note = '', by = '', at = '', id = '', no = '' }) {
+    const name = String((item && item.name) || itemName || '').trim();
+    if (!name) return { ok: false, error: 'Choose the item.' };
+    const q = r3(qty);
+    if (!Number.isFinite(q) || q <= 0) return { ok: false, error: 'Enter a quantity above zero.' };
+    if (requesterType !== 'individual' && requesterType !== 'role') return { ok: false, error: 'Choose who the stock is for: a person or a role.' };
+    if (requesterType === 'individual' && !String(staffId || '').trim()) return { ok: false, error: 'Choose the person.' };
+    if (requesterType === 'role' && !String(role || '').trim()) return { ok: false, error: 'Enter the role, for example painter.' };
+    const dept = String(department || '').trim();
+    if (!dept) return { ok: false, error: 'Choose the department.' };
+    if (!STOCK_OUT_REASONS.includes(reason)) return { ok: false, error: 'Choose a reason.' };
+    return { ok: true, ticket: {
+      id, ticketNo: no, itemId: item ? item.id : '', itemName: name.slice(0, 120), qty: q, unit: (item && item.unit) || '',
+      requesterType, staffId: requesterType === 'individual' ? String(staffId).trim() : null, role: requesterType === 'role' ? String(role).trim().slice(0, 40) : null,
+      department: dept.slice(0, 60), reason, note: String(note || '').trim().slice(0, 200), status: 'pending', by, at,
+    } };
+  }
+  /** Approve or reject a pending ticket (never a second time). Moves no stock. Returns { ok, ticket } or { ok: false, error }. */
+  function decideStockOut(ticket, decision, { by = '', at = '', note = '' } = {}) {
+    if (!ticket || ticket.status !== 'pending') return { ok: false, error: 'That ticket has already been decided.' };
+    if (decision !== 'approved' && decision !== 'rejected') return { ok: false, error: 'Approve or reject.' };
+    if (decision === 'rejected' && !String(note || '').trim()) return { ok: false, error: 'Say why it is rejected.' };
+    return { ok: true, ticket: { ...ticket, status: decision, decidedBy: by, decidedAt: at, decisionNote: String(note || '').trim().slice(0, 200) } };
+  }
+
   /** Every move of one item, oldest first, with the balance after each (opening stock first). Moves on the same date keep their order. */
   function history(item, moves) {
     let bal = r3(Number(item.opening) || 0);
@@ -267,5 +304,5 @@ window.AllurusOpsRules = (function () {
   }
   const lowCsvRows = (levels) => [['Code', 'Name', 'Unit', 'On hand', 'Reorder level', 'On order', 'Suggested order'], ...lowList(levels).map((x) => [x.code, x.name, x.unit, x.onHand, x.reorder, x.onOrder, x.suggest])];
 
-  return { emptyOps, MOVE_KINDS, kindOf, makeMove, history, stockValue, lowList, countPlan, countMoves, IMPORT_COLUMNS, parseItems, TEMPLATE_HEAD, TEMPLATE_ROWS, stockCsvRows, movesCsvRows, lowCsvRows, onHand, stockLevels, suggestQty, poTotal, poReceivedValue, PO_FLOW, receive, recipeUsage, shortfalls, yieldPct, lots, pickFEFO, daysCover, pmStatus, downtime, aging, topDebtors, billsDue, addDays, days, r2 };
+  return { emptyOps, MOVE_KINDS, kindOf, makeMove, STOCK_OUT_REASONS, STOCK_OUT_STATUS, stockOutNo, makeStockOut, decideStockOut, history, stockValue, lowList, countPlan, countMoves, IMPORT_COLUMNS, parseItems, TEMPLATE_HEAD, TEMPLATE_ROWS, stockCsvRows, movesCsvRows, lowCsvRows, onHand, stockLevels, suggestQty, poTotal, poReceivedValue, PO_FLOW, receive, recipeUsage, shortfalls, yieldPct, lots, pickFEFO, daysCover, pmStatus, downtime, aging, topDebtors, billsDue, addDays, days, r2 };
 })();

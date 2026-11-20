@@ -9,7 +9,7 @@ window.AllurusOps = (function () {
   let ctx = null;
   const st = () => ctx.state;
   // A driver or operator in the cloud holds only the lists they may read (js/cloud-map.js); the rest are empty.
-  const LISTS = ['items', 'moves', 'pos', 'products', 'batches', 'orders', 'dos', 'machines', 'maint', 'breakdowns', 'licences'];
+  const LISTS = ['items', 'moves', 'pos', 'products', 'batches', 'orders', 'dos', 'machines', 'maint', 'breakdowns', 'licences', 'stockOuts'];
   // Inventory is on when HR switched it on (Settings → Modules), or the workspace already carries stock data and it was not switched off. Turning
   // it off hides the pages and never deletes anything. A new company starts with an empty structure the first time it is used.
   const modOn = () => st().settings?.modules?.inventory;
@@ -112,8 +112,8 @@ window.AllurusOps = (function () {
     const val = O.stockValue(lv);
     const acts = can() ? `<button class="btn" data-act="ops-reports">${icon('download')}Reports</button><button class="btn" data-act="ops-count">${icon('check')}Stock count</button><button class="btn" data-act="ops-import">${icon('doc')}Import items</button><button class="btn" data-act="ops-item-new">${icon('plus')}Add item</button><button class="btn btn-primary" data-act="ops-po-new">${icon('plus')}New purchase order</button>` : '';
     return `${head('Stock &amp; purchasing', `${lv.length} item${lv.length === 1 ? '' : 's'} · ${low.length} below reorder level · ${open.filter((p) => ['Sent', 'Partial'].includes(p.status)).length} orders waiting for delivery · stock worth ${money(val.cost)} at cost`, acts)}
-      ${tabs('stockTab', [['stock', 'Stock'], ['pos', `Purchase orders${open.length ? ` (${open.length})` : ''}`], ['moves', 'Stock movements']], 'ops-stock-tab')}
-      ${ui.stockTab === 'pos' ? poTable() : ui.stockTab === 'moves' ? movesTable() : incomingCard() + stockTable(lv)}`;
+      ${tabs('stockTab', [['stock', 'Stock'], ['pos', `Purchase orders${open.length ? ` (${open.length})` : ''}`], ['stockouts', `Stock-out requests${pendingSO().length ? ` (${pendingSO().length})` : ''}`], ['moves', 'Stock movements']], 'ops-stock-tab')}
+      ${ui.stockTab === 'pos' ? poTable() : ui.stockTab === 'stockouts' ? stockOutTable() : ui.stockTab === 'moves' ? movesTable() : incomingCard() + stockTable(lv)}`;
   }
   function stockTable(lv) {
     if (!lv.length) return `<div class="card">${empty('No items yet', can() ? 'Import your item list from Excel or CSV, or add the first item by hand.' : 'The store has not been set up yet.')}${can() ? `<div class="actions" style="justify-content:center;margin-top:12px"><button class="btn btn-primary" data-act="ops-import">${icon('doc')}Import items</button><button class="btn" data-act="ops-item-new">${icon('plus')}Add item</button></div>` : ''}</div>`;
@@ -176,11 +176,69 @@ window.AllurusOps = (function () {
       title: x.name, submit: null,
       body: `<div class="person-sub" style="margin-bottom:8px">${esc(x.code)}${x.category ? ` · ${esc(x.category)}` : ''}${x.location ? ` · shelf ${esc(x.location)}` : ''}${x.vendorId || x.supplier ? ` · ${esc(contact(x.vendorId)?.name || x.supplier)}` : ''}</div>
         <div class="grid g-3 keep-2"><div class="card kpi"><div class="kpi-label">On hand</div><div class="kpi-value">${qty(x.onHand)}</div><div class="kpi-foot">${esc(x.unit)}${x.lastPrice ? ` · ${money(x.onHand * x.lastPrice)} at cost` : ''}</div></div><div class="card kpi"><div class="kpi-label">Reorder at</div><div class="kpi-value">${qty(x.reorder)}</div></div><div class="card kpi"><div class="kpi-label">On order</div><div class="kpi-value">${qty(x.onOrder)}</div></div></div>
-        ${can() ? `<div class="actions" style="margin:12px 0;flex-wrap:wrap"><button type="button" class="btn btn-primary" data-act="ops-move" data-id="${id}" data-v="in">Stock in</button><button type="button" class="btn" data-act="ops-move" data-id="${id}" data-v="out">Stock out</button><button type="button" class="btn" data-act="ops-move" data-id="${id}" data-v="adjust">Adjust</button><button type="button" class="btn btn-ghost" data-act="ops-item-edit" data-id="${id}">Edit item</button></div>` : ''}
+        ${can() ? `<div class="actions" style="margin:12px 0;flex-wrap:wrap"><button type="button" class="btn btn-primary" data-act="ops-move" data-id="${id}" data-v="in">Stock in</button><button type="button" class="btn" data-act="ops-move" data-id="${id}" data-v="out">Stock out</button><button type="button" class="btn" data-act="ops-so-request" data-id="${id}">Request stock out</button><button type="button" class="btn" data-act="ops-move" data-id="${id}" data-v="adjust">Adjust</button><button type="button" class="btn btn-ghost" data-act="ops-item-edit" data-id="${id}">Edit item</button></div>` : ''}
         <h4 class="lv-h">History</h4><div class="inv-history"><table class="table"><thead><tr><th>Date</th><th>Reason</th><th class="r">Qty</th><th class="r">Balance</th><th>By</th></tr></thead><tbody>${rows.map((m) => `<tr><td class="num">${fmt(m.date)}</td><td>${esc(m.kind || (m.qty > 0 ? 'In' : 'Out'))}${m.note ? `<div class="person-sub">${esc(m.note)}</div>` : ''}</td><td class="r num" style="color:${m.qty < 0 ? 'var(--bad)' : 'var(--ok)'}">${m.qty > 0 ? '+' : ''}${qty(m.qty)}</td><td class="r num">${qty(m.balance)}</td><td>${esc(m.by ? first(m.by) : '')}</td></tr>`).join('')}<tr><td colspan="3" class="faint">Opening stock</td><td class="r num">${qty(h.opening)}</td><td></td></tr></tbody></table></div>`,
     });
   }
   // Stock in / out / adjust for one item: quantity, reason, date, note. The quantity is never edited directly: this adds a movement.
+  // ---------- Stock-out requests (tickets) ----------
+  // A person, or a role in a department, asks for stock to be taken out. The ticket never moves stock; the store still does that with Stock out.
+  const pendingSO = () => ops().stockOuts.filter((t) => t.status === 'pending');
+  const soWho = (t) => (t.requesterType === 'individual' ? (ctx.fullName(emp(t.staffId)) || 'a staff member') : `${t.role} (role)`);
+  function stockOutTable() {
+    const list = [...ops().stockOuts].sort((a, b) => (a.status === 'pending' ? 0 : 1) - (b.status === 'pending' ? 0 : 1) || (b.at || '').localeCompare(a.at || ''));
+    const newBtn = `<div class="actions" style="margin:0 0 10px"><button class="btn btn-primary" data-act="ops-so-request">${icon('plus')}New request</button></div>`;
+    if (!list.length) return `${newBtn}<div class="card">${empty('No stock-out requests', 'When someone asks for stock, it shows here for you to approve or reject.')}</div>`;
+    const acts = (t) => (t.status === 'pending' && can() ? `<div class="row-actions so-acts"><button class="btn btn-sm btn-primary" data-act="ops-sotk-approve" data-id="${t.id}">Approve</button><button class="btn btn-sm" data-act="ops-sotk-reject" data-id="${t.id}">Reject</button></div>` : '');
+    const PILLS = { pending: ['Pending', 'Pending'], approved: ['Done', 'Approved'], rejected: ['Rejected', 'Rejected'] };
+    const row = (t) => `<li class="so-ticket"><div class="so-top"><strong class="ticket-id">${esc(t.ticketNo)}</strong>${pill(...PILLS[t.status])}</div>
+      <div class="so-what"><b>${qty(t.qty)} ${esc(t.unit)}</b> ${esc(t.itemName)} <span class="faint">· ${esc(t.reason)}</span></div>
+      <div class="person-sub">For ${esc(soWho(t))}, ${esc(t.department)}. Asked by ${esc(first(t.by))}, ${fmt(t.at)}${t.note ? `. “${esc(t.note)}”` : ''}</div>
+      ${t.decisionNote ? `<div class="person-sub">${esc(t.decisionNote)}</div>` : ''}${acts(t)}</li>`;
+    return `${newBtn}<div class="card"><ul class="so-list">${list.map(row).join('')}</ul></div>`;
+  }
+  const departments = () => [...new Set([...(st().departments || []).map((d) => d.name), ...ops().items.flatMap((i) => [i.category, i.location]), ...ops().stockOuts.map((t) => t.department)].map((x) => String(x || '').trim()).filter(Boolean))].sort();
+  function stockOutRequest(itemId) {
+    const me = ctx.me(), x = itemId ? item(itemId) : null, canSee = ops().items.length > 0;
+    const myDept = (st().departments || []).find((d) => d.id === me?.dept)?.name || '';
+    const people = ctx.activeEmployees();
+    ctx.openModal({
+      title: x ? `Request stock out · ${x.name}` : 'Request stock out', submit: 'Send request',
+      body: `<div class="form-grid">
+        <div class="field full"><label for="so-i">Item</label>${canSee ? `<select class="select" id="so-i" name="itemId" required><option value="">Choose the item</option>${ops().items.map((i) => `<option value="${i.id}" ${x?.id === i.id ? 'selected' : ''}>${esc(i.name)} (${qty(O.onHand(i, ops().moves), i.unit)} in stock)</option>`).join('')}</select>` : '<input class="input" id="so-i" name="itemName" required maxlength="120" placeholder="For example white paint, 5 litre">'}</div>
+        <div class="field"><label for="so-q">Quantity</label><input class="input input-lg num" id="so-q" name="qty" type="number" min="0" step="0.001" inputmode="decimal" required></div>
+        <div class="field"><label for="so-r">Reason</label><select class="select" id="so-r" name="reason">${O.STOCK_OUT_REASONS.map((r) => `<option>${esc(r)}</option>`).join('')}</select></div>
+        <div class="field full"><label for="so-t">For</label><select class="select" id="so-t" name="requesterType"><option value="individual">A person</option><option value="role">A role (everyone who does it)</option></select></div>
+        <div class="field full" id="so-pw"><label for="so-p">Person</label><select class="select" id="so-p" name="staffId">${(people.length ? people : [me]).filter(Boolean).map((e) => `<option value="${e.id}" ${e.id === me?.id ? 'selected' : ''}>${esc(ctx.fullName(e))}</option>`).join('')}</select></div>
+        <div class="field full" id="so-rw" hidden><label for="so-ro">Role</label><input class="input" id="so-ro" name="role" maxlength="40" placeholder="For example painter" value="${esc(me?.role || '')}"></div>
+        <div class="field full"><label for="so-d">Department</label><input class="input" id="so-d" name="department" list="so-ds" required maxlength="60" value="${esc(myDept)}" placeholder="Choose or type"><datalist id="so-ds">${departments().map((d) => `<option value="${esc(d)}">`).join('')}</datalist></div>
+        <div class="field full"><label for="so-n">Note</label><input class="input" id="so-n" name="note" maxlength="200" placeholder="Optional"></div></div>
+        <p class="field-hint">This is a request. The store approves it; nothing is taken out of stock until then.</p>`,
+      onSubmit(d) {
+        const it = canSee ? item(d.itemId) : null, now = new Date().toISOString();
+        const n = ops().stockOuts.filter((t) => (t.at || '').slice(0, 10) === T()).length + 1;
+        const r = O.makeStockOut({ item: it, itemName: d.itemName, qty: Number(d.qty), requesterType: d.requesterType, staffId: d.staffId, role: d.role, department: d.department, reason: d.reason, note: d.note, by: actor(), at: now, id: U.uid('sto'), no: O.stockOutNo(T(), n) });
+        if (!r.ok) { ctx.toast(r.error, 'error'); return false; }
+        const t = r.ticket; ops().stockOuts.push(t);
+        ui.stockTab = 'stockouts';
+        notify('ops.stockout', { no: t.ticketNo, qty: qty(t.qty, t.unit), item: t.itemName.toLowerCase(), who: ctx.fullName(emp(t.by)) || 'Someone', forWho: soWho(t), department: t.department, href: '#ops-stock' }, opsPeople().filter((id) => id !== t.by), { from: t.by });
+        ctx.commit(`${t.ticketNo} sent. The store will approve it.`, `Stock-out request ${t.ticketNo}: ${t.itemName}`);
+      },
+    });
+    ctx.$('#so-t').addEventListener('change', () => { const role = ctx.$('#so-t').value === 'role'; ctx.$('#so-rw').hidden = !role; ctx.$('#so-pw').hidden = role; });
+  }
+  function stockOutDecide(id, decision) {
+    const t = ops().stockOuts.find((x) => x.id === id); if (!t) return;
+    const finish = (note) => {
+      const r = O.decideStockOut(t, decision, { by: actor(), at: new Date().toISOString(), note });
+      if (!r.ok) { ctx.toast(r.error, 'error'); return false; }
+      Object.assign(t, r.ticket);
+      notify('ops.stockout.decided', { no: t.ticketNo, status: t.status, note: t.decisionNote, qty: qty(t.qty, t.unit), item: t.itemName.toLowerCase(), href: '#ops-stock' }, t.by !== actor() ? [t.by] : [], { from: actor() });
+      ctx.commit(`${t.ticketNo} ${t.status}`, `Stock-out request ${t.ticketNo} ${t.status}`);
+    };
+    if (decision === 'approved') { finish(''); return; }
+    ctx.openModal({ title: `Reject ${t.ticketNo}`, submit: 'Reject', body: '<div class="field"><label for="so-why">Why</label><input class="input" id="so-why" name="note" required maxlength="200" autofocus></div>', onSubmit: (d) => finish(d.note) });
+  }
   function moveModal(id, direction) {
     const x = item(id), kinds = O.MOVE_KINDS.filter((k) => (direction === 'in' ? k.sign > 0 : direction === 'out' ? k.sign < 0 : k.sign === 0) && k.key !== 'Opening stock');
     const title = { in: 'Stock in', out: 'Stock out', adjust: 'Adjust stock' }[direction];
@@ -832,6 +890,7 @@ window.AllurusOps = (function () {
       store.length ? `<a class="btn btn-primary" href="#ops-stock">${icon('box')}${store.length} purchase order${store.length === 1 ? '' : 's'} coming in${store.some((p) => p.expected <= T()) ? ' (due today)' : ''}</a>` : '',
       dos.length ? `<a class="btn btn-primary" href="#my-deliveries">${icon('pin')}My deliveries today (${left} to go)</a>` : '',
       jobs ? `<a class="btn btn-primary" href="#my-machines">${icon('sliders')}${jobs} breakdown${jobs === 1 ? '' : 's'} to fix</a>` : '',
+      `<button class="btn btn-primary btn-lg" data-act="ops-so-request">${icon('box')}Request stock</button>`,
       isFloor(me) || dos.length ? `<button class="btn" data-act="ops-bd-new">${icon('sliders')}Report a breakdown</button>` : '',
     ].filter(Boolean);
     return bits.length ? `<div class="card ops-home"><div class="ci-actions" style="justify-content:flex-start;flex-wrap:wrap">${bits.join('')}</div></div>` : '';
@@ -873,7 +932,7 @@ window.AllurusOps = (function () {
   ].filter((x) => x.expiry) : [];
   function badge(routeId) {
     if (!has()) return 0;
-    if (routeId === 'ops-stock') return ops().pos.filter((p) => p.status === 'Draft').length;
+    if (routeId === 'ops-stock') return ops().pos.filter((p) => p.status === 'Draft').length + pendingSO().length;
     if (routeId === 'ops-machines') return ops().machines.filter(isDown).length;
     if (routeId === 'ops-production') return ops().batches.filter((b) => b.qc === 'Hold').length;
     if (routeId === 'my-deliveries') return myDOs(ctx.me()?.id).filter((d) => ['Planned', 'Out'].includes(d.status)).length;
@@ -918,6 +977,9 @@ window.AllurusOps = (function () {
       'ops-item-edit': (id) => itemEditModal(id),
       'ops-move': (id, v) => moveModal(id, v),
       'ops-quick': (id, v) => moveModal(id, v),
+      'ops-so-request': (id) => stockOutRequest(id),
+      'ops-sotk-approve': (id) => stockOutDecide(id, 'approved'),
+      'ops-sotk-reject': (id) => stockOutDecide(id, 'rejected'),
       'ops-import': () => importModal(),
       'ops-import-go': () => importGo(),
       'ops-import-template': () => downloadTemplate(),
