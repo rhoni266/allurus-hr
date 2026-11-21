@@ -146,7 +146,7 @@ window.AllurusOpsRules = (function () {
   // ---------- Inventory for a real company (docs/INVENTORY-ON-SPEC.md) ----------
   // Item (stock list): { id, code, name, kind, unit, category, location, opening, reorder, lastPrice (cost), price (selling), vendorId, supplier }.
   // Every change of quantity is a move, never an edit: { id, itemId, date, qty (+in / −out), kind, ref, note, by, at }.
-  const emptyOps = () => ({ items: [], moves: [], pos: [], products: [], batches: [], orders: [], dos: [], machines: [], maint: [], breakdowns: [], licences: [], seq: {} });
+  const emptyOps = () => ({ items: [], moves: [], pos: [], products: [], batches: [], orders: [], dos: [], machines: [], maint: [], breakdowns: [], licences: [], stockOuts: [], seq: {} });
   // Reasons, and which way each one moves stock. 'Count correction' and 'Adjustment' may go either way.
   const MOVE_KINDS = [
     { key: 'Received', sign: 1 }, { key: 'Returned', sign: 1 }, { key: 'Opening stock', sign: 1 },
@@ -155,25 +155,58 @@ window.AllurusOpsRules = (function () {
   ];
   const kindOf = (k) => MOVE_KINDS.find((x) => x.key === k) || null;
   /**
-   * One stock move from what a person typed. direction: 'in' | 'out' | 'adjust'. For in/out the quantity is positive and the sign comes
-   * from the direction; for adjust it is the signed difference. Returns { ok, move } or { ok: false, error }.
-   */
-  function makeMove({ itemId, direction, qty, kind, note = '', date, by = '', at = '', id = '', unitCost = null }) {
-    const q = r3(qty);
-    if (!itemId) return { ok: false, error: 'Choose an item.' };
-    if (!kindOf(kind)) return { ok: false, error: 'Choose a reason.' };
-    if (!Number.isFinite(q) || q === 0) return { ok: false, error: 'Enter a quantity.' };
-    if ((direction === 'in' || direction === 'out') && q < 0) return { ok: false, error: 'Enter the quantity as a positive number.' };
-    const k = kindOf(kind);
-    if (direction === 'in' && k.sign < 0) return { ok: false, error: `“${kind}” takes stock out, not in.` };
-    if (direction === 'out' && k.sign > 0) return { ok: false, error: `“${kind}” puts stock in, not out.` };
-    if (direction === 'adjust' && k.sign !== 0) return { ok: false, error: 'An adjustment uses the reason “Count correction” or “Adjustment”.' };
-    const signed = direction === 'out' ? -q : q;
-    // Stock added carries what one unit cost (RM), so the history can be costed later. Nothing is averaged or valued from it here.
-    const move = { id, itemId, date, qty: signed, kind, ref: '', note: String(note || '').trim().slice(0, 200), by, at };
-    if (signed > 0 && unitCost != null && unitCost !== '' && Number.isFinite(Number(unitCost)) && Number(unitCost) >= 0) move.unitCost = r2(unitCost);
-    return { ok: true, move };
-  }
+   /** One stock move from what a person typed. direction: 'in' | 'out' | 'adjust'. For in/out the quantity is positive and the sign comes
+    * from the direction; for adjust it is the signed difference. Returns { ok, move } or { ok: false, error  }.
+    */
+   function makeMove({ itemId, direction, qty, kind, note = '', date, by = '', at = '', id = '', unitCost = null }) {
+     const q = r3(qty);
+     if (!itemId) return { ok: false, error: 'Choose an item.' };
+     if (!kindOf(kind)) return { ok: false, error: 'Choose a reason.' };
+     if (!Number.isFinite(q) || q === 0) return { ok: false, error: 'Enter a quantity.' };
+     if ((direction === 'in' || direction === 'out') && q < 0) return { ok: false, error: 'Enter the quantity as a positive number.' };
+     const k = kindOf(kind);
+     if (direction === 'in' && k.sign < 0) return { ok: false, error: `“${kind}” takes stock out, not in.` };
+     if (direction === 'out' && k.sign > 0) return { ok: false, error: `“${kind}” puts stock in, not out.` };
+     if (direction === 'adjust' && k.sign !== 0) return { ok: false, error: 'An adjustment uses the reason “Count correction” or “Adjustment”.' };
+     const signed = direction === 'out' ? -q : q;
+     // Stock added carries what one unit cost (RM), so the history can be costed later. Nothing is averaged or valued from it here.
+     const move = { id, itemId, date, qty: signed, kind, ref: '', note: String(note || '').trim().slice(0, 200), by, at };
+     if (signed > 0 && unitCost != null && unitCost !== '' && Number.isFinite(Number(unitCost)) && Number(unitCost) >= 0) move.unitCost = r2(unitCost);
+     return { ok: true, move };
+   }
+
+   // ---------- Stock-out tickets ----------
+   /**
+    * Create a stock-out ticket. direction: 'out'. The ticket records who is requesting stock and why, but does NOT
+    * change stock. A separate admin approve/reject action applies it.
+    * requesterType: 'individual' (staffId) or 'role' (role). Both need department.
+    * Returns { ok, ticket } or { ok: false, error }.
+    */
+   function makeStockOut({ itemId, direction, qty, requesterType, staffId, role, department, reason, note = '', by = '', at = '', id = '' }) {
+     const item = items.find((i) => i.id === itemId);
+     if (!itemId) return { ok: false, error: 'Choose an item.' };
+     if (!item) return { ok: false, error: 'That item is no longer in the list.' };
+     const q = r3(qty);
+     if (!Number.isFinite(q) || q <= 0) return { ok: false, error: 'Enter a quantity above zero.' };
+     if (!requesterType || (requesterType !== 'individual' && requesterType !== 'role')) return { ok: false, error: 'Choose who is requesting the stock.' };
+     if (requesterType === 'individual' && !staffId) return { ok: false, error: 'Choose the staff member.' };
+     if (requesterType === 'role' && !role) return { ok: false, error: 'Enter the role (e.g. painter).' };
+     if (!department || String(department).trim() === '') return { ok: false, error: 'Choose the department.' };
+     const k = kindOf(reason || 'Used');
+     if (!k) return { ok: false, error: 'Choose a reason.' };
+     const ticket = {
+       id: id || U.uid('stout'),
+       itemId, ticketNo: '', requesterType, staffId: requesterType === 'individual' ? staffId : null,
+       role: requesterType === 'role' ? role : null,
+       department: String(department).trim(), qty: q, unit: item.unit, reason,
+       note: String(note || '').trim().slice(0, 200), by, at,
+       status: 'pending', ticketNo: '', createdAt: at || new Date().toISOString(),
+     };
+     // Ticket number is set when the ticket is saved into ops.stockOuts (by the owning module), so the unit keeps U.uid here.
+     return { ok: true, ticket };
+   }
+
+   // A stock count: counts = { itemId: typed quantity or '' }. Items left blank are not counted. Returns the differences, and the moves to post.
   /** Every move of one item, oldest first, with the balance after each (opening stock first). Moves on the same date keep their order. */
   function history(item, moves) {
     let bal = r3(Number(item.opening) || 0);
@@ -267,5 +300,5 @@ window.AllurusOpsRules = (function () {
   }
   const lowCsvRows = (levels) => [['Code', 'Name', 'Unit', 'On hand', 'Reorder level', 'On order', 'Suggested order'], ...lowList(levels).map((x) => [x.code, x.name, x.unit, x.onHand, x.reorder, x.onOrder, x.suggest])];
 
-  return { emptyOps, MOVE_KINDS, kindOf, makeMove, history, stockValue, lowList, countPlan, countMoves, IMPORT_COLUMNS, parseItems, TEMPLATE_HEAD, TEMPLATE_ROWS, stockCsvRows, movesCsvRows, lowCsvRows, onHand, stockLevels, suggestQty, poTotal, poReceivedValue, PO_FLOW, receive, recipeUsage, shortfalls, yieldPct, lots, pickFEFO, daysCover, pmStatus, downtime, aging, topDebtors, billsDue, addDays, days, r2 };
+  return { emptyOps, MOVE_KINDS, kindOf, makeMove, makeStockOut, history, stockValue, lowList, countPlan, countMoves, IMPORT_COLUMNS, parseItems, TEMPLATE_HEAD, TEMPLATE_ROWS, stockCsvRows, movesCsvRows, lowCsvRows, onHand, stockLevels, suggestQty, poTotal, poReceivedValue, PO_FLOW, receive, recipeUsage, shortfalls, yieldPct, lots, pickFEFO, daysCover, pmStatus, downtime, aging, topDebtors, billsDue, addDays, days, r2 };
 })();

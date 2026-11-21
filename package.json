@@ -29,5 +29,8 @@
     "pdfkit": "^0.17.2",
     "playwright-core": "^1.49.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "dependencies": {
+    "acorn": "^8.19.0"
   }
 }
