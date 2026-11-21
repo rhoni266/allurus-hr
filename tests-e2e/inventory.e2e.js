@@ -257,6 +257,23 @@ const PW = 'Pass-Word-2026!';
     ok('Friday-only + Saturday + null pattern + dept None + deleted pattern id: workspace open, no null error, no failed screen', navOk && !bad.length && !failed, `${T} nav=${navOk} failed=${failed} errors=${bad.length} ${o2.errors.slice(0, 2).join(' | ').slice(0, 160)} ${JSON.stringify((await p2.evaluate(() => document.body.innerText)).slice(0, 90))}`);
     await o2.ctx.close();
   }
+  // ---- 12. a tab that is slow to hear from the cloud says so after a while, with Try again, and still opens when the cloud answers ----
+  {
+    const o3 = await signIn('owner@co1.test'); await o3.ctx.close();   // (a sign-in that works, to be sure the account is fine)
+    const ctx = await b.newContext({ viewport: { width: 1366, height: 860 }, serviceWorkers: 'block' }); await local(ctx);
+    const page = await ctx.newPage();
+    await page.goto(`${base()}/app.html`); await page.waitForSelector('#login-form', { timeout: 20000 }); await page.waitForTimeout(1500);
+    await page.fill('#login-email', 'owner@co1.test'); await page.fill('#login-password', PW); await page.click('#login-form [type=submit]');
+    await page.waitForSelector('#nav a, .sidebar a', { timeout: 30000 }).catch(() => {});
+    await ctx.addInitScript(() => { window.ALLURUS_CLOUD_SLOW_MS = 700; });
+    await ctx.route(/:8080\//, async (r) => { await new Promise((x) => setTimeout(x, 4000)); r.continue().catch(() => {}); });
+    await page.reload();
+    const slow = await page.waitForSelector('[data-act=cloud-retry]', { timeout: 15000 }).then(() => true).catch(() => false);
+    const said = slow && /taking longer than usual/.test(await page.evaluate(() => document.body.innerText));
+    await page.waitForSelector('#nav a, .sidebar a', { timeout: 40000 }).catch(() => {});
+    ok('Slow cloud: "Signing you in…" turns into "taking longer than usual" with Try again, and the workspace still opens when it answers', slow && said && (await navText(page)).length > 0, `slow=${slow} said=${said}`);
+    await ctx.close();
+  }
   console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
   await b.close().catch(() => {}); srv.close(); await env.cleanup().catch(() => {});
   process.exit(results.every(Boolean) ? 0 : 1);

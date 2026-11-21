@@ -215,6 +215,9 @@
     return false;
   };
   let cloudWaiting = CLOUD && (!!state.session.cloud?.uid || hasStaffSess());
+  let cloudSlow = false;   // the cloud has not answered after CLOUD_SLOW_MS: the loading screen gets Try again
+  const CLOUD_SLOW_MS = Number(window.ALLURUS_CLOUD_SLOW_MS) || 20000;
+  if (cloudWaiting) setTimeout(() => { if (cloudWaiting) { cloudSlow = true; render(); } }, CLOUD_SLOW_MS);
   let cloudError = null;   // { why } when the cloud could not open the workspace (the person is still signed in; nothing is cleared)
   let warnedFull = false;
   function save() {
@@ -827,8 +830,8 @@
     // An employee on a computer (docs/DEVICE-RULES-SPEC.md): this screen and nothing else; no workspace was loaded.
     if (phoneBlock) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = phoneBlockView(); return; }
     if (deviceBlock) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = phoneOnlyView(); return; }
-    if (cloudWaiting) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = `<div class="login-inner"><div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div><h1>Signing you in…</h1><p class="sub">Getting the latest from the cloud.</p></div>`; return; }
-    if (cloudError) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = `<div class="login-inner"><div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div><h1>Couldn’t open your workspace</h1><p class="sub">You are still signed in. This is usually the connection. Try again in a moment.</p><p class="faint" style="font-size:12.5px">${esc(cloudError.why || '')}</p><div class="actions" style="justify-content:center;gap:8px;display:flex;flex-wrap:wrap"><button type="button" class="btn btn-primary" data-act="cloud-retry">Try again</button><button type="button" class="btn" data-act="device-signout">Sign out</button></div></div>`; return; }
+    if (cloudWaiting) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = `<div class="login-inner"><div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div><h1>Signing you in…</h1><p class="sub">${cloudSlow ? 'This is taking longer than usual. Another Allurus tab or a slow connection can hold it up. You are still signed in.' : 'Getting the latest from the cloud.'}</p>${cloudSlow ? '<div class="actions" style="justify-content:center;gap:8px;display:flex;flex-wrap:wrap"><button type="button" class="btn btn-primary" data-act="cloud-retry">Try again</button><button type="button" class="btn" data-act="device-signout">Sign out</button></div>' : ''}</div>`; return; }
+    if (cloudError) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = `<div class="login-inner"><div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div><h1>Couldn’t open your workspace</h1><p class="sub">You are still signed in. This is usually the connection. Try again in a moment.</p><p class="faint" style="font-size:12.5px">${esc(cloudError.why || '')}</p>${cloudError.stack ? `<details style="text-align:left;max-width:520px;margin:8px auto"><summary class="faint" style="font-size:12.5px">Details for support</summary><pre style="white-space:pre-wrap;word-break:break-word;font-size:11px;max-height:240px;overflow:auto">${esc(cloudError.stack)}</pre></details>` : ''}<div class="actions" style="justify-content:center;gap:8px;display:flex;flex-wrap:wrap"><button type="button" class="btn btn-primary" data-act="cloud-retry">Try again</button><button type="button" class="btn" data-act="device-signout">Sign out</button></div></div>`; return; }
     const signedIn = !!role();
     $('#login').hidden = signedIn;
     $('.app').hidden = !signedIn;
@@ -5424,7 +5427,7 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
     },
     // Just activated on /activate and already signed in: open the app as them.
     // The cloud could not open the workspace (network, a server error): keep the sign-in, say so, offer a retry.
-    cloudFailed(why) { cloudWaiting = false; cloudError = { why: String(why || '').slice(0, 120) }; render(); },
+    cloudFailed(why, stack = '') { cloudWaiting = false; cloudError = { why: String(why || '').slice(0, 120), stack: String(stack || '').slice(0, 2000) }; render(); },
     cloudSignedIn() { if (!state.accounts[0]) { this.cloudFailed('no account'); return; } cloudWaiting = false; startSession(state.accounts[0]); toast('Your account is ready. Welcome to Allurus.'); },
     cloudReady(reason) {
       cloudWaiting = false;

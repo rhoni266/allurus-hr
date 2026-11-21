@@ -25,6 +25,6 @@ test('a failure to open the workspace is retried and then reported with Try agai
   assert.ok(cloud.includes('app.cloudFailed('));
   const resume = cloud.slice(cloud.indexOf('A returning person is only shown the sign-in page'), cloud.indexOf("app.cloudReady('signed-out');\n});"));
   assert.ok(resume.indexOf('app.cloudFailed(') < resume.length && !/catch \(e\) \{[^}]*cloudReady\('signed-out'\)/.test(resume), 'a thrown error does not go to the signed-out branch');
-  assert.ok(app.includes('Couldn’t open your workspace') && app.includes("'cloud-retry'") && app.includes('cloudFailed(why)'));
+  assert.ok(app.includes('Couldn’t open your workspace') && app.includes("'cloud-retry'") && app.includes('cloudFailed(why'));
   assert.ok(app.includes("if (!state.accounts[0]) { this.cloudFailed('no account'); return; }"), 'no accounts is a failure to report, not a silent logout');
 });

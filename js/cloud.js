@@ -1460,11 +1460,11 @@ Auth.onAuthStateChanged(auth, async (user) => {
       } catch (e) {
         if (e?.blocked || e?.device) return;
         lastErr = e;
-        console.warn('[Allurus cloud] resume', attempt + 1, e?.code || e?.message || e);
+        console.warn('[Allurus cloud] resume', attempt + 1, e?.code || e?.message || e, e?.stack || '(no stack)');
         if (attempt < 2) await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
       }
     }
-    if (lastErr) { app.cloudFailed(lastErr.code || lastErr.message || 'unknown error'); return; }
+    if (lastErr) { app.cloudFailed(lastErr.code || lastErr.message || 'unknown error', lastErr.stack || ''); return; }
   }
   app.cloudReady('signed-out');
 });

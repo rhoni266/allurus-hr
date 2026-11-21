@@ -194,6 +194,7 @@ window.AllurusSeed = {
         const s = x < 0.8 ? 'present' : x < 0.93 ? 'remote' : x < 0.98 ? 'absent' : 'present';
         if (s === 'absent') { attendance[day][e.id] = { s, in: '' }; return; }
         const p = shiftOf(e, day);
+        if (!p) return;   // no pattern for this person: no demo punch
         const inM = p.flexible ? 8 * 60 + Math.floor(j * 130) : TR.toMin(p.start) + (j < 0.9 ? -18 + Math.floor((j / 0.9) * 24) : 12 + Math.floor((j - 0.9) * 300));
         if (k === 0 && inM > nowMin) return;
         const endM = p.flexible ? inM + 9 * 60 : TR.toMin(p.end);
