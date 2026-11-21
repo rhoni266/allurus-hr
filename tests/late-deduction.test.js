@@ -71,3 +71,11 @@ test('wiring: settings card, draft note with cancel and restore, bilingual paysl
   assert.ok(app.includes('function lateCard()') && app.includes("'late-cancel'") && app.includes("'late-restore'") && app.includes('Potongan lewat'));
   assert.ok(r('js/statutory.js').includes('Late deduction / Potongan lewat') && r('js/roster.js').includes('function lateDays') && r('app.html').includes('js/late-rules.js'));
 });
+
+test('off by default for every company: no setting means no deduction, and payroll only asks when it is on', () => {
+  assert.equal(L.defaults().on, false); assert.equal(L.clean(undefined).on, false); assert.equal(L.clean({}).on, false);
+  const app = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'js', 'app.js'), 'utf8');
+  assert.ok(app.includes('lateCfg?.on'), 'payroll computes it only when the company turned it on');
+  assert.ok(!/lateDeduct\s*[:=]\s*\{[^}]*on:\s*true/.test(require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'js', 'seed.js'), 'utf8')), 'no seed turns it on');
+  assert.ok(app.includes('Rate follows the “Unpaid leave deduction” setting (now: ${wd} days)') && app.includes('sekarang: ${wd} hari'));
+});
