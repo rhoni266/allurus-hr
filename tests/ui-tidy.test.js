@@ -72,3 +72,10 @@ test('names typed in capitals are shown as names in greetings and the Operations
   assert.ok(app.includes("'Good evening'}, ${esc(U.softName(first, true))}.`"));
   assert.ok(read('js/ops.js').includes('esc(U.softName(e.first, true))'));
 });
+
+test('rest-day Dashboard: the KPI says "last workday", no "Everyone\'s in" on a rest day, "Working today" when people checked in', () => {
+  const lv = read('js/leave.js');
+  assert.ok(app.includes('last workday, ${U.fmtDate(wd'));
+  assert.ok(lv.includes("restToday ? '' : `<div class=\"empty\"><strong>Everyone’s in"));
+  assert.ok(lv.includes('Working today (a rest day)') && lv.includes('const workedToday'));
+});

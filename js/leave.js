@@ -327,9 +327,10 @@ window.AllurusLeave = (function () {
     const isTomorrow = nwd === R.addDays(T(), 1);
     const back = (l) => { let d = R.addDays(l.to, 1); while (!R.isWorkingDay(d, calCtx(d, d))) d = R.addDays(d, 1); return d; };
     const restToday = !R.isWorkingDay(T(), calCtx(T(), T()));
+    const workedToday = Object.values(st().attendance?.[T()] || {}).some((r) => r && r.in);
     return `<div class="card"><div class="card-head"><h3>${title}</h3><span class="hint">${today.length ? `${today.length} off` : ''}</span></div>
-      ${restToday ? `<p class="faint" style="margin-bottom:8px">${R.holidaysFor(yearNow(), cfg()).find((h) => h.date === T() && !h.off)?.name || 'Today is a rest day'}.</p>` : ''}
-      ${today.length ? `<div class="list">${today.map((l) => `<div class="list-item">${ctx.avatar(nameOf(l.empId), 'sm')}<div class="grow"><div class="person-name">${esc(nameOf(l.empId))}</div><div class="person-sub">${dot(typeOf(l.type))}${esc(typeName(l.type))}${l.half ? ` · ${l.half}` : ''} · back ${U.fmtDate(back(l), { weekday: 'short', day: 'numeric', month: 'short' })}</div></div></div>`).join('')}</div>` : `<div class="empty"><strong>Everyone’s in</strong>No approved leave today.</div>`}
+      ${restToday ? `<p class="faint" style="margin-bottom:8px">${R.holidaysFor(yearNow(), cfg()).find((h) => h.date === T() && !h.off)?.name || (workedToday ? 'Working today (a rest day)' : 'Today is a rest day')}.</p>` : ''}
+      ${today.length ? `<div class="list">${today.map((l) => `<div class="list-item">${ctx.avatar(nameOf(l.empId), 'sm')}<div class="grow"><div class="person-name">${esc(nameOf(l.empId))}</div><div class="person-sub">${dot(typeOf(l.type))}${esc(typeName(l.type))}${l.half ? ` · ${l.half}` : ''} · back ${U.fmtDate(back(l), { weekday: 'short', day: 'numeric', month: 'short' })}</div></div></div>`).join('')}</div>` : (restToday ? '' : `<div class="empty"><strong>Everyone’s in</strong>No approved leave today.</div>`)}
       <p class="lv-tomorrow">${ctx.icon('calendar')}<span><strong>${isTomorrow ? 'Tomorrow' : U.fmtDate(nwd, { weekday: 'long' })}:</strong> ${tomorrow.length ? tomorrow.map((l) => `${esc(firstOf(l.empId))} (${esc(typeName(l.type))})`).join(', ') : 'no one off'}</span></p>
       ${ctx.role() === 'admin' ? `<button class="hint card-link link-btn" data-act="lv-open-cal">Leave calendar ${ctx.icon('right')}</button>` : '<a class="hint card-link" href="#my-approvals">Team calendar ' + ctx.icon('right') + '</a>'}</div>`;
   }
