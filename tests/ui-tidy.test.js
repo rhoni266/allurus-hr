@@ -49,7 +49,7 @@ test('new users start in light', () => {
 });
 
 test('the Get started checklist folds away after the first week', () => {
-  assert.ok(read('js/experience.js').includes("7 * 864e5) return '';"));
+  assert.ok(read('js/experience.js').includes('Date.now() - made > 7 * 864e5') && read('js/experience.js').includes('from the day the company was created'));
 });
 
 test('Title Case keeps abbreviations in capitals and never touches stock item names', () => {
@@ -61,9 +61,14 @@ test('Title Case keeps abbreviations in capitals and never touches stock item na
   assert.equal(U.title('MR OFFICE'), 'MR Office');
   assert.equal(U.softName('ABDUL GHANI MR', true), 'Abdul Ghani MR');
   assert.equal(U.title('Quality Control'), 'Quality Control');
-  for (const f of ['js/ops.js', 'js/stock-req.js', 'js/stock-rules.js']) assert.ok(!/U\.(title|softName|soften)\(/.test(read(f).replace(/U\.title\(x\.d\.name\)/g, '')), `${f}: item and stock text is shown exactly as typed`);
+  for (const f of ['js/ops.js', 'js/stock-req.js', 'js/stock-rules.js']) assert.ok(!/U\.(title|softName|soften)\(/.test(read(f).replace(/U\.title\(x\.d\.name\)/g, '').replace(/U\.softName\(e\.first, true\)/g, '')), `${f}: item and stock text is shown exactly as typed`);
 });
 
 test('hiding an app also hides the staff page for it (Employee view)', () => {
   assert.ok(app.includes("STAFF_OF = { leave: 'my-leave'") && app.includes("!['admin', 'employee'].includes(role())"));
+});
+
+test('names typed in capitals are shown as names in greetings and the Operations card', () => {
+  assert.ok(app.includes("'Good evening'}, ${esc(U.softName(first, true))}.`"));
+  assert.ok(read('js/ops.js').includes('esc(U.softName(e.first, true))'));
 });

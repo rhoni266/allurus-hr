@@ -154,9 +154,15 @@ window.AllurusUX = (function () {
     const p = prefs(), r = ctx.role(), s = setupState();
     if (!s.total || (p.setupHidden || {})[r]) return '';
     // The checklist is for the first week: it folds away on its own after that (it stays in Help).
-    const since = Math.min(...[p.setupSince, ...Object.values(s.done || {})].filter((x) => +x > 0).map(Number), Date.now());
-    if (!p.setupSince) { p.setupSince = Date.now(); ctx.save(); }
-    if (Date.now() - since > 7 * 864e5) return '';
+    // The week counts from the day the company was created (the company record), not from a deploy or someone's first visit.
+    const co = window.AllurusCompany || {}, ca = co.createdAt, made = ca == null ? 0 : typeof ca === 'number' ? ca : ca.seconds != null ? ca.seconds * 1000 : ca.toMillis ? ca.toMillis() : Date.parse(ca) || 0;
+    if (made) { if (Date.now() - made > 7 * 864e5) return ''; }
+    else if (co.status && co.status !== 'trial') return '';   // an older company with no creation date that is already paying
+    else {
+      const since = Math.min(...[p.setupSince, ...Object.values(s.done || {})].filter((x) => +x > 0).map(Number), Date.now());
+      if (!p.setupSince) { p.setupSince = Date.now(); ctx.save(); }
+      if (Date.now() - since > 7 * 864e5) return '';
+    }
     if (s.complete) {
       if (!(p.setupCelebrated || {})[r]) { p.setupCelebrated = { ...(p.setupCelebrated || {}), [r]: true }; ctx.save(); setTimeout(() => { celebrate(); toast('You’re all set up. Nice work!'); }, 250); }
       return '';

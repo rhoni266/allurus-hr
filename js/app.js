@@ -974,7 +974,7 @@
   }
   function greeting(first) {
     const h = new Date().getHours();
-    return `${h < 5 ? 'Working late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'}, ${esc(first)}.`;
+    return `${h < 5 ? 'Working late' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening'}, ${esc(U.softName(first, true))}.`;
   }
   const dayNote = () => ['Enjoy your Sunday.', 'A fresh week starts here.', 'Hope the week is off to a good start.', 'Halfway through the week.', 'Nearly there.', 'Almost the weekend.', 'Enjoy your Saturday.'][new Date().getDay()];
   const delta = (v, unit = '', invert = false) => {
@@ -1021,7 +1021,7 @@
       { id: 'kpis', title: 'Key numbers', span: 12, render: () => `<div class="grid g-4 keep-2">
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--brand)"></span>Employees</div><div class="kpi-value">${active.length}</div><div class="kpi-foot">${joined ? `${delta(joined)} joined this month` : `${state.departments.length} departments`}</div></div>
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--ok)"></span>Attendance</div><div class="kpi-value">${rate}%</div><div class="kpi-foot">${delta(rate - avg, ' pts')} vs 7-day average · ${wd === T ? 'today' : U.fmtDate(wd, { weekday: 'short' })}</div></div>
-        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>On leave today</div><div class="kpi-value">${out.length}</div><div class="kpi-foot">${out.length ? esc(out.map((e) => e.first).join(', ')) : 'Everyone is in'}</div></div>
+        <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--gold)"></span>On leave today</div><div class="kpi-value">${out.length}</div><div class="kpi-foot">${out.length ? esc(out.map((e) => U.softName(e.first, true)).join(', ')) : 'Everyone is in'}</div></div>
         <div class="card kpi"><div class="kpi-label"><span class="dot" style="background:var(--info)"></span>Open roles</div><div class="kpi-value">${state.jobs.length}</div><div class="kpi-foot">${state.candidates.filter((c) => c.stage !== 'Hired').length} candidates in the pipeline</div></div></div>` },
       { id: 'attendance', area: 'time', title: 'Attendance trend', span: 8, render: () => `<div class="card"><div class="card-head"><h3>Attendance, last 7 workdays</h3><div class="legend"><span><i style="background:var(--brand)"></i>In office</span><span><i style="background:var(--gold)"></i>Remote</span></div></div>${attendanceChart(wd)}</div>` },
       ...(prodApi?.fillCard() ? [{ id: 'prodfill', title: 'Production to fill', span: 4, render: () => prodApi.fillCard() }] : []),
@@ -2977,7 +2977,7 @@
     const payday = U.lastWorkday(U.monthEnd(U.monthKey(T)));
     const W = [
       { id: 'today', title: 'Today', span: 12, fixed: true, render: () => hero({
-        title: birthday ? `Happy birthday, ${esc(e.first)}!` : greeting(e.first),
+        title: birthday ? `Happy birthday, ${esc(U.softName(e.first, true))}!` : greeting(e.first),
         sub: `${esc(e.role)} · ${esc(dept(e.dept)?.name || '')}. ${birthday ? 'Everyone at ' + esc(state.settings.company) + ' wishes you a great day.' : dayNote()}`,
         actions: `<button class="btn" data-act="new-leave">${icon('calendar')}Request time off</button>${opsApi?.heroAction() || ''}`,
         side: `<div class="clock-box"><div class="kpi-label">${icon('clock')}Time clock</div><div class="kpi-value clock-time" id="live-clock">${nowHM()}</div>${clock}<div class="kpi-foot">${U.isWeekend(T) ? 'It’s the weekend. Check-ins still count. ' : ''}${isField(me()) ? 'Field staff: check in from anywhere, with a selfie.' : `Within ${zone().radius} m of ${esc(zone().label)}, with a selfie.`}${phoneStatus(me()) ? ` ${phoneStatus(me())}` : ''}${timeApi.todayShift(e) ? `<div class="clock-shift">${esc(timeApi.todayShift(e))}</div>` : ''}${kioskApi.syncBanner(e.id)}${kioskApi.isSupervisor(e) ? `<button class="btn btn-sm" data-act="sv-open" style="margin-top:10px">${icon('people')}Check in a team member</button>` : ''}</div></div>`,
@@ -3006,7 +3006,7 @@
       { id: 'goals', title: 'My goals', span: 6, render: () => `<div class="card"><div class="card-head"><h3>My goals</h3><a class="hint" href="#my-appraisal">Update</a></div>
         ${review ? `<div class="kpi"><div class="kpi-value">${review.progress}%</div><div class="progress"><i style="width:${review.progress}%"></i></div><div class="kpi-foot" style="margin-top:6px">${esc(cyc.name)} · ${AllurusAppraisalRules.STAGES[review.stage]}${review.final ? ` · grade ${esc(review.final.grade)}` : ''}</div></div>` : '<div class="empty">No review cycle yet.</div>'}</div>` },
       { id: 'team', title: 'Team', span: 6, render: () => `<div class="card"><div class="card-head"><h3>Team</h3><span class="hint">${esc(dept(e.dept)?.name || '')}</span></div>
-        <div class="kpi-foot" style="margin-bottom:10px">${out.length ? `Out today: ${esc(out.map((x) => x.first).join(', '))}` : 'Everyone on your team is in today.'}</div>${upcomingList()}</div>` },
+        <div class="kpi-foot" style="margin-bottom:10px">${out.length ? `Out today: ${esc(out.map((x) => U.softName(x.first, true)).join(', '))}` : 'Everyone on your team is in today.'}</div>${upcomingList()}</div>` },
     ];
     return AllurusUX.board('employee', W);
   };
