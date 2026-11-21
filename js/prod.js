@@ -281,13 +281,14 @@ window.AllurusProduction = (function () {
     ctx.$$('[data-pc-dept]').forEach((cb) => cb.addEventListener('change', () => { const s = new Set(cfg().depts || []); if (cb.checked) s.add(cb.dataset.pcDept); else s.delete(cb.dataset.pcDept); cfg().depts = [...s]; ctx.commit('Production commission settings saved', 'Production commission settings changed (departments)'); }));
   }
   // The dashboard card: active products not yet filled for today (and yesterday, if people shared that day).
+  const bm = () => (ctx.lang ? ctx.lang() : 'en') === 'bm';
   function fillCard() {
     if (!canEntry() || !configured()) return '';
     const hadWork = (d) => !!days()[d] || Object.values(st().attendance?.[d] || {}).some((r) => r && (r.s === 'present' || r.s === 'remote') && r.in);
     const todo = P.toFill({ products: prods(), days: Object.fromEntries([T(), U.addDays(T(), -1)].map((d) => [d, { items: [...filledPids(d)].map((pid) => ({ pid })) }])), today: T(), hadWork });
     if (!todo.length) return '';
-    const label = (d) => (d === T() ? 'Today / Hari ini' : 'Yesterday / Semalam');
-    return `<div class="card" id="prod-fill"><div class="card-head"><h3>${st().settings?.staffApp?.lang === 'bm' ? 'Pengeluaran perlu diisi' : 'Production to fill'}</h3><span class="hint">${todo.reduce((n, x) => n + x.products.length, 0)} open</span></div>
+    const label = (d) => (bm() ? (d === T() ? 'Hari ini' : 'Semalam') : (d === T() ? 'Today' : 'Yesterday'));
+    return `<div class="card" id="prod-fill"><div class="card-head"><h3>${bm() ? 'Pengeluaran perlu diisi' : 'Production to fill'}</h3><span class="hint">${todo.reduce((n, x) => n + x.products.length, 0)} ${bm() ? 'belum diisi' : 'open'}</span></div>
       <div class="list">${todo.map((x) => `<a class="list-item pf-row" href="#production" data-act="prod-day" data-v="${x.date}"><div class="grow"><div class="person-name">${esc(label(x.date))}</div><div class="person-sub">${x.products.map((p) => esc(p.name)).join(', ')}</div></div><span class="pill warn">${x.products.length}</span></a>`).join('')}</div></div>`;
   }
 

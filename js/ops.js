@@ -710,7 +710,7 @@ window.AllurusOps = (function () {
   }
 
   // ---------- Operations today: the admin manager's one page; the owner also gets the month so far ----------
-  const card = (title, link, body, tone = '') => `<div class="card ops-card ${tone}"><div class="card-head"><h3>${title}</h3>${link ? `<a class="hint" href="#${link}">Open</a>` : ''}</div>${body}</div>`;
+  const card = (title, link, body, tone = '') => `<div class="card ops-card ${tone}"><div class="card-head"><h3>${title}</h3>${link ? `<a class="hint" href="#${link}">${(ctx.lang ? ctx.lang() : 'en') === 'bm' ? 'Buka' : 'Open'}</a>` : ''}</div>${body}</div>`;
   const big = (v, label) => `<div class="ops-big"><span class="kpi-value">${v}</span><span class="faint">${label}</span></div>`;
   const rows = (list, none = 'Nothing') => `<ul class="hr-list">${list.join('') || `<li class="faint">${none}</li>`}</ul>`;
   function manpower() {
@@ -727,9 +727,10 @@ window.AllurusOps = (function () {
     const depts = st().departments.map((d) => ({ d, n: staff.filter((e) => e.dept === d.id).length, inN: by.in.filter((e) => e.dept === d.id).length })).filter((x) => x.n);
     // Overtime worked this month, after the monthly limits, from the time rules.
     const ot = ctx.time ? staff.reduce((s, e) => s + (ctx.time.monthFor(e, t.slice(0, 7)).paidMin || 0), 0) : 0;
-    return card('Manpower', 'attendance', `${big(`${by.in.length}`, working ? `of ${staff.length} checked in` : `of ${staff.length} checked in · Rest day`)}
-      <div class="chips" style="margin:8px 0">${by.leave.length ? `<span class="tag">On leave: ${by.leave.map((e) => esc(e.first)).join(', ')}</span>` : ''}${by.absent.length ? `<span class="tag warn">Not in yet: ${by.absent.map((e) => esc(e.first)).join(', ')}</span>` : ''}${by.late.length ? `<span class="tag">Late: ${by.late.map((e) => esc(e.first)).join(', ')}</span>` : ''}</div>
-      ${rows(depts.map((x) => `<li><span>${esc(U.title(x.d.name))}</span><span class="num">${x.inN} / ${x.n}</span></li>`))}${ot ? `<p class="faint">${Math.round(ot / 60)} h overtime worked this month</p>` : ''}`, by.absent.length > 2 ? 'warn' : '');
+    const bm = (ctx.lang ? ctx.lang() : 'en') === 'bm', X = bm ? { t: 'Tenaga kerja', open: 'Buka', of: `daripada ${staff.length} sudah daftar masuk`, rest: 'Hari rehat', leave: 'Bercuti', absent: 'Belum masuk', late: 'Lewat', ot: 'jam kerja lebih masa bulan ini' } : { t: 'Manpower', open: 'Open', of: `of ${staff.length} checked in`, rest: 'Rest day', leave: 'On leave', absent: 'Not in yet', late: 'Late', ot: 'h overtime worked this month' };
+    return card(X.t, 'attendance', `${big(`${by.in.length}`, working ? X.of : `${X.of} · ${X.rest}`)}
+      <div class="chips" style="margin:8px 0">${by.leave.length ? `<span class="tag">${X.leave}: ${by.leave.map((e) => esc(e.first)).join(', ')}</span>` : ''}${by.absent.length ? `<span class="tag warn">${X.absent}: ${by.absent.map((e) => esc(e.first)).join(', ')}</span>` : ''}${by.late.length ? `<span class="tag">${X.late}: ${by.late.map((e) => esc(e.first)).join(', ')}</span>` : ''}</div>
+      ${rows(depts.map((x) => `<li><span>${esc(U.title(x.d.name))}</span><span class="num">${x.inN} / ${x.n}</span></li>`))}${ot ? `<p class="faint">${Math.round(ot / 60)} ${X.ot}</p>` : ''}`, by.absent.length > 2 ? 'warn' : '');
   }
   // Average daily use of a raw material over the last 30 days, from production moves.
   const used30 = (itemId) => -allMoves().filter((m) => m.itemId === itemId && m.qty < 0 && m.date > U.addDays(T(), -30)).reduce((s, m) => s + m.qty, 0);

@@ -6,7 +6,7 @@ window.U = (function () {
   const today = () => iso(new Date());
   // How a name is shown: text typed all in capitals is shown as "Supervisory daily production". Only the display changes; the data stays as typed.
   // Short words (HR, IT, QA) and anything that already has lower-case letters are left alone.
-  const KEEP_CAPS = new Set(['HR', 'IT', 'QA', 'QC', 'HSE', 'EHS', 'R&D', 'PR', 'CEO', 'CFO', 'KL', 'SDN', 'BHD']);
+  const KEEP_CAPS = new Set(['HR', 'IT', 'QA', 'QC', 'HSE', 'EHS', 'R&D', 'PR', 'CEO', 'CFO', 'KL', 'SDN', 'BHD', 'LHDN', 'MR', 'PO', 'DO', 'EPF', 'SOCSO', 'EIS', 'SST', 'SSM', 'KWSP', 'PERKESO', 'OT', 'HQ', 'QS', 'SOP', 'PPE', 'CNC', 'ERP', 'POS', 'PM', 'GM', 'AP', 'AR']);
   // A person's name typed in capitals is shown as "Muhammad Amirul Hakim bin Mohd Zakaria". Particles (bin, binti, a/l, a/p) stay lower case after the first word;
   // initials ("N.W", "C.") and one-letter words stay as typed. A part that is not all capitals is left exactly as typed. Display only.
   const PARTICLES = new Set(['bin', 'binti', 'bte', 'bt', 'b', 'a/l', 'a/p', 'anak', 'al', 'ibni', 'ibn']);
@@ -19,6 +19,7 @@ window.U = (function () {
       if (!w.trim()) return w;
       const first = lead && n++ === 0, lw = w.toLowerCase();
       if (w.includes('.') || w.length <= 1) return w;
+      if (/^(MR|HR|PO|LHDN)$/.test(w)) return w;   // an abbreviation typed in capitals stays
       if (PARTICLES.has(lw) && !first) return lw;
       return lw.replace(/(^|[-'’/])([a-z])/g, (m, p, c) => p + c.toUpperCase());
     }).join('');

@@ -32,7 +32,7 @@ test('the launcher uses one tile style; the section is a heading with a colour d
 
 test('a company can hide the apps it does not use, but never home, approvals, settings or billing', () => {
   assert.ok(app.includes("const KEEP_APPS = ['dashboard', 'approvals', 'settings', 'billing']"));
-  assert.ok(app.includes('hiddenApps().has(r.id)') && app.includes("'app-toggle'") && app.includes('function appsCard'));
+  assert.ok(app.includes('!appHidden(r.id)') && app.includes("'app-toggle'") && app.includes('function appsCard'));
 });
 
 test('the trial banner is quiet until the last 14 days', () => {
@@ -50,4 +50,20 @@ test('new users start in light', () => {
 
 test('the Get started checklist folds away after the first week', () => {
   assert.ok(read('js/experience.js').includes("7 * 864e5) return '';"));
+});
+
+test('Title Case keeps abbreviations in capitals and never touches stock item names', () => {
+  const sb = { window: {} }; vm.createContext(sb); vm.runInContext(read('js/utils.js'), sb);
+  const U = sb.window.U;
+  assert.equal(U.title('LHDN TAX FILING'), 'LHDN Tax Filing');
+  assert.equal(U.title('HR & ADMIN'), 'HR & Admin');
+  assert.equal(U.title('PO CLERK'), 'PO Clerk');
+  assert.equal(U.title('MR OFFICE'), 'MR Office');
+  assert.equal(U.softName('ABDUL GHANI MR', true), 'Abdul Ghani MR');
+  assert.equal(U.title('Quality Control'), 'Quality Control');
+  for (const f of ['js/ops.js', 'js/stock-req.js', 'js/stock-rules.js']) assert.ok(!/U\.(title|softName|soften)\(/.test(read(f).replace(/U\.title\(x\.d\.name\)/g, '')), `${f}: item and stock text is shown exactly as typed`);
+});
+
+test('hiding an app also hides the staff page for it (Employee view)', () => {
+  assert.ok(app.includes("STAFF_OF = { leave: 'my-leave'") && app.includes("!['admin', 'employee'].includes(role())"));
 });
