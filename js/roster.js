@@ -18,7 +18,7 @@ window.AllurusTime = (function () {
   const STATUS = { present: 'In office', remote: 'Remote', absent: 'Absent', leave: 'Leave' };
 
   // ---------- Data helpers ----------
-  const patterns = () => cfg().patterns;
+  const patterns = () => (Array.isArray(cfg().patterns) ? cfg().patterns : []).filter((p) => p && typeof p === 'object');   // a hole in the list is not a pattern
   const pat = (id) => patterns().find((p) => p.id === id) || null;
   const calFor = (from, to) => LR.calendarCtx(st().settings.leave, from, to);
   const recOf = (day, id) => st().attendance[day]?.[id] || null;
@@ -41,7 +41,15 @@ window.AllurusTime = (function () {
     return R.resolveDay({ day, rec, roster: rosterOf(day, e.id), empPattern: e.timePattern, deptPattern: cfg().deptPattern?.[e.dept], cfg: cfg(), holiday: cal.holidays.has(day), companyRest: cal.weekend.includes(R.dow(day)) });
   }
   // Everything about one person's day: the shift, the day type, lateness, early-out and overtime.
-  function dayInfo(e, day, cal = calFor(day, day)) {
+  // One person's bad data must never stop the workspace opening: on an error this day is shown as having no shift.
+  function dayInfo(e, day, cal) {
+    try { return dayInfoRaw(e, day, cal || calFor(day, day)); } catch (err) {
+      console.warn('[Allurus] day skipped', e?.id, day, err?.message);
+      const rec = recOf(day, e?.id);
+      return { day, rec, pattern: null, source: 'none', off: false, type: 'normal', ev: R.evaluate({ rec: null, pattern: null, type: 'normal', rules: otRules() }), leave: false, waiver: false };
+    }
+  }
+  function dayInfoRaw(e, day, cal) {
     const rec = recOf(day, e.id), res = resolve(e, day, rec, cal);
     const ev = R.evaluate({ rec, pattern: res.pattern, type: res.type, rules: otRules(), waived: approvedReqs(e.id, day, 'waiver').length > 0, approvedMin: approvedMin(e.id, day) });
     return { day, rec, ...res, ev, leave: rec?.s === 'leave' || onLeave(e.id, day), waiver: approvedReqs(e.id, day, 'waiver').length > 0 };

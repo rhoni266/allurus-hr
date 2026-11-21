@@ -237,6 +237,26 @@ const PW = 'Pass-Word-2026!';
     ok('After a successful cloud sign-in: the 4 demo keys are gone; the POS demo stays; the cloud workspace is saved', after.demo === 0 && after.pos && after.cloud, JSON.stringify(after));
     await ctx.close();
   }
+  // ---- 11. hotfix 3.87: Friday-only rest days, a Saturday, a null in the pattern list, a department on None and a deleted pattern id: the workspace opens ----
+  {
+    const o2 = await signIn('owner@co1.test'), p2 = o2.page;
+    const T = await p2.evaluate(() => {
+      const A = window.AllurusApp, st = A.state, T = window.U.today();
+      st.settings.leave.weekend = 'fri'; st.settings.leave.restDays = [5];
+      st.settings.time.patterns.unshift(null);
+      st.settings.time.deptPattern = Object.fromEntries((st.departments || []).map((d) => [d.id, '']));
+      const emps = st.employees.filter((e) => e.status === 'Active');
+      emps.forEach((e, k) => { if (k % 2) e.timePattern = 'gone-pattern'; });
+      st.attendance[T] = st.attendance[T] || {}; emps.forEach((e) => { st.attendance[T][e.id] = { s: 'present', in: '09:05', out: '18:10' }; });
+      A.refresh(true); return T;
+    });
+    for (const h of ['dashboard', 'attendance', 'schedule', 'my-time']) { await go(p2, h).catch(() => {}); }
+    const bad = o2.errors.filter((m) => /flexible|Cannot read properties of null/.test(m));
+    const navOk = /Dashboard|Home/.test(await navText(p2));
+    const failed = await p2.evaluate(() => /This screen couldn’t load|Couldn’t open your workspace/.test(document.body.innerText));
+    ok('Friday-only + Saturday + null pattern + dept None + deleted pattern id: workspace open, no null error, no failed screen', navOk && !bad.length && !failed, `${T} nav=${navOk} failed=${failed} errors=${bad.length} ${o2.errors.slice(0, 2).join(' | ').slice(0, 160)} ${JSON.stringify((await p2.evaluate(() => document.body.innerText)).slice(0, 90))}`);
+    await o2.ctx.close();
+  }
   console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
   await b.close().catch(() => {}); srv.close(); await env.cleanup().catch(() => {});
   process.exit(results.every(Boolean) ? 0 : 1);

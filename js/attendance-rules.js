@@ -63,7 +63,10 @@ window.AllurusTimeRules = (function () {
   // ---------- Which shift applies ----------
   // The roster comes first (a pattern id, or 'off'), then the person's own pattern, then their department's.
   // A fixed pattern does not apply on days outside its working days: that is a rest day.
+  // A pattern list can hold holes (a null left by a merge or a deleted pattern); those are not patterns.
+  const realPatterns = (patterns) => (Array.isArray(patterns) ? patterns : []).filter((p) => p && typeof p === 'object');
   function patternFor({ day, roster, empPattern, deptPattern, patterns }) {
+    patterns = realPatterns(patterns);
     const byId = (id) => (id && patterns.find((p) => p.id === id)) || null;
     if (roster === 'off') return { pattern: null, source: 'roster', off: true };
     if (byId(roster)) return { pattern: byId(roster), source: 'roster', off: false };
@@ -79,7 +82,7 @@ window.AllurusTimeRules = (function () {
     const m = toMin(inHM);
     if (m == null) return null;
     let best = null, bestD = Infinity;
-    (patterns || []).filter((p) => !p.flexible).forEach((p) => {
+    realPatterns(patterns).filter((p) => !p.flexible).forEach((p) => {
       const d0 = Math.abs(m - toMin(p.start)), d = Math.min(d0, 1440 - d0);
       if (d < bestD) { best = p; bestD = d; }
     });
@@ -105,7 +108,7 @@ window.AllurusTimeRules = (function () {
     let I = toMin(rec?.in);
     if (I == null) return null;
     let S = null, E = null;
-    if (pattern) {
+    if (pattern && typeof pattern === 'object') {
       S = toMin(pattern.flexible ? pattern.coreStart || pattern.start : pattern.start);
       E = toMin(pattern.flexible ? pattern.coreEnd || pattern.end : pattern.end);
       if (E <= S) E += 1440;
@@ -152,6 +155,7 @@ window.AllurusTimeRules = (function () {
     if (!c) return res;
     const { I, O, S, E } = c;
     res.open = O == null;
+    if (pattern && typeof pattern !== 'object') pattern = null;
     const brk = pattern ? Number(pattern.breakMin) || 0 : 60;
     const span = O == null ? 0 : O - I;
     // Several sessions in a day (stepped out and came back): hours worked are the sum of the sessions, so the time away is not
@@ -256,7 +260,7 @@ window.AllurusTimeRules = (function () {
   // True once a shift that started on `day` has finished at nowDay/nowHM. No shift: the day is over at midnight.
   function shiftEnded({ day, pattern = null, nowDay, nowHM }) {
     const now = Math.round((parse(nowDay) - parse(day)) / 86400000) * 1440 + (toMin(nowHM) || 0);
-    if (!pattern) return now >= 1440;
+    if (!pattern || typeof pattern !== 'object') return now >= 1440;
     let S = toMin(pattern.flexible ? pattern.coreStart || pattern.start : pattern.start), E = toMin(pattern.flexible ? pattern.coreEnd || pattern.end : pattern.end);
     if (E <= S) E += 1440;
     return now >= E;
@@ -330,6 +334,7 @@ window.AllurusTimeRules = (function () {
   // Shifts that run into the next one: a shift ending after the next day's shift has started.
   // assign = { day: patternId|'off'|'' } for one person; returns the days whose shift clashes with the day before.
   function overlaps(assign, patterns) {
+    patterns = realPatterns(patterns);
     const byId = (id) => patterns.find((p) => p.id === id);
     const days = Object.keys(assign).sort(), out = [];
     days.forEach((d) => {

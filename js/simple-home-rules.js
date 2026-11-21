@@ -36,7 +36,7 @@
   // "late" once the person has checked in, and for "short hours" only after check-out; it is never counted absent.
   const WORKED = ['present', 'remote'];
   const shiftLen = (p) => {
-    if (!p) return null;
+    if (!p || typeof p !== 'object') return null;
     const m = (hm) => { const [h, mi] = String(hm).split(':').map(Number); return h * 60 + mi; };
     if (p.flexible) return (Number(p.hours) || 8) * 60;
     let s = m(p.start), e = m(p.end); if (e <= s) e += 1440; return e - s - (Number(p.breakMin) || 0);

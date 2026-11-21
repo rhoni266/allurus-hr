@@ -861,7 +861,13 @@
     const setup = ['super', 'auditor'].includes(role()) && r === routes()[0].id ? AllurusUX.setupCard() : '';
     // Admins on a phone: heavy screens still open, with a small note (docs/DEVICE-RULES-SPEC.md).
     const heavy = role() === 'admin' && HEAVY.has(r) && window.AllurusDevice?.here() === 'phone' ? '<p class="lock-banner" role="note" style="margin-bottom:12px">Easier on a laptop or PC.</p>' : '';
-    view.innerHTML = simpleOn() ? VIEWS[r]() : billingUi.banner() + heavy + (r === routes()[0].id ? billingUi.checklist() : '') + setup + VIEWS[r]();
+    // A screen that fails to calculate shows a short notice instead of stopping the whole app (the workspace stays open and signed in).
+    let body;
+    try { body = VIEWS[r](); } catch (err) {
+      console.warn('[Allurus] screen failed:', r, err?.message || err);
+      body = '<div class="card" style="padding:18px" role="alert"><h3>This screen couldn’t load</h3><p class="muted">Something in the data stopped it. The rest of Allurus still works. Try again, or ask HR to check the working patterns in Settings.</p></div>';
+    }
+    view.innerHTML = simpleOn() ? body : billingUi.banner() + heavy + (r === routes()[0].id ? billingUi.checklist() : '') + setup + body;
     AFTER[r]?.();
     decorateHead(r);
     if (role() !== 'employee' && window.AllurusMobile) { AllurusMobile.setLang(state.settings.staffApp?.lang === 'bm' ? 'bm' : 'en'); AllurusMobile.enhance(view); AllurusMobile.watch(); }   // phone: cards, one main button, Filters sheet
@@ -951,16 +957,11 @@
       if (pd >= 0 && pd <= 7) add('good', 'wallet', pd === 0 ? 'It’s payday' : `Payday in ${plural(pd, 'day', 'days')}`, U.fmtDate(payday, { weekday: 'long', month: 'short', day: 'numeric' }), { label: 'Payslips', href: '#my-pay' }, 1);
       if (+T.slice(5, 7) >= 9) add('info', 'percent', 'Lower your tax before the year ends', 'Add receipts for books, sports, medical and courses.', { label: 'Tax reliefs', href: '#my-tax' }, 0);
     }
-    if (leaveApi) out.push(...leaveApi.insights());
-    if (timeApi) out.push(...timeApi.insights());
-    if (docsApi) out.push(...docsApi.insights());
-    if (claimsApi) out.push(...claimsApi.insights());
-    if (notifyApi) out.push(...notifyApi.insights());
-    if (appraisalApi) out.push(...appraisalApi.insights());
-    if (hrApi) out.push(...hrApi.insights());
-    if (costingApi) out.push(...costingApi.insights());
-    if (einvApi) out.push(...einvApi.insights());
-    [recruitApi, lmsApi, grievApi, roomsApi, opsApi, posApi].forEach((a) => { if (a) out.push(...a.insights()); });
+    // One module's failing calculation must not take the others, or the whole dashboard, down with it.
+    const from = (name, a) => { if (!a) return; try { out.push(...a.insights()); } catch (err) { console.warn('[Allurus] insights skipped:', name, err?.message); } };
+    from('leave', leaveApi); from('time', timeApi); from('docs', docsApi); from('claims', claimsApi); from('notify', notifyApi); from('appraisal', appraisalApi);
+    from('hr', hrApi); from('costing', costingApi); from('einv', einvApi);
+    [['recruit', recruitApi], ['lms', lmsApi], ['grievance', grievApi], ['rooms', roomsApi], ['ops', opsApi], ['pos', posApi]].forEach(([n, a]) => from(n, a));
     return out.sort((a, b) => b.prio - a.prio);
   }
   const actionLink = (a, cls = 'btn btn-sm') => a.href ? `<a class="${cls}" href="${a.href}">${esc(a.label)}</a>` : `<button type="button" class="${cls}" data-act="${a.act}" ${a.id ? `data-id="${a.id}"` : ''} ${a.v ? `data-v="${a.v}"` : ''}>${esc(a.label)}</button>`;
