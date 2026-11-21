@@ -811,6 +811,7 @@
     applyTheme();
     // Rest days follow the company's leave settings (Friday–Saturday in Kedah, Kelantan and Terengganu).
     if (state.settings.leave) U.setWeekend(AllurusLeaveRules.weekendDays(state.settings.leave));
+    U.setWeekendSource(() => (state.settings?.leave ? AllurusLeaveRules.weekendDays(state.settings.leave) : null));
     // A device set up as a check-in kiosk shows only the kiosk, signed in or not.
     if (kioskApi?.kioskOn()) { kioskApi.renderKiosk(); return; }
     // The public careers page (#careers/<company>/<role>) needs no sign-in.

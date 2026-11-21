@@ -13,6 +13,14 @@ window.AllurusLeave = (function () {
   const UNKNOWN = { id: '', name: 'Leave', color: '#8A8F98', paid: true, days: 0, tiers: [0, 0, 0], includes: [], on: false, calendar: false };
   // 'off': a colleague's leave from the safe calendar copy (cloud), shown without its type.
   const typeOf = (id) => types().find((t) => t.id === id) || { ...UNKNOWN, id, name: id === 'off' ? 'Off' : id || 'Leave' };
+  // Changes the rest days. Shifts whose working days were exactly the old work week follow the new one; a shift someone set by hand is left alone.
+  function setRest(days) {
+    const old = R.weekendDays(cfg()), c = cfg();
+    if (!R.setRestDays(c, days)) return false;
+    const was = [0, 1, 2, 3, 4, 5, 6].filter((d) => !old.includes(d)), now = [0, 1, 2, 3, 4, 5, 6].filter((d) => !c.restDays.includes(d));
+    (st().settings.time?.patterns || []).forEach((p) => { if (Array.isArray(p.days) && p.days.length === was.length && was.every((d) => p.days.includes(d))) p.days = now.slice(); });
+    return true;
+  }
   const typeName = (id) => typeOf(id).name;
   // Lower-case a type name inside a sentence, but keep names like “Sick (MC)” as they are.
   const lc = (name) => (/[A-Z]{2}/.test(name) ? name : name.toLowerCase());
@@ -390,7 +398,7 @@ window.AllurusLeave = (function () {
     } else if (ui.tab === 'calendar') body = calendarCard();
     else body = balancesCard();
     return `<div class="page-head"><div><div class="eyebrow">Time off</div><h1>Leave</h1>
-        <p class="sub">${c.state ? `${esc(c.state)} calendar` : 'Company calendar'} · rest days ${(R.WEEKEND_LABELS[c.weekend] || R.WEEKEND_LABELS['sat-sun']).replace(' only', '')} · ${hols.length} public holidays in ${y}. <a href="#settings/leave" data-act="lv-goto-settings">Leave settings</a></p></div>
+        <p class="sub">${c.state ? `${esc(c.state)} calendar` : 'Company calendar'} · rest days ${R.restLabel(R.weekendDays(c)).replace(' only', '')} · ${hols.length} public holidays in ${y}. <a href="#settings/leave" data-act="lv-goto-settings">Leave settings</a></p></div>
         <div class="actions"><button class="btn" data-act="lv-export">${ctx.icon('download')}Export CSV</button><button class="btn btn-primary" data-act="new-leave">${ctx.icon('plus')}New request</button></div></div>
       <div class="seg lv-tabs" role="tablist" aria-label="Leave views">${tabs.map(([id, l]) => `<button role="tab" aria-selected="${ui.tab === id}" class="${ui.tab === id ? 'on' : ''}" data-act="lv-tab" data-v="${id}">${l}${id === 'requests' && counts.Pending ? ` <span class="faint">${counts.Pending}</span>` : ''}</button>`).join('')}</div>
       ${ui.tab === 'calendar' ? `<div class="grid g-main lv-top"><div>${body}</div><div class="lv-side">${whoOffCard()}${holidayListCard(4)}</div></div>` : `${body}<div class="grid g-2">${whoOffCard()}${holidayListCard(4)}</div>`}`;
@@ -475,7 +483,8 @@ window.AllurusLeave = (function () {
 
       <div class="card" id="leave-holidays"><div class="card-head"><h3>Public holidays and work week</h3><div class="actions"><button class="btn btn-sm btn-icon" data-act="lv-holyear" data-v="-1" aria-label="Previous year">${ctx.icon('left')}</button><strong class="num">${y}</strong><button class="btn btn-sm btn-icon" data-act="lv-holyear" data-v="1" aria-label="Next year">${ctx.icon('right')}</button></div></div>
         <div class="settings-row"><div><div class="label"><label for="lv-state">State</label></div><div class="desc">Sets the state holidays and the usual rest days.</div></div><select class="select" id="lv-state"><option value="">Outside Malaysia (no built-in holidays)</option>${R.STATES.map((s) => `<option ${c.state === s.name ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></div>
-        <div class="settings-row"><div><div class="label">Rest days</div><div class="desc">Kedah, Kelantan and Terengganu usually rest on Friday and Saturday. Leave days and attendance skip rest days.</div></div><div class="seg" role="group" aria-label="Rest days">${[['sat-sun', 'Saturday & Sunday'], ['fri-sat', 'Friday & Saturday'], ['sun', 'Sunday only']].map(([v, l]) => `<button data-act="lv-weekend" data-v="${v}" class="${c.weekend === v ? 'on' : ''}" aria-pressed="${c.weekend === v}">${l}</button>`).join('')}</div></div>
+        <div class="settings-row"><div><div class="label">Rest days</div><div class="desc">Tap the days your company rests (any of the seven), or start from a preset. Kedah, Kelantan and Terengganu usually rest on Friday and Saturday. Leave days, attendance, the dashboard and overtime all follow this.</div></div><div><div class="seg" role="group" aria-label="Rest day presets">${[['sat-sun', 'Saturday & Sunday'], ['fri-sat', 'Friday & Saturday'], ['fri', 'Friday only'], ['sun', 'Sunday only']].map(([v, l]) => `<button data-act="lv-weekend" data-v="${v}" class="${R.presetOf(R.weekendDays(c)) === v ? 'on' : ''}" aria-pressed="${R.presetOf(R.weekendDays(c)) === v}">${l}</button>`).join('')}</div>
+          <div class="seg" role="group" aria-label="Rest days" style="margin-top:8px">${[1, 2, 3, 4, 5, 6, 0].map((d) => `<button data-act="lv-restday" data-v="${d}" class="${R.weekendDays(c).includes(d) ? 'on' : ''}" aria-pressed="${R.weekendDays(c).includes(d)}" aria-label="${R.DAY_NAMES[d]}">${R.DAY_NAMES[d].slice(0, 3)}</button>`).join('')}</div></div></div>
         <div class="settings-row"><div><div class="label">Replacement holidays</div><div class="desc">When a holiday falls on a rest day, the next working day is a holiday.</div></div><div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="lv-replace" data-v="${v}" class="${(c.replacement !== false ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
         ${c.state && !built ? `<div class="lock-banner warn">${ctx.icon('pin')}<span>No built-in holidays for ${y} yet. Add them below as company holidays once they’re gazetted.</span></div>` : ''}
         <div class="table-wrap"><table class="hol-table"><thead><tr><th>Date</th><th>Holiday</th><th class="hide-sm">Type</th><th>Observed</th><th></th></tr></thead><tbody>
@@ -509,7 +518,7 @@ window.AllurusLeave = (function () {
       else t[f] = Math.max(0, Math.round(+el.value || 0));
       ctx.commit('Leave policy saved');
     }));
-    ctx.$('#lv-state')?.addEventListener('change', (ev) => { c.state = ev.target.value; c.weekend = c.state ? R.stateWeekend(c.state) : c.weekend; ctx.commit(c.state ? `${c.state} calendar. Rest days set to ${c.weekend === 'fri-sat' ? 'Friday and Saturday' : 'Saturday and Sunday'}.` : 'Built-in holidays turned off'); });
+    ctx.$('#lv-state')?.addEventListener('change', (ev) => { c.state = ev.target.value; if (c.state) setRest(R.WEEKENDS[R.stateWeekend(c.state)]); ctx.commit(c.state ? `${c.state} calendar. Rest days set to ${R.restLabel(R.weekendDays(c))}.` : 'Built-in holidays turned off'); });
     ctx.$$('[data-act-hol]').forEach((el) => el.addEventListener('change', () => {
       const off = new Set(c.holidaysOff || []); if (el.checked) off.delete(el.dataset.actHol); else off.add(el.dataset.actHol);
       c.holidaysOff = [...off]; ctx.commit(el.checked ? 'Holiday observed' : 'Holiday removed from your calendar');
@@ -557,7 +566,8 @@ window.AllurusLeave = (function () {
       'lv-export': () => ctx.downloadCSV(`leave-${yearNow()}.csv`, [['Employee', 'Department', 'Type', 'From', 'To', 'Half day', 'Days', 'Paid', 'Status', 'Next approver', 'Reason'],
         ...st().leaves.map((l) => { const e = ctx.emp(l.empId); const n = R.nextStep(l.chain); return [ctx.fullName(e), ctx.dept(e?.dept)?.name || '', typeName(l.type), l.from, l.to, l.half || '', l.days, typeOf(l.type).paid ? 'Yes' : 'No', l.status, n ? nameOf(n.approver) : '', l.reason || '']; })]),
       'lv-divisor': (_, v) => { cfg().unpaidDivisor = v; ctx.commit('Unpaid leave deduction saved'); },
-      'lv-weekend': (_, v) => { cfg().weekend = v; ctx.commit(`Rest days: ${R.WEEKEND_LABELS[v] || v}`); },
+      'lv-weekend': (_, v) => { if (!R.WEEKENDS[v]) return; setRest(R.WEEKENDS[v]); ctx.commit(`Rest days: ${R.restLabel(R.weekendDays(cfg()))}`); },
+      'lv-restday': (_, v) => { const d = +v, cur = R.weekendDays(cfg()), next = cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d]; if (!R.validDays(next)) { ctx.toast('Keep at least one working day.', 'error'); return; } setRest(next); ctx.commit(`Rest days: ${R.restLabel(R.weekendDays(cfg()))}`); },
       'lv-replace': (_, v) => { cfg().replacement = v === 'on'; ctx.commit(v === 'on' ? 'Replacement holidays on' : 'Replacement holidays off'); },
       'lv-holyear': (_, v) => { ui.holYear += +v; ctx.render(); setTimeout(() => ctx.$('#leave-holidays')?.scrollIntoView({ block: 'start' }), 30); },
       'lv-hol-del': (date, name) => { cfg().holidaysCustom = (cfg().holidaysCustom || []).filter((h) => !(h.date === date && h.name === name)); ctx.commit('Holiday removed'); },

@@ -19,8 +19,10 @@
 
   // ---------- States and work weeks ----------
   // 'sun': a six-day week (Monday to Saturday), common in factories, with Sunday as the only rest day.
-  const WEEKENDS = { 'sat-sun': [6, 0], 'fri-sat': [5, 6], sun: [0] };
-  const WEEKEND_LABELS = { 'sat-sun': 'Saturday and Sunday', 'fri-sat': 'Friday and Saturday', sun: 'Sunday only' };
+  // The rest days are any of the seven days (cfg.restDays, 0 = Sunday … 6 = Saturday). The presets below are shortcuts; cfg.weekend keeps the preset's key, or 'custom'.
+  const WEEKENDS = { 'sat-sun': [6, 0], 'fri-sat': [5, 6], fri: [5], sun: [0] };
+  const WEEKEND_LABELS = { 'sat-sun': 'Saturday and Sunday', 'fri-sat': 'Friday and Saturday', fri: 'Friday only', sun: 'Sunday only' };
+  const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   // Kedah, Kelantan and Terengganu rest on Friday and Saturday. Johor returned to Saturday–Sunday in 2025.
   const STATES = [
     ['Johor', 'sat-sun'], ['Kedah', 'fri-sat'], ['Kelantan', 'fri-sat'], ['Melaka', 'sat-sun'], ['Negeri Sembilan', 'sat-sun'],
@@ -29,7 +31,12 @@
   ].map(([name, weekend]) => ({ name, weekend }));
   const stateWeekend = (state) => STATES.find((s) => s.name === state)?.weekend || 'sat-sun';
   const CITY_STATE = { Kuantan: 'Pahang', 'Kuala Lumpur': 'Kuala Lumpur', Muar: 'Johor' };
-  const weekendDays = (cfg) => WEEKENDS[cfg?.weekend] || WEEKENDS['sat-sun'];
+  const validDays = (a) => Array.isArray(a) && a.length >= 1 && a.length <= 6 && a.every((d) => Number.isInteger(d) && d >= 0 && d <= 6) && new Set(a).size === a.length;
+  const weekendDays = (cfg) => (validDays(cfg?.restDays) ? cfg.restDays.slice() : WEEKENDS[cfg?.weekend] || WEEKENDS['sat-sun']);
+  const presetOf = (days) => Object.keys(WEEKENDS).find((k) => WEEKENDS[k].length === days.length && WEEKENDS[k].every((d) => days.includes(d))) || 'custom';
+  const restLabel = (days) => { const k = presetOf(days); if (k !== 'custom') return WEEKEND_LABELS[k]; const n = [1, 2, 3, 4, 5, 6, 0].filter((d) => days.includes(d)).map((d) => DAY_NAMES[d]); return n.length > 1 ? `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}` : n[0]; };
+  // Sets the company's rest days (1 to 6 of the seven); false when the choice leaves no working day. Keeps cfg.weekend in step for older readers.
+  const setRestDays = (cfg, days) => { const d = [...new Set(days)].sort((a, b) => a - b); if (!validDays(d)) return false; cfg.restDays = d; cfg.weekend = presetOf(d); return true; };
 
   // ---------- Public holidays ----------
   // DATES: verify against the official gazette before production — federal holidays from the Prime Minister's
@@ -275,7 +282,7 @@
   const unpaidDeduction = ({ base, days, divisor: div }) => (days > 0 && div > 0 ? r2(Math.min(base, (base / div) * days)) : 0);
 
   const api = {
-    WEEKENDS, WEEKEND_LABELS, STATES, CITY_STATE, HOLIDAYS, TIER_LABELS, DEFAULT_TYPES, defaultTypes, defaultSettings, stateWeekend, weekendDays, builtInYears,
+    WEEKENDS, WEEKEND_LABELS, DAY_NAMES, validDays, presetOf, restLabel, setRestDays, STATES, CITY_STATE, HOLIDAYS, TIER_LABELS, DEFAULT_TYPES, defaultTypes, defaultSettings, stateWeekend, weekendDays, builtInYears,
     holidaysFor, holidaySet, calendarCtx, isWorkingDay, countDays, countDaysInMonth, workingDaysInMonth,
     serviceYears, serviceMonths, monthsInYear, eligible, entitlement, usage, balance, carryForward,
     buildChain, nextStep, canAct, decide, divisor, unpaidDeduction, roundHalfUp, addDays, monthEnd, daysBetween, dow,

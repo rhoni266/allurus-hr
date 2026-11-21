@@ -49,7 +49,10 @@ window.U = (function () {
   // Friday–Saturday week (Kedah, Kelantan, Terengganu); set from the leave settings on every render.
   let WEEKEND = [0, 6];
   const setWeekend = (days) => { if (Array.isArray(days) && days.length) WEEKEND = days.slice(); };
-  const isWeekend = (s) => WEEKEND.includes(parse(s).getDay());
+  // The company's current rest days are read live from the settings (set by the app), so no screen can count with a stale copy.
+  let WEEKEND_SRC = null;
+  const setWeekendSource = (fn) => { WEEKEND_SRC = typeof fn === 'function' ? fn : null; };
+  const isWeekend = (s) => ((WEEKEND_SRC && WEEKEND_SRC()) || WEEKEND).includes(parse(s).getDay());
   const lastWorkday = (s) => { let x = s; while (isWeekend(x)) x = addDays(x, -1); return x; };
   const workdaysBetween = (a, b) => { let n = 0, x = a; while (x <= b) { if (!isWeekend(x)) n++; x = addDays(x, 1); } return n; };
   const monthKey = (s) => s.slice(0, 7);
@@ -312,5 +315,5 @@ window.U = (function () {
     } catch (e) { return sha256js(msg); }
   }
 
-  return { soften, softName, title, parseCoords, parseCoordsDetailed, hasCoords, distanceM, resolveZone, applyPublishedZone, checkZone, GPS_SLACK_M, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, locateError: () => lastLocateError, pad, iso, parse, today, addDays, isWeekend, setWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
+  return { setWeekendSource, soften, softName, title, parseCoords, parseCoordsDetailed, hasCoords, distanceM, resolveZone, applyPublishedZone, checkZone, GPS_SLACK_M, fmtCoords, fmtDist, hashPassword, sha256js, CITIES, city, distanceKm, nearestCity, locate, locateError: () => lastLocateError, pad, iso, parse, today, addDays, isWeekend, setWeekend, lastWorkday, workdaysBetween, monthKey, addMonths, monthEnd, fmtDate, fmtMonth, esc, uid, rng, round2, payCalc, residentTax, statutory, STATUTORY, ageOn };
 })();
