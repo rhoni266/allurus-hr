@@ -112,7 +112,10 @@ window.U = (function () {
     const fullBase = round2(salary / 12);
     const unpaid = round2(Math.min(fullBase, Math.max(0, Number(opts.unpaid) || 0)));
     const unpaidDays = unpaid ? Number(opts.unpaidDays) || 0 : 0;
-    const base = round2(fullBase - unpaid);
+    // Late-arrival deduction (js/late-rules.js): comes off basic pay with unpaid leave, before EPF, SOCSO, EIS and PCB.
+    const late = round2(Math.min(fullBase - unpaid, Math.max(0, Number(opts.late) || 0)));
+    const lateMinutes = late ? Number(opts.lateMinutes) || 0 : 0;
+    const base = round2(fullBase - unpaid - late);
     bonus = Number(bonus) || 0;
     const ex = (opts.extra || []).filter((x) => Number(x.amount) > 0);
     const exSum = (f) => round2(ex.filter(f).reduce((s, x) => s + Number(x.amount), 0));
@@ -122,7 +125,7 @@ window.U = (function () {
     if (settings.currency !== 'MYR' || !st.on) {
       const tax = round2((base + bonus + exTax) * settings.taxRate / 100);
       const benefits = round2(gross * settings.benefitsRate / 100);
-      return { base: fullBase, unpaid, unpaidDays, bonus, extras, gross, tax, benefits, epf: 0, socso: 0, eis: 0, zakat: 0, erEpf: 0, erSocso: 0, erEis: 0, hrdf: 0, erCost: 0, net: round2(gross - tax - benefits) };
+      return { base: fullBase, unpaid, unpaidDays, late, lateMinutes, bonus, extras, gross, tax, benefits, epf: 0, socso: 0, eis: 0, zakat: 0, erEpf: 0, erSocso: 0, erEis: 0, hrdf: 0, erCost: 0, net: round2(gross - tax - benefits) };
     }
     const senior = ageOn(e?.birthday, day) >= 60;
     // EPF is rounded up to the next ringgit. From 60, employees stop contributing and employers pay 4%.
@@ -145,7 +148,7 @@ window.U = (function () {
     // HRD Corp levy is on basic pay (and on any earning flagged hrd, such as production commission), paid by the employer only.
     const hrdf = round2(((base + exHrd) * (Number(st.hrdf) || 0)) / 100);
     const benefits = round2(epf + socso + eis);
-    return { base: fullBase, unpaid, unpaidDays, bonus, extras, gross, epfWage, socsoWage: round2(base + bonus + exSocso), tax, benefits, epf, socso, eis, zakat, erEpf, erSocso, erEis, hrdf, erCost: round2(erEpf + erSocso + erEis + hrdf), net: round2(gross - tax - benefits - zakat) };
+    return { base: fullBase, unpaid, unpaidDays, late, lateMinutes, bonus, extras, gross, epfWage, socsoWage: round2(base + bonus + exSocso), tax, benefits, epf, socso, eis, zakat, erEpf, erSocso, erEis, hrdf, erCost: round2(erEpf + erSocso + erEis + hrdf), net: round2(gross - tax - benefits - zakat) };
   };
   // City table for office locations, the platform map and the time-zone fallback for check-in.
   const CITIES = [

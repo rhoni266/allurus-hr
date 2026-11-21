@@ -44,7 +44,7 @@ window.AllurusTime = (function () {
   function dayInfo(e, day, cal = calFor(day, day)) {
     const rec = recOf(day, e.id), res = resolve(e, day, rec, cal);
     const ev = R.evaluate({ rec, pattern: res.pattern, type: res.type, rules: otRules(), waived: approvedReqs(e.id, day, 'waiver').length > 0, approvedMin: approvedMin(e.id, day) });
-    return { day, rec, ...res, ev, leave: rec?.s === 'leave' || onLeave(e.id, day) };
+    return { day, rec, ...res, ev, leave: rec?.s === 'leave' || onLeave(e.id, day), waiver: approvedReqs(e.id, day, 'waiver').length > 0 };
   }
   // A person's month: each day, overtime after the monthly limits, overtime pay and allowances.
   function monthFor(e, mk) {
@@ -71,6 +71,18 @@ window.AllurusTime = (function () {
     };
   }
   // Earnings lines for a pay run: approved overtime and the month's allowances, with their EPF, SOCSO and tax flags.
+  // Minutes late for each day of a month, from the attendance records and the person's own shift: [{ day, raw, excused }].
+  // raw = minutes after the shift start (0 on rest days, public holidays, leave and days without a shift). excused = an approved waiver.
+  function lateDays(e, mk) {
+    const out = [], end = `${mk}-31`, cal = calFor(`${mk}-01`, LR.monthEnd(mk));
+    Object.keys(st().attendance || {}).filter((d) => d.startsWith(mk) && d <= end && st().attendance[d]?.[e.id]).sort().forEach((day) => {
+      const x = dayInfo(e, day, cal);
+      if (x.leave || x.type !== 'normal') return;
+      const raw = x.ev?.lateRaw || 0;
+      if (raw > 0) out.push({ day, raw, excused: x.waiver || !!x.ev?.waived });
+    });
+    return out;
+  }
   function forPayroll(e, mk) {
     const m = monthFor(e, mk), o = otRules(), lines = [];
     if (m.pay.amount > 0) {
@@ -694,7 +706,7 @@ window.AllurusTime = (function () {
       'tm-tpl-week': (id, v) => { const t = cfg().templates.find((x) => x.id === id); if (!t) return; if (+v > 0) t.weeks.push(Array(7).fill('')); else if (t.weeks.length > 1) t.weeks.pop(); ctx.commit('Rotation saved'); },
     });
     return {
-      dayInfo, monthFor, forPayroll, attCells, dayTotals, tagsFor, shiftCell, todayShift, setRecord, auditFor, historyHtml,
+      dayInfo, monthFor, lateDays, forPayroll, attCells, dayTotals, tagsFor, shiftCell, todayShift, setRecord, auditFor, historyHtml,
       requestsCard, myRequestsCard, myShiftsCard, approvalsCard, settingsCards, bindSettings, insights,
       applyCorrection, pendingCount: () => reqs().filter((q) => q.status === 'Pending').length, pending: () => reqs().filter((q) => q.status === 'Pending'), myCount: (empId) => forMe(empId).length,
       shiftStart: (e, day) => { const x = dayInfo(e, day); return x.pattern && !x.off ? (x.pattern.flexible ? x.pattern.coreStart : x.pattern.start) : ''; },

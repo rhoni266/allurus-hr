@@ -67,8 +67,8 @@ window.AllurusStatutory = (function () {
 
   // ---------- Pay items ----------
   // Statutory wages for old runs that were saved before payCalc returned them.
-  const epfWageOf = (it) => (it.epfWage != null ? it.epfWage : r2((it.base || 0) - (it.unpaid || 0) + (it.bonus || 0)));
-  const socsoWageOf = (it) => (it.socsoWage != null ? it.socsoWage : r2((it.base || 0) - (it.unpaid || 0) + (it.bonus || 0)));
+  const epfWageOf = (it) => (it.epfWage != null ? it.epfWage : r2((it.base || 0) - (it.unpaid || 0) - (it.late || 0) + (it.bonus || 0)));
+  const socsoWageOf = (it) => (it.socsoWage != null ? it.socsoWage : r2((it.base || 0) - (it.unpaid || 0) - (it.late || 0) + (it.bonus || 0)));
   const lines = (it) => it.extraLines || [];
   const otOf = (it) => sum(lines(it).filter((l) => l.key === 'ot'), (l) => l.amount);
 
@@ -76,6 +76,7 @@ window.AllurusStatutory = (function () {
   function payslipData(it, e, { month, company = '' } = {}) {
     const earnings = [{ label: 'Basic salary', amount: r2(it.base) }];
     if (it.unpaid) earnings.push({ label: `Unpaid leave, ${it.unpaidDays || 0} day${it.unpaidDays === 1 ? '' : 's'}`, amount: -r2(it.unpaid) });
+    if (it.late) earnings.push({ label: 'Late deduction / Potongan lewat', amount: -r2(it.late), note: `${it.lateMinutes} min × RM${(it.lateInfo?.rate || 0).toFixed(4)} = RM${r2(it.late).toFixed(2)} · ${it.lateMinutes} minit × RM${(it.lateInfo?.rate || 0).toFixed(4)}` });
     lines(it).forEach((l) => earnings.push({ label: l.label, amount: r2(l.amount), note: l.detail || '' }));
     if (it.bonus) earnings.push({ label: it.bonusNote ? `Bonus (${it.bonusNote})` : 'Bonus', amount: r2(it.bonus) });
     const statutory = it.epf != null && (it.epf || it.socso || it.eis || it.erEpf);

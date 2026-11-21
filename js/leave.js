@@ -609,6 +609,8 @@ window.AllurusLeave = (function () {
       readAttachment, typeOf, typeName, balance, onLeave, offOn, isApprover, forMe, applyLeaveDays, pendingCount: () => st().leaves.filter((l) => l.status === 'Pending').length,
       myCount: (empId) => forMe(empId).length, whoOffCard, insights, settingsCards, bindSettings, myDepts,
       // Approved unpaid leave in a pay month, and what it costs: basic ÷ divisor × days.
+      // The company's "working days in the month" for a month (the same divisor as unpaid leave).
+      divisorFor(mk) { return R.divisor(cfg().unpaidDivisor, mk, calCtx(`${mk}-01`, R.monthEnd(mk))); },
       unpaidFor(empId, mk, base) {
         const ctxM = calCtx(`${mk}-01`, R.monthEnd(mk));
         const days = st().leaves.filter((l) => l.empId === empId && l.status === 'Approved' && !typeOf(l.type).paid && l.from <= R.monthEnd(mk) && l.to >= `${mk}-01`)

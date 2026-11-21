@@ -1984,8 +1984,12 @@
     // claims: taxable categories go into gross pay (PCB), the rest are reimbursed on top of net pay.
     const cl = claimsApi?.enabled() ? claimsApi.forPayroll(e.id, mk) : null;
     const extra = [...(timeApi ? timeApi.forPayroll(e, mk) : []), ...(prodApi ? prodApi.forPayroll(e, mk) : []), ...(cl?.taxable ? [{ key: 'claims-taxable', label: `Taxable claims (${cl.taxableCats.join(', ')})`, amount: cl.taxable, epf: false, socso: false, tax: true, detail: 'Benefit reimbursed through payroll' }] : [])];
-    const it = { empId: e.id, ...U.payCalc(e.salary, bonus, state.settings, e, U.monthEnd(mk), { unpaid: up.amount, unpaidDays: up.days, extra }) };
+    // Late arrival (Settings → Payroll): minutes late from attendance, by the person's own shift, off basic pay.
+    const lateCfg = state.settings.lateDeduct, LT = window.AllurusLateRules;
+    const late = LT && lateCfg?.on && timeApi && leaveApi ? LT.month({ base: U.round2(e.salary / 12), workingDays: leaveApi.divisorFor(mk), settings: lateCfg, days: timeApi.lateDays(e, mk), employee: e, cancelled: state.payroll[mk]?.lateCancel?.[e.id] || '' }) : null;
+    const it = { empId: e.id, ...U.payCalc(e.salary, bonus, state.settings, e, U.monthEnd(mk), { unpaid: up.amount, unpaidDays: up.days, late: late?.amount || 0, lateMinutes: late?.minutes || 0, extra }) };
     if (it.unpaid) it.unpaidDivisor = up.divisor;
+    if (late && (late.minutes || late.cancelled)) it.lateInfo = { minutes: late.minutes, rate: late.rate, cancelled: late.cancelled, rows: late.rows.filter((r) => r.counted || r.excused).map((r) => ({ day: r.day, raw: r.raw, counted: r.counted, excused: r.excused })) };
     it.extraLines = extra;
     it.claimIds = cl ? cl.ids : [];
     it.claims = cl ? cl.nonTaxable : 0;
@@ -1995,6 +1999,28 @@
     it.salaryNote = note.salary || ''; it.bonusNote = it.bonus ? note.bonus || '' : '';
     return it;
   }
+  // Settings → Payroll: the late-arrival deduction (js/late-rules.js). Per company; off until an admin turns it on.
+  function lateCard() {
+    const LT = window.AllurusLateRules; if (!LT) return '';
+    const c = LT.clean(state.settings.lateDeduct), ok = can('settings') || can('payroll'), dis = ok ? '' : 'disabled';
+    const wd = leaveApi ? leaveApi.divisorFor(U.monthKey(U.today())) : 26;
+    const seg = (act, cur, opts) => `<div class="seg" role="group">${opts.map(([v, l]) => `<button type="button" data-act="${act}" data-v="${v}" ${dis} class="${cur === v ? 'on' : ''}" aria-pressed="${cur === v}">${l}</button>`).join('')}</div>`;
+    const row = (label, desc, ctl) => `<div class="settings-row"><div><div class="label">${label}</div><div class="desc">${desc}</div></div>${ctl}</div>`;
+    return `<div class="card" id="late-card"><div class="card-head"><h3>Late arrival deduction <span class="faint">/ Potongan lewat</span></h3></div>
+      ${row('Deduct pay for late arrival', 'Basic salary only. Monthly-paid staff; people paid by the trip, day or hour are left out. Late minutes come from attendance, by each person’s own shift. A late day with an approved waiver is not counted. You review every deduction in the draft pay run and can cancel one with a reason.', seg('late-on', c.on ? 'on' : 'off', [['off', 'Off'], ['on', 'On']]))}
+      ${row('Grace period (minutes)', 'Arriving within this many minutes of the start time costs nothing.', `<input class="input num" id="late-grace" type="number" min="0" max="240" step="1" value="${c.grace}" style="width:90px" ${dis} aria-label="Grace period in minutes">`)}
+      ${row('When someone is later than the grace period', `With ${c.grace} minutes of grace: 8 minutes late is free; 15 minutes late costs ${c.mode === 'after' ? '5 minutes' : '15 minutes'}.`, seg('late-mode', c.mode, [['all', 'Count all late minutes'], ['after', 'Count only after the grace']]))}
+      ${row('Hours a day', 'Used to work out the rate for one minute.', `<input class="input num" id="late-hours" type="number" min="1" max="24" step="0.5" value="${c.hours}" style="width:90px" ${dis} aria-label="Hours a day">`)}
+      ${row('Working days in the month', `Uses the same setting as unpaid leave (now ${wd} for this month). Change it in <a href="#settings/leave">Leave &amp; holidays</a>.`, '<span></span>')}
+      <p class="field-hint" style="margin:8px 0 0">Rate a minute = basic salary ÷ working days ÷ hours a day ÷ 60. Example: RM3,000 ÷ ${wd} ÷ ${c.hours} ÷ 60 = ${money(AllurusLateRules.rateOf(3000, wd, c.hours), 4)}, so 10 minutes = ${money(AllurusLateRules.rateOf(3000, wd, c.hours) * 10, 2)}. The deduction comes off before EPF, SOCSO, EIS and PCB, like unpaid leave.</p></div>`;
+  }
+  // Late-arrival deduction in the draft and on the payslip (EN and BM).
+  const lateLine = (it) => `${it.lateMinutes} min × ${money(it.lateInfo?.rate || 0, 4)} = ${money(it.late, 2)} · ${it.lateMinutes} minit × ${money(it.lateInfo?.rate || 0, 4)}`;
+  const lateNote = (it, draft) => {
+    const li = it.lateInfo; if (!li) return '';
+    if (li.cancelled) return `<div class="person-sub">Late deduction cancelled: ${esc(li.cancelled)}${draft && can('payroll') ? ` <button class="link-btn" data-act="late-restore" data-id="${it.empId}">Restore</button>` : ''}</div>`;
+    return `<div class="person-sub">−${money(it.late, 2)} late · ${li.minutes} min${draft && can('payroll') ? ` <button class="link-btn" data-act="late-cancel" data-id="${it.empId}" aria-label="Cancel the late deduction for this person">Cancel</button>` : ''}</div>`;
+  };
   VIEWS.payroll = () => {
     const mk = ui.payMonth;
     const run = state.payroll[mk];
@@ -2056,7 +2082,7 @@
         <tbody>${run.items.map((it) => { const e = emp(it.empId); if (!e) return ''; return `<tr>
           <td><button class="cell-btn" data-act="payslip" data-id="${it.empId}" title="Open payslip">${person(e)}</button>${it.salaryNote ? `<div class="person-sub"><span class="tag ok">${esc(it.salaryNote)}</span></div>` : ''}</td>
           ${outputOn ? outputCell(it, e) : `<td class="r num">${run.status === 'Draft' ? `<input class="input num" style="width:84px;text-align:right" type="number" min="0" step="100" data-bonus="${it.empId}" value="${it.bonus}" aria-label="Bonus for ${esc(fullName(e))}">` : money(it.bonus)}${it.bonusNote ? `<div class="person-sub">${esc(it.bonusNote)}</div>` : ''}</td>`}
-          <td class="r num">${money(it.gross, 2)}${it.unpaid ? `<div class="person-sub">−${money(it.unpaid, 2)} unpaid leave</div>` : ''}${it.extras ? `<div class="person-sub">+${money(it.extras, 2)} added earnings</div>` : ''}</td>
+          <td class="r num">${money(it.gross, 2)}${it.unpaid ? `<div class="person-sub">−${money(it.unpaid, 2)} unpaid leave</div>` : ''}${lateNote(it, run.status === 'Draft')}${it.extras ? `<div class="person-sub">+${money(it.extras, 2)} added earnings</div>` : ''}</td>
           ${my ? `<td class="r num muted hide-sm">${money(it.epf ?? it.benefits, 2)}</td><td class="r num muted hide-sm">${money((it.socso || 0) + (it.eis || 0), 2)}</td><td class="r num muted hide-sm">${money(it.tax + (it.zakat || 0), 2)}</td>` : `<td class="r num muted hide-sm">${money(it.tax, 2)}</td><td class="r num muted hide-sm">${money(it.benefits, 2)}</td>`}
           ${t.claims ? `<td class="r num hide-sm">${it.claims ? money(it.claims, 2) : '<span class="faint">—</span>'}</td>` : ''}
           <td class="r num" style="font-weight:600">${money(it.net, 2)}</td></tr>`; }).join('')}</tbody>
@@ -2081,12 +2107,12 @@
     const flags = (l) => statutory ? [l.epf ? 'EPF' : '', l.socso ? 'SOCSO' : '', l.tax ? 'taxed' : 'not taxed'].filter(Boolean).join(' · ') : '';
     const extras = (it.extraLines || []).map((l) => row(`${esc(l.label)}<div class="person-sub">${esc(l.detail || '')}${flags(l) ? ` · ${flags(l)}` : ''}</div>`, money(l.amount, 2))).join('');
     const lines = statutory
-      ? `${head('Earnings')}${row('Basic salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'} (basic ÷ ${it.unpaidDivisor})`, neg(it.unpaid)) : ''}${extras}${it.bonus ? row(it.bonusNote ? `Bonus<div class="person-sub">${esc(it.bonusNote)}</div>` : 'Bonus', money(it.bonus, 2)) : ''}${row('Gross pay', money(it.gross, 2))}
+      ? `${head('Earnings')}${row('Basic salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'} (basic ÷ ${it.unpaidDivisor})`, neg(it.unpaid)) : ''}${it.late ? row(`Late deduction / Potongan lewat<div class="person-sub">${lateLine(it)}</div>`, neg(it.late)) : ''}${extras}${it.bonus ? row(it.bonusNote ? `Bonus<div class="person-sub">${esc(it.bonusNote)}</div>` : 'Bonus', money(it.bonus, 2)) : ''}${row('Gross pay', money(it.gross, 2))}
          ${head('Deductions')}${row('EPF (KWSP), employee', neg(it.epf))}${row('SOCSO (PERKESO), employee', neg(it.socso))}${row('EIS, employee', neg(it.eis))}${row('Income tax (PCB)', neg(it.tax))}${it.zakat ? row('Zakat', neg(it.zakat)) : ''}
          ${it.claims ? `${head('Reimbursements')}${row('Claims reimbursed (not taxed)', money(it.claims, 2))}` : ''}
          ${row('Net pay', money(it.net, 2), true)}
          ${head('Paid by the company on top of your pay')}${row('EPF, employer', money(it.erEpf, 2))}${row('SOCSO, employer', money(it.erSocso, 2))}${row('EIS, employer', money(it.erEis, 2))}`
-      : `${row('Base salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'}`, neg(it.unpaid)) : ''}${extras}${row('Bonus', money(it.bonus, 2))}${row('Gross pay', money(it.gross, 2))}${row(`Income tax (${state.settings.taxRate}%)`, neg(it.tax))}${row(`Benefits (${state.settings.benefitsRate}%)`, neg(it.benefits))}${it.claims ? row('Claims reimbursed', money(it.claims, 2)) : ''}${row('Net pay', money(it.net, 2), true)}`;
+      : `${row('Base salary', money(it.base, 2))}${it.unpaid ? row(`Unpaid leave, ${it.unpaidDays} day${it.unpaidDays === 1 ? '' : 's'}`, neg(it.unpaid)) : ''}${it.late ? row(`Late deduction / Potongan lewat<div class="person-sub">${lateLine(it)}</div>`, neg(it.late)) : ''}${extras}${row('Bonus', money(it.bonus, 2))}${row('Gross pay', money(it.gross, 2))}${row(`Income tax (${state.settings.taxRate}%)`, neg(it.tax))}${row(`Benefits (${state.settings.benefitsRate}%)`, neg(it.benefits))}${it.claims ? row('Claims reimbursed', money(it.claims, 2)) : ''}${row('Net pay', money(it.net, 2), true)}`;
     openModal({
       title: 'Payslip', size: 'sm', submit: null,
       body: `<div style="display:flex;flex-direction:column;gap:18px">
@@ -2326,7 +2352,7 @@
           ${my ? '<p class="field-hint">Registration numbers (SSM, EPF, SOCSO, LHDN) are under <a href="#settings/company">Company</a>.</p>' : row('Income tax withholding', 'Percent of gross pay.', `<input class="input num" id="s-tax" type="number" min="0" max="60" step="0.5" value="${s.taxRate}" style="width:100px" aria-label="Income tax withholding percent">`) + row('Benefit contributions', 'Deducted from pay, as percent of gross.', `<input class="input num" id="s-benefits" type="number" min="0" max="30" step="0.5" value="${s.benefitsRate}" style="width:100px" aria-label="Benefit contributions percent">`)}</div>
           ${row('Salaries are entered as', AllurusSalary.lockedMonthly(window.AllurusAddons) ? 'Monthly (fixed for this company). Salaries are typed and shown as a monthly figure.' : 'How salaries are typed and shown in the employee form, the import and the lists. It changes only the screens: the amounts stored for payroll stay exactly the same, so nothing already paid or calculated is affected.', AllurusSalary.lockedMonthly(window.AllurusAddons) ? '<span class="pill">Monthly (fixed for this company)</span>' : `<div class="seg">${[['monthly', 'Monthly'], ['yearly', 'Yearly']].map(([v, l]) => `<button data-act="sal-basis" data-v="${v}" class="${salaryBasis() === v ? 'on' : ''}">${l}</button>`).join('')}</div>`)}
           ${row('Minimum monthly wage for the pay-run check', 'Before Approve and pay, the pay run warns about full-time staff below this. RM1,700 is the current national minimum wage; it is under government review, so change it here when it changes.', `<input class="input num" id="s-minwage" type="number" min="0" step="10" value="${esc(s.minWage ?? AllurusSalary.MIN_WAGE_DEFAULT)}" style="width:110px" aria-label="Minimum monthly wage">`)}
-          ${my ? statutoryCard(s) : ''}${prodApi?.settingsCard() || ''}` },
+          ${my ? statutoryCard(s) : ''}${lateCard()}${prodApi?.settingsCard() || ''}` },
       { id: 'modules', label: 'Modules', icon: 'layers', summary: 'Inventory (Stock & purchasing)', keys: 'modules inventory stock purchasing items warehouse store production sales delivery machines switch on off',
         html: () => { const on = !!opsApi?.has(), allowed = can('operations') && can('settings'); const seg = `<div class="seg">${[['off', 'Off'], ['on', 'On']].map(([v, l]) => `<button data-act="mod-inventory" data-v="${v}" ${allowed ? '' : 'disabled'} class="${(on ? 'on' : 'off') === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
           return `<div class="card"><div class="card-head"><h3>Modules</h3><span class="hint">Switch on the parts your company uses</span></div>
@@ -2491,7 +2517,8 @@
     finApi?.bindInvoiceDefaults();
     claimsApi.bindSettings();
     kioskApi.bindSettings();
-    bind('#s-company', 'company'); bind('#s-currency', 'currency'); bindHeadOffice(); $('#s-minwage')?.addEventListener('change', (ev) => { state.settings.minWage = Math.max(0, Number(ev.target.value) || AllurusSalary.MIN_WAGE_DEFAULT); commit('Minimum monthly wage for the pay-run check saved'); }); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
+    bind('#s-company', 'company'); bind('#s-currency', 'currency'); bindHeadOffice(); ['late-grace', 'late-hours'].forEach((id) => $(`#${id}`)?.addEventListener('change', (ev) => { if (!can('settings')) return; const c = AllurusLateRules.clean({ ...state.settings.lateDeduct, [id === 'late-grace' ? 'grace' : 'hours']: ev.target.value }); state.settings.lateDeduct = { ...(state.settings.lateDeduct || {}), grace: c.grace, hours: c.hours, mode: c.mode, on: c.on }; commit(id === 'late-grace' ? 'Grace period saved' : 'Hours a day saved'); }));
+    $('#s-minwage')?.addEventListener('change', (ev) => { state.settings.minWage = Math.max(0, Number(ev.target.value) || AllurusSalary.MIN_WAGE_DEFAULT); commit('Minimum monthly wage for the pay-run check saved'); }); if ($('#s-tax')) bind('#s-tax', 'taxRate', 1); if ($('#s-benefits')) bind('#s-benefits', 'benefitsRate', 1);
     $$('[data-stat]').forEach((el) => el.addEventListener('change', () => { state.settings.statutory = { ...U.statutory(state.settings), [el.dataset.stat]: Math.min(20, Math.max(0, Number(el.value) || 0)) }; commit('Statutory rates saved'); }));
   };
 
@@ -3983,6 +4010,26 @@
       const rows = prodApi.mine(empId, mk).map((d) => `<tr><td>${U.fmtDate(d.date, { weekday: 'short', day: 'numeric', month: 'short' })}</td><td class="r num">${d.units != null ? esc(AllurusProd.fmtUnits(d.units, d.unit || '')) : '—'}</td><td class="r num">${d.status === 'paid' ? money(d.shareSen / 100, 2) : '<span class="faint">—</span>'}</td><td>${d.status === 'paid' ? 'Paid' : esc(d.reason || 'Not paid')}</td></tr>`).join('');
       openModal({ title: `Output · ${esc(fullName(e))} · ${U.fmtMonth(mk)}`, size: 'sm', submit: null, body: `<div class="table-wrap"><table class="table"><thead><tr><th>Day<span lang="ms" class="th-ms">Hari</span></th><th class="r">Production<span lang="ms" class="th-ms">Pengeluaran</span></th><th class="r">Share<span lang="ms" class="th-ms">Bahagian</span></th><th>Status</th></tr></thead><tbody>${rows || '<tr><td colspan="4" class="muted">No production days for this person this month.</td></tr>'}</tbody></table></div>` });
     },
+    'late-on': (_, v) => { if (!(can('settings') || can('payroll'))) return; state.settings.lateDeduct = { ...AllurusLateRules.clean(state.settings.lateDeduct), on: v === 'on' }; commit(v === 'on' ? 'Late arrival deduction turned on. It shows in the next draft pay run.' : 'Late arrival deduction turned off', `Late arrival deduction turned ${v}`); },
+    'late-mode': (_, v) => { if (!(can('settings') || can('payroll'))) return; state.settings.lateDeduct = { ...AllurusLateRules.clean(state.settings.lateDeduct), mode: v === 'after' ? 'after' : 'all' }; commit('Saved'); },
+    'late-cancel': (empId) => {
+      const mk = ui.payMonth, run = state.payroll[mk], it = run?.items.find((i) => i.empId === empId), e = emp(empId); if (!it || !e || run.status !== 'Draft' || !can('payroll')) return;
+      openModal({ title: 'Cancel late deduction', size: 'sm', submit: 'Cancel deduction',
+        body: `<p>${esc(fullName(e))}: ${it.lateMinutes} minutes late in ${U.fmtMonth(mk)}, ${money(it.late, 2)}. Nothing will be deducted for this person this month.</p><div class="field"><label for="lc-r">Reason (required)</label><input class="input" id="lc-r" name="reason" required maxlength="140" autocomplete="off"></div>`,
+        onSubmit(d) {
+          const reason = String(d.reason || '').trim(); if (!reason) { toast('Write the reason first.', 'error'); return false; }
+          run.lateCancel = { ...(run.lateCancel || {}), [empId]: reason };
+          const next = payItem(e, it.bonus || 0, mk); delete it.lateInfo; Object.assign(it, next);
+          save(); render(); toast('Late deduction cancelled');
+          log(`Late deduction cancelled for ${fullName(e)}, ${U.fmtMonth(mk)}: ${reason}`);
+        } });
+    },
+    'late-restore': (empId) => {
+      const mk = ui.payMonth, run = state.payroll[mk], it = run?.items.find((i) => i.empId === empId), e = emp(empId); if (!it || !e || run.status !== 'Draft' || !can('payroll')) return;
+      if (run.lateCancel) delete run.lateCancel[empId];
+      const next = payItem(e, it.bonus || 0, mk); delete it.lateInfo; Object.assign(it, next);
+      commit('Late deduction restored', `Late deduction restored for ${fullName(e)}, ${U.fmtMonth(mk)}`);
+    },
     'slip-bonus': (empId, mk) => {
       const run = state.payroll[mk], it = run?.items.find((i) => i.empId === empId); if (!it || run.status !== 'Draft') return;
       Object.assign(it, payItem(emp(empId), Math.max(0, Number($('#slip-bonus')?.value) || 0), mk));
@@ -4328,8 +4375,8 @@
     },
     'pay-export': () => {
       const run = state.payroll[ui.payMonth];
-      downloadCSV(`payroll-${ui.payMonth}.csv`, [['Employee', 'Email', 'Base', 'Unpaid leave days', 'Unpaid leave deduction', 'Overtime', 'Allowances', 'Bonus', 'Gross', 'EPF (employee)', 'SOCSO (employee)', 'EIS (employee)', 'PCB', 'Zakat', 'Claims reimbursed', 'Net pay', 'EPF (employer)', 'SOCSO (employer)', 'EIS (employer)', 'HRD levy', 'Employer cost'],
-        ...run.items.map((i) => { const e = emp(i.empId); return [fullName(e), e?.email || '', i.base, i.unpaidDays || 0, i.unpaid || 0, U.round2((i.extraLines || []).filter((l) => l.key === 'ot').reduce((s, l) => s + l.amount, 0)), U.round2((i.extraLines || []).filter((l) => l.key !== 'ot').reduce((s, l) => s + l.amount, 0)), i.bonus, i.gross, i.epf ?? i.benefits, i.socso || 0, i.eis || 0, i.tax, i.zakat || 0, i.claims || 0, i.net, i.erEpf || 0, i.erSocso || 0, i.erEis || 0, i.hrdf || 0, U.round2(i.gross + (i.erCost || 0))]; })]);
+      downloadCSV(`payroll-${ui.payMonth}.csv`, [['Employee', 'Email', 'Base', 'Unpaid leave days', 'Unpaid leave deduction', 'Late minutes', 'Late deduction', 'Overtime', 'Allowances', 'Bonus', 'Gross', 'EPF (employee)', 'SOCSO (employee)', 'EIS (employee)', 'PCB', 'Zakat', 'Claims reimbursed', 'Net pay', 'EPF (employer)', 'SOCSO (employer)', 'EIS (employer)', 'HRD levy', 'Employer cost'],
+        ...run.items.map((i) => { const e = emp(i.empId); return [fullName(e), e?.email || '', i.base, i.unpaidDays || 0, i.unpaid || 0, i.lateMinutes || 0, i.late || 0, U.round2((i.extraLines || []).filter((l) => l.key === 'ot').reduce((s, l) => s + l.amount, 0)), U.round2((i.extraLines || []).filter((l) => l.key !== 'ot').reduce((s, l) => s + l.amount, 0)), i.bonus, i.gross, i.epf ?? i.benefits, i.socso || 0, i.eis || 0, i.tax, i.zakat || 0, i.claims || 0, i.net, i.erEpf || 0, i.erSocso || 0, i.erEis || 0, i.hrdf || 0, U.round2(i.gross + (i.erCost || 0))]; })]);
     },
     'payslip': (id) => openPayslip(id),
     'job-filter': (_, v) => { ui.jobFilter = v; render(); },
