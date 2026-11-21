@@ -5389,6 +5389,7 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
       try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) { stored = false; }
       state = hydrate(JSON.parse(JSON.stringify(s)));
       if (!state.session.cloud) state.session.cloud = { uid: p.uid };
+      try { window.AllurusSession?.clearDemoData(); } catch (e) { /* a nicety */ }   // the demos' local copies are of no use to a real company's sign-in
       if (!stored && !warnedFull) { warnedFull = true; setTimeout(() => toast('This browser can’t keep a copy of your workspace (its storage is full or blocked). You are signed in; it will just load a little slower next time.', 'info'), 0); }
     },
     // Show changes that arrived from elsewhere, unless someone is mid-way through a form.

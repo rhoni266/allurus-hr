@@ -11,6 +11,10 @@
   // the allurus_dev_id cookie) are deliberately not here.
   const PERSON_KEYS = [/^allurus_staff_session$/, /^allurus-hr-cloud-/, /^allurus[-_]?(staff[-_])?pin/i, /^allurus-signin-fails$/, /^allurus-activate-/, /^allurus_staff_token$/];
   const COOKIES = ['allurus_staff_token'];
+  // The demo companies keep their own copy in this browser (js/seed*.js storeKey). They are not a person's data and sign-out does not touch them;
+  // they are removed after a real company's sign-in succeeds, so they stop filling the browser's storage. The POS demo key (allurus_pos_demo_v1) is not
+  // listed on purpose, and neither is the cloud workspace (allurus-hr-cloud-v1).
+  const DEMO_KEYS = ['allurus-hr-suria-v1', 'allurus-hr-majorfe-v1', 'allurus-hr-banafsha-v1', 'allurus-hr-v9'];
 
   function expireCookie(name) {
     const host = (typeof location !== 'undefined' && location.hostname) || '';
@@ -25,6 +29,12 @@
     } catch (e) { /* storage unavailable */ }
     try { sessionStorage.clear(); } catch (e) { /* storage unavailable */ }
     COOKIES.forEach(expireCookie);
+    return removed;
+  }
+  // Removes the demo companies' local copies (exactly DEMO_KEYS). Returns the names removed.
+  function clearDemoData() {
+    const removed = [];
+    DEMO_KEYS.forEach((k) => { try { if (localStorage.getItem(k) !== null) { localStorage.removeItem(k); removed.push(k); } } catch (e) { /* storage unavailable */ } });
     return removed;
   }
   // The Firestore offline cache keeps the last person's documents on this phone; a new person's queries must not be
@@ -48,7 +58,7 @@
     try { COOKIES.forEach((c) => { if (new RegExp(`(?:^|;\\s*)${c}=`).test(document.cookie)) out.push(`cookie:${c}`); }); } catch (e) { /* none */ }
     return out;
   }
-  const api = { clearLocal, clearFirestoreCache, signOutEverything, leftovers, PERSON_KEYS };
+  const api = { clearLocal, clearDemoData, clearFirestoreCache, signOutEverything, leftovers, PERSON_KEYS, DEMO_KEYS };
   root.AllurusSession = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

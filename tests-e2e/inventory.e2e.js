@@ -220,6 +220,23 @@ const PW = 'Pass-Word-2026!';
     ok('…and is told the browser storage is full', /storage is full|can’t keep a copy/.test(await page.evaluate(() => window.__seen.join(' '))));
     await ctx.close();
   }
+  // ---- 10. the demo companies' local copies go after a real sign-in succeeds, not before and not on a failed one ----
+  {
+    const ctx = await b.newContext({ viewport: { width: 1366, height: 860 }, serviceWorkers: 'block' }); await local(ctx);
+    await ctx.addInitScript(() => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); ['allurus-hr-suria-v1', 'allurus-hr-majorfe-v1', 'allurus-hr-banafsha-v1', 'allurus-hr-v9'].forEach((k) => localStorage.setItem(k, '{"demo":true}')); localStorage.setItem('allurus_pos_demo_v1', '{"pos":true}'); } });
+    const page = await ctx.newPage();
+    const keys = () => page.evaluate(() => ({ demo: ['allurus-hr-suria-v1', 'allurus-hr-majorfe-v1', 'allurus-hr-banafsha-v1', 'allurus-hr-v9'].filter((k) => localStorage.getItem(k) !== null).length, pos: localStorage.getItem('allurus_pos_demo_v1') !== null, cloud: localStorage.getItem('allurus-hr-cloud-v1') !== null }));
+    await page.goto(`${base()}/app.html`); await page.waitForSelector('#login-form', { timeout: 20000 }); await page.waitForTimeout(1500);
+    const before = await keys();
+    await page.fill('#login-email', 'owner@co1.test'); await page.fill('#login-password', 'wrong-password-123'); await page.click('#login-form [type=submit]'); await page.waitForTimeout(2500);
+    const failed = await keys();
+    ok('Sign-in page and a failed sign-in: the 4 demo keys and the POS demo are still there', before.demo === 4 && before.pos && failed.demo === 4 && failed.pos, JSON.stringify([before, failed]));
+    await page.fill('#login-password', PW); await page.click('#login-form [type=submit]');
+    await page.waitForSelector('#nav a, .sidebar a', { timeout: 30000 }).catch(() => {}); await page.waitForTimeout(2500);
+    const after = await keys();
+    ok('After a successful cloud sign-in: the 4 demo keys are gone; the POS demo stays; the cloud workspace is saved', after.demo === 0 && after.pos && after.cloud, JSON.stringify(after));
+    await ctx.close();
+  }
   console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
   await b.close().catch(() => {}); srv.close(); await env.cleanup().catch(() => {});
   process.exit(results.every(Boolean) ? 0 : 1);
