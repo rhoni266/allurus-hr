@@ -1437,24 +1437,34 @@ Auth.onAuthStateChanged(auth, async (user) => {
     } catch (e) { if (e?.device) return; console.warn('[Allurus cloud] after activation', e?.code); }
   }
   if (user) {
-    try {
-      const prof = await profileFor(user);
-      if (prof.error === 'disabled') {
-        clearStaffSession();
-        await Auth.signOut(auth);
-        app.cloudReady('signed-out');
-        return;
+    // A returning person is only shown the sign-in page when the server says they are not allowed in (disabled, no invite).
+    // A failure to open the workspace (network, a server hiccup, a bug) is retried, then reported with a Try again button:
+    // it never clears the person's sign-in.
+    let lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const prof = await profileFor(user);
+        if (prof.error === 'disabled') {
+          clearStaffSession();
+          await Auth.signOut(auth);
+          app.cloudReady('signed-out');
+          return;
+        }
+        if (!prof.error) {
+          // Which phone may be used is decided in start() (phoneGate), for everyone, on phones only.
+          await start(prof);
+          app.cloudSignedIn();
+          return;
+        }
+        lastErr = null; break;   // no invite / expired / unverified: the server's answer, not a failure
+      } catch (e) {
+        if (e?.blocked || e?.device) return;
+        lastErr = e;
+        console.warn('[Allurus cloud] resume', attempt + 1, e?.code || e?.message || e);
+        if (attempt < 2) await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
       }
-      if (!prof.error) {
-        // Which phone may be used is decided in start() (phoneGate), for everyone, on phones only.
-        await start(prof);
-        app.cloudSignedIn();
-        return;
-      }
-    } catch (e) {
-      if (e?.blocked || e?.device) return;
-      console.warn('[Allurus cloud] resume', e?.code || e?.message);
     }
+    if (lastErr) { app.cloudFailed(lastErr.code || lastErr.message || 'unknown error'); return; }
   }
   app.cloudReady('signed-out');
 });

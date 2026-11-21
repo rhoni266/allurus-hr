@@ -207,6 +207,19 @@ const PW = 'Pass-Word-2026!';
   ok('…and cannot open payroll', !/Payroll/.test(await s.page.evaluate(() => document.querySelector('#view h1')?.innerText || '')));
   const pl = await signIn('plain@co1.test');
   ok('A plain employee sees nothing of inventory', !/Stock/.test(await navText(pl.page)) && !(await pl.page.evaluate(() => !!window.AllurusApp.state.ops?.items?.length)));
+  // ---- 9. a full or blocked browser storage must not look like a sign-out (3.84 incident: accounts = [] with the uid still there) ----
+  {
+    const ctx = await b.newContext({ viewport: { width: 1366, height: 860 }, serviceWorkers: 'block' }); await local(ctx);
+    await ctx.addInitScript(() => { const set = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (k === 'allurus-hr-cloud-v1') throw new DOMException('The quota has been exceeded.', 'QuotaExceededError'); return set.call(this, k, v); }; });
+    await ctx.addInitScript(() => { window.__seen = []; document.addEventListener('DOMContentLoaded', () => new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach((n) => { if (n.textContent) window.__seen.push(n.textContent); }))).observe(document.body, { childList: true, subtree: true })); });
+    const page = await ctx.newPage(), errs = []; page.on('pageerror', (e) => errs.push(e.message));
+    await page.goto(`${base()}/app.html`); await page.waitForSelector('#login-form', { timeout: 20000 }); await page.waitForTimeout(1500);
+    await page.fill('#login-email', 'owner@co1.test'); await page.fill('#login-password', PW); await page.click('#login-form [type=submit]');
+    await page.waitForSelector('#nav a, .sidebar a', { timeout: 30000 }).catch(() => {}); await page.waitForTimeout(2500);
+    ok('Browser storage full: the owner is still signed in (the workspace is built in memory, not read back from storage)', /Dashboard/.test(await navText(page)) && (await page.evaluate(() => window.AllurusApp.state.accounts.length)) === 1, (await navText(page)).slice(0, 60));
+    ok('…and is told the browser storage is full', /storage is full|can’t keep a copy/.test(await page.evaluate(() => window.__seen.join(' '))));
+    await ctx.close();
+  }
   console.log(`\n${results.filter(Boolean).length}/${results.length} passed`);
   await b.close().catch(() => {}); srv.close(); await env.cleanup().catch(() => {});
   process.exit(results.every(Boolean) ? 0 : 1);

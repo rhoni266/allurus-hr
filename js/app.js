@@ -31,6 +31,11 @@
     let s = null;
     try { const raw = localStorage.getItem(STORE_KEY); if (raw) s = JSON.parse(raw); } catch (e) { /* storage unavailable */ }
     if (!s) { s = seedNew(); if (CLOUD_ON || DEMO.id === 'serimaju') carryOverZones(s); }
+    return hydrate(s);
+  }
+  // Brings a state up to date (migrations, defaults). Used for what is stored, and for a workspace just built from the cloud,
+  // which must never depend on the browser's storage being writable (a full or blocked storage once looked like a sign-out).
+  function hydrate(s) {
     if (CLOUD_ON) {
       if (!s.session?.cloud?.uid || s.accounts?.some((a) => !a.cloud || a.tenantId === 't1' || a.email === 'superadmin@allurus.com' || a.email?.includes('@serimaju.com.my'))) {
         s.accounts = (s.accounts || []).filter((a) => a.cloud && a.tenantId !== 't1' && a.email !== 'superadmin@allurus.com' && !a.email?.includes('@serimaju.com.my'));
@@ -209,7 +214,8 @@
     } catch (e) {}
     return false;
   };
-  let cloudWaiting = CLOUD && ((!!state.session.cloud && !!state.session.account) || hasStaffSess());
+  let cloudWaiting = CLOUD && (!!state.session.cloud?.uid || hasStaffSess());
+  let cloudError = null;   // { why } when the cloud could not open the workspace (the person is still signed in; nothing is cleared)
   let warnedFull = false;
   function save() {
     saveLocal();
@@ -821,7 +827,8 @@
     // An employee on a computer (docs/DEVICE-RULES-SPEC.md): this screen and nothing else; no workspace was loaded.
     if (phoneBlock) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = phoneBlockView(); return; }
     if (deviceBlock) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = phoneOnlyView(); return; }
-    if (cloudWaiting) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = `<div class="login-inner"><div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div><h1>Loading your workspace…</h1><p class="sub">Getting the latest from the cloud.</p></div>`; return; }
+    if (cloudWaiting) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = `<div class="login-inner"><div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div><h1>Signing you in…</h1><p class="sub">Getting the latest from the cloud.</p></div>`; return; }
+    if (cloudError) { $('#login').hidden = false; $('.app').hidden = true; $('#login').innerHTML = `<div class="login-inner"><div class="login-brand">${LOGO_MARK.replace('width="30" height="30"', 'width="56" height="56"')}</div><h1>Couldn’t open your workspace</h1><p class="sub">You are still signed in. This is usually the connection. Try again in a moment.</p><p class="faint" style="font-size:12.5px">${esc(cloudError.why || '')}</p><div class="actions" style="justify-content:center;gap:8px;display:flex;flex-wrap:wrap"><button type="button" class="btn btn-primary" data-act="cloud-retry">Try again</button><button type="button" class="btn" data-act="device-signout">Sign out</button></div></div>`; return; }
     const signedIn = !!role();
     $('#login').hidden = signedIn;
     $('.app').hidden = !signedIn;
@@ -4042,6 +4049,7 @@
     'emp-only-clear': () => { ui.empOnly = null; render(); },
     'toggle-pw': () => { const i = $('#login-password'), b = $('[data-act="toggle-pw"]'); const show = i.type === 'password'; i.type = show ? 'text' : 'password'; b.textContent = show ? 'Hide' : 'Show'; b.setAttribute('aria-label', show ? 'Hide password' : 'Show password'); },
     // From "Please use your phone": sign out straight away (nothing of the company was loaded here).
+    'cloud-retry': () => { location.reload(); },
     'device-signout': () => {
       deviceBlock = null; phoneBlock = null;
       try { window.AllurusSession?.clearLocal(); localStorage.removeItem(STORE_KEY); } catch (e) { /* storage unavailable */ }
@@ -5375,9 +5383,13 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
       s.accounts = [{ email: p.email, name: p.name, hash: '', roles: p.roles.slice(), perms: Array.isArray(p.perms) ? p.perms.slice() : null, tenantId: p.tenantId, empId: p.empId, prodEntry: isSup, cloud: true }];
       const keep = (state.session.account === p.email && p.roles.includes(state.session.role)) ? state.session.role : preferredRole(p.roles);
       s.session = { account: p.email, roles: p.roles.slice(), role: keep, empId: p.empId, tenantId: p.tenantId, cloud: { uid: p.uid } };
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) { /* storage full or unavailable */ }
-      state = load();
+      // The signed-in state is built in memory; the copy in storage is only a convenience for the next visit. If storage is full
+      // or blocked the person stays signed in, and is told once that their changes can't be kept on this browser.
+      let stored = true;
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch (e) { stored = false; }
+      state = hydrate(JSON.parse(JSON.stringify(s)));
       if (!state.session.cloud) state.session.cloud = { uid: p.uid };
+      if (!stored && !warnedFull) { warnedFull = true; setTimeout(() => toast('This browser can’t keep a copy of your workspace (its storage is full or blocked). You are signed in; it will just load a little slower next time.', 'info'), 0); }
     },
     // Show changes that arrived from elsewhere, unless someone is mid-way through a form.
     refresh(force) {
@@ -5409,7 +5421,9 @@ ACTIONS['tab-me'] = () => { if (state.session.roles.includes('employee') && role
       if (sup?.edit) bar.style.background = '#7A2E0E';
     },
     // Just activated on /activate and already signed in: open the app as them.
-    cloudSignedIn() { cloudWaiting = false; startSession(state.accounts[0]); toast('Your account is ready. Welcome to Allurus.'); },
+    // The cloud could not open the workspace (network, a server error): keep the sign-in, say so, offer a retry.
+    cloudFailed(why) { cloudWaiting = false; cloudError = { why: String(why || '').slice(0, 120) }; render(); },
+    cloudSignedIn() { if (!state.accounts[0]) { this.cloudFailed('no account'); return; } cloudWaiting = false; startSession(state.accounts[0]); toast('Your account is ready. Welcome to Allurus.'); },
     cloudReady(reason) {
       cloudWaiting = false;
       const hadAcct = !!state.session.account;
